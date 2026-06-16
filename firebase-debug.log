@@ -1,0 +1,123 @@
+[debug] [2026-06-10T22:09:55.388Z] ----------------------------------------------------------------------
+[debug] [2026-06-10T22:09:55.391Z] Command:       /opt/homebrew/Cellar/node/24.8.0/bin/node /opt/homebrew/bin/firebase apps:list WEB --project flopilot-499021
+[debug] [2026-06-10T22:09:55.391Z] CLI Version:   14.17.0
+[debug] [2026-06-10T22:09:55.391Z] Platform:      darwin
+[debug] [2026-06-10T22:09:55.391Z] Node Version:  v24.8.0
+[debug] [2026-06-10T22:09:55.391Z] Time:          Wed Jun 10 2026 15:09:55 GMT-0700 (Pacific Daylight Time)
+[debug] [2026-06-10T22:09:55.391Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-06-10T22:09:55.392Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[debug] [2026-06-10T22:09:55.407Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-10T22:09:55.408Z] > authorizing via signed-in user (info@necti.io)
+[debug] [2026-06-10T22:09:55.409Z] Checked if tokens are valid: false, expires at: 1773212440831
+[debug] [2026-06-10T22:09:55.409Z] Checked if tokens are valid: false, expires at: 1773212440831
+[debug] [2026-06-10T22:09:55.409Z] > refreshing access token with scopes: []
+[debug] [2026-06-10T22:09:55.409Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-10T22:09:55.409Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-10T22:09:55.553Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 400
+[debug] [2026-06-10T22:09:55.553Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[error] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[error] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[debug] [2026-06-10T22:09:55.554Z] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[debug] [2026-06-10T22:09:55.554Z] FirebaseError: Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+    at invalidCredentialError (/opt/homebrew/lib/node_modules/firebase-tools/lib/auth.js:167:12)
+    at refreshTokens (/opt/homebrew/lib/node_modules/firebase-tools/lib/auth.js:591:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAccessToken (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:42:18)
+    at async Client.addAuthHeader (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:169:21)
+    at async Client.request (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:120:34)
+    at async listFirebaseApps (/opt/homebrew/lib/node_modules/firebase-tools/lib/management/apps.js:353:30)
+    at async Command.actionFn (/opt/homebrew/lib/node_modules/firebase-tools/lib/commands/apps-list.js:43:16)
+[error] 
+[error] Error: Failed to list Firebase WEB apps. See firebase-debug.log for more info.
+[debug] [2026-06-10T22:09:55.597Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-06-10T22:09:55.597Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}
+[debug] [2026-06-10T22:09:56.472Z] ----------------------------------------------------------------------
+[debug] [2026-06-10T22:09:56.474Z] Command:       /opt/homebrew/Cellar/node/24.8.0/bin/node /opt/homebrew/bin/firebase apps:create web FloPilot Web --project flopilot-499021
+[debug] [2026-06-10T22:09:56.474Z] CLI Version:   14.17.0
+[debug] [2026-06-10T22:09:56.474Z] Platform:      darwin
+[debug] [2026-06-10T22:09:56.474Z] Node Version:  v24.8.0
+[debug] [2026-06-10T22:09:56.474Z] Time:          Wed Jun 10 2026 15:09:56 GMT-0700 (Pacific Daylight Time)
+[debug] [2026-06-10T22:09:56.475Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-06-10T22:09:56.477Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-10T22:09:56.477Z] > authorizing via signed-in user (info@necti.io)
+[info] Create your WEB app in project flopilot-499021:
+[debug] [2026-06-10T22:09:56.479Z] Checked if tokens are valid: false, expires at: 1773212440831
+[debug] [2026-06-10T22:09:56.479Z] Checked if tokens are valid: false, expires at: 1773212440831
+[debug] [2026-06-10T22:09:56.479Z] > refreshing access token with scopes: []
+[debug] [2026-06-10T22:09:56.480Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-10T22:09:56.480Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-10T22:09:56.622Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 400
+[debug] [2026-06-10T22:09:56.622Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[error] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[error] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[debug] [2026-06-10T22:09:56.622Z] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[debug] [2026-06-10T22:09:56.623Z] FirebaseError: Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+    at invalidCredentialError (/opt/homebrew/lib/node_modules/firebase-tools/lib/auth.js:167:12)
+    at refreshTokens (/opt/homebrew/lib/node_modules/firebase-tools/lib/auth.js:591:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAccessToken (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:42:18)
+    at async Client.addAuthHeader (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:169:21)
+    at async Client.request (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:120:34)
+    at async createWebApp (/opt/homebrew/lib/node_modules/firebase-tools/lib/management/apps.js:304:26)
+    at async initiateWebAppCreation (/opt/homebrew/lib/node_modules/firebase-tools/lib/management/apps.js:124:25)
+    at async sdkInit (/opt/homebrew/lib/node_modules/firebase-tools/lib/management/apps.js:143:23)
+    at async Command.actionFn (/opt/homebrew/lib/node_modules/firebase-tools/lib/commands/apps-create.js:59:21)
+[error] 
+[error] Error: Failed to create Web app for project flopilot-499021. See firebase-debug.log for more info.
+[debug] [2026-06-10T22:09:57.507Z] ----------------------------------------------------------------------
+[debug] [2026-06-10T22:09:57.509Z] Command:       /opt/homebrew/Cellar/node/24.8.0/bin/node /opt/homebrew/bin/firebase apps:sdkconfig WEB --project flopilot-499021
+[debug] [2026-06-10T22:09:57.509Z] CLI Version:   14.17.0
+[debug] [2026-06-10T22:09:57.509Z] Platform:      darwin
+[debug] [2026-06-10T22:09:57.509Z] Node Version:  v24.8.0
+[debug] [2026-06-10T22:09:57.509Z] Time:          Wed Jun 10 2026 15:09:57 GMT-0700 (Pacific Daylight Time)
+[debug] [2026-06-10T22:09:57.509Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-06-10T22:09:57.512Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-06-10T22:09:57.512Z] > authorizing via signed-in user (info@necti.io)
+[debug] [2026-06-10T22:09:57.512Z] Checked if tokens are valid: false, expires at: 1773212440831
+[debug] [2026-06-10T22:09:57.512Z] Checked if tokens are valid: false, expires at: 1773212440831
+[debug] [2026-06-10T22:09:57.513Z] > refreshing access token with scopes: []
+[debug] [2026-06-10T22:09:57.513Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-06-10T22:09:57.513Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-06-10T22:09:57.650Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 400
+[debug] [2026-06-10T22:09:57.650Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[error] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[error] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[debug] [2026-06-10T22:09:57.650Z] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[debug] [2026-06-10T22:09:57.651Z] FirebaseError: Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+    at invalidCredentialError (/opt/homebrew/lib/node_modules/firebase-tools/lib/auth.js:167:12)
+    at refreshTokens (/opt/homebrew/lib/node_modules/firebase-tools/lib/auth.js:591:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAccessToken (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:42:18)
+    at async Client.addAuthHeader (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:169:21)
+    at async Client.request (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:120:34)
+    at async listFirebaseApps (/opt/homebrew/lib/node_modules/firebase-tools/lib/management/apps.js:353:30)
+    at async Command.actionFn (/opt/homebrew/lib/node_modules/firebase-tools/lib/commands/apps-sdkconfig.js:51:22)
+[error] 
+[error] Error: Failed to list Firebase WEB apps. See firebase-debug.log for more info.

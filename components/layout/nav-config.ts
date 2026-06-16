@@ -1,0 +1,150 @@
+import {
+  BarChart3,
+  Boxes,
+  CalendarDays,
+  ClipboardList,
+  Factory,
+  FileImage,
+  LayoutDashboard,
+  Monitor,
+  Package,
+  Settings,
+  SlidersHorizontal,
+  Users,
+  Wrench,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import type { ShopModuleKey, ShopModules } from "@/lib/shop-settings";
+import type { StaffAccess } from "@/lib/staff-access";
+import {
+  canAccessWorkspaceArea,
+  type WorkspaceAreaKey,
+} from "@/lib/staff-access";
+import type { StaffRole } from "@/lib/staff-roles";
+
+export type NavChildItem = {
+  href: string;
+  label: string;
+  icon?: LucideIcon;
+  isActive: (pathname: string) => boolean;
+  adminOnly?: boolean;
+};
+
+export type NavItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  isActive?: (pathname: string) => boolean;
+  children?: NavChildItem[];
+  /** When set, item is hidden if this module is disabled */
+  moduleKey?: ShopModuleKey;
+  /** Workspace tab this nav item maps to */
+  workspaceArea?: WorkspaceAreaKey;
+};
+
+export const MACHINES_BASE = "/app/machines";
+export const MACHINES_SETTINGS = "/app/machines/settings";
+export const PRODUCTION_BASE = "/app/production";
+export const ARTWORK_BASE = "/app/artwork";
+
+export function isMachinesSection(pathname: string): boolean {
+  return pathname === MACHINES_BASE || pathname.startsWith(`${MACHINES_BASE}/`);
+}
+
+export function shouldExpandNavChildren(
+  pathname: string,
+  item: NavItem
+): boolean {
+  if (!item.children) return false;
+  if (item.href === MACHINES_BASE) return isMachinesSection(pathname);
+  return isNavItemActive(pathname, item);
+}
+
+export function isMachinesStationsRoute(pathname: string): boolean {
+  return (
+    pathname === MACHINES_BASE ||
+    (pathname.startsWith(`${MACHINES_BASE}/`) &&
+      !pathname.startsWith(MACHINES_SETTINGS))
+  );
+}
+
+export const navItems: NavItem[] = [
+  { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard, workspaceArea: "dashboard" },
+  { href: "/app/orders", label: "Orders", icon: ClipboardList, workspaceArea: "orders" },
+  { href: "/app/customers", label: "Customers", icon: Users, workspaceArea: "customers" },
+  {
+    href: PRODUCTION_BASE,
+    label: "Production",
+    icon: Factory,
+    moduleKey: "productionTasks",
+    workspaceArea: "production",
+  },
+  {
+    href: ARTWORK_BASE,
+    label: "Artwork",
+    icon: FileImage,
+    moduleKey: "artwork",
+    workspaceArea: "artwork",
+  },
+  { href: "/app/calendar", label: "Calendar", icon: CalendarDays, workspaceArea: "calendar" },
+  {
+    href: MACHINES_BASE,
+    label: "Machines",
+    icon: Wrench,
+    isActive: isMachinesSection,
+    moduleKey: "machines",
+    workspaceArea: "machines",
+    children: [
+      {
+        href: MACHINES_BASE,
+        label: "Stations",
+        icon: Monitor,
+        isActive: isMachinesStationsRoute,
+      },
+      {
+        href: MACHINES_SETTINGS,
+        label: "Settings",
+        icon: SlidersHorizontal,
+        adminOnly: true,
+        isActive: (pathname) =>
+          pathname === MACHINES_SETTINGS ||
+          pathname.startsWith(`${MACHINES_SETTINGS}/`),
+      },
+    ],
+  },
+  { href: "/app/inventory", label: "Inventory", icon: Package, moduleKey: "inventory", workspaceArea: "inventory" },
+  { href: "/app/reports", label: "Reports", icon: BarChart3, moduleKey: "reports", workspaceArea: "reports" },
+  { href: "/app/settings", label: "Settings", icon: Settings, workspaceArea: "settings" },
+];
+
+export function getVisibleNavItems(
+  modules: ShopModules,
+  role: StaffRole = "admin",
+  access?: StaffAccess | null
+): NavItem[] {
+  return navItems
+    .filter((item) => {
+      if (item.moduleKey && modules[item.moduleKey] === false) return false;
+      if (
+        item.workspaceArea &&
+        !canAccessWorkspaceArea(role, access, item.workspaceArea)
+      ) {
+        return false;
+      }
+      return true;
+    })
+    .map((item) => {
+      if (!item.children) return item;
+      const children = item.children.filter(
+        (child) => !child.adminOnly || role === "admin"
+      );
+      return children.length === item.children.length
+        ? item
+        : { ...item, children };
+    });
+}
+
+export function isNavItemActive(pathname: string, item: NavItem): boolean {
+  if (item.isActive) return item.isActive(pathname);
+  return pathname === item.href || pathname.startsWith(`${item.href}/`);
+}

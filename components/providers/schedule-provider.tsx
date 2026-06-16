@@ -1,0 +1,1149 @@
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import type {
+  ArtworkFile,
+  Customer,
+  ImprintInkColor,
+  ImprintProductionNotes,
+  Job,
+  LineItem,
+  Machine,
+  MachineIssueReport,
+  MachineIssueType,
+  Message,
+  Order,
+  OrderFile,
+  OrderFileKind,
+  ScheduleBlock,
+  StationJobRun,
+  Task,
+  TaskStatus,
+} from "@/types";
+import { type NewCustomerInput } from "@/lib/customers";
+import {
+  addJobRunNote as apiAddJobRunNote,
+  addOrderFile as apiAddOrderFile,
+  addOrderInternalNote as apiAddOrderInternalNote,
+  addOrderLineItem as apiAddOrderLineItem,
+  addProductionJob as apiAddProductionJob,
+  createCustomer as apiCreateCustomer,
+  createOrderFromForm as apiCreateOrderFromForm,
+  createMachine as apiCreateMachine,
+  createScheduleBlock as apiCreateScheduleBlock,
+  deleteMachine as apiDeleteMachine,
+  deleteScheduleBlock as apiDeleteScheduleBlock,
+  fetchDashboardStats,
+  listCustomers as apiListCustomers,
+  listJobRuns as apiListJobRuns,
+  listMachines as apiListMachines,
+  listOrders as apiListOrders,
+  listScheduleBlocks as apiListScheduleBlocks,
+  removeOrderLineItem as apiRemoveOrderLineItem,
+  removeProductionJob as apiRemoveProductionJob,
+  reorderOrder as apiReorderOrder,
+  reportMachineIssue as apiReportMachineIssue,
+  scanAndStartJob as apiScanAndStartJob,
+  sendOrderMessage as apiSendOrderMessage,
+  sendProofToCustomer as apiSendProofToCustomer,
+  setArtworkStatus as apiSetArtworkStatus,
+  setMachineOnline as apiSetMachineOnline,
+  updateImprintInkColors as apiUpdateImprintInkColors,
+  updateImprintNotes as apiUpdateImprintNotes,
+  updateJobRunStatus as apiUpdateJobRunStatus,
+  updateMachine as apiUpdateMachine,
+  updateOrder as apiUpdateOrder,
+  updateOrderLineItem as apiUpdateOrderLineItem,
+  updateScheduleBlock as apiUpdateScheduleBlock,
+  uploadArtworkVersion as apiUploadArtworkVersion,
+  type DashboardStatsResponse,
+} from "@/lib/api";
+import type { NewOrderFormInput } from "@/lib/create-order";
+import { useAuth } from "@/components/providers/auth-provider";
+import type { DashboardStats } from "@/types";
+import {
+  buildInitialJobRuns,
+  getRunForBlock,
+} from "@/lib/station-runs";
+
+type ScheduleContextValue = {
+  customers: Customer[];
+  getCustomerById: (id: string) => Customer | undefined;
+  addCustomer: (input: NewCustomerInput) => Promise<Customer>;
+  createOrderFromForm: (form: NewOrderFormInput) => Promise<Order>;
+  addOrder: (order: Order) => Order;
+  orders: Order[];
+  dashboardStats: DashboardStats | null;
+  recentOrders: Order[];
+  shopDataLoading: boolean;
+  shopDataError: string | null;
+  refreshShopData: () => Promise<void>;
+  getOrderById: (id: string) => Order | undefined;
+  getOrdersByCustomerId: (customerId: string) => Order[];
+  createReorderFromOrder: (
+    sourceOrderId: string
+  ) => Promise<{ id: string; number: string } | null>;
+  addProductionJob: (orderId: string, job: Job) => void;
+  removeProductionJob: (orderId: string, jobId: string) => void;
+  machines: Machine[];
+  scheduleBlocks: ScheduleBlock[];
+  addMachine: (machine: Omit<Machine, "id">) => void;
+  updateMachine: (id: string, machine: Omit<Machine, "id">) => void;
+  deleteMachine: (id: string) => void;
+  addScheduleBlock: (block: Omit<ScheduleBlock, "id">) => void;
+  updateScheduleBlock: (id: string, block: Omit<ScheduleBlock, "id">) => void;
+  removeScheduleBlock: (id: string) => void;
+  getMachineById: (id: string) => Machine | undefined;
+  issueReports: MachineIssueReport[];
+  reportMachineIssue: (params: {
+    machineId: string;
+    issueType: MachineIssueType;
+    message: string;
+    takeOffline: boolean;
+  }) => void;
+  setMachineOnline: (machineId: string, note?: string) => void;
+  jobRuns: StationJobRun[];
+  getJobRun: (scheduleBlockId: string) => StationJobRun | undefined;
+  scanAndStartJob: (
+    machineId: string,
+    barcode: string
+  ) => Promise<
+    { ok: true; run: StationJobRun } | { ok: false; error: string }
+  >;
+  pauseJobRun: (runId: string) => void;
+  resumeJobRun: (runId: string) => void;
+  finishJobRun: (runId: string) => void;
+  cancelJobRun: (runId: string) => void;
+  addJobRunNote: (runId: string, content: string, author?: string) => void;
+  getOrderMessages: (orderId: string) => Message[];
+  sendOrderMessage: (
+    orderId: string,
+    content: string,
+    author?: string
+  ) => void;
+  setArtworkStatus: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    status: ArtworkFile["status"]
+  ) => void;
+  uploadArtworkVersion: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    fileName: string,
+    mockupLabel?: string,
+    kind?: OrderFileKind
+  ) => void;
+  addOrderFile: (
+    orderId: string,
+    file: Omit<OrderFile, "id" | "uploadedAt">
+  ) => void;
+  addInternalNote: (
+    orderId: string,
+    content: string,
+    author?: string
+  ) => void;
+  sendProofToCustomer: (
+    orderId: string,
+    jobId: string,
+    imprintId: string
+  ) => void;
+  updateOrderStatus: (
+    orderId: string,
+    status: import("@/types").OrderStatus
+  ) => Promise<void>;
+  setOrderRush: (orderId: string, rush: boolean) => Promise<void>;
+  updateOrderLineItem: (
+    orderId: string,
+    lineItemId: string,
+    lineItem: LineItem
+  ) => void;
+  addOrderLineItem: (orderId: string) => void;
+  removeOrderLineItem: (orderId: string, lineItemId: string) => void;
+  updateImprintNotes: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    notes: ImprintProductionNotes
+  ) => void;
+  updateImprintInkColors: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    inkColors: ImprintInkColor[]
+  ) => void;
+  linkImprintArtworkFromFile: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    fileId: string | null
+  ) => void;
+  productionTasks: Task[];
+  updateProductionTaskStatus: (taskId: string, status: TaskStatus) => void;
+};
+
+function deriveProductionTasks(orders: Order[]): Task[] {
+  const tasks: Task[] = [];
+
+  for (const order of orders) {
+    for (const job of order.jobs) {
+      for (const task of job.tasks ?? []) {
+        tasks.push({
+          ...task,
+          orderId: order.id,
+          orderNumber: order.number,
+          customerName: order.company,
+        });
+      }
+    }
+  }
+
+  return tasks;
+}
+
+const ScheduleContext = createContext<ScheduleContextValue | null>(null);
+
+export function ScheduleProvider({ children }: { children: ReactNode }) {
+  const { profile, getIdToken, user } = useAuth();
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [scheduleBlocks, setScheduleBlocks] = useState<ScheduleBlock[]>([]);
+  const [issueReports, setIssueReports] = useState<MachineIssueReport[]>([]);
+  const [jobRuns, setJobRuns] = useState<StationJobRun[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(
+    null
+  );
+  const [recentOrders, setRecentOrders] = useState<Order[]>([]);
+  const [shopDataLoading, setShopDataLoading] = useState(true);
+  const [shopDataError, setShopDataError] = useState<string | null>(null);
+  const [productionTasks, setProductionTasks] = useState<Task[]>([]);
+
+  const refreshShopData = useCallback(async () => {
+    if (profile?.type !== "staff") return;
+
+    const token = await getIdToken(true);
+    if (!token) return;
+
+    setShopDataLoading(true);
+    setShopDataError(null);
+
+    try {
+      const [
+        customersRes,
+        ordersRes,
+        statsRes,
+        machinesRes,
+        blocksRes,
+        runsRes,
+      ] = await Promise.all([
+        apiListCustomers(token),
+        apiListOrders(token),
+        fetchDashboardStats(token),
+        apiListMachines(token),
+        apiListScheduleBlocks(token),
+        apiListJobRuns(token),
+      ]);
+
+      setCustomers(customersRes.customers);
+      setOrders(ordersRes.orders);
+      setProductionTasks(deriveProductionTasks(ordersRes.orders));
+      setMachines(machinesRes.machines);
+      setScheduleBlocks(blocksRes.blocks);
+      setJobRuns(
+        runsRes.runs.length > 0
+          ? runsRes.runs
+          : buildInitialJobRuns(blocksRes.blocks)
+      );
+
+      const stats: DashboardStatsResponse = statsRes.stats;
+      setDashboardStats({
+        openQuotes: stats.openQuotes,
+        activeOrders: stats.activeOrders,
+        dueThisWeek: stats.dueThisWeek,
+        awaitingApproval: stats.awaitingApproval,
+        productionTasks: stats.productionTasks,
+        lowStockItems: stats.lowStockItems,
+      });
+      setRecentOrders(ordersRes.orders.slice(0, 6));
+    } catch (err) {
+      setShopDataError(
+        err instanceof Error ? err.message : "Failed to load shop data"
+      );
+    } finally {
+      setShopDataLoading(false);
+    }
+  }, [profile, getIdToken]);
+
+  const staffSessionKey =
+    profile?.type === "staff"
+      ? `${profile.tenant.id}:${profile.user.id}`
+      : null;
+
+  useEffect(() => {
+    if (staffSessionKey) {
+      setShopDataLoading(true);
+      void refreshShopData();
+      return;
+    }
+
+    if (!user) {
+      setCustomers([]);
+      setOrders([]);
+      setMachines([]);
+      setScheduleBlocks([]);
+      setJobRuns([]);
+      setProductionTasks([]);
+      setDashboardStats(null);
+      setRecentOrders([]);
+      setShopDataError(null);
+      setShopDataLoading(false);
+    }
+  }, [staffSessionKey, user, refreshShopData]);
+
+  const applyOrderUpdate = useCallback((order: Order) => {
+    setOrders((prev) => {
+      const next = prev.map((entry) => (entry.id === order.id ? order : entry));
+      setProductionTasks(deriveProductionTasks(next));
+      return next;
+    });
+    setRecentOrders((prev) =>
+      prev.map((entry) => (entry.id === order.id ? order : entry))
+    );
+  }, []);
+
+  const refreshScheduleData = useCallback(async (token: string) => {
+    const [blocksRes, runsRes] = await Promise.all([
+      apiListScheduleBlocks(token),
+      apiListJobRuns(token),
+    ]);
+    setScheduleBlocks(blocksRes.blocks);
+    setJobRuns(
+      runsRes.runs.length > 0
+        ? runsRes.runs
+        : buildInitialJobRuns(blocksRes.blocks)
+    );
+  }, []);
+
+  const getCustomerById = useCallback(
+    (id: string) => customers.find((customer) => customer.id === id),
+    [customers]
+  );
+
+  const addCustomer = useCallback(
+    async (input: NewCustomerInput) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { customer } = await apiCreateCustomer(token, input);
+      setCustomers((prev) =>
+        [...prev, customer].sort((a, b) => a.company.localeCompare(b.company))
+      );
+      return customer;
+    },
+    [getIdToken]
+  );
+
+  const createOrderFromForm = useCallback(
+    async (form: NewOrderFormInput) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { order } = await apiCreateOrderFromForm(token, form);
+      setOrders((prev) => {
+        const next = [order, ...prev].sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setProductionTasks(deriveProductionTasks(next));
+        return next;
+      });
+      setCustomers((prev) =>
+        prev.map((customer) =>
+          customer.id === order.customerId
+            ? {
+                ...customer,
+                totalOrders: customer.totalOrders + 1,
+                lifetimeValue: customer.lifetimeValue + order.total,
+              }
+            : customer
+        )
+      );
+      setRecentOrders((prev) => [order, ...prev].slice(0, 5));
+      setDashboardStats((prev) =>
+        prev
+          ? {
+              ...prev,
+              activeOrders:
+                order.status === "approved" ||
+                order.status === "in_production" ||
+                order.status === "ready_to_ship"
+                  ? prev.activeOrders + 1
+                  : prev.activeOrders,
+            }
+          : prev
+      );
+      return order;
+    },
+    [getIdToken]
+  );
+
+  const addOrder = useCallback((order: Order) => {
+    setOrders((prev) => [...prev, order]);
+    setCustomers((prev) =>
+      prev.map((customer) =>
+        customer.id === order.customerId
+          ? {
+              ...customer,
+              totalOrders: customer.totalOrders + 1,
+              lifetimeValue: customer.lifetimeValue + order.total,
+            }
+          : customer
+      )
+    );
+    return order;
+  }, []);
+
+  const addMachine = useCallback(
+    async (machine: Omit<Machine, "id">) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { machine: saved } = await apiCreateMachine(token, machine);
+      setMachines((prev) => [...prev, saved]);
+    },
+    [getIdToken]
+  );
+
+  const updateMachine = useCallback(
+    async (id: string, machine: Omit<Machine, "id">) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { machine: saved } = await apiUpdateMachine(token, id, machine);
+      setMachines((prev) =>
+        prev.map((entry) => (entry.id === id ? saved : entry))
+      );
+    },
+    [getIdToken]
+  );
+
+  const deleteMachine = useCallback(
+    async (id: string) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      await apiDeleteMachine(token, id);
+      setMachines((prev) => prev.filter((entry) => entry.id !== id));
+      setScheduleBlocks((prev) => prev.filter((block) => block.machineId !== id));
+      setJobRuns((prev) => prev.filter((run) => run.machineId !== id));
+    },
+    [getIdToken]
+  );
+
+  const addScheduleBlock = useCallback(
+    async (block: Omit<ScheduleBlock, "id">) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { block: saved, order } = await apiCreateScheduleBlock(token, block);
+      setScheduleBlocks((prev) => [...prev, saved]);
+      setJobRuns((prev) => [
+        ...prev,
+        {
+          id: `run-${saved.id}`,
+          scheduleBlockId: saved.id,
+          machineId: saved.machineId,
+          status: "upcoming",
+          notes: [],
+        },
+      ]);
+      if (order) {
+        applyOrderUpdate(order);
+      }
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateScheduleBlock = useCallback(
+    async (id: string, block: Omit<ScheduleBlock, "id">) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { block: saved } = await apiUpdateScheduleBlock(token, id, block);
+      setScheduleBlocks((prev) =>
+        prev.map((entry) => (entry.id === id ? saved : entry))
+      );
+      setJobRuns((prev) =>
+        prev.map((run) =>
+          run.scheduleBlockId === id
+            ? { ...run, machineId: saved.machineId }
+            : run
+        )
+      );
+    },
+    [getIdToken]
+  );
+
+  const removeScheduleBlock = useCallback(
+    async (id: string) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      await apiDeleteScheduleBlock(token, id);
+      setScheduleBlocks((prev) => prev.filter((block) => block.id !== id));
+      setJobRuns((prev) => prev.filter((run) => run.scheduleBlockId !== id));
+    },
+    [getIdToken]
+  );
+
+  const getJobRun = useCallback(
+    (scheduleBlockId: string) => getRunForBlock(jobRuns, scheduleBlockId),
+    [jobRuns]
+  );
+
+  const scanAndStartJob = useCallback(
+    async (machineId: string, barcode: string) => {
+      const token = await getIdToken();
+      if (!token) {
+        return { ok: false as const, error: "Not signed in" };
+      }
+
+      try {
+        const { run } = await apiScanAndStartJob(token, { machineId, barcode });
+        setJobRuns((prev) =>
+          prev.map((entry) => (entry.id === run.id ? run : entry))
+        );
+        return { ok: true as const, run };
+      } catch (err) {
+        return {
+          ok: false as const,
+          error: err instanceof Error ? err.message : "Could not start event",
+        };
+      }
+    },
+    [getIdToken]
+  );
+
+  const updateJobRun = useCallback((run: StationJobRun) => {
+    setJobRuns((prev) =>
+      prev.map((entry) => (entry.id === run.id ? run : entry))
+    );
+  }, []);
+
+  const pauseJobRun = useCallback(
+    async (runId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+      const { run } = await apiUpdateJobRunStatus(token, runId, "paused");
+      updateJobRun(run);
+    },
+    [getIdToken, updateJobRun]
+  );
+
+  const resumeJobRun = useCallback(
+    async (runId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+      const { run } = await apiUpdateJobRunStatus(token, runId, "running");
+      updateJobRun(run);
+    },
+    [getIdToken, updateJobRun]
+  );
+
+  const finishJobRun = useCallback(
+    async (runId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+      const { run } = await apiUpdateJobRunStatus(token, runId, "finished");
+      updateJobRun(run);
+    },
+    [getIdToken, updateJobRun]
+  );
+
+  const cancelJobRun = useCallback(
+    async (runId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+      const { run } = await apiUpdateJobRunStatus(token, runId, "cancelled");
+      updateJobRun(run);
+    },
+    [getIdToken, updateJobRun]
+  );
+
+  const addJobRunNote = useCallback(
+    async (runId: string, content: string, author = "Floor") => {
+      const trimmed = content.trim();
+      if (!trimmed) return;
+      const token = await getIdToken();
+      if (!token) return;
+      const { run } = await apiAddJobRunNote(token, runId, trimmed, author);
+      updateJobRun(run);
+    },
+    [getIdToken, updateJobRun]
+  );
+
+  const getOrderById = useCallback(
+    (id: string) => orders.find((o) => o.id === id),
+    [orders]
+  );
+
+  const getOrdersByCustomerId = useCallback(
+    (customerId: string) =>
+      orders
+        .filter((o) => o.customerId === customerId)
+        .sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        ),
+    [orders]
+  );
+
+  const createReorderFromOrder = useCallback(
+    async (sourceOrderId: string): Promise<{ id: string; number: string } | null> => {
+      const token = await getIdToken();
+      if (!token) return null;
+
+      const { id, number, order } = await apiReorderOrder(token, sourceOrderId);
+      setOrders((prev) => {
+        const next = [order, ...prev].sort(
+          (a, b) =>
+            new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setProductionTasks(deriveProductionTasks(next));
+        return next;
+      });
+      return { id, number };
+    },
+    [getIdToken]
+  );
+
+  const addProductionJob = useCallback(
+    async (orderId: string, job: Job) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { order } = await apiAddProductionJob(token, orderId, job);
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const removeProductionJob = useCallback(
+    async (orderId: string, jobId: string) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { order } = await apiRemoveProductionJob(token, orderId, jobId);
+      applyOrderUpdate(order);
+      await refreshScheduleData(token);
+    },
+    [getIdToken, applyOrderUpdate, refreshScheduleData]
+  );
+
+  const getOrderMessages = useCallback(
+    (orderId: string): Message[] =>
+      orders.find((o) => o.id === orderId)?.messages ?? [],
+    [orders]
+  );
+
+  const sendOrderMessage = useCallback(
+    async (orderId: string, content: string, author = "Shop") => {
+      const trimmed = content.trim();
+      if (!trimmed) return;
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiSendOrderMessage(token, orderId, trimmed, author);
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const setArtworkStatus = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      status: ArtworkFile["status"]
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiSetArtworkStatus(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        status
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const uploadArtworkVersion = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      fileName: string,
+      mockupLabel?: string,
+      kind: OrderFileKind = "production_art"
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUploadArtworkVersion(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        fileName,
+        mockupLabel,
+        kind
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const addOrderFile = useCallback(
+    async (orderId: string, file: Omit<OrderFile, "id" | "uploadedAt">) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiAddOrderFile(token, orderId, file);
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const addInternalNote = useCallback(
+    async (orderId: string, content: string, author = "Shop") => {
+      const trimmed = content.trim();
+      if (!trimmed) return;
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiAddOrderInternalNote(
+        token,
+        orderId,
+        trimmed,
+        author
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const sendProofToCustomer = useCallback(
+    async (orderId: string, jobId: string, imprintId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiSendProofToCustomer(
+        token,
+        orderId,
+        jobId,
+        imprintId
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderStatus = useCallback(
+    async (orderId: string, status: Order["status"]) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateOrder(token, orderId, { status });
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const setOrderRush = useCallback(
+    async (orderId: string, rush: boolean) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateOrder(token, orderId, { rush });
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderLineItem = useCallback(
+    async (orderId: string, lineItemId: string, lineItem: LineItem) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateOrderLineItem(
+        token,
+        orderId,
+        lineItemId,
+        lineItem
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const addOrderLineItem = useCallback(
+    async (orderId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiAddOrderLineItem(token, orderId);
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const removeOrderLineItem = useCallback(
+    async (orderId: string, lineItemId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiRemoveOrderLineItem(token, orderId, lineItemId);
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateImprintNotes = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      notes: ImprintProductionNotes
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateImprintNotes(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        notes
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateImprintInkColors = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      inkColors: ImprintInkColor[]
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateImprintInkColors(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        inkColors
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const linkImprintArtworkFromFile = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      fileId: string | null
+    ) => {
+      if (!fileId) return;
+
+      const order = orders.find((entry) => entry.id === orderId);
+      const file = order?.files?.find((entry) => entry.id === fileId);
+      if (!order || !file) return;
+
+      const updatedJobs = order.jobs.map((job) =>
+        job.id !== jobId
+          ? job
+          : {
+              ...job,
+              imprints: job.imprints.map((imprint) => {
+                if (imprint.id !== imprintId) return imprint;
+                const previous = imprint.artwork;
+                return {
+                  ...imprint,
+                  artwork: {
+                    ...previous,
+                    id: `art-${Date.now()}`,
+                    name: file.name,
+                    version:
+                      previous.name === file.name
+                        ? previous.version
+                        : previous.version + 1,
+                    status: "pending" as const,
+                    uploadedAt: new Date().toISOString(),
+                    uploadedBy: file.uploadedBy,
+                    kind: file.kind,
+                    history: previous.name
+                      ? [
+                          ...(previous.history ?? []),
+                          {
+                            id: previous.id,
+                            name: previous.name,
+                            version: previous.version,
+                            uploadedAt: previous.uploadedAt,
+                            uploadedBy: previous.uploadedBy ?? "Shop",
+                            mockupLabel: previous.mockupLabel,
+                          },
+                        ]
+                      : previous.history,
+                  },
+                };
+              }),
+            }
+      );
+
+      const updatedFiles = (order.files ?? []).map((orderFile) =>
+        orderFile.id === fileId
+          ? { ...orderFile, jobId, imprintId }
+          : orderFile
+      );
+
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order: saved } = await apiUpdateOrder(token, orderId, {
+        jobs: updatedJobs,
+        files: updatedFiles,
+      });
+      applyOrderUpdate(saved);
+    },
+    [orders, getIdToken, applyOrderUpdate]
+  );
+
+  const updateProductionTaskStatus = useCallback(
+    async (taskId: string, status: TaskStatus) => {
+      const order = orders.find((entry) =>
+        entry.jobs.some((job) => job.tasks?.some((task) => task.id === taskId))
+      );
+      if (!order) return;
+
+      const updatedJobs = order.jobs.map((job) => ({
+        ...job,
+        tasks: job.tasks?.map((task) =>
+          task.id === taskId ? { ...task, status } : task
+        ),
+      }));
+
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order: saved } = await apiUpdateOrder(token, order.id, {
+        jobs: updatedJobs,
+      });
+      applyOrderUpdate(saved);
+    },
+    [orders, getIdToken, applyOrderUpdate]
+  );
+
+  const getMachineById = useCallback(
+    (id: string) => machines.find((m) => m.id === id),
+    [machines]
+  );
+
+  const reportMachineIssue = useCallback(
+    async ({
+      machineId,
+      issueType,
+      message,
+      takeOffline,
+    }: {
+      machineId: string;
+      issueType: MachineIssueType;
+      message: string;
+      takeOffline: boolean;
+    }) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const now = new Date().toISOString();
+      const report: MachineIssueReport = {
+        id: `issue-${Date.now()}`,
+        machineId,
+        issueType,
+        message,
+        reportedAt: now,
+        takeOffline,
+      };
+      setIssueReports((prev) => [report, ...prev].slice(0, 50));
+
+      const { machine } = await apiReportMachineIssue(token, {
+        machineId,
+        issueType,
+        message,
+        takeOffline,
+      });
+      setMachines((prev) =>
+        prev.map((entry) => (entry.id === machine.id ? machine : entry))
+      );
+    },
+    [getIdToken]
+  );
+
+  const setMachineOnline = useCallback(
+    async (machineId: string, note?: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { machine } = await apiSetMachineOnline(token, machineId, note);
+      setMachines((prev) =>
+        prev.map((entry) => (entry.id === machine.id ? machine : entry))
+      );
+    },
+    [getIdToken]
+  );
+
+  const value = useMemo(
+    () => ({
+      customers,
+      getCustomerById,
+      addCustomer,
+      createOrderFromForm,
+      addOrder,
+      orders,
+      dashboardStats,
+      recentOrders,
+      shopDataLoading,
+      shopDataError,
+      refreshShopData,
+      getOrderById,
+      getOrdersByCustomerId,
+      createReorderFromOrder,
+      addProductionJob,
+      removeProductionJob,
+      machines,
+      scheduleBlocks,
+      addMachine,
+      updateMachine,
+      deleteMachine,
+      addScheduleBlock,
+      updateScheduleBlock,
+      removeScheduleBlock,
+      getMachineById,
+      issueReports,
+      reportMachineIssue,
+      setMachineOnline,
+      jobRuns,
+      getJobRun,
+      scanAndStartJob,
+      pauseJobRun,
+      resumeJobRun,
+      finishJobRun,
+      cancelJobRun,
+      addJobRunNote,
+      getOrderMessages,
+      sendOrderMessage,
+      setArtworkStatus,
+      uploadArtworkVersion,
+      addOrderFile,
+      addInternalNote,
+      sendProofToCustomer,
+      updateOrderStatus,
+      setOrderRush,
+      updateOrderLineItem,
+      addOrderLineItem,
+      removeOrderLineItem,
+      updateImprintNotes,
+      updateImprintInkColors,
+      linkImprintArtworkFromFile,
+      productionTasks,
+      updateProductionTaskStatus,
+    }),
+    [
+      customers,
+      getCustomerById,
+      addCustomer,
+      createOrderFromForm,
+      addOrder,
+      orders,
+      dashboardStats,
+      recentOrders,
+      shopDataLoading,
+      shopDataError,
+      refreshShopData,
+      getOrderById,
+      getOrdersByCustomerId,
+      createReorderFromOrder,
+      addProductionJob,
+      removeProductionJob,
+      machines,
+      scheduleBlocks,
+      addMachine,
+      updateMachine,
+      deleteMachine,
+      addScheduleBlock,
+      updateScheduleBlock,
+      removeScheduleBlock,
+      getMachineById,
+      issueReports,
+      reportMachineIssue,
+      setMachineOnline,
+      jobRuns,
+      getJobRun,
+      scanAndStartJob,
+      pauseJobRun,
+      resumeJobRun,
+      finishJobRun,
+      cancelJobRun,
+      addJobRunNote,
+      getOrderMessages,
+      sendOrderMessage,
+      setArtworkStatus,
+      uploadArtworkVersion,
+      addOrderFile,
+      addInternalNote,
+      sendProofToCustomer,
+      updateOrderStatus,
+      setOrderRush,
+      updateOrderLineItem,
+      addOrderLineItem,
+      removeOrderLineItem,
+      updateImprintNotes,
+      updateImprintInkColors,
+      linkImprintArtworkFromFile,
+      productionTasks,
+      updateProductionTaskStatus,
+    ]
+  );
+
+  return (
+    <ScheduleContext.Provider value={value}>
+      {children}
+    </ScheduleContext.Provider>
+  );
+}
+
+export function useSchedule() {
+  const ctx = useContext(ScheduleContext);
+  if (!ctx) {
+    throw new Error("useSchedule must be used within ScheduleProvider");
+  }
+  return ctx;
+}

@@ -1,0 +1,389 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { format, parseISO } from "date-fns";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  ListOrdered,
+  PlayCircle,
+  Settings,
+} from "lucide-react";
+import { ScheduleJobDialog } from "@/components/calendar/schedule-job-dialog";
+import { StaffHeader } from "@/components/layout/staff-header";
+import { useSchedule } from "@/components/providers/schedule-provider";
+import {
+  StationActiveJobEmpty,
+  StationActiveJobPanel,
+} from "@/components/station/station-active-job-panel";
+import { StationBarcodeScan } from "@/components/station/station-barcode-scan";
+import { ReportIssueDialog } from "@/components/station/report-issue-dialog";
+import { StationOrderDialog } from "@/components/station/station-order-dialog";
+import { StationQueueDialog } from "@/components/station/station-queue-dialog";
+import { StationUpcomingSection } from "@/components/station/station-upcoming-section";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  formatJobBarcode,
+  getActiveRunForMachine,
+  getUpcomingRunsForMachine,
+} from "@/lib/station-runs";
+import { ISSUE_TYPE_LABELS } from "@/lib/station-utils";
+import { formatOperatingHoursSummary } from "@/lib/machine-hours";
+import { machineColorStyles, RESOURCE_TYPE_LABELS } from "@/lib/machine-styles";
+import type { ScheduleBlock } from "@/types";
+import { cn } from "@/lib/utils";
+
+export function MachineStationDetail({ machineId }: { machineId: string }) {
+  const {
+    machines,
+    scheduleBlocks,
+    issueReports,
+    jobRuns,
+    getOrderById,
+    reportMachineIssue,
+    setMachineOnline,
+    scanAndStartJob,
+    pauseJobRun,
+    resumeJobRun,
+    finishJobRun,
+    cancelJobRun,
+    addJobRunNote,
+  } = useSchedule();
+
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [orderOpen, setOrderOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedBlock, setSelectedBlock] = useState<ScheduleBlock | undefined>();
+  const [editingBlock, setEditingBlock] = useState<ScheduleBlock | undefined>();
+
+  const openOrder = (orderId: string, block?: ScheduleBlock) => {
+    setSelectedOrderId(orderId);
+    setSelectedBlock(block);
+    setOrderOpen(true);
+  };
+
+  const openEditSchedule = (block: ScheduleBlock) => {
+    setEditingBlock(block);
+    setScheduleOpen(true);
+  };
+
+  const machine = machines.find((m) => m.id === machineId);
+  const styles = machine ? machineColorStyles[machine.color] : null;
+
+  const activeRun = useMemo(
+    () => getActiveRunForMachine(jobRuns, machineId),
+    [jobRuns, machineId]
+  );
+
+  const activeBlock = useMemo(
+    () =>
+      activeRun
+        ? scheduleBlocks.find((b) => b.id === activeRun.scheduleBlockId)
+        : undefined,
+    [activeRun, scheduleBlocks]
+  );
+
+  const activeOrderContext = useMemo(() => {
+    if (!activeBlock) return null;
+    const order = getOrderById(activeBlock.orderId);
+    const job = order?.jobs.find((entry) => entry.id === activeBlock.jobId);
+    const imprint = job?.imprints.find(
+      (entry) => entry.id === activeBlock.imprintId
+    );
+    if (!order || !job || !imprint) return null;
+    return { order, job, imprint };
+  }, [activeBlock, getOrderById]);
+
+  const upcoming = useMemo(
+    () =>
+      machine
+        ? getUpcomingRunsForMachine(scheduleBlocks, jobRuns, machine.id)
+        : [],
+    [machine, scheduleBlocks, jobRuns]
+  );
+
+  const nextHintBarcode = upcoming[0]
+    ? formatJobBarcode(upcoming[0].block.id)
+    : formatJobBarcode("sched-m1-02");
+
+  const recentIssues = issueReports
+    .filter((r) => r.machineId === machineId)
+    .slice(0, 3);
+
+  if (!machine || !styles) {
+    return (
+      <main className="p-8 text-center">
+        <p className="text-brand-muted">Machine not found.</p>
+        <Button
+          className="mt-4 rounded-full"
+          nativeButton={false}
+          render={<Link href="/app/machines" />}
+        >
+          Back to stations
+        </Button>
+      </main>
+    );
+  }
+
+  const hasActiveJob = Boolean(activeRun && activeBlock);
+
+  return (
+    <>
+      <StaffHeader
+        title={machine.name}
+        description={`${RESOURCE_TYPE_LABELS[machine.type]} · ${formatOperatingHoursSummary(machine)}`}
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant="outline"
+              className={cn(
+                "rounded-full hidden sm:inline-flex gap-1",
+                machine.active
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-amber-200 bg-amber-50 text-amber-800"
+              )}
+            >
+              {machine.active ? (
+                <>
+                  <CheckCircle2 className="size-3" />
+                  Online
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="size-3" />
+                  Offline
+                </>
+              )}
+            </Badge>
+            {!machine.active && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="rounded-full bg-white"
+                onClick={() => setMachineOnline(machineId)}
+              >
+                Mark online
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-full bg-white"
+              onClick={() => setIssueOpen(true)}
+            >
+              <AlertTriangle className="size-3.5" />
+              Report issue
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="rounded-full bg-white hidden sm:flex"
+              nativeButton={false}
+              render={
+                <Link href={`/app/machines/settings`} />
+              }
+            >
+              <Settings className="size-3.5" />
+              Settings
+            </Button>
+          </div>
+        }
+      />
+
+      <main className="flex-1 space-y-6 p-4 sm:p-6 lg:p-8">
+        <div className={cn("h-1.5 w-full rounded-full", styles.cap)} />
+
+        {!machine.active && machine.statusMessage && (
+          <div className="rounded-2xl border border-amber-200/80 bg-amber-50/60 px-4 py-3.5 sm:px-5">
+            <p className="text-sm font-medium text-amber-950">Current issue</p>
+            <p className="text-sm text-amber-900/90 mt-1 leading-relaxed">
+              {machine.statusMessage}
+            </p>
+            {machine.statusUpdatedAt && (
+              <p className="text-xs text-amber-800/70 mt-2">
+                Updated{" "}
+                {format(parseISO(machine.statusUpdatedAt), "MMM d · h:mm a")}
+              </p>
+            )}
+          </div>
+        )}
+
+        <section className="grid gap-3 sm:grid-cols-3">
+          <StatTile
+            label="Queue"
+            value={String(upcoming.length)}
+            hint={
+              upcoming.length === 1
+                ? "Event waiting · Tap to view"
+                : `${upcoming.length} event${upcoming.length !== 1 ? "s" : ""} waiting · Tap to view`
+            }
+            icon={ListOrdered}
+            onClick={() => setQueueOpen(true)}
+          />
+          <StatTile
+            label="Active run"
+            value={hasActiveJob ? "Running" : "None"}
+            hint={
+              hasActiveJob && activeBlock
+                ? activeBlock.imprintLabel
+                : "Scan a barcode to start"
+            }
+            icon={PlayCircle}
+            accent={hasActiveJob ? "text-brand-primary" : undefined}
+          />
+          <StatTile
+            label="Hours"
+            value={machine.active ? "Open" : "Closed"}
+            hint={formatOperatingHoursSummary(machine)}
+            icon={Clock}
+            accent={machine.active ? "text-emerald-700" : "text-amber-800"}
+          />
+        </section>
+
+        <StationBarcodeScan
+          disabled={!machine.active || hasActiveJob}
+          hintBarcode={nextHintBarcode}
+          onScan={async (barcode) => {
+            const result = await scanAndStartJob(machineId, barcode);
+            if (result.ok) return { ok: true };
+            return { ok: false, error: result.error };
+          }}
+        />
+        {hasActiveJob && (
+          <p className="text-xs text-brand-muted -mt-3 text-center">
+            Finish the active event before scanning another.
+          </p>
+        )}
+
+        {activeRun && activeBlock ? (
+          <StationActiveJobPanel
+            block={activeBlock}
+            run={activeRun}
+            color={machine.color}
+            order={activeOrderContext?.order}
+            job={activeOrderContext?.job}
+            imprint={activeOrderContext?.imprint}
+            onOpenOrder={() => openOrder(activeBlock.orderId, activeBlock)}
+            onPause={() => pauseJobRun(activeRun.id)}
+            onResume={() => resumeJobRun(activeRun.id)}
+            onFinish={() => finishJobRun(activeRun.id)}
+            onCancel={() => cancelJobRun(activeRun.id)}
+            onAddNote={(content) => addJobRunNote(activeRun.id, content)}
+          />
+        ) : (
+          <StationActiveJobEmpty />
+        )}
+
+        <StationUpcomingSection
+          machine={machine}
+          upcoming={upcoming}
+          onOpenOrder={openOrder}
+          onEditSchedule={openEditSchedule}
+        />
+
+        {recentIssues.length > 0 && (
+          <section className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
+            <div className="border-b border-border/60 px-5 py-3.5">
+              <h2 className="text-sm font-semibold text-brand-ink">
+                Recent reports
+              </h2>
+              <p className="text-xs text-brand-muted mt-0.5">This session</p>
+            </div>
+            <ul className="divide-y divide-border/60">
+              {recentIssues.map((report) => (
+                <li key={report.id} className="px-5 py-3.5 text-sm">
+                  <p className="font-medium text-brand-ink">
+                    {ISSUE_TYPE_LABELS[report.issueType]}
+                  </p>
+                  <p className="text-brand-muted mt-0.5 leading-relaxed">
+                    {report.message}
+                  </p>
+                  <p className="text-xs text-brand-muted mt-1.5">
+                    {format(parseISO(report.reportedAt), "MMM d · h:mm a")}
+                    {report.takeOffline && " · Took offline"}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+      </main>
+
+      <StationQueueDialog
+        open={queueOpen}
+        onOpenChange={setQueueOpen}
+        machine={machine}
+        upcoming={upcoming}
+        onOpenOrder={openOrder}
+        onEditSchedule={openEditSchedule}
+      />
+
+      <ReportIssueDialog
+        open={issueOpen}
+        onOpenChange={setIssueOpen}
+        machineName={machine.name}
+        onSubmit={(data) => reportMachineIssue({ machineId, ...data })}
+      />
+
+      <StationOrderDialog
+        open={orderOpen}
+        onOpenChange={setOrderOpen}
+        orderId={selectedOrderId}
+        scheduleBlock={selectedBlock}
+      />
+
+      <ScheduleJobDialog
+        open={scheduleOpen}
+        onOpenChange={setScheduleOpen}
+        editingBlock={editingBlock}
+      />
+    </>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  hint,
+  icon: Icon,
+  accent,
+  onClick,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  icon: React.ComponentType<{ className?: string }>;
+  accent?: string;
+  onClick?: () => void;
+}) {
+  const Wrapper = onClick ? "button" : "div";
+
+  return (
+    <Wrapper
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={cn(
+        "rounded-2xl border border-border/60 bg-white px-4 py-4 text-left shadow-sm transition-colors",
+        onClick &&
+          "cursor-pointer hover:border-brand-primary/25 hover:bg-brand-primary/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/20"
+      )}
+    >
+      <div className="flex items-center gap-2 text-brand-muted">
+        <Icon className="size-3.5 shrink-0" />
+        <p className="text-xs font-semibold uppercase tracking-wide">{label}</p>
+      </div>
+      <p className={cn("mt-2 text-xl font-semibold tabular-nums", accent)}>
+        {value}
+      </p>
+      <p className="mt-1 text-xs text-brand-muted line-clamp-2">{hint}</p>
+    </Wrapper>
+  );
+}
