@@ -6,6 +6,7 @@ import { ChevronRight, Store } from "lucide-react";
 import { AuthPageShell } from "@/components/auth/auth-page-shell";
 import { useAuth } from "@/components/providers/auth-provider";
 import { registerShop } from "@/lib/api";
+import { markShopSetupPending } from "@/lib/onboarding";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,7 +42,8 @@ export default function RegisterShopPage() {
       });
 
       await refreshProfile(true);
-      router.push("/app/dashboard");
+      markShopSetupPending();
+      router.push("/app/dashboard?setup=1");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {

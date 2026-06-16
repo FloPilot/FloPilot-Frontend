@@ -28,7 +28,8 @@ export type ShopModuleKey =
 export type ShopModules = Record<ShopModuleKey, boolean>;
 
 export type ShopOnboarding = {
-  brandKitCompleted: boolean;
+  /** False until the shop admin finishes (or skips) the first-run setup wizard. */
+  setupCompleted: boolean;
 };
 
 export type ShopSettings = {
@@ -63,7 +64,7 @@ export const DEFAULT_SHOP_MODULES: ShopModules = {
 };
 
 export const DEFAULT_SHOP_ONBOARDING: ShopOnboarding = {
-  brandKitCompleted: false,
+  setupCompleted: false,
 };
 
 export const DEFAULT_SHOP_SETTINGS: ShopSettings = {
@@ -172,12 +173,35 @@ export const SHOP_TIMEZONE_OPTIONS = TIMEZONE_OPTIONS.map((value) => ({
 }));
 
 export function normalizeShopOnboarding(
-  raw?: Partial<ShopOnboarding> | null
+  raw?: Partial<ShopOnboarding> & { brandKitCompleted?: boolean } | null,
+  shopProfile?: Pick<ShopSettings, "email" | "phone" | "branding">
 ): ShopOnboarding {
   const input = raw ?? {};
-  return {
-    brandKitCompleted: input.brandKitCompleted === true,
-  };
+
+  if (input.setupCompleted === true) return { setupCompleted: true };
+  if (input.setupCompleted === false) return { setupCompleted: false };
+
+  // Legacy field (inverted semantics)
+  if (input.brandKitCompleted === true) return { setupCompleted: true };
+  if (input.brandKitCompleted === false) return { setupCompleted: false };
+
+  if (shopProfile && isLikelyFreshShop(shopProfile)) {
+    return { setupCompleted: false };
+  }
+
+  return { setupCompleted: true };
+}
+
+function isLikelyFreshShop(
+  profile: Pick<ShopSettings, "email" | "phone" | "branding">
+) {
+  const hasContact = Boolean(profile.email?.trim() || profile.phone?.trim());
+  const hasCustomLogo = Boolean(profile.branding?.logoUrl?.trim());
+  return !hasContact && !hasCustomLogo;
+}
+
+export function needsShopSetup(settings: ShopSettings): boolean {
+  return !settings.onboarding.setupCompleted;
 }
 
 export function normalizeShopSettings(raw?: Partial<ShopSettings> | null): ShopSettings {
@@ -220,8 +244,16 @@ export function normalizeShopSettings(raw?: Partial<ShopSettings> | null): ShopS
     modules,
     branding: normalizeTenantBranding(input.branding),
     onboarding: hasOnboardingField
-        ? normalizeShopOnboarding(input.onboarding)
-        : { brandKitCompleted: true },
+        ? normalizeShopOnboarding(input.onboarding, {
+            email: typeof input.email === "string" ? input.email : "",
+            phone: typeof input.phone === "string" ? input.phone : "",
+            branding: normalizeTenantBranding(input.branding),
+          })
+        : normalizeShopOnboarding(null, {
+            email: typeof input.email === "string" ? input.email : "",
+            phone: typeof input.phone === "string" ? input.phone : "",
+            branding: normalizeTenantBranding(input.branding),
+          }),
   };
 }
 

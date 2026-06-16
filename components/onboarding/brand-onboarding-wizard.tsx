@@ -10,6 +10,7 @@ import {
   Palette,
   Sparkles,
   Store,
+  Upload,
 } from "lucide-react";
 import { BrandingSettingsPanel } from "@/components/settings/branding-settings-panel";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -33,12 +34,10 @@ import { cn } from "@/lib/utils";
 
 const STEPS = [
   { id: "welcome", label: "Welcome" },
-  { id: "profile", label: "Shop profile" },
+  { id: "profile", label: "Shop details" },
   { id: "brand", label: "Brand kit" },
-  { id: "done", label: "Finish" },
+  { id: "done", label: "All set" },
 ] as const;
-
-type StepId = (typeof STEPS)[number]["id"];
 
 type BrandOnboardingWizardProps = {
   onComplete: () => void;
@@ -58,8 +57,9 @@ export function BrandOnboardingWizard({
   const [error, setError] = useState<string | null>(null);
 
   const step = STEPS[stepIndex].id;
-  const userEmail =
-    profile?.type === "staff" ? profile.user.email : "";
+  const userEmail = profile?.type === "staff" ? profile.user.email : "";
+  const adminName =
+    profile?.type === "staff" ? profile.user.name?.trim() : "";
 
   useEffect(() => {
     setDraft((current) => ({
@@ -74,36 +74,39 @@ export function BrandOnboardingWizard({
 
   const canGoBack = stepIndex > 0;
   const isLastStep = step === "done";
+  const isWelcome = step === "welcome";
 
-  const stepTitle = useMemo(() => {
+  const stepMeta = useMemo(() => {
     switch (step) {
       case "welcome":
-        return "Your workspace is ready";
+        return {
+          title: adminName
+            ? `Welcome, ${adminName.split(" ")[0]}`
+            : "Welcome to FloPilot",
+          description: `Let's set up ${draft.shopName || "your shop"} in a few quick steps — logo, colors, and contact details so your workspace feels like home.`,
+        };
       case "profile":
-        return "Shop contact details";
+        return {
+          title: "Shop contact details",
+          description:
+            "These show up on quotes, invoices, and customer communications.",
+        };
       case "brand":
-        return "Make it yours";
+        return {
+          title: "Brand your workspace",
+          description:
+            "Upload your logo and pick an accent color. You'll see a live preview of the sidebar.",
+        };
       case "done":
-        return "You're all set";
+        return {
+          title: "You're ready to go",
+          description:
+            "Your workspace is configured. You can change any of this later in Settings.",
+        };
       default:
-        return "";
+        return { title: "", description: "" };
     }
-  }, [step]);
-
-  const stepDescription = useMemo(() => {
-    switch (step) {
-      case "welcome":
-        return `Welcome to FloPilot${draft.shopName ? `, ${draft.shopName}` : ""}. Let's personalize your workspace so it feels like home for your team.`;
-      case "profile":
-        return "These details appear on quotes, invoices, and customer communications.";
-      case "brand":
-        return "Pick your brand color and upload a logo. You'll see a live preview of how it looks in the sidebar.";
-      case "done":
-        return "Your branded workspace is ready. You can update any of this later in Settings.";
-      default:
-        return "";
-    }
-  }, [step, draft.shopName]);
+  }, [step, adminName, draft.shopName]);
 
   async function finishOnboarding() {
     setSaving(true);
@@ -115,11 +118,13 @@ export function BrandOnboardingWizard({
         phone: draft.phone,
         timezone: draft.timezone,
         branding: draft.branding,
-        onboarding: { brandKitCompleted: true },
+        onboarding: { setupCompleted: true },
       });
       onComplete();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save your brand kit");
+      setError(
+        err instanceof Error ? err.message : "Could not save your setup"
+      );
     } finally {
       setSaving(false);
     }
@@ -130,7 +135,7 @@ export function BrandOnboardingWizard({
     setError(null);
     try {
       await updateSettings({
-        onboarding: { brandKitCompleted: true },
+        onboarding: { setupCompleted: true },
       });
       onSkip();
     } catch (err) {
@@ -151,49 +156,61 @@ export function BrandOnboardingWizard({
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6">
       <div
-        className="absolute inset-0 bg-brand-ink/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-brand-ink/50 backdrop-blur-md"
         aria-hidden
       />
 
       <div
         role="dialog"
         aria-modal="true"
-        aria-labelledby="brand-onboarding-title"
-        className="relative flex max-h-[min(92vh,860px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-white/20 bg-white shadow-2xl"
+        aria-labelledby="shop-setup-title"
+        className="relative flex max-h-[min(92vh,880px)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-white/10 bg-white shadow-2xl"
       >
         <div
-          className="border-b border-border/50 px-5 py-4 sm:px-6"
+          className="relative overflow-hidden border-b border-border/40 px-6 pb-5 pt-6 sm:px-8 sm:pt-8"
           style={{
-            background: `linear-gradient(180deg, ${previewSurface} 0%, #ffffff 100%)`,
+            background: `linear-gradient(165deg, ${previewSurface} 0%, #ffffff 55%)`,
           }}
         >
-          <div className="flex items-start justify-between gap-4">
+          <div
+            className="pointer-events-none absolute inset-0 opacity-40"
+            aria-hidden
+            style={{
+              backgroundImage:
+                "radial-gradient(circle, rgba(0,0,0,0.06) 1px, transparent 1px)",
+              backgroundSize: "20px 20px",
+            }}
+          />
+
+          <div className="relative flex items-start justify-between gap-4">
             <div>
-              <p className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-brand-muted">
-                <Sparkles className="size-3.5" />
-                Brand setup
+              <p className="inline-flex items-center gap-1.5 rounded-full border border-white/80 bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-brand-muted shadow-sm">
+                <Sparkles className="size-3 text-brand-primary" />
+                First-time setup
               </p>
               <h2
-                id="brand-onboarding-title"
-                className="mt-1 text-xl font-semibold text-brand-ink sm:text-2xl"
+                id="shop-setup-title"
+                className="mt-3 text-2xl font-semibold tracking-[-0.02em] text-brand-ink sm:text-[1.75rem]"
               >
-                {stepTitle}
+                {stepMeta.title}
               </h2>
-              <p className="mt-1 max-w-xl text-sm text-brand-muted">
-                {stepDescription}
+              <p className="mt-2 max-w-lg text-sm leading-relaxed text-brand-muted">
+                {stepMeta.description}
               </p>
             </div>
-            <button
-              type="button"
-              className="shrink-0 text-xs text-brand-muted underline-offset-2 hover:text-brand-ink hover:underline disabled:opacity-50"
-              disabled={saving}
-              onClick={() => void handleSkip()}
-            >
-              Skip for now
-            </button>
+            {!isWelcome && (
+              <button
+                type="button"
+                className="shrink-0 pt-1 text-xs text-brand-muted underline-offset-2 hover:text-brand-ink hover:underline disabled:opacity-50"
+                disabled={saving}
+                onClick={() => void handleSkip()}
+              >
+                Skip for now
+              </button>
+            )}
           </div>
 
-          <div className="mt-5 flex items-center gap-2">
+          <div className="relative mt-6 flex items-center gap-2">
             {STEPS.map((item, index) => {
               const active = index === stepIndex;
               const complete = index < stepIndex;
@@ -201,29 +218,21 @@ export function BrandOnboardingWizard({
                 <div key={item.id} className="flex flex-1 items-center gap-2">
                   <div
                     className={cn(
-                      "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors",
+                      "flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-all",
                       complete
                         ? "bg-brand-primary text-white"
                         : active
-                          ? "bg-brand-ink text-white"
-                          : "bg-white text-brand-muted ring-1 ring-border"
+                          ? "bg-brand-ink text-white shadow-sm"
+                          : "bg-white/90 text-brand-muted ring-1 ring-border/80"
                     )}
                   >
-                    {complete ? <CheckCircle2 className="size-4" /> : index + 1}
+                    {complete ? <CheckCircle2 className="size-3.5" /> : index + 1}
                   </div>
-                  <span
-                    className={cn(
-                      "hidden text-xs font-medium sm:inline",
-                      active ? "text-brand-ink" : "text-brand-muted"
-                    )}
-                  >
-                    {item.label}
-                  </span>
                   {index < STEPS.length - 1 && (
                     <div
                       className={cn(
-                        "hidden h-px flex-1 sm:block",
-                        complete ? "bg-brand-primary/40" : "bg-border"
+                        "h-px flex-1",
+                        complete ? "bg-brand-primary/50" : "bg-border/70"
                       )}
                     />
                   )}
@@ -231,9 +240,12 @@ export function BrandOnboardingWizard({
               );
             })}
           </div>
+          <p className="relative mt-2 text-xs text-brand-muted">
+            Step {stepIndex + 1} of {STEPS.length} · {STEPS[stepIndex].label}
+          </p>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6 sm:py-6">
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 sm:px-8">
           {error && (
             <p className="mb-4 rounded-xl border border-destructive/30 bg-red-50 px-3 py-2 text-sm text-destructive">
               {error}
@@ -241,39 +253,47 @@ export function BrandOnboardingWizard({
           )}
 
           {step === "welcome" && (
-            <div className="grid gap-4 sm:grid-cols-3">
-              {[
-                {
-                  icon: Store,
-                  title: "Shop profile",
-                  text: "Add contact details for quotes and customer emails.",
-                },
-                {
-                  icon: Palette,
-                  title: "Brand colors",
-                  text: "Set your accent color across buttons, links, and the workspace.",
-                },
-                {
-                  icon: Sparkles,
-                  title: "Logo & sidebar",
-                  text: "Upload your logo and choose how it appears in navigation.",
-                },
-              ].map((item) => (
-                <div
-                  key={item.title}
-                  className="rounded-2xl border border-border/60 bg-slate-50/80 p-4"
-                >
-                  <div className="flex size-10 items-center justify-center rounded-xl bg-white shadow-sm">
-                    <item.icon className="size-5 text-brand-primary" />
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-border/50 bg-slate-50/80 p-5">
+                <div className="flex items-center gap-4">
+                  <div
+                    className="flex size-14 shrink-0 items-center justify-center rounded-2xl text-lg font-bold text-white shadow-sm"
+                    style={{ backgroundColor: previewColor }}
+                  >
+                    {(draft.shopName || "S").slice(0, 1).toUpperCase()}
                   </div>
-                  <p className="mt-3 text-sm font-semibold text-brand-ink">
-                    {item.title}
-                  </p>
-                  <p className="mt-1 text-xs leading-relaxed text-brand-muted">
-                    {item.text}
-                  </p>
+                  <div className="min-w-0">
+                    <p className="text-base font-semibold text-brand-ink">
+                      {draft.shopName || "Your shop"}
+                    </p>
+                    <p className="text-sm text-brand-muted">
+                      Admin workspace · {userEmail}
+                    </p>
+                  </div>
                 </div>
-              ))}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                {[
+                  { icon: Store, label: "Shop profile" },
+                  { icon: Palette, label: "Brand colors" },
+                  { icon: Upload, label: "Logo upload" },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    className="flex items-center gap-3 rounded-xl border border-border/50 bg-white px-4 py-3"
+                  >
+                    <item.icon className="size-4 shrink-0 text-brand-primary" />
+                    <span className="text-sm font-medium text-brand-ink">
+                      {item.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-center text-xs text-brand-muted">
+                About 2 minutes · only shown to shop admins
+              </p>
             </div>
           )}
 
@@ -359,14 +379,14 @@ export function BrandOnboardingWizard({
           )}
 
           {step === "done" && (
-            <div className="mx-auto max-w-md text-center">
+            <div className="mx-auto max-w-sm text-center">
               <div
-                className="mx-auto rounded-2xl border border-border/60 p-6"
+                className="rounded-2xl border border-border/50 p-6"
                 style={{
                   background: `linear-gradient(180deg, ${previewSurface} 0%, #ffffff 100%)`,
                 }}
               >
-                <div className="mx-auto flex max-w-xs flex-col items-center gap-3 rounded-xl border border-border/50 bg-white px-4 py-5">
+                <div className="mx-auto flex max-w-xs flex-col items-center gap-3 rounded-2xl border border-border/50 bg-white px-5 py-6 shadow-sm">
                   {draft.branding.logoUrl &&
                   draft.branding.logoDisplay === "full" ? (
                     <div className="relative h-12 w-40">
@@ -380,7 +400,7 @@ export function BrandOnboardingWizard({
                     </div>
                   ) : (
                     <div
-                      className="relative flex size-14 items-center justify-center overflow-hidden rounded-2xl text-lg font-bold text-white"
+                      className="relative flex size-16 items-center justify-center overflow-hidden rounded-2xl text-xl font-bold text-white"
                       style={{ backgroundColor: previewColor }}
                     >
                       {draft.branding.logoUrl ? (
@@ -406,28 +426,29 @@ export function BrandOnboardingWizard({
                   </div>
                 </div>
               </div>
-              <p className="mt-5 text-sm text-brand-muted">
-                Head to your dashboard to start managing orders and production.
-              </p>
             </div>
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-border/50 bg-white px-5 py-4 sm:px-6">
-          <Button
-            type="button"
-            variant="ghost"
-            className="rounded-lg"
-            disabled={!canGoBack || saving}
-            onClick={() => setStepIndex((index) => Math.max(index - 1, 0))}
-          >
-            <ArrowLeft className="size-4" />
-            Back
-          </Button>
+        <div className="flex items-center justify-between gap-3 border-t border-border/50 bg-white px-6 py-4 sm:px-8">
+          {!isWelcome ? (
+            <Button
+              type="button"
+              variant="ghost"
+              className="rounded-xl"
+              disabled={!canGoBack || saving}
+              onClick={() => setStepIndex((index) => Math.max(index - 1, 0))}
+            >
+              <ArrowLeft className="size-4" />
+              Back
+            </Button>
+          ) : (
+            <div />
+          )}
 
           <Button
             type="button"
-            className="rounded-lg bg-brand-ink px-5 hover:bg-brand-ink/90"
+            className="rounded-xl bg-brand-ink px-6 hover:bg-brand-ink/90"
             disabled={saving}
             onClick={() => void handleNext()}
           >
@@ -436,9 +457,14 @@ export function BrandOnboardingWizard({
                 <Loader2 className="size-4 animate-spin" />
                 Saving…
               </>
+            ) : isWelcome ? (
+              <>
+                Get started
+                <ArrowRight className="size-4" />
+              </>
             ) : isLastStep ? (
               <>
-                Go to dashboard
+                Open dashboard
                 <CheckCircle2 className="size-4" />
               </>
             ) : (
