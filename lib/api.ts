@@ -1,8 +1,10 @@
+import type { PlatformTeamMember } from "@/lib/platform-team";
 import type { NewCustomerInput } from "@/lib/customers";
 import type { NewOrderFormInput } from "@/lib/create-order";
 import type { ShopSettings } from "@/lib/shop-settings";
 import type { StaffRole } from "@/lib/staff-roles";
 import type { StaffAccess } from "@/lib/staff-access";
+import type { SupportTicket } from "@/lib/support-tickets";
 import type { Customer, DashboardStats, Order } from "@/types";
 
 export function getApiBaseUrl() {
@@ -52,6 +54,7 @@ export async function callApi<T>(
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    cache: "no-store",
   });
 
   if (res.status === 204) {
@@ -70,7 +73,7 @@ export async function callApi<T>(
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
 
-export type MeResponse =
+export type MeResponse = (
   | {
       type: "staff";
       user: {
@@ -92,7 +95,10 @@ export type MeResponse =
       needsRegistration: true;
       email: string;
       name?: string;
-    };
+    }
+) & {
+  platformTeam?: PlatformTeamMember | null;
+};
 
 export async function fetchMe(token: string) {
   return callApi<MeResponse>("getMe", { token });
@@ -222,6 +228,100 @@ export async function registerShop(
     "registerTenant",
     { method: "POST", body, token }
   );
+}
+
+// ─── Support / feedback tickets ─────────────────────────────────────────────
+
+export type CreateSupportTicketInput = {
+  title: string;
+  description: string;
+  category: SupportTicket["category"];
+  priority?: SupportTicket["priority"];
+  pageUrl?: string;
+  attachmentUrl?: string;
+  attachmentName?: string;
+};
+
+export async function createSupportTicket(
+  token: string,
+  body: CreateSupportTicketInput
+) {
+  return callApi<{ ticket: SupportTicket }>("createSupportTicket", {
+    method: "POST",
+    body,
+    token,
+  });
+}
+
+export async function listSupportTickets(token: string) {
+  return callApi<{ tickets: SupportTicket[] }>("listSupportTickets", { token });
+}
+
+export async function listAllSupportTickets(token: string) {
+  return callApi<{ tickets: SupportTicket[] }>("listAllSupportTickets", {
+    token,
+  });
+}
+
+export async function updateSupportTicket(
+  token: string,
+  ticketId: string,
+  body: {
+    status?: SupportTicket["status"];
+    adminNote?: string;
+    assignedToMemberId?: string | null;
+  }
+) {
+  return callApi<{ ticket: SupportTicket }>("updateSupportTicket", {
+    method: "PATCH",
+    body: { ticketId, ...body },
+    token,
+  });
+}
+
+export async function listPlatformTeamMembers(token: string) {
+  return callApi<{ members: PlatformTeamMember[] }>("listPlatformTeamMembers", {
+    token,
+  });
+}
+
+export async function createPlatformTeamMember(
+  token: string,
+  body: {
+    email: string;
+    name: string;
+    role?: PlatformTeamMember["role"];
+  }
+) {
+  return callApi<{ member: PlatformTeamMember }>("createPlatformTeamMember", {
+    method: "POST",
+    body,
+    token,
+  });
+}
+
+export async function updatePlatformTeamMember(
+  token: string,
+  memberId: string,
+  body: {
+    name?: string;
+    role?: PlatformTeamMember["role"];
+    status?: PlatformTeamMember["status"];
+  }
+) {
+  return callApi<{ member: PlatformTeamMember }>("updatePlatformTeamMember", {
+    method: "POST",
+    body: { memberId, ...body },
+    token,
+  });
+}
+
+export async function removePlatformTeamMember(token: string, memberId: string) {
+  return callApi<{ removed: boolean; id: string }>("removePlatformTeamMember", {
+    method: "POST",
+    body: { memberId },
+    token,
+  });
 }
 
 // ─── Dashboard ──────────────────────────────────────────────────────────────

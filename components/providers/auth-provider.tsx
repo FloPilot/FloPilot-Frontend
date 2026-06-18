@@ -70,24 +70,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const getIdToken = useCallback(
     async (forceRefresh = false) => {
-      if (!user) return null;
-      return user.getIdToken(forceRefresh);
+      const activeUser = user ?? getFirebaseAuth().currentUser;
+      if (!activeUser) return null;
+      return activeUser.getIdToken(forceRefresh);
     },
     [user]
   );
 
   const refreshProfile = useCallback(
     async (forceTokenRefresh = false) => {
-      if (!user) {
+      const activeUser = user ?? getFirebaseAuth().currentUser;
+      if (!activeUser) {
         profileFetchGeneration.current += 1;
         setProfile(null);
         return null;
       }
 
       const generation = ++profileFetchGeneration.current;
+      setLoading(true);
 
       try {
-        const token = await user.getIdToken(forceTokenRefresh);
+        const token = await activeUser.getIdToken(forceTokenRefresh);
         if (!token) return null;
         const me = await fetchMe(token);
         applyProfile(me, generation);
@@ -97,6 +100,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfile(null);
         }
         return null;
+      } finally {
+        if (generation === profileFetchGeneration.current) {
+          setLoading(false);
+        }
       }
     },
     [user, applyProfile]
@@ -118,7 +125,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const generation = profileFetchGeneration.current;
+      const generation = ++profileFetchGeneration.current;
+      setLoading(true);
 
       try {
         const token = await nextUser.getIdToken(true);
@@ -131,7 +139,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setProfile(null);
         }
       } finally {
-        setLoading(false);
+        if (generation === profileFetchGeneration.current) {
+          setLoading(false);
+        }
       }
     });
   }, [configured, applyProfile]);

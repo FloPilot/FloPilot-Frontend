@@ -17,7 +17,6 @@ export function StaffSidebar() {
   const { settings } = useShopSettings();
   const { role, access } = useStaffAccess();
   const visibleNavItems = getVisibleNavItems(settings.modules, role, access);
-
   return (
     <aside className="hidden lg:flex lg:h-screen lg:w-64 lg:shrink-0 lg:flex-col border-r border-sidebar-border bg-white shadow-sm">
       <div className="flex h-16 items-center border-b border-sidebar-border px-6">

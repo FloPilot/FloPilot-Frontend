@@ -40,10 +40,17 @@ export function LoginForm() {
       await signIn(email, password);
       const me = await refreshProfile(true);
 
-      if (me?.type === "none" && me.needsRegistration) {
+      if (!me) {
+        setError("Signed in but could not load your workspace. Please try again.");
+        return;
+      }
+
+      if (me.type === "none" && me.needsRegistration) {
         router.push("/register-shop");
-      } else {
+      } else if (me.type === "staff") {
         router.push(next);
+      } else {
+        setError("This account does not have staff access to a shop workspace.");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");

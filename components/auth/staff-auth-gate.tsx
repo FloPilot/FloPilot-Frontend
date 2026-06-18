@@ -20,8 +20,11 @@ export function StaffAuthGate({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (profile?.type === "none" && profile.needsRegistration) {
-      router.replace("/register-shop");
+    if (!profile || profile.type === "none") {
+      if (profile?.needsRegistration) {
+        router.replace("/register-shop");
+      }
+      return;
     }
   }, [user, profile, loading, configured, router, pathname]);
 
@@ -43,10 +46,21 @@ export function StaffAuthGate({ children }: { children: React.ReactNode }) {
     return <AppLoadingScreen fullScreen label="Loading your workspace…" />;
   }
 
-  if (profile?.type === "none") {
+  if (!profile || profile.type === "none") {
     return (
-      <AppLoadingScreen fullScreen label="Setting up your account…" />
+      <AppLoadingScreen
+        fullScreen
+        label={
+          profile?.needsRegistration
+            ? "Setting up your account…"
+            : "Loading your workspace…"
+        }
+      />
     );
+  }
+
+  if (profile.type !== "staff") {
+    return <AppLoadingScreen fullScreen label="Loading your workspace…" />;
   }
 
   return children;
