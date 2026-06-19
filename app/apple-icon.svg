@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" fill="none" role="img" aria-label="FloPilot">
+  <defs>
+    <linearGradient id="fp-bg" x1="24" y1="16" x2="156" y2="164" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2762FF"/>
+      <stop offset="1" stop-color="#4D7FFF"/>
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="40" fill="url(#fp-bg)"/>
+  <path
+    fill="#FFFFFF"
+    d="M52 48h76.5c6.9 0 12.5 5.6 12.5 12.5S135.4 73 128.5 73H72v18h43.5c6.9 0 12.5 5.6 12.5 12.5s-5.6 12.5-12.5 12.5H72V132H52V48z"
+  />
+  <path
+    fill="#FFFFFF"
+    fill-opacity="0.9"
+    d="M118 118.5 138.5 139 126.5 151 96.5 121l21.5-2.5z"
+  />
+</svg>

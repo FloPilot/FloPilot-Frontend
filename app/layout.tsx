@@ -17,6 +17,10 @@ export const metadata: Metadata = {
   title: "FloPilot.io — Print Shop Management Software",
   description:
     "Run your decorated apparel or print shop from quote to delivery. Orders, production scheduling, machine stations, customer portal, and team permissions in one platform.",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/apple-icon.svg", type: "image/svg+xml" }],
+  },
   keywords: [
     "print shop software",
     "screen printing management",
