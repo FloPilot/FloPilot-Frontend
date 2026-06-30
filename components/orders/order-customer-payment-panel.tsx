@@ -221,8 +221,6 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
   const paymentDisplay = useMemo(() => {
     return getOrderPaymentDisplay({
       ...order,
-      subtotal: totals.subtotal,
-      tax: totals.tax,
       total: totals.total,
       paid: totals.paid,
       balance: totals.balance,

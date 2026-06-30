@@ -457,12 +457,11 @@ export function ImprintInkColorsEditor({
       ...draftRef.current,
       {
         id,
-        name: "",
+        name: isDtf ? "Cold peel" : "",
         pmsCode: "",
         mesh: undefined,
         squeegee: "medium",
         transferType: isDtf ? "cold-peel" : undefined,
-        name: isDtf ? "Cold peel" : "",
         isFlash: false,
       },
     ];

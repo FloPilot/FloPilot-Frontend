@@ -802,7 +802,12 @@ function TaskDialog({
               <Label className="text-[12px] font-medium text-[#616161]">
                 Assignee
               </Label>
-              <Select value={assigneeId} onValueChange={setAssigneeId}>
+              <Select
+                value={assigneeId}
+                onValueChange={(value) =>
+                  setAssigneeId(value ?? UNASSIGNED_VALUE)
+                }
+              >
                 <SelectTrigger className={cn(dashboardControlClass, "h-9 px-3")}>
                   <SelectValue placeholder="Unassigned" />
                 </SelectTrigger>

@@ -15,6 +15,7 @@ import { computeEventStatusCards } from "@/lib/event-status-checkpoints";
 import type { OrderDetailTab } from "@/lib/order-detail-tabs";
 import {
   getInkPrepLine,
+  getScreenSetupLine,
   mergeOrderMaterials,
 } from "@/lib/order-materials";
 import { inkPrepLineMarkAll } from "@/lib/ink-prep";
