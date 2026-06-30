@@ -371,7 +371,6 @@ export function BrandOnboardingWizard({
           {step === "brand" && (
             <BrandingSettingsPanel
               branding={draft.branding}
-              shopName={draft.shopName}
               onChange={(branding) =>
                 setDraft((current) => ({ ...current, branding }))
               }

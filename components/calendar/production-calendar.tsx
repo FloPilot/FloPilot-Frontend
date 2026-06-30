@@ -184,7 +184,11 @@ export function ProductionCalendar({
   embedded = false,
   className,
 }: ProductionCalendarProps = {}) {
-  const { machines, scheduleBlocks, updateScheduleBlock } = useSchedule();
+  const {
+    machines,
+    activeScheduleBlocks: scheduleBlocks,
+    updateScheduleBlock,
+  } = useSchedule();
   const [internalWeekStart, setInternalWeekStart] = useState(() =>
     startOfWeek(new Date(), { weekStartsOn: 1 })
   );

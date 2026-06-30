@@ -14,6 +14,7 @@ import {
 } from "@dnd-kit/core";
 import { ProductionTaskCard } from "@/components/production/production-task-card";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import { dashboardTaskDetailClass } from "@/lib/dashboard-styles";
 import {
   PRODUCTION_PIPELINE_COLUMNS,
   parseProductionColumnDropId,
@@ -29,7 +30,9 @@ function PipelineColumn({
   headerClass,
   bodyClass,
   dotClass,
+  countClass,
   tasks,
+  onOpenEvent,
 }: {
   status: TaskStatus;
   label: string;
@@ -37,7 +40,13 @@ function PipelineColumn({
   headerClass: string;
   bodyClass: string;
   dotClass: string;
+  countClass: string;
   tasks: Task[];
+  onOpenEvent?: (event: {
+    orderId: string;
+    jobId: string;
+    imprintId: string;
+  }) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: productionColumnDropId(status),
@@ -45,18 +54,25 @@ function PipelineColumn({
   });
 
   return (
-    <section className="flex min-w-0 flex-col h-full">
-      <header className="mb-2.5 flex items-center justify-between gap-2 px-0.5">
+    <section className="flex min-h-0 min-w-0 flex-col">
+      <header className="mb-2 flex items-center justify-between gap-2 px-0.5">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className={cn("size-2 shrink-0 rounded-full", dotClass)} />
-            <h3 className={cn("text-sm font-semibold truncate", headerClass)}>
+            <h3 className={cn("text-[13px] font-semibold truncate", headerClass)}>
               {label}
             </h3>
           </div>
-          <p className="mt-0.5 text-[11px] text-brand-muted truncate">{hint}</p>
+          <p className={cn("mt-0.5 truncate", dashboardTaskDetailClass)}>
+            {hint}
+          </p>
         </div>
-        <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold tabular-nums text-brand-muted border border-border/60 shrink-0">
+        <span
+          className={cn(
+            "shrink-0 rounded-sm border px-2 py-0.5 text-xs font-semibold tabular-nums",
+            countClass
+          )}
+        >
           {tasks.length}
         </span>
       </header>
@@ -64,32 +80,55 @@ function PipelineColumn({
       <div
         ref={setNodeRef}
         className={cn(
-          "flex min-h-[min(560px,calc(100vh-20rem))] flex-1 flex-col gap-2.5 rounded-2xl border p-2.5 sm:p-3 transition-colors",
+          "flex min-h-[min(480px,calc(100vh-22rem))] flex-1 flex-col gap-2.5 rounded-lg border-2 p-2.5 transition-colors",
           bodyClass,
-          isOver && "ring-2 ring-brand-primary/25 border-brand-primary/30"
+          isOver && "ring-2 ring-[#2c6ecb]/30"
         )}
       >
         {tasks.map((task) => (
-          <ProductionTaskCard key={task.id} task={task} />
+          <ProductionTaskCard
+            key={task.id}
+            task={task}
+            onOpen={
+              task.productionEvent
+                ? () =>
+                    onOpenEvent?.({
+                      orderId: task.orderId,
+                      jobId: task.productionEvent!.jobId,
+                      imprintId: task.productionEvent!.imprintId,
+                    })
+                : undefined
+            }
+          />
         ))}
-        {tasks.length === 0 && (
+        {tasks.length === 0 ? (
           <div
             className={cn(
-              "flex flex-1 items-center justify-center rounded-xl border border-dashed border-border/70 px-4 py-10 text-center",
-              isOver && "border-brand-primary/40 bg-white/70"
+              "flex flex-1 items-center justify-center rounded-lg border border-dashed border-[#e3e3e3] bg-white px-4 py-10 text-center",
+              isOver && "border-[#c5d9f8] bg-[#f0f5ff]"
             )}
           >
-            <p className="text-xs text-brand-muted leading-relaxed">
-              {isOver ? "Drop to move here" : "No tasks in this column"}
+            <p className={dashboardTaskDetailClass}>
+              {isOver ? "Drop to move here" : "No events in this column"}
             </p>
           </div>
-        )}
+        ) : null}
       </div>
     </section>
   );
 }
 
-export function ProductionPipelineBoard({ tasks }: { tasks: Task[] }) {
+export function ProductionPipelineBoard({
+  tasks,
+  onOpenEvent,
+}: {
+  tasks: Task[];
+  onOpenEvent?: (event: {
+    orderId: string;
+    jobId: string;
+    imprintId: string;
+  }) => void;
+}) {
   const { updateProductionTaskStatus } = useSchedule();
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
 
@@ -140,16 +179,15 @@ export function ProductionPipelineBoard({ tasks }: { tasks: Task[] }) {
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveTaskId(null)}
     >
-      <div className="w-full">
-        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
-          {PRODUCTION_PIPELINE_COLUMNS.map((column) => (
-            <PipelineColumn
-              key={column.status}
-              {...column}
-              tasks={tasksByStatus[column.status]}
-            />
-          ))}
-        </div>
+      <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {PRODUCTION_PIPELINE_COLUMNS.map((column) => (
+          <PipelineColumn
+            key={column.status}
+            {...column}
+            tasks={tasksByStatus[column.status]}
+            onOpenEvent={onOpenEvent}
+          />
+        ))}
       </div>
 
       <DragOverlay dropAnimation={{ duration: 180, easing: "ease-out" }}>

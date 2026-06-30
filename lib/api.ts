@@ -5,7 +5,7 @@ import type { ShopSettings } from "@/lib/shop-settings";
 import type { StaffRole } from "@/lib/staff-roles";
 import type { StaffAccess } from "@/lib/staff-access";
 import type { SupportTicket } from "@/lib/support-tickets";
-import type { Customer, DashboardStats, Order } from "@/types";
+import type { Customer, DashboardStats, Order, StaffNotification } from "@/types";
 
 export function getApiBaseUrl() {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -102,6 +102,38 @@ export type MeResponse = (
 
 export async function fetchMe(token: string) {
   return callApi<MeResponse>("getMe", { token });
+}
+
+export type UserTenantSummary = {
+  tenantId: string;
+  userId: string;
+  name: string;
+  slug: string;
+  logoUrl: string;
+  role: StaffRole;
+};
+
+export async function listUserTenants(token: string) {
+  return callApi<{ tenants: UserTenantSummary[] }>("listUserTenants", { token });
+}
+
+export async function switchTenant(token: string, tenantId: string) {
+  return callApi<{
+    user: {
+      id: string;
+      name: string;
+      email: string;
+      role: StaffRole;
+      access?: StaffAccess | null;
+    };
+    tenant: {
+      id: string;
+      name: string;
+      slug: string;
+      settings: ShopSettings;
+    };
+    message: string;
+  }>("switchTenant", { method: "POST", body: { tenantId }, token });
 }
 
 export async function fetchTenantSettings(token: string) {
@@ -361,16 +393,45 @@ export async function createCustomer(token: string, input: NewCustomerInput) {
   });
 }
 
+export type CustomerUpdate = Partial<NewCustomerInput> & {
+  /** https URL or inline data URL; null clears the logo */
+  logoUrl?: string | null;
+  /** Production accent color key; null clears to auto */
+  accentColorKey?: string | null;
+};
+
 export async function updateCustomer(
   token: string,
   customerId: string,
-  updates: Partial<NewCustomerInput>
+  updates: CustomerUpdate
 ) {
   return callApi<{ customer: Customer }>("updateCustomer", {
     method: "PATCH",
     body: { customerId, ...updates },
     token,
   });
+}
+
+export async function archiveCustomer(token: string, customerId: string) {
+  return callApi<{ customer: Customer; archivedOrders: number }>(
+    "archiveCustomer",
+    {
+      method: "POST",
+      body: { customerId },
+      token,
+    }
+  );
+}
+
+export async function restoreCustomer(token: string, customerId: string) {
+  return callApi<{ customer: Customer; restoredOrders: number }>(
+    "restoreCustomer",
+    {
+      method: "POST",
+      body: { customerId },
+      token,
+    }
+  );
 }
 
 // ─── Orders ─────────────────────────────────────────────────────────────────
@@ -380,6 +441,7 @@ export type ListOrdersQuery = {
   status?: string;
   type?: string;
   customerId?: string;
+  archived?: "only" | "include";
 };
 
 export async function listOrders(token: string, query?: ListOrdersQuery) {
@@ -418,6 +480,22 @@ export async function updateOrder(
 
 export async function reorderOrder(token: string, orderId: string) {
   return callApi<{ id: string; number: string; order: Order }>("reorderOrder", {
+    method: "POST",
+    body: { orderId },
+    token,
+  });
+}
+
+export async function archiveOrder(token: string, orderId: string) {
+  return callApi<{ order: Order }>("archiveOrder", {
+    method: "POST",
+    body: { orderId },
+    token,
+  });
+}
+
+export async function restoreOrder(token: string, orderId: string) {
+  return callApi<{ order: Order }>("restoreOrder", {
     method: "POST",
     body: { orderId },
     token,
@@ -486,6 +564,37 @@ export async function addOrderFile(
   });
 }
 
+export async function uploadOrderFile(
+  token: string,
+  orderId: string,
+  payload: {
+    name: string;
+    kind: import("@/types").OrderFileKind;
+    uploadedBy: string;
+    contentBase64: string;
+    contentType: string;
+    notes?: string;
+  }
+) {
+  return callApi<{ order: Order }>("uploadOrderFile", {
+    method: "POST",
+    body: { orderId, ...payload },
+    token,
+  });
+}
+
+export async function deleteOrderFile(
+  token: string,
+  orderId: string,
+  fileId: string
+) {
+  return callApi<{ order: Order }>("deleteOrderFile", {
+    method: "POST",
+    body: { orderId, fileId },
+    token,
+  });
+}
+
 export async function updateOrderLineItem(
   token: string,
   orderId: string,
@@ -499,10 +608,31 @@ export async function updateOrderLineItem(
   });
 }
 
-export async function addOrderLineItem(token: string, orderId: string) {
+export async function addOrderLineItem(
+  token: string,
+  orderId: string,
+  lineItem?: import("@/types").LineItem
+) {
+  const payload =
+    lineItem !== undefined
+      ? {
+          orderId,
+          lineItem: {
+            id: lineItem.id,
+            productName: lineItem.productName,
+            brand: lineItem.brand,
+            color: lineItem.color,
+            productKey: lineItem.productKey,
+            colorKey: lineItem.colorKey,
+            unitCost: lineItem.unitCost,
+            sizes: lineItem.sizes.filter((row) => row.quantity > 0),
+          },
+        }
+      : { orderId };
+
   return callApi<{ order: Order }>("addOrderLineItem", {
     method: "POST",
-    body: { orderId },
+    body: payload,
     token,
   });
 }
@@ -547,6 +677,20 @@ export async function updateImprintInkColors(
   });
 }
 
+export async function updateProductionEventWorkflow(
+  token: string,
+  orderId: string,
+  jobId: string,
+  imprintId: string,
+  workflow: import("@/types").ProductionEventWorkflow
+) {
+  return callApi<{ order: Order }>("updateProductionEventWorkflow", {
+    method: "PATCH",
+    body: { orderId, jobId, imprintId, workflow },
+    token,
+  });
+}
+
 export async function setArtworkStatus(
   token: string,
   orderId: string,
@@ -568,11 +712,99 @@ export async function uploadArtworkVersion(
   imprintId: string,
   fileName: string,
   mockupLabel?: string,
-  kind?: import("@/types").OrderFileKind
+  kind?: import("@/types").OrderFileKind,
+  previewUrl?: string
 ) {
   return callApi<{ order: Order }>("uploadArtworkVersion", {
     method: "POST",
-    body: { orderId, jobId, imprintId, fileName, mockupLabel, kind },
+    body: { orderId, jobId, imprintId, fileName, mockupLabel, kind, previewUrl },
+    token,
+  });
+}
+
+export async function updateOrderMaterials(
+  token: string,
+  orderId: string,
+  materials: import("@/types").OrderMaterials
+) {
+  return callApi<{ order: Order }>("updateOrderMaterials", {
+    method: "POST",
+    body: { orderId, materials },
+    token,
+  });
+}
+
+export async function listDesigns(
+  token: string,
+  query?: { customerId?: string; search?: string }
+) {
+  return callApi<{ designs: import("@/types").SavedDesign[] }>("listDesigns", {
+    token,
+    query,
+  });
+}
+
+export async function createDesignFromImprint(
+  token: string,
+  body: {
+    orderId: string;
+    jobId: string;
+    imprintId: string;
+    name?: string;
+    customerId?: string;
+  }
+) {
+  return callApi<{ design: import("@/types").SavedDesign }>(
+    "createDesignFromImprint",
+    { method: "POST", body, token }
+  );
+}
+
+export async function applyDesignToOrder(
+  token: string,
+  body: {
+    designId: string;
+    orderId: string;
+    jobId: string;
+    imprintId: string;
+  }
+) {
+  return callApi<{ order: Order }>("applyDesignToOrder", {
+    method: "POST",
+    body,
+    token,
+  });
+}
+
+export async function updateDesign(
+  token: string,
+  body: {
+    designId: string;
+    patch: Partial<
+      Pick<
+        import("@/types").SavedDesign,
+        "name" | "tags" | "notes" | "inkColors"
+      >
+    >;
+    changeSummary?: string;
+    author?: string;
+  }
+) {
+  return callApi<{ design: import("@/types").SavedDesign }>("updateDesign", {
+    method: "POST",
+    body,
+    token,
+  });
+}
+
+export async function updateOrderGarments(
+  token: string,
+  orderId: string,
+  garments: import("@/types").OrderGarments
+) {
+  return callApi<{ order: Order }>("updateOrderGarments", {
+    method: "POST",
+    body: { orderId, garments },
     token,
   });
 }
@@ -588,6 +820,34 @@ export async function sendProofToCustomer(
     body: { orderId, jobId, imprintId },
     token,
   });
+}
+
+export async function sendProofsAndEstimate(token: string, orderId: string) {
+  return callApi<{ order: Order; email: { sent: boolean; to: string } }>(
+    "sendProofsAndEstimate",
+    {
+      method: "POST",
+      body: { orderId },
+      token,
+    }
+  );
+}
+
+export type OrderDocumentScope = "all" | "estimate" | "proofs";
+
+export async function previewOrderDocument(
+  token: string,
+  orderId: string,
+  scope: OrderDocumentScope = "all"
+) {
+  return callApi<{ pdfBase64: string; filename: string }>(
+    "previewOrderDocument",
+    {
+      method: "POST",
+      body: { orderId, scope },
+      token,
+    }
+  );
 }
 
 // ─── Machines ───────────────────────────────────────────────────────────────
@@ -761,4 +1021,213 @@ export type InventoryItem = {
 
 export async function listInventory(token: string) {
   return callApi<{ items: InventoryItem[] }>("listInventory", { token });
+}
+
+export async function createInventoryItem(
+  token: string,
+  data: Omit<InventoryItem, "id">
+) {
+  return callApi<{ item: InventoryItem }>("createInventoryItem", {
+    method: "POST",
+    body: data,
+    token,
+  });
+}
+
+export async function updateInventoryItem(
+  token: string,
+  itemId: string,
+  updates: Partial<Omit<InventoryItem, "id">>
+) {
+  return callApi<{ item: InventoryItem }>("updateInventoryItem", {
+    method: "PATCH",
+    body: { itemId, ...updates },
+    token,
+  });
+}
+
+// ─── Purchase orders ─────────────────────────────────────────────────────────
+
+export type PurchaseOrderStatus = "draft" | "ordered" | "received" | "cancelled";
+
+export type PurchaseOrderLineItem = {
+  id: string;
+  inventoryItemId: string | null;
+  name: string;
+  sku: string;
+  quantity: number;
+  unitCost: number;
+};
+
+export type PurchaseOrder = {
+  id: string;
+  number: string;
+  status: PurchaseOrderStatus;
+  supplier: string;
+  warehouse: string;
+  notes: string;
+  lineItems: PurchaseOrderLineItem[];
+  total: number;
+  createdAt: string;
+  updatedAt: string;
+  orderedAt: string | null;
+  receivedAt: string | null;
+  createdByName: string;
+};
+
+export type PurchaseOrderInput = {
+  supplier?: string;
+  warehouse?: string;
+  notes?: string;
+  status?: PurchaseOrderStatus;
+  lineItems: {
+    inventoryItemId?: string | null;
+    name: string;
+    sku?: string;
+    quantity: number;
+    unitCost?: number;
+  }[];
+};
+
+export async function listPurchaseOrders(token: string) {
+  return callApi<{ purchaseOrders: PurchaseOrder[] }>("listPurchaseOrders", {
+    token,
+  });
+}
+
+export async function createPurchaseOrder(
+  token: string,
+  data: PurchaseOrderInput
+) {
+  return callApi<{ purchaseOrder: PurchaseOrder }>("createPurchaseOrder", {
+    method: "POST",
+    body: data,
+    token,
+  });
+}
+
+export async function updatePurchaseOrder(
+  token: string,
+  purchaseOrderId: string,
+  updates: Partial<PurchaseOrderInput> & { status?: PurchaseOrderStatus }
+) {
+  return callApi<{ purchaseOrder: PurchaseOrder }>("updatePurchaseOrder", {
+    method: "PATCH",
+    body: { purchaseOrderId, ...updates },
+    token,
+  });
+}
+
+export async function deletePurchaseOrder(
+  token: string,
+  purchaseOrderId: string
+) {
+  return callApi<{ ok: boolean }>("deletePurchaseOrder", {
+    method: "POST",
+    body: { purchaseOrderId },
+    token,
+  });
+}
+
+// ─── Manual tasks ───────────────────────────────────────────────────────────
+
+export type ManualTaskStatus = "todo" | "in_progress" | "blocked" | "done";
+export type ManualTaskPriority = "low" | "normal" | "high" | "urgent";
+
+export type ManualTask = {
+  id: string;
+  title: string;
+  description: string;
+  status: ManualTaskStatus;
+  priority: ManualTaskPriority;
+  assigneeId: string | null;
+  assigneeName: string;
+  dueDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdById: string | null;
+  createdByName: string;
+  completedAt: string | null;
+};
+
+export type ManualTaskInput = {
+  title: string;
+  description?: string;
+  status?: ManualTaskStatus;
+  priority?: ManualTaskPriority;
+  assigneeId?: string | null;
+  assigneeName?: string;
+  dueDate?: string | null;
+};
+
+export type AssignableStaffMember = {
+  id: string;
+  name: string;
+  email: string;
+  role: StaffRole;
+};
+
+export async function listTasks(token: string) {
+  return callApi<{ tasks: ManualTask[] }>("listTasks", { token });
+}
+
+export async function createTask(token: string, data: ManualTaskInput) {
+  return callApi<{ task: ManualTask }>("createTask", {
+    method: "POST",
+    body: data,
+    token,
+  });
+}
+
+export async function updateTask(
+  token: string,
+  taskId: string,
+  updates: Partial<ManualTaskInput>
+) {
+  return callApi<{ task: ManualTask }>("updateTask", {
+    method: "PATCH",
+    body: { taskId, ...updates },
+    token,
+  });
+}
+
+export async function deleteTask(token: string, taskId: string) {
+  return callApi<{ ok: boolean }>("deleteTask", {
+    method: "POST",
+    body: { taskId },
+    token,
+  });
+}
+
+export async function listStaffMembers(token: string) {
+  return callApi<{ members: AssignableStaffMember[] }>("listStaffMembers", {
+    token,
+  });
+}
+
+// ─── Staff notifications ────────────────────────────────────────────────────
+
+export async function listNotifications(token: string, limit = 30) {
+  return callApi<{ notifications: StaffNotification[]; unreadCount: number }>(
+    "listNotifications",
+    { token, query: { limit: String(limit) } }
+  );
+}
+
+export async function markNotificationRead(
+  token: string,
+  notificationId: string
+) {
+  return callApi<{ notification: StaffNotification }>("markNotificationRead", {
+    method: "PATCH",
+    body: { notificationId },
+    token,
+  });
+}
+
+export async function markAllNotificationsRead(token: string) {
+  return callApi<{ updated: number }>("markAllNotificationsRead", {
+    method: "POST",
+    token,
+  });
 }

@@ -5,7 +5,7 @@ import { PLATFORM_NAME, PLATFORM_URL } from "@/lib/tenant-branding";
 
 export function FloPilotWatermark() {
   return (
-    <footer className="shrink-0 border-t border-border/40 bg-white/70 px-4 py-2 sm:px-6">
+    <footer className="shrink-0 border-t border-[#e3e3e3] bg-white px-4 py-2 sm:px-6">
       <p className="text-center text-[11px] text-brand-muted">
         Powered by{" "}
         <Link

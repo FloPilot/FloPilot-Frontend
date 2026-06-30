@@ -16,7 +16,7 @@ import { SHOP_MODULE_DEFINITIONS } from "@/lib/shop-settings";
 export function StaffWorkspaceGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { isAdmin, landingPath, canAccessWorkspace } = useStaffAccess();
+  const { landingPath, canAccessWorkspace, canWrite } = useStaffAccess();
   const { isModuleEnabled } = useShopSettings();
 
   const area = getWorkspaceAreaForPath(pathname);
@@ -32,7 +32,7 @@ export function StaffWorkspaceGate({ children }: { children: React.ReactNode }) 
 
   const accessBlocked =
     area === "machines-settings"
-      ? !isAdmin
+      ? !canWrite("machines")
       : area
         ? !canAccessWorkspace(area)
         : false;

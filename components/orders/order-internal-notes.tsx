@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime } from "@/lib/format";
+import { dashboardPrimaryButtonClass } from "@/lib/dashboard-styles";
+import { cn } from "@/lib/utils";
 
 export function OrderInternalNotes({ orderId }: { orderId: string }) {
   const { getOrderById, addInternalNote } = useSchedule();
@@ -72,7 +74,7 @@ export function OrderInternalNotes({ orderId }: { orderId: string }) {
           <Button
             type="button"
             size="sm"
-            className="rounded-full w-full sm:w-auto"
+            className={cn(dashboardPrimaryButtonClass, "w-full sm:w-auto rounded-full")}
             disabled={!draft.trim()}
             onClick={handleAdd}
           >

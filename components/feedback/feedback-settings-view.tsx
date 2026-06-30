@@ -12,7 +12,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { StaffHeader } from "@/components/layout/staff-header";
+import { SettingsHeader, SettingsMain } from "@/components/settings/settings-kit";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -50,7 +50,7 @@ function TicketStatusBadge({ status }: { status: SupportTicket["status"] }) {
   return (
     <span
       className={cn(
-        "inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold",
+        "inline-flex shrink-0 rounded-md border px-2.5 py-0.5 text-[11px] font-medium",
         meta.color
       )}
     >
@@ -317,12 +317,12 @@ export function FeedbackSettingsView() {
 
   return (
     <>
-      <StaffHeader
-        title="Feedback & ideas"
-        description="Help shape FloPilot — report bugs, request features, and share what would make your shop run smoother"
-      />
+      <SettingsMain>
+        <SettingsHeader
+          title="Feedback & ideas"
+          description="Report bugs, request features, and tell us what would make your shop run smoother."
+        />
 
-      <main className="flex-1 space-y-5 p-4 sm:space-y-6 sm:p-6 lg:p-8">
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] xl:gap-6">
           <section className="rounded-2xl border border-white/80 bg-white shadow-sm">
             <div className="border-b border-border/50 px-5 py-4 sm:px-6">
@@ -484,7 +484,6 @@ export function FeedbackSettingsView() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="rounded-full"
                           onClick={(event) => {
                             event.stopPropagation();
                             fileRef.current?.click();
@@ -497,7 +496,7 @@ export function FeedbackSettingsView() {
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="rounded-full text-destructive hover:bg-destructive/10"
+                          className="text-destructive hover:bg-destructive/10"
                           onClick={(event) => {
                             event.stopPropagation();
                             setAttachmentUrl("");
@@ -617,7 +616,7 @@ export function FeedbackSettingsView() {
             </div>
           </section>
         </div>
-      </main>
+      </SettingsMain>
 
       <FeedbackTicketDetailDialog
         ticket={selectedTicket}

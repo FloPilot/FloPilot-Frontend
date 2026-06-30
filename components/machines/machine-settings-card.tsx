@@ -16,6 +16,10 @@ import {
   machineColorStyles,
   RESOURCE_TYPE_LABELS,
 } from "@/lib/machine-styles";
+import {
+  dashboardCardClass,
+  dashboardControlClass,
+} from "@/lib/dashboard-styles";
 import type { Machine } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -35,7 +39,8 @@ export function MachineSettingsCard({
   return (
     <article
       className={cn(
-        "group flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-white shadow-sm transition-all hover:border-brand-primary/25 hover:shadow-md",
+        dashboardCardClass,
+        "group flex flex-col transition-[border-color,box-shadow] hover:border-[#c9cccf]",
         !machine.active && "opacity-90"
       )}
     >
@@ -44,17 +49,17 @@ export function MachineSettingsCard({
       <div className="flex flex-1 flex-col p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="text-lg font-semibold text-brand-ink truncate leading-snug">
+            <h3 className="truncate text-[15px] font-semibold leading-snug text-[#303030]">
               {machine.name}
             </h3>
-            <p className="text-sm text-brand-muted mt-0.5">
+            <p className="mt-0.5 text-[13px] text-[#616161]">
               {RESOURCE_TYPE_LABELS[machine.type]}
             </p>
           </div>
           <Badge
             variant="outline"
             className={cn(
-              "shrink-0 rounded-full gap-1",
+              "shrink-0 gap-1 rounded-md",
               machine.active
                 ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                 : "border-amber-200 bg-amber-50 text-amber-800"
@@ -74,13 +79,13 @@ export function MachineSettingsCard({
           </Badge>
         </div>
 
-        <div className="mt-4 rounded-xl border border-border/60 bg-brand-surface/30 px-3.5 py-3">
+        <div className="mt-4 rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] px-3.5 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
                 Calendar
               </p>
-              <p className="text-sm font-medium text-brand-ink mt-0.5 inline-flex items-center gap-2 capitalize">
+              <p className="mt-0.5 inline-flex items-center gap-2 text-sm font-medium capitalize text-[#303030]">
                 <span
                   className={cn("size-2.5 rounded-full shrink-0", styles.dot)}
                 />
@@ -88,10 +93,10 @@ export function MachineSettingsCard({
               </p>
             </div>
             <div className="text-right shrink-0">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
                 Scheduled
               </p>
-              <p className="text-sm font-medium text-brand-ink mt-0.5 tabular-nums">
+              <p className="mt-0.5 text-sm font-medium tabular-nums text-[#303030]">
                 {scheduledCount} event{scheduledCount !== 1 ? "s" : ""}
               </p>
             </div>
@@ -100,38 +105,38 @@ export function MachineSettingsCard({
 
         <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
           <div>
-            <dt className="text-xs text-brand-muted">Capacity</dt>
-            <dd className="font-medium text-brand-ink mt-0.5">
+            <dt className="text-xs text-[#616161]">Capacity</dt>
+            <dd className="mt-0.5 font-medium text-[#303030]">
               {machine.capacityPerHour > 0
                 ? `${machine.capacityPerHour} / hr`
                 : "—"}
             </dd>
           </div>
           <div>
-            <dt className="text-xs text-brand-muted">Status</dt>
-            <dd className="font-medium text-brand-ink mt-0.5">
+            <dt className="text-xs text-[#616161]">Status</dt>
+            <dd className="mt-0.5 font-medium text-[#303030]">
               {machine.active ? "Scheduling enabled" : "Scheduling paused"}
             </dd>
           </div>
           <div className="col-span-2">
-            <dt className="flex items-center gap-1 text-xs text-brand-muted">
+            <dt className="flex items-center gap-1 text-xs text-[#616161]">
               <Clock className="size-3" />
               Operating hours
             </dt>
-            <dd className="font-medium text-brand-ink mt-0.5 text-sm leading-snug">
+            <dd className="mt-0.5 text-sm font-medium leading-snug text-[#303030]">
               {formatOperatingHoursSummary(machine)}
             </dd>
           </div>
         </dl>
 
         {machine.notes && (
-          <p className="mt-3 text-xs text-brand-muted leading-relaxed line-clamp-2 rounded-xl bg-muted/20 px-3 py-2.5 border border-border/50">
+          <p className="mt-3 line-clamp-2 rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] px-3 py-2.5 text-xs leading-relaxed text-[#616161]">
             {machine.notes}
           </p>
         )}
 
         {!machine.active && machine.statusMessage && (
-          <p className="mt-3 text-xs text-amber-900 leading-relaxed line-clamp-2 rounded-xl bg-amber-50 px-3 py-2.5 border border-amber-100">
+          <p className="mt-3 line-clamp-2 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-900">
             {machine.statusMessage}
           </p>
         )}
@@ -139,9 +144,7 @@ export function MachineSettingsCard({
         <div className="mt-5 flex items-center gap-2">
           <Button
             type="button"
-            variant="outline"
-            size="sm"
-            className="flex-1 rounded-full h-9 bg-white"
+            className={cn(dashboardControlClass, "h-9 flex-1")}
             onClick={onEdit}
           >
             <Pencil className="size-3.5" />
@@ -149,9 +152,10 @@ export function MachineSettingsCard({
           </Button>
           <Button
             type="button"
-            variant="outline"
-            size="sm"
-            className="rounded-full h-9 w-9 p-0 text-destructive hover:bg-destructive/10 border-border/70"
+            className={cn(
+              dashboardControlClass,
+              "h-9 w-9 p-0 text-destructive hover:bg-destructive/10"
+            )}
             onClick={onDelete}
             aria-label={`Delete ${machine.name}`}
           >
@@ -161,7 +165,7 @@ export function MachineSettingsCard({
 
         <Link
           href={`/app/machines/${machine.id}`}
-          className="mt-4 flex items-center justify-between border-t border-border/60 pt-3 text-sm font-medium text-brand-primary transition-colors hover:text-brand-primary/80"
+          className="mt-4 flex items-center justify-between border-t border-[#ebebeb] pt-3 text-[13px] font-medium text-[#2c6ecb] transition-colors hover:text-[#2c6ecb]/80"
         >
           Open station
           <ChevronRight className="size-4 transition-transform group-hover:translate-x-0.5" />

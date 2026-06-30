@@ -8,7 +8,9 @@ import {
   type CustomerDetailReportData,
   type CustomersListReportData,
 } from "@/lib/reports/customer-reports";
+import { dashboardControlClass } from "@/lib/dashboard-styles";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 type ReportsLauncherProps =
   | {
@@ -17,6 +19,7 @@ type ReportsLauncherProps =
       data: CustomersListReportData;
       variant?: "default" | "outline";
       size?: "default" | "sm";
+      className?: string;
     }
   | {
       context: "customer_detail";
@@ -24,25 +27,38 @@ type ReportsLauncherProps =
       data: CustomerDetailReportData;
       variant?: "default" | "outline";
       size?: "default" | "sm";
+      className?: string;
     };
 
 export function ReportsLauncher(props: ReportsLauncherProps) {
-  const { variant = "outline", size = "default" } = props;
+  const { variant = "outline", size = "sm", className } = props;
   const [open, setOpen] = useState(false);
 
-  const trigger = (
-    <Button
-      variant={variant}
-      size={size}
-      className="rounded-full"
-      onClick={() => setOpen(true)}
-    >
-      <BarChart3 className="size-4" />
-      <span className={size === "sm" ? undefined : "hidden sm:inline"}>
-        Reports
-      </span>
-    </Button>
-  );
+  const trigger =
+    variant === "outline" ? (
+      <button
+        type="button"
+        className={cn(dashboardControlClass, "h-9", className)}
+        onClick={() => setOpen(true)}
+      >
+        <BarChart3 className="size-3.5" />
+        <span className={size === "sm" ? undefined : "hidden sm:inline"}>
+          Reports
+        </span>
+      </button>
+    ) : (
+      <Button
+        variant={variant}
+        size={size}
+        className={cn(dashboardControlClass, "h-9", className)}
+        onClick={() => setOpen(true)}
+      >
+        <BarChart3 className="size-3.5" />
+        <span className={size === "sm" ? undefined : "hidden sm:inline"}>
+          Reports
+        </span>
+      </Button>
+    );
 
   if (props.context === "customers_list" || props.context === "reports_hub") {
     const label =

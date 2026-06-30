@@ -31,6 +31,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  dashboardControlClass,
+  dashboardPrimaryButtonClass,
+  dashboardTaskDetailClass,
+  dashboardTaskTitleClass,
+} from "@/lib/dashboard-styles";
 import { cn } from "@/lib/utils";
 
 const PREVIEW_ROW_LIMIT = 25;
@@ -103,15 +109,15 @@ export function ReportDialog<TData>({
       <DialogContent
         showCloseButton
         className={cn(
-          "flex h-[min(88vh,820px)] w-[calc(100vw-1.5rem)] max-w-none flex-col gap-0 overflow-hidden rounded-2xl p-0",
+          "flex h-[min(88vh,820px)] w-[calc(100vw-1.5rem)] max-w-none flex-col gap-0 overflow-hidden p-0",
           "sm:max-w-6xl"
         )}
       >
-        <DialogHeader className="shrink-0 border-b px-6 py-4 pr-14 text-left">
-          <DialogTitle className="text-lg font-semibold">
+        <DialogHeader className="shrink-0 border-b border-[#ebebeb] px-5 py-4 pr-14 text-left">
+          <DialogTitle className={dashboardTaskTitleClass}>
             {selectedReport ? selectedReport.title : "Reports"}
           </DialogTitle>
-          <DialogDescription className="text-sm leading-relaxed">
+          <DialogDescription className={dashboardTaskDetailClass}>
             {selectedReport
               ? selectedReport.description
               : `Choose a report for ${contextLabel}. Preview the data here, then export to CSV.`}
@@ -121,12 +127,12 @@ export function ReportDialog<TData>({
         <div className="grid min-h-0 flex-1 md:grid-cols-[minmax(240px,300px)_minmax(0,1fr)]">
           <aside
             className={cn(
-              "min-h-0 border-b bg-muted/20 md:border-b-0 md:border-r",
+              "min-h-0 border-b border-[#ebebeb] bg-[#fafafa] md:border-b-0 md:border-r",
               showPreview ? "hidden md:flex md:flex-col" : "flex flex-col"
             )}
           >
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
                 Available reports
               </p>
               <div className="space-y-5">
@@ -134,7 +140,7 @@ export function ReportDialog<TData>({
                   const Icon = CATEGORY_ICONS[category] ?? BarChart3;
                   return (
                     <div key={category}>
-                      <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-[#616161]">
                         <Icon className="size-3.5 shrink-0" />
                         {category}
                       </p>
@@ -145,16 +151,16 @@ export function ReportDialog<TData>({
                             type="button"
                             onClick={() => setSelectedReportId(report.id)}
                             className={cn(
-                              "w-full rounded-xl border px-3 py-2.5 text-left transition-colors",
+                              "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
                               selectedReportId === report.id
-                                ? "border-brand-primary/30 bg-brand-primary/5 shadow-sm"
-                                : "border-transparent bg-white hover:border-border hover:bg-white"
+                                ? "border-[#2c6ecb] bg-[#f4f7fd]"
+                                : "border-transparent bg-white hover:border-[#e3e3e3]"
                             )}
                           >
-                            <p className="text-sm font-medium leading-snug">
+                            <p className="text-sm font-medium leading-snug text-[#303030]">
                               {report.title}
                             </p>
-                            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                            <p className="mt-1 text-xs leading-relaxed text-[#616161]">
                               {report.description}
                             </p>
                           </button>
@@ -170,31 +176,32 @@ export function ReportDialog<TData>({
           <section className="flex min-h-0 min-w-0 flex-col bg-white">
             {!showPreview ? (
               <div className="flex flex-1 flex-col items-center justify-center px-8 py-10 text-center">
-                <div className="rounded-2xl bg-muted/60 p-4 text-muted-foreground">
+                <div className="rounded-lg bg-[#f1f1f1] p-4 text-[#616161]">
                   <BarChart3 className="size-8" />
                 </div>
-                <p className="mt-4 text-sm font-medium text-foreground">
+                <p className="mt-4 text-sm font-medium text-[#303030]">
                   Select a report to preview
                 </p>
-                <p className="mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+                <p className="mt-2 max-w-md text-sm leading-relaxed text-[#616161]">
                   Pick a report from the list on the left. You will see a
                   preview here before exporting to CSV.
                 </p>
               </div>
             ) : (
               <>
-                <div className="flex shrink-0 items-center gap-3 border-b px-4 py-3 md:px-5">
+                <div className="flex shrink-0 items-center gap-3 border-b border-[#ebebeb] px-4 py-3 md:px-5">
                   <Button
+                    type="button"
                     variant="ghost"
                     size="sm"
-                    className="rounded-full -ml-2 md:hidden"
+                    className="-ml-2 h-8 rounded-lg text-[#616161] md:hidden"
                     onClick={() => setSelectedReportId(null)}
                   >
                     <ArrowLeft className="size-4" />
                     All reports
                   </Button>
-                  <p className="text-sm text-muted-foreground">
-                    <span className="font-medium text-foreground tabular-nums">
+                  <p className="text-sm text-[#616161]">
+                    <span className="font-medium tabular-nums text-[#303030]">
                       {result!.rows.length}
                     </span>{" "}
                     {result!.rows.length === 1 ? "row" : "rows"}
@@ -202,7 +209,7 @@ export function ReportDialog<TData>({
                       ` · showing first ${PREVIEW_ROW_LIMIT} in preview`}
                   </p>
                   {result!.rows.length === 0 && (
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                    <span className="rounded-md bg-[#f1f1f1] px-2.5 py-1 text-xs font-medium text-[#616161]">
                       No matching data
                     </span>
                   )}
@@ -210,18 +217,18 @@ export function ReportDialog<TData>({
 
                 <div className="min-h-0 flex-1 overflow-auto">
                   {result!.rows.length === 0 ? (
-                    <div className="flex h-full min-h-[240px] items-center justify-center px-6 text-sm text-muted-foreground">
+                    <div className="flex h-full min-h-[240px] items-center justify-center px-6 text-sm text-[#616161]">
                       Nothing to export for this report right now.
                     </div>
                   ) : (
                     <Table>
-                      <TableHeader className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_hsl(var(--border))]">
+                      <TableHeader className="sticky top-0 z-10 bg-white shadow-[0_1px_0_0_#ebebeb]">
                         <TableRow>
                           {result!.columns.map((column) => (
                             <TableHead
                               key={column.key}
                               className={cn(
-                                "whitespace-nowrap bg-white",
+                                "whitespace-nowrap bg-white text-[#616161]",
                                 column.align === "right" && "text-right"
                               )}
                             >
@@ -237,7 +244,7 @@ export function ReportDialog<TData>({
                               <TableCell
                                 key={column.key}
                                 className={cn(
-                                  "max-w-[280px] truncate whitespace-nowrap",
+                                  "max-w-[280px] truncate whitespace-nowrap text-[#303030]",
                                   column.align === "right" &&
                                     "text-right tabular-nums"
                                 )}
@@ -256,24 +263,25 @@ export function ReportDialog<TData>({
           </section>
         </div>
 
-        <DialogFooter className="!mx-0 !mb-0 shrink-0 flex-row items-center justify-between gap-4 border-t bg-muted/30 px-6 py-4">
-          <p className="hidden text-xs text-muted-foreground sm:block">
+        <DialogFooter className="!mx-0 !mb-0 shrink-0 flex-row items-center justify-between gap-4 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-4">
+          <p className="hidden text-xs text-[#616161] sm:block">
             Exports open in Excel, Google Sheets, or your accounting tools.
           </p>
           <div className="flex w-full flex-col-reverse gap-2 sm:ml-auto sm:w-auto sm:flex-row">
             <Button
-              variant="outline"
-              className="rounded-full"
+              type="button"
+              className={cn(dashboardControlClass, "h-9")}
               onClick={() => handleOpenChange(false)}
             >
               Close
             </Button>
             <Button
-              className="rounded-full"
+              type="button"
+              className={cn(dashboardPrimaryButtonClass, "h-9")}
               disabled={!result || result.rows.length === 0}
               onClick={() => result && downloadReportCsv(result)}
             >
-              <Download className="size-4" />
+              <Download className="size-3.5" />
               Export CSV
               {result && result.rows.length > 0
                 ? ` (${result.rows.length})`

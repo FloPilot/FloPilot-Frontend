@@ -1,14 +1,18 @@
 import {
   BarChart3,
+  Bell,
   Boxes,
   CalendarDays,
+  CheckSquare,
   ClipboardList,
   Factory,
   FileImage,
+  Files,
+  FolderOpen,
+  Layers,
   LayoutDashboard,
   Monitor,
   Package,
-  Settings,
   SlidersHorizontal,
   Users,
   Wrench,
@@ -46,9 +50,16 @@ export const MACHINES_BASE = "/app/machines";
 export const MACHINES_SETTINGS = "/app/machines/settings";
 export const PRODUCTION_BASE = "/app/production";
 export const ARTWORK_BASE = "/app/artwork";
+export const FILES_BASE = "/app/files";
+export const FILES_ARTWORK = "/app/files/artwork";
+export const FILES_SCREENS = "/app/files/screens";
 
 export function isMachinesSection(pathname: string): boolean {
   return pathname === MACHINES_BASE || pathname.startsWith(`${MACHINES_BASE}/`);
+}
+
+export function isFilesSection(pathname: string): boolean {
+  return pathname === FILES_BASE || pathname.startsWith(`${FILES_BASE}/`);
 }
 
 export function shouldExpandNavChildren(
@@ -57,6 +68,7 @@ export function shouldExpandNavChildren(
 ): boolean {
   if (!item.children) return false;
   if (item.href === MACHINES_BASE) return isMachinesSection(pathname);
+  if (item.href === FILES_BASE) return isFilesSection(pathname);
   return isNavItemActive(pathname, item);
 }
 
@@ -70,6 +82,13 @@ export function isMachinesStationsRoute(pathname: string): boolean {
 
 export const navItems: NavItem[] = [
   { href: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard, workspaceArea: "dashboard" },
+  {
+    href: "/app/notifications",
+    label: "Notifications",
+    icon: Bell,
+    workspaceArea: "dashboard",
+  },
+  { href: "/app/tasks", label: "Tasks", icon: CheckSquare, workspaceArea: "tasks" },
   { href: "/app/orders", label: "Orders", icon: ClipboardList, workspaceArea: "orders" },
   { href: "/app/customers", label: "Customers", icon: Users, workspaceArea: "customers" },
   {
@@ -85,6 +104,36 @@ export const navItems: NavItem[] = [
     icon: FileImage,
     moduleKey: "artwork",
     workspaceArea: "artwork",
+  },
+  {
+    href: FILES_BASE,
+    label: "Files",
+    icon: FolderOpen,
+    isActive: isFilesSection,
+    children: [
+      {
+        href: FILES_BASE,
+        label: "All files",
+        icon: Files,
+        isActive: (pathname) => pathname === FILES_BASE,
+      },
+      {
+        href: FILES_ARTWORK,
+        label: "Artwork",
+        icon: FileImage,
+        isActive: (pathname) =>
+          pathname === FILES_ARTWORK ||
+          pathname.startsWith(`${FILES_ARTWORK}/`),
+      },
+      {
+        href: FILES_SCREENS,
+        label: "Screens",
+        icon: Layers,
+        isActive: (pathname) =>
+          pathname === FILES_SCREENS ||
+          pathname.startsWith(`${FILES_SCREENS}/`),
+      },
+    ],
   },
   { href: "/app/calendar", label: "Calendar", icon: CalendarDays, workspaceArea: "calendar" },
   {
@@ -114,7 +163,6 @@ export const navItems: NavItem[] = [
   },
   { href: "/app/inventory", label: "Inventory", icon: Package, moduleKey: "inventory", workspaceArea: "inventory" },
   { href: "/app/reports", label: "Reports", icon: BarChart3, moduleKey: "reports", workspaceArea: "reports" },
-  { href: "/app/settings", label: "Settings", icon: Settings, workspaceArea: "settings" },
 ];
 
 export function getVisibleNavItems(

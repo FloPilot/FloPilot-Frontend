@@ -1,5 +1,6 @@
 import {
   addDays,
+  differenceInHours,
   format,
   isSameDay,
   isWithinInterval,
@@ -15,6 +16,11 @@ import type {
   Task,
 } from "@/types";
 import { collectArtworkQueue, countArtworkQueue } from "@/lib/artwork-queue";
+import {
+  excludeArchivedOrders,
+  excludeScheduleBlocksForArchivedOrders,
+  getArchivedOrderIds,
+} from "@/lib/order-archive";
 import {
   buildSchedulingQueueOrders,
   getUnscheduledEvents,
@@ -44,36 +50,42 @@ export type DashboardLiveStats = {
   activeOrders: number;
   toSchedule: number;
   toScheduleOrders: number;
+  dueToday: number;
+  overdue: number;
   dueThisWeek: number;
   awaitingApproval: number;
+  staleAwaitingApproval: number;
   artworkPending: number;
   readyToShip: number;
   lowStockItems: number;
   scheduledToday: number;
   runningNow: number;
+  inProductionOrders: number;
   rushOrders: number;
   openPipeline: number;
 };
 
-export type TodayFloorItem =
-  | {
-      kind: "scheduled";
-      id: string;
-      machineName: string;
-      machineColor?: Machine["color"];
-      orderNumber: string;
-      imprintLabel: string;
-      timeLabel: string;
-      href: string;
-    }
-  | {
-      kind: "running";
-      id: string;
-      machineName: string;
-      orderNumber: string;
-      imprintLabel: string;
-      href: string;
-    };
+export type TodayFloorItem = {
+  kind: "scheduled" | "running";
+  /** Run id when running; schedule block id when scheduled only */
+  id: string;
+  scheduleBlockId: string;
+  runId?: string;
+  orderId: string;
+  orderNumber: string;
+  customerName: string;
+  machineId: string;
+  machineName: string;
+  machineColor?: Machine["color"];
+  jobName: string;
+  imprintLabel: string;
+  pieceCount?: number;
+  startAt: string;
+  endAt: string;
+  timeLabel: string;
+  notes?: string;
+  href: string;
+};
 
 export function computeDashboardInsights({
   orders,
@@ -90,11 +102,25 @@ export function computeDashboardInsights({
   productionTasks: Task[];
   apiStats: DashboardStats | null;
 }) {
+  const archivedOrderIds = getArchivedOrderIds(orders);
+  const operationalOrders = excludeArchivedOrders(orders);
+  const activeScheduleBlocks = excludeScheduleBlocksForArchivedOrders(
+    scheduleBlocks,
+    archivedOrderIds
+  );
+  const activeProductionTasks = productionTasks.filter(
+    (task) => !archivedOrderIds.has(task.orderId)
+  );
+  const activeJobRuns = jobRuns.filter((run) => {
+    const block = scheduleBlocks.find((item) => item.id === run.scheduleBlockId);
+    return block ? !archivedOrderIds.has(block.orderId) : true;
+  });
+
   const now = new Date();
   const today = startOfDay(now);
   const weekEnd = addDays(today, 7);
 
-  const openOrders = orders.filter(
+  const openOrders = operationalOrders.filter(
     (order) => !["shipped", "completed"].includes(order.status)
   );
 
@@ -129,6 +155,21 @@ export function computeDashboardInsights({
 
   const dueThisWeek = dueThisWeekOrders.length;
 
+  const dueTodayOrders = openOrders
+    .filter((order) => {
+      try {
+        return isSameDay(startOfDay(parseISO(order.inHandsDate)), today);
+      } catch {
+        return false;
+      }
+    })
+    .sort(
+      (a, b) =>
+        new Date(a.inHandsDate).getTime() - new Date(b.inHandsDate).getTime()
+    );
+
+  const dueToday = dueTodayOrders.length;
+
   const awaitingApprovalOrders = openOrders
     .filter((order) =>
       ["quote_sent", "awaiting_approval"].includes(order.status)
@@ -140,6 +181,25 @@ export function computeDashboardInsights({
 
   const awaitingApproval = awaitingApprovalOrders.length;
 
+  const staleAwaitingApproval = awaitingApprovalOrders.filter((order) => {
+    const statusActivity = order.activity?.find(
+      (event) =>
+        event.type === "status" &&
+        (event.title?.toLowerCase().includes("awaiting") ||
+          event.title?.toLowerCase().includes("quote"))
+    );
+    const anchor = statusActivity?.timestamp ?? order.createdAt;
+    try {
+      return differenceInHours(now, parseISO(anchor)) >= 48;
+    } catch {
+      return false;
+    }
+  }).length;
+
+  const inProductionOrders = openOrders.filter(
+    (order) => order.status === "in_production"
+  ).length;
+
   const rushOrdersList = openOrders
     .filter((order) => order.rush)
     .sort(
@@ -147,19 +207,28 @@ export function computeDashboardInsights({
         new Date(a.inHandsDate).getTime() - new Date(b.inHandsDate).getTime()
     );
 
-  const artworkCounts = countArtworkQueue(collectArtworkQueue(orders));
-  const artworkPendingEntries = collectArtworkQueue(orders).filter((entry) =>
-    ["pending", "revision_requested"].includes(entry.artwork.status)
+  const artworkCounts = countArtworkQueue(collectArtworkQueue(operationalOrders));
+  const artworkPendingEntries = collectArtworkQueue(operationalOrders).filter(
+    (entry) =>
+      ["pending", "revision_requested"].includes(entry.artwork.status)
   );
   const artworkPending =
     artworkCounts.pending + artworkCounts.revision_requested;
 
-  const schedulingQueue = buildSchedulingQueueOrders(orders, scheduleBlocks, {
-    ignoreArtworkApproval: true,
-  });
-  const unscheduledEvents = getUnscheduledEvents(orders, scheduleBlocks, {
-    ignoreArtworkApproval: true,
-  });
+  const schedulingQueue = buildSchedulingQueueOrders(
+    operationalOrders,
+    activeScheduleBlocks,
+    {
+      ignoreArtworkApproval: true,
+    }
+  );
+  const unscheduledEvents = getUnscheduledEvents(
+    operationalOrders,
+    activeScheduleBlocks,
+    {
+      ignoreArtworkApproval: true,
+    }
+  );
   const toSchedule = unscheduledEvents.length;
   const toScheduleOrders = schedulingQueue.length;
 
@@ -174,27 +243,46 @@ export function computeDashboardInsights({
     (order) => order.status === "ready_to_ship"
   );
 
-  const blocksToday = scheduleBlocks
+  const blocksToday = activeScheduleBlocks
     .filter((block) => isSameDay(parseISO(block.startAt), now))
     .sort(
       (a, b) =>
         parseISO(a.startAt).getTime() - parseISO(b.startAt).getTime()
     );
 
-  const runningRuns = jobRuns.filter((run) => run.status === "running");
+  const runningRuns = activeJobRuns.filter((run) => run.status === "running");
 
   const machineById = new Map(machines.map((machine) => [machine.id, machine]));
-  const blockById = new Map(scheduleBlocks.map((block) => [block.id, block]));
+  const blockById = new Map(
+    activeScheduleBlocks.map((block) => [block.id, block])
+  );
 
   const runningFloor: TodayFloorItem[] = runningRuns.map((run) => {
     const block = blockById.get(run.scheduleBlockId);
     const machine = machineById.get(run.machineId);
+    const start = block ? parseISO(block.startAt) : null;
+    const end = block ? parseISO(block.endAt) : null;
     return {
       kind: "running" as const,
       id: run.id,
+      scheduleBlockId: run.scheduleBlockId,
+      runId: run.id,
+      orderId: block?.orderId ?? "",
       machineName: machine?.name ?? "Machine",
+      machineId: run.machineId,
+      machineColor: machine?.color,
       orderNumber: block?.orderNumber ?? "—",
+      customerName: block?.customerName ?? "",
+      jobName: block?.jobName ?? "Production",
       imprintLabel: block?.imprintLabel ?? "In progress",
+      pieceCount: block?.pieceCount,
+      startAt: block?.startAt ?? run.startedAt ?? "",
+      endAt: block?.endAt ?? "",
+      timeLabel:
+        start && end
+          ? `${format(start, "h:mm a")} – ${format(end, "h:mm a")}`
+          : "In progress on the floor",
+      notes: block?.notes,
       href: block ? `/app/orders/${block.orderId}` : "/app/calendar",
     };
   });
@@ -210,25 +298,66 @@ export function computeDashboardInsights({
       return {
         kind: "scheduled" as const,
         id: block.id,
+        scheduleBlockId: block.id,
+        orderId: block.orderId,
         machineName: machine?.name ?? "Machine",
+        machineId: block.machineId,
         machineColor: machine?.color,
         orderNumber: block.orderNumber,
+        customerName: block.customerName,
+        jobName: block.jobName,
         imprintLabel: block.imprintLabel,
+        pieceCount: block.pieceCount,
+        startAt: block.startAt,
+        endAt: block.endAt,
         timeLabel: `${format(start, "h:mm a")} – ${format(end, "h:mm a")}`,
+        notes: block.notes,
         href: `/app/orders/${block.orderId}`,
       };
     });
 
   const todayFloor: TodayFloorItem[] = [...runningFloor, ...scheduledFloor];
 
-  const recentOrders = [...orders]
+  const blocksTomorrow = activeScheduleBlocks
+    .filter((block) => isSameDay(parseISO(block.startAt), addDays(now, 1)))
+    .sort(
+      (a, b) =>
+        parseISO(a.startAt).getTime() - parseISO(b.startAt).getTime()
+    );
+
+  const tomorrowFloor: TodayFloorItem[] = blocksTomorrow.map((block) => {
+    const machine = machineById.get(block.machineId);
+    const start = parseISO(block.startAt);
+    const end = parseISO(block.endAt);
+    return {
+      kind: "scheduled" as const,
+      id: block.id,
+      scheduleBlockId: block.id,
+      orderId: block.orderId,
+      machineName: machine?.name ?? "Machine",
+      machineId: block.machineId,
+      machineColor: machine?.color,
+      orderNumber: block.orderNumber,
+      customerName: block.customerName,
+      jobName: block.jobName,
+      imprintLabel: block.imprintLabel,
+      pieceCount: block.pieceCount,
+      startAt: block.startAt,
+      endAt: block.endAt,
+      timeLabel: `${format(start, "h:mm a")} – ${format(end, "h:mm a")}`,
+      notes: block.notes,
+      href: `/app/orders/${block.orderId}`,
+    };
+  });
+
+  const recentOrders = [...operationalOrders]
     .sort(
       (a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     )
     .slice(0, 6);
 
-  const openTasks = productionTasks
+  const openTasks = activeProductionTasks
     .filter((task) => task.status !== "done")
     .sort((a, b) => {
       const rank = (status: Task["status"]) =>
@@ -330,22 +459,27 @@ export function computeDashboardInsights({
     activeOrders,
     toSchedule,
     toScheduleOrders,
+    dueToday,
+    overdue: overdueOrders.length,
     dueThisWeek,
     awaitingApproval,
+    staleAwaitingApproval,
     artworkPending,
     readyToShip: readyToShipOrders.length,
     lowStockItems: lowStock,
     scheduledToday: blocksToday.length,
     runningNow: runningRuns.length,
+    inProductionOrders,
     rushOrders,
     openPipeline,
   };
 
   return {
     stats,
-    attention: attention.slice(0, 6),
+    attention,
     schedulingQueue,
     activeOrdersList,
+    dueTodayOrders,
     dueThisWeekOrders,
     artworkPendingEntries,
     awaitingApprovalOrders,
@@ -353,6 +487,7 @@ export function computeDashboardInsights({
     overdueOrders,
     recentOrders,
     todayFloor,
+    tomorrowFloor,
     openTasks,
     readyToShipOrders,
   };

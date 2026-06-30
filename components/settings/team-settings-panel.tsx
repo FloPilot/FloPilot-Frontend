@@ -61,12 +61,16 @@ function RoleBadge({ role }: { role: StaffRole }) {
   const styles: Record<StaffRole, string> = {
     admin: "bg-brand-primary/10 text-brand-primary border-brand-primary/15",
     manager: "bg-violet-50 text-violet-700 border-violet-100",
-    production: "bg-amber-50 text-amber-800 border-amber-100",
-    viewer: "bg-slate-100 text-slate-700 border-slate-200",
+    production: "bg-amber-50 text-amber-700 border-amber-100",
+    viewer: "bg-slate-50 text-slate-600 border-slate-200",
   };
 
   return (
-    <Badge variant="outline" className={cn("font-medium", styles[role])}>
+    <Badge
+      variant="outline"
+      className={cn("gap-1.5 rounded-md border font-medium", styles[role])}
+    >
+      <span className="size-1.5 rounded-full bg-current opacity-70" />
       {getRoleLabel(role)}
     </Badge>
   );
@@ -233,11 +237,7 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
             <span>· {invites.length} pending invite{invites.length !== 1 ? "s" : ""}</span>
           )}
         </div>
-        <Button
-          size="sm"
-          className="rounded-full"
-          onClick={() => setInviteOpen(true)}
-        >
+        <Button size="sm" onClick={() => setInviteOpen(true)}>
           <UserPlus className="size-4" />
           Invite teammate
         </Button>
@@ -292,7 +292,7 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                   <DropdownMenu>
                     <DropdownMenuTrigger
                       disabled={busyId === member.id}
-                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-brand-muted outline-none hover:bg-brand-primary/8 hover:text-brand-ink disabled:opacity-50"
+                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-brand-muted outline-none hover:bg-[#f1f1f1] hover:text-brand-ink disabled:opacity-50"
                     >
                       <MoreHorizontal className="size-4" />
                     </DropdownMenuTrigger>
@@ -328,7 +328,10 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                     {invite.name}
                   </p>
                   <RoleBadge role={invite.role} />
-                  <Badge variant="outline" className="text-[10px] uppercase tracking-wide">
+                  <Badge
+                    variant="outline"
+                    className="bg-muted text-[10px] uppercase tracking-wide text-muted-foreground"
+                  >
                     Invited
                   </Badge>
                 </div>
@@ -396,9 +399,7 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                 </div>
               </div>
               <DialogFooter>
-                <Button className="rounded-full" onClick={resetInviteDialog}>
-                  Done
-                </Button>
+                <Button onClick={resetInviteDialog}>Done</Button>
               </DialogFooter>
             </div>
           ) : (
@@ -459,11 +460,10 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                 />
               </div>
               <DialogFooter>
-                <Button variant="outline" className="rounded-full" onClick={resetInviteDialog}>
+                <Button variant="outline" onClick={resetInviteDialog}>
                   Cancel
                 </Button>
                 <Button
-                  className="rounded-full"
                   disabled={inviting || !inviteName.trim() || !inviteEmail.trim()}
                   onClick={() => void handleInvite()}
                 >
@@ -532,15 +532,10 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
             </div>
           )}
           <DialogFooter>
-            <Button
-              variant="outline"
-              className="rounded-full"
-              onClick={() => setEditMember(null)}
-            >
+            <Button variant="outline" onClick={() => setEditMember(null)}>
               Cancel
             </Button>
             <Button
-              className="rounded-full"
               disabled={savingAccess}
               onClick={() => void handleSaveAccess()}
             >

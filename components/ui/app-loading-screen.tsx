@@ -13,8 +13,10 @@ export function AppLoadingScreen({
   return (
     <div
       className={cn(
-        "loader-fade-up flex flex-col items-center justify-center bg-white p-8",
-        fullScreen ? "min-h-screen flex-1" : "min-h-[40vh] flex-1 w-full",
+        "loader-fade-up flex flex-col items-center justify-center p-8",
+        fullScreen
+          ? "min-h-screen flex-1 bg-[#f6f6f7]"
+          : "min-h-[40vh] flex-1 w-full bg-white",
         className
       )}
     >

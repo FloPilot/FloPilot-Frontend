@@ -1,5 +1,5 @@
-import { ShopSettingsView } from "@/components/settings/shop-settings-view";
+import { CompanyInformationSection } from "@/components/settings/sections/company-information-section";
 
 export default function SettingsPage() {
-  return <ShopSettingsView />;
+  return <CompanyInformationSection />;
 }

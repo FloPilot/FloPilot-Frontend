@@ -27,6 +27,7 @@ import {
 import { formatCurrency } from "@/lib/format";
 import {
   buildLineItemFromCatalog,
+  createDefaultLineItem,
   guessColorKey,
   guessProductKey,
   lineItemPieceCount,
@@ -210,7 +211,7 @@ export function OrderApparelTab({ order }: { order: Order }) {
             type="button"
             variant="outline"
             className="rounded-full"
-            onClick={() => addOrderLineItem(order.id)}
+            onClick={() => addOrderLineItem(order.id, createDefaultLineItem())}
           >
             <Plus className="size-3.5" />
             Add blank garment

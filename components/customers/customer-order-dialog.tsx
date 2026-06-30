@@ -14,7 +14,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
+import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { resolveOrderFinancials } from "@/lib/order-estimate";
 import { formatOrderBalanceLabel } from "@/lib/order-payment";
 import { countScheduledSteps } from "@/lib/order-production";
 import { cn } from "@/lib/utils";
@@ -32,6 +34,23 @@ export function CustomerOrderDialog({
 }) {
   const { getOrderById, scheduleBlocks } = useSchedule();
   const order = orderId ? getOrderById(orderId) : undefined;
+
+  const { settings } = useShopSettings();
+  const financials = useMemo(
+    () =>
+      order
+        ? resolveOrderFinancials(
+            order,
+            settings.taxRate,
+            settings.pricingMatrix
+          )
+        : null,
+    [order, settings.taxRate, settings.pricingMatrix]
+  );
+  const paymentOrder = useMemo(
+    () => (order && financials ? { ...order, ...financials } : order),
+    [order, financials]
+  );
 
   const progress = useMemo(
     () => (order ? countScheduledSteps(order, scheduleBlocks) : null),
@@ -70,13 +89,21 @@ export function CustomerOrderDialog({
         <div className="overflow-y-auto flex-1 px-6 py-5 space-y-5">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <StatChip label="In-hands" value={formatDate(order.inHandsDate)} />
-            <StatChip label="Total" value={formatCurrency(order.total)} />
+            <StatChip
+              label="Total"
+              value={formatCurrency(financials?.total ?? 0)}
+            />
             <StatChip
               label="Payment"
-              value={formatOrderBalanceLabel(order)}
+              value={
+                paymentOrder
+                  ? formatOrderBalanceLabel(paymentOrder)
+                  : "Not invoiced"
+              }
               highlight={
-                order.balance > 0 &&
-                formatOrderBalanceLabel(order) !== "Not invoiced"
+                !!paymentOrder &&
+                (financials?.balance ?? 0) > 0 &&
+                formatOrderBalanceLabel(paymentOrder) !== "Not invoiced"
               }
             />
             <StatChip

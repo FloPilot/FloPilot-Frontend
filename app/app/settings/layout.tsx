@@ -1,4 +1,4 @@
-import { SettingsSubnav } from "@/components/settings/settings-subnav";
+import { SettingsSecondaryNav } from "@/components/settings/settings-secondary-nav";
 
 export default function SettingsLayout({
   children,
@@ -6,9 +6,9 @@ export default function SettingsLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <SettingsSubnav />
-      {children}
+    <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <SettingsSecondaryNav />
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
 }

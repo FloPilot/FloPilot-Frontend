@@ -9,6 +9,8 @@ export type NewCustomerInput = {
   city: string;
   state: string;
   notes?: string;
+  logoUrl?: string | null;
+  accentColorKey?: string | null;
 };
 
 export const US_STATES: { value: string; label: string }[] = [
@@ -125,5 +127,7 @@ export function buildCustomerFromInput(input: NewCustomerInput): Customer {
     lifetimeValue: 0,
     customerSince: today,
     notes: input.notes?.trim() || undefined,
+    ...(input.logoUrl ? { logoUrl: input.logoUrl } : {}),
+    ...(input.accentColorKey ? { accentColorKey: input.accentColorKey } : {}),
   };
 }

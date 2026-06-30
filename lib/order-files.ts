@@ -71,6 +71,8 @@ export type OrderFileItem = {
   jobName?: string;
   notes?: string;
   archived?: boolean;
+  previewUrl?: string;
+  downloadUrl?: string;
 };
 
 function imprintFileKind(artwork: ArtworkFile): OrderFileKind {
@@ -92,6 +94,7 @@ function pushImprintFile(
     imprintLabel: string;
     jobName: string;
     archived?: boolean;
+    previewUrl?: string;
   }
 ) {
   const kind = params.kind;
@@ -112,6 +115,7 @@ function pushImprintFile(
     imprintLabel: params.imprintLabel,
     jobName: params.jobName,
     archived: params.archived,
+    previewUrl: params.previewUrl,
   });
 }
 
@@ -132,6 +136,7 @@ export function buildOrderFileList(order: Order): OrderFileItem[] {
       imprintId: imprint.id,
       imprintLabel: imprint.label,
       jobName: job.name,
+      previewUrl: art.previewUrl,
     });
 
     for (const v of art.history ?? []) {
@@ -147,6 +152,7 @@ export function buildOrderFileList(order: Order): OrderFileItem[] {
         imprintLabel: imprint.label,
         jobName: job.name,
         archived: true,
+        previewUrl: v.previewUrl,
       });
     }
   }
@@ -163,6 +169,8 @@ export function buildOrderFileList(order: Order): OrderFileItem[] {
       notes: file.notes,
       jobId: file.jobId,
       imprintId: file.imprintId,
+      previewUrl: file.previewUrl,
+      downloadUrl: file.downloadUrl,
     });
   }
 

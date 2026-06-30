@@ -27,6 +27,13 @@ import {
   MACHINE_COLOR_OPTIONS,
   RESOURCE_TYPE_LABELS,
 } from "@/lib/machine-styles";
+import {
+  dashboardControlClass,
+  dashboardInsetSurfaceClass,
+  dashboardPrimaryButtonClass,
+  dashboardTaskDetailClass,
+  dashboardTaskTitleClass,
+} from "@/lib/dashboard-styles";
 import type { MachineOperatingHours } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -96,15 +103,21 @@ export function ResourceFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg rounded-2xl p-0 gap-0 overflow-hidden max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        showCloseButton
+        className="max-h-[90vh] gap-0 overflow-y-auto p-0 sm:max-w-2xl"
+      >
         <form onSubmit={handleSubmit}>
-          <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
-            <DialogTitle className="text-sm font-bold tracking-widest uppercase text-brand-ink">
-              {mode === "create" ? "New Resource" : "Edit Resource"}
+          <DialogHeader className="border-b border-[#ebebeb] px-5 py-4">
+            <DialogTitle className={dashboardTaskTitleClass}>
+              {mode === "create" ? "New machine" : "Edit machine"}
             </DialogTitle>
+            <p className={dashboardTaskDetailClass}>
+              Set the press, calendar color, capacity, and operating hours.
+            </p>
           </DialogHeader>
 
-          <div className="space-y-5 px-6 py-6">
+          <div className="space-y-5 px-5 py-4">
             <div className="space-y-2">
               <Label htmlFor="resource-name">Name</Label>
               <Input
@@ -114,7 +127,7 @@ export function ResourceFormDialog({
                 onChange={(e) =>
                   setForm((f) => ({ ...f, name: e.target.value }))
                 }
-                className="h-11 rounded-xl border-2 focus-visible:border-brand-primary"
+                className="h-10 rounded-lg border-[#e3e3e3] focus-visible:border-[#2c6ecb]"
                 autoFocus
               />
             </div>
@@ -131,7 +144,9 @@ export function ResourceFormDialog({
                     }))
                   }
                 >
-                  <SelectTrigger className="h-11 w-full rounded-xl">
+                  <SelectTrigger
+                    className={cn(dashboardControlClass, "h-10 w-full justify-between")}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -155,7 +170,9 @@ export function ResourceFormDialog({
                     }))
                   }
                 >
-                  <SelectTrigger className="h-11 w-full rounded-xl">
+                  <SelectTrigger
+                    className={cn(dashboardControlClass, "h-10 w-full justify-between")}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -166,7 +183,7 @@ export function ResourceFormDialog({
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-brand-muted">
+                <p className="text-xs text-[#616161]">
                   Shown on the production calendar
                 </p>
               </div>
@@ -186,9 +203,9 @@ export function ResourceFormDialog({
                       capacityPerHour: Number(e.target.value) || 0,
                     }))
                   }
-                  className="h-11 rounded-xl"
+                  className="h-10 rounded-lg border-[#e3e3e3] focus-visible:border-[#2c6ecb]"
                 />
-                <p className="text-xs text-brand-muted">Pieces per hour (0 if N/A)</p>
+                <p className="text-xs text-[#616161]">Pieces per hour (0 if N/A)</p>
               </div>
 
               <div className="space-y-2">
@@ -199,7 +216,9 @@ export function ResourceFormDialog({
                     setForm((f) => ({ ...f, active: v === "yes" }))
                   }
                 >
-                  <SelectTrigger className="h-11 w-full rounded-xl">
+                  <SelectTrigger
+                    className={cn(dashboardControlClass, "h-10 w-full justify-between")}
+                  >
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -210,10 +229,10 @@ export function ResourceFormDialog({
               </div>
             </div>
 
-            <div className="space-y-3 rounded-xl border border-border bg-brand-surface/40 p-4">
+            <div className={cn(dashboardInsetSurfaceClass, "space-y-3 p-4")}>
               <div>
-                <Label className="text-brand-ink">Hours of operation</Label>
-                <p className="text-xs text-brand-muted mt-1">
+                <Label className="text-[#303030]">Hours of operation</Label>
+                <p className="mt-1 text-xs text-[#616161]">
                   Events can only be scheduled during these times on the calendar
                   and station view.
                 </p>
@@ -234,7 +253,7 @@ export function ResourceFormDialog({
                         },
                       }))
                     }
-                    className="h-11 rounded-xl"
+                    className="h-10 rounded-lg border-[#e3e3e3] focus-visible:border-[#2c6ecb]"
                   />
                 </div>
                 <div className="space-y-2">
@@ -252,7 +271,7 @@ export function ResourceFormDialog({
                         },
                       }))
                     }
-                    className="h-11 rounded-xl"
+                    className="h-10 rounded-lg border-[#e3e3e3] focus-visible:border-[#2c6ecb]"
                   />
                 </div>
               </div>
@@ -286,10 +305,10 @@ export function ResourceFormDialog({
                           })
                         }
                         className={cn(
-                          "size-10 rounded-full text-xs font-semibold border transition-colors",
+                          "size-10 rounded-lg border text-xs font-semibold transition-colors",
                           selected
-                            ? "bg-brand-primary text-white border-brand-primary"
-                            : "bg-white text-brand-muted border-border hover:border-brand-primary/40"
+                            ? "border-brand-primary bg-brand-primary text-white"
+                            : "border-[#e3e3e3] bg-white text-[#616161] hover:border-brand-primary/40"
                         )}
                       >
                         {day.short}
@@ -310,23 +329,22 @@ export function ResourceFormDialog({
                   setForm((f) => ({ ...f, notes: e.target.value }))
                 }
                 rows={2}
-                className="rounded-xl resize-none"
+                className="resize-none rounded-lg border-[#e3e3e3] focus-visible:border-[#2c6ecb]"
               />
             </div>
           </div>
 
-          <div className="flex flex-row items-center justify-end gap-3 border-t border-border bg-muted/30 px-6 py-5">
+          <div className="flex flex-row items-center justify-end gap-2 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-4">
             <Button
               type="button"
-              variant="outline"
-              className="rounded-full px-6 h-11 bg-white"
+              className={cn(dashboardControlClass, "h-9")}
               onClick={() => onOpenChange(false)}
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              className="rounded-full px-8 h-11 font-semibold uppercase tracking-wide"
+              className={cn(dashboardPrimaryButtonClass, "h-9")}
             >
               Save
             </Button>

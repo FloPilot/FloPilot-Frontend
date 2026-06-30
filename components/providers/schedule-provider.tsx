@@ -23,6 +23,7 @@ import type {
   Order,
   OrderFile,
   OrderFileKind,
+  ProductionEventWorkflow,
   ScheduleBlock,
   StationJobRun,
   Task,
@@ -32,10 +33,16 @@ import { type NewCustomerInput } from "@/lib/customers";
 import {
   addJobRunNote as apiAddJobRunNote,
   addOrderFile as apiAddOrderFile,
+  uploadOrderFile as apiUploadOrderFile,
+  deleteOrderFile as apiDeleteOrderFile,
   addOrderInternalNote as apiAddOrderInternalNote,
   addOrderLineItem as apiAddOrderLineItem,
   addProductionJob as apiAddProductionJob,
   createCustomer as apiCreateCustomer,
+  updateCustomer as apiUpdateCustomer,
+  archiveCustomer as apiArchiveCustomer,
+  restoreCustomer as apiRestoreCustomer,
+  type CustomerUpdate,
   createOrderFromForm as apiCreateOrderFromForm,
   createMachine as apiCreateMachine,
   createScheduleBlock as apiCreateScheduleBlock,
@@ -46,41 +53,67 @@ import {
   listJobRuns as apiListJobRuns,
   listMachines as apiListMachines,
   listOrders as apiListOrders,
+  getOrder as apiGetOrder,
   listScheduleBlocks as apiListScheduleBlocks,
   removeOrderLineItem as apiRemoveOrderLineItem,
   removeProductionJob as apiRemoveProductionJob,
+  archiveOrder as apiArchiveOrder,
+  restoreOrder as apiRestoreOrder,
   reorderOrder as apiReorderOrder,
   reportMachineIssue as apiReportMachineIssue,
   scanAndStartJob as apiScanAndStartJob,
   sendOrderMessage as apiSendOrderMessage,
   sendProofToCustomer as apiSendProofToCustomer,
+  sendProofsAndEstimate as apiSendProofsAndEstimate,
+  previewOrderDocument as apiPreviewOrderDocument,
+  type OrderDocumentScope,
   setArtworkStatus as apiSetArtworkStatus,
   setMachineOnline as apiSetMachineOnline,
   updateImprintInkColors as apiUpdateImprintInkColors,
   updateImprintNotes as apiUpdateImprintNotes,
+  updateProductionEventWorkflow as apiUpdateProductionEventWorkflow,
   updateJobRunStatus as apiUpdateJobRunStatus,
   updateMachine as apiUpdateMachine,
   updateOrder as apiUpdateOrder,
+  updateOrderGarments as apiUpdateOrderGarments,
+  updateOrderMaterials as apiUpdateOrderMaterials,
+  createDesignFromImprint as apiCreateDesignFromImprint,
+  applyDesignToOrder as apiApplyDesignToOrder,
   updateOrderLineItem as apiUpdateOrderLineItem,
   updateScheduleBlock as apiUpdateScheduleBlock,
   uploadArtworkVersion as apiUploadArtworkVersion,
   type DashboardStatsResponse,
 } from "@/lib/api";
 import type { NewOrderFormInput } from "@/lib/create-order";
+import {
+  excludeArchivedOrders,
+  excludeScheduleBlocksForArchivedOrders,
+  getArchivedOrderIds,
+} from "@/lib/order-archive";
 import { useAuth } from "@/components/providers/auth-provider";
 import type { DashboardStats } from "@/types";
 import {
   buildInitialJobRuns,
   getRunForBlock,
 } from "@/lib/station-runs";
+import {
+  boardStatusToWorkflow,
+  buildProductionBoardTasks,
+  parseProductionEventTaskId,
+} from "@/lib/production-events-board";
 
 type ScheduleContextValue = {
   customers: Customer[];
   getCustomerById: (id: string) => Customer | undefined;
   addCustomer: (input: NewCustomerInput) => Promise<Customer>;
+  updateCustomer: (id: string, updates: CustomerUpdate) => Promise<Customer>;
+  archiveCustomer: (id: string) => Promise<number>;
+  restoreCustomer: (id: string) => Promise<number>;
   createOrderFromForm: (form: NewOrderFormInput) => Promise<Order>;
   addOrder: (order: Order) => Order;
   orders: Order[];
+  /** Non-archived orders for operational dashboards, calendar, and reports. */
+  activeOrders: Order[];
   dashboardStats: DashboardStats | null;
   recentOrders: Order[];
   shopDataLoading: boolean;
@@ -91,10 +124,14 @@ type ScheduleContextValue = {
   createReorderFromOrder: (
     sourceOrderId: string
   ) => Promise<{ id: string; number: string } | null>;
+  archiveOrder: (orderId: string) => Promise<void>;
+  restoreOrder: (orderId: string) => Promise<void>;
   addProductionJob: (orderId: string, job: Job) => void;
   removeProductionJob: (orderId: string, jobId: string) => void;
   machines: Machine[];
   scheduleBlocks: ScheduleBlock[];
+  /** Schedule blocks excluding archived orders — use on shop floor views. */
+  activeScheduleBlocks: ScheduleBlock[];
   addMachine: (machine: Omit<Machine, "id">) => void;
   updateMachine: (id: string, machine: Omit<Machine, "id">) => void;
   deleteMachine: (id: string) => void;
@@ -141,12 +178,45 @@ type ScheduleContextValue = {
     imprintId: string,
     fileName: string,
     mockupLabel?: string,
-    kind?: OrderFileKind
+    kind?: OrderFileKind,
+    previewUrl?: string
   ) => void;
+  updateOrderGarments: (
+    orderId: string,
+    garments: import("@/types").OrderGarments
+  ) => Promise<void>;
+  updateOrderMaterials: (
+    orderId: string,
+    materials: import("@/types").OrderMaterials
+  ) => Promise<Order>;
+  createDesignFromImprint: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    name?: string
+  ) => Promise<import("@/types").SavedDesign | null>;
+  applyDesignToOrder: (
+    designId: string,
+    orderId: string,
+    jobId: string,
+    imprintId: string
+  ) => Promise<void>;
   addOrderFile: (
     orderId: string,
     file: Omit<OrderFile, "id" | "uploadedAt">
   ) => void;
+  uploadOrderFile: (
+    orderId: string,
+    payload: {
+      name: string;
+      kind: OrderFile["kind"];
+      uploadedBy: string;
+      contentBase64: string;
+      contentType: string;
+      notes?: string;
+    }
+  ) => Promise<void>;
+  deleteOrderFile: (orderId: string, fileId: string) => Promise<void>;
   addInternalNote: (
     orderId: string,
     content: string,
@@ -157,6 +227,13 @@ type ScheduleContextValue = {
     jobId: string,
     imprintId: string
   ) => void;
+  sendProofsAndEstimate: (
+    orderId: string
+  ) => Promise<{ sent: boolean; to: string }>;
+  previewOrderDocument: (
+    orderId: string,
+    scope?: OrderDocumentScope
+  ) => Promise<{ pdfBase64: string; filename: string }>;
   updateOrderStatus: (
     orderId: string,
     status: import("@/types").OrderStatus
@@ -166,9 +243,12 @@ type ScheduleContextValue = {
     orderId: string,
     lineItemId: string,
     lineItem: LineItem
-  ) => void;
-  addOrderLineItem: (orderId: string) => void;
-  removeOrderLineItem: (orderId: string, lineItemId: string) => void;
+  ) => Promise<Order>;
+  addOrderLineItem: (
+    orderId: string,
+    lineItem?: LineItem
+  ) => Promise<Order>;
+  removeOrderLineItem: (orderId: string, lineItemId: string) => Promise<Order>;
   updateImprintNotes: (
     orderId: string,
     jobId: string,
@@ -188,13 +268,22 @@ type ScheduleContextValue = {
     fileId: string | null
   ) => void;
   productionTasks: Task[];
+  /** Production events as kanban cards — synced with Tasks screen workflow */
+  productionBoardTasks: Task[];
   updateProductionTaskStatus: (taskId: string, status: TaskStatus) => void;
+  updateProductionEventWorkflow: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    workflow: ProductionEventWorkflow
+  ) => Promise<void>;
 };
 
 function deriveProductionTasks(orders: Order[]): Task[] {
   const tasks: Task[] = [];
 
   for (const order of orders) {
+    if (order.archived) continue;
     for (const job of order.jobs) {
       for (const task of job.tasks ?? []) {
         tasks.push({
@@ -228,6 +317,16 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   const [shopDataError, setShopDataError] = useState<string | null>(null);
   const [productionTasks, setProductionTasks] = useState<Task[]>([]);
 
+  const activeOrders = useMemo(() => excludeArchivedOrders(orders), [orders]);
+  const activeScheduleBlocks = useMemo(
+    () =>
+      excludeScheduleBlocksForArchivedOrders(
+        scheduleBlocks,
+        getArchivedOrderIds(orders)
+      ),
+    [scheduleBlocks, orders]
+  );
+
   const refreshShopData = useCallback(async () => {
     if (profile?.type !== "staff") return;
 
@@ -247,7 +346,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         runsRes,
       ] = await Promise.all([
         apiListCustomers(token),
-        apiListOrders(token),
+        apiListOrders(token, { archived: "include" }),
         fetchDashboardStats(token),
         apiListMachines(token),
         apiListScheduleBlocks(token),
@@ -274,7 +373,9 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         productionTasks: stats.productionTasks,
         lowStockItems: stats.lowStockItems,
       });
-      setRecentOrders(ordersRes.orders.slice(0, 6));
+      setRecentOrders(
+        ordersRes.orders.filter((order) => !order.archived).slice(0, 6)
+      );
     } catch (err) {
       setShopDataError(
         err instanceof Error ? err.message : "Failed to load shop data"
@@ -351,6 +452,53 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       return customer;
     },
     [getIdToken]
+  );
+
+  const updateCustomer = useCallback(
+    async (id: string, updates: CustomerUpdate) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { customer } = await apiUpdateCustomer(token, id, updates);
+      setCustomers((prev) =>
+        prev
+          .map((existing) => (existing.id === id ? customer : existing))
+          .sort((a, b) => a.company.localeCompare(b.company))
+      );
+      return customer;
+    },
+    [getIdToken]
+  );
+
+  const archiveCustomer = useCallback(
+    async (id: string) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { customer, archivedOrders } = await apiArchiveCustomer(token, id);
+      setCustomers((prev) =>
+        prev.map((existing) => (existing.id === id ? customer : existing))
+      );
+      // The cascade touched orders — reload so archived state is consistent.
+      if (archivedOrders > 0) await refreshShopData();
+      return archivedOrders;
+    },
+    [getIdToken, refreshShopData]
+  );
+
+  const restoreCustomer = useCallback(
+    async (id: string) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { customer, restoredOrders } = await apiRestoreCustomer(token, id);
+      setCustomers((prev) =>
+        prev.map((existing) => (existing.id === id ? customer : existing))
+      );
+      if (restoredOrders > 0) await refreshShopData();
+      return restoredOrders;
+    },
+    [getIdToken, refreshShopData]
   );
 
   const createOrderFromForm = useCallback(
@@ -627,12 +775,37 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken]
   );
 
+  const archiveOrder = useCallback(
+    async (orderId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiArchiveOrder(token, orderId);
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const restoreOrder = useCallback(
+    async (orderId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiRestoreOrder(token, orderId);
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const addProductionJob = useCallback(
     async (orderId: string, job: Job) => {
       const token = await getIdToken();
       if (!token) throw new Error("Not signed in");
 
-      const { order } = await apiAddProductionJob(token, orderId, job);
+      await apiAddProductionJob(token, orderId, job);
+      // Re-read the authoritative order so the new event shows immediately
+      // without a manual page refresh.
+      const { order } = await apiGetOrder(token, orderId);
       applyOrderUpdate(order);
     },
     [getIdToken, applyOrderUpdate]
@@ -691,6 +864,28 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateProductionEventWorkflow = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      workflow: ProductionEventWorkflow
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateProductionEventWorkflow(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        workflow
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const uploadArtworkVersion = useCallback(
     async (
       orderId: string,
@@ -698,7 +893,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       imprintId: string,
       fileName: string,
       mockupLabel?: string,
-      kind: OrderFileKind = "production_art"
+      kind: OrderFileKind = "production_art",
+      previewUrl?: string
     ) => {
       const token = await getIdToken();
       if (!token) return;
@@ -710,8 +906,80 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         imprintId,
         fileName,
         mockupLabel,
-        kind
+        kind,
+        previewUrl
       );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderGarments = useCallback(
+    async (
+      orderId: string,
+      garments: import("@/types").OrderGarments
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateOrderGarments(token, orderId, garments);
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderMaterials = useCallback(
+    async (
+      orderId: string,
+      materials: import("@/types").OrderMaterials
+    ) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { order } = await apiUpdateOrderMaterials(token, orderId, materials);
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const createDesignFromImprint = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      name?: string
+    ) => {
+      const token = await getIdToken();
+      if (!token) return null;
+
+      const { design } = await apiCreateDesignFromImprint(token, {
+        orderId,
+        jobId,
+        imprintId,
+        name,
+      });
+      return design;
+    },
+    [getIdToken]
+  );
+
+  const applyDesignToOrder = useCallback(
+    async (
+      designId: string,
+      orderId: string,
+      jobId: string,
+      imprintId: string
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiApplyDesignToOrder(token, {
+        designId,
+        orderId,
+        jobId,
+        imprintId,
+      });
       applyOrderUpdate(order);
     },
     [getIdToken, applyOrderUpdate]
@@ -723,6 +991,38 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       if (!token) return;
 
       const { order } = await apiAddOrderFile(token, orderId, file);
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const uploadOrderFile = useCallback(
+    async (
+      orderId: string,
+      payload: {
+        name: string;
+        kind: OrderFile["kind"];
+        uploadedBy: string;
+        contentBase64: string;
+        contentType: string;
+        notes?: string;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUploadOrderFile(token, orderId, payload);
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const deleteOrderFile = useCallback(
+    async (orderId: string, fileId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiDeleteOrderFile(token, orderId, fileId);
       applyOrderUpdate(order);
     },
     [getIdToken, applyOrderUpdate]
@@ -762,6 +1062,28 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const sendProofsAndEstimate = useCallback(
+    async (orderId: string) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("You need to be signed in to send proofs.");
+
+      const { order, email } = await apiSendProofsAndEstimate(token, orderId);
+      applyOrderUpdate(order);
+      return email;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const previewOrderDocument = useCallback(
+    async (orderId: string, scope: OrderDocumentScope = "all") => {
+      const token = await getIdToken();
+      if (!token) throw new Error("You need to be signed in to preview documents.");
+
+      return apiPreviewOrderDocument(token, orderId, scope);
+    },
+    [getIdToken]
+  );
+
   const updateOrderStatus = useCallback(
     async (orderId: string, status: Order["status"]) => {
       const token = await getIdToken();
@@ -787,7 +1109,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   const updateOrderLineItem = useCallback(
     async (orderId: string, lineItemId: string, lineItem: LineItem) => {
       const token = await getIdToken();
-      if (!token) return;
+      if (!token) throw new Error("Not signed in");
 
       const { order } = await apiUpdateOrderLineItem(
         token,
@@ -796,17 +1118,19 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         lineItem
       );
       applyOrderUpdate(order);
+      return order;
     },
     [getIdToken, applyOrderUpdate]
   );
 
   const addOrderLineItem = useCallback(
-    async (orderId: string) => {
+    async (orderId: string, lineItem?: LineItem) => {
       const token = await getIdToken();
-      if (!token) return;
+      if (!token) throw new Error("Not signed in");
 
-      const { order } = await apiAddOrderLineItem(token, orderId);
+      const { order } = await apiAddOrderLineItem(token, orderId, lineItem);
       applyOrderUpdate(order);
+      return order;
     },
     [getIdToken, applyOrderUpdate]
   );
@@ -814,10 +1138,11 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   const removeOrderLineItem = useCallback(
     async (orderId: string, lineItemId: string) => {
       const token = await getIdToken();
-      if (!token) return;
+      if (!token) throw new Error("Not signed in");
 
       const { order } = await apiRemoveOrderLineItem(token, orderId, lineItemId);
       applyOrderUpdate(order);
+      return order;
     },
     [getIdToken, applyOrderUpdate]
   );
@@ -940,6 +1265,22 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
   const updateProductionTaskStatus = useCallback(
     async (taskId: string, status: TaskStatus) => {
+      const eventRef = parseProductionEventTaskId(taskId);
+      if (eventRef) {
+        const token = await getIdToken();
+        if (!token) return;
+
+        const { order } = await apiUpdateProductionEventWorkflow(
+          token,
+          eventRef.orderId,
+          eventRef.jobId,
+          eventRef.imprintId,
+          { status: boardStatusToWorkflow(status) }
+        );
+        applyOrderUpdate(order);
+        return;
+      }
+
       const order = orders.find((entry) =>
         entry.jobs.some((job) => job.tasks?.some((task) => task.id === taskId))
       );
@@ -961,6 +1302,17 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       applyOrderUpdate(saved);
     },
     [orders, getIdToken, applyOrderUpdate]
+  );
+
+  const productionBoardTasks = useMemo(
+    () =>
+      buildProductionBoardTasks({
+        orders: activeOrders,
+        scheduleBlocks: activeScheduleBlocks,
+        jobRuns,
+        includeCompleted: true,
+      }),
+    [activeOrders, activeScheduleBlocks, jobRuns]
   );
 
   const getMachineById = useCallback(
@@ -1025,9 +1377,13 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       customers,
       getCustomerById,
       addCustomer,
+      updateCustomer,
+      archiveCustomer,
+      restoreCustomer,
       createOrderFromForm,
       addOrder,
       orders,
+      activeOrders,
       dashboardStats,
       recentOrders,
       shopDataLoading,
@@ -1036,10 +1392,13 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getOrderById,
       getOrdersByCustomerId,
       createReorderFromOrder,
+      archiveOrder,
+      restoreOrder,
       addProductionJob,
       removeProductionJob,
       machines,
       scheduleBlocks,
+      activeScheduleBlocks,
       addMachine,
       updateMachine,
       deleteMachine,
@@ -1062,9 +1421,17 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       sendOrderMessage,
       setArtworkStatus,
       uploadArtworkVersion,
+      updateOrderGarments,
+      updateOrderMaterials,
+      createDesignFromImprint,
+      applyDesignToOrder,
       addOrderFile,
+      uploadOrderFile,
+      deleteOrderFile,
       addInternalNote,
       sendProofToCustomer,
+      sendProofsAndEstimate,
+      previewOrderDocument,
       updateOrderStatus,
       setOrderRush,
       updateOrderLineItem,
@@ -1074,15 +1441,21 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateImprintInkColors,
       linkImprintArtworkFromFile,
       productionTasks,
+      productionBoardTasks,
       updateProductionTaskStatus,
+      updateProductionEventWorkflow,
     }),
     [
       customers,
       getCustomerById,
       addCustomer,
+      updateCustomer,
+      archiveCustomer,
+      restoreCustomer,
       createOrderFromForm,
       addOrder,
       orders,
+      activeOrders,
       dashboardStats,
       recentOrders,
       shopDataLoading,
@@ -1091,10 +1464,13 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getOrderById,
       getOrdersByCustomerId,
       createReorderFromOrder,
+      archiveOrder,
+      restoreOrder,
       addProductionJob,
       removeProductionJob,
       machines,
       scheduleBlocks,
+      activeScheduleBlocks,
       addMachine,
       updateMachine,
       deleteMachine,
@@ -1117,9 +1493,17 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       sendOrderMessage,
       setArtworkStatus,
       uploadArtworkVersion,
+      updateOrderGarments,
+      updateOrderMaterials,
+      createDesignFromImprint,
+      applyDesignToOrder,
       addOrderFile,
+      uploadOrderFile,
+      deleteOrderFile,
       addInternalNote,
       sendProofToCustomer,
+      sendProofsAndEstimate,
+      previewOrderDocument,
       updateOrderStatus,
       setOrderRush,
       updateOrderLineItem,
@@ -1129,7 +1513,13 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateImprintInkColors,
       linkImprintArtworkFromFile,
       productionTasks,
+      productionBoardTasks,
       updateProductionTaskStatus,
+      updateProductionEventWorkflow,
+      updateOrderGarments,
+      updateOrderMaterials,
+      createDesignFromImprint,
+      applyDesignToOrder,
     ]
   );
 

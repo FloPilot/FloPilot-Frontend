@@ -1,26 +1,18 @@
 import type { Order, OrderStatus, SchedulableJobOption } from "@/types";
+import { isArchivedOrder } from "@/lib/order-archive";
+import { approvalSummary } from "@/lib/order-approval";
 import { getArtworkApprovalSummary } from "@/lib/order-health";
+import { allMaterialsReceived } from "@/lib/order-materials";
 import {
   findScheduleBlockForStep,
   getOrderProductionSteps,
 } from "@/lib/order-production";
 
-/** Orders actively moving through production — always eligible if they have events */
-const ACTIVE_PRODUCTION_STATUSES = new Set<OrderStatus>([
-  "approved",
+/** Only orders in the production phase can be scheduled */
+const SCHEDULABLE_STATUSES = new Set<OrderStatus>([
   "in_production",
   "ready_to_ship",
-  "awaiting_approval",
-]);
-
-/** Early pipeline statuses — eligible once artwork is approved */
-const PIPELINE_STATUSES = new Set<OrderStatus>([
-  "draft",
-  "quote_sent",
-  "awaiting_approval",
   "approved",
-  "in_production",
-  "ready_to_ship",
 ]);
 
 export function orderHasProductionEvents(order: Order): boolean {
@@ -28,20 +20,22 @@ export function orderHasProductionEvents(order: Order): boolean {
 }
 
 export function isOrderEligibleForSchedulingQueue(order: Order): boolean {
+  if (isArchivedOrder(order)) return false;
   if (order.type !== "sales_order") return false;
   if (order.status === "shipped" || order.status === "completed") return false;
   if (!orderHasProductionEvents(order)) return false;
 
-  if (ACTIVE_PRODUCTION_STATUSES.has(order.status)) return true;
-
-  if (!PIPELINE_STATUSES.has(order.status)) return false;
+  if (!SCHEDULABLE_STATUSES.has(order.status)) return false;
 
   const artwork = getArtworkApprovalSummary(order);
-  return artwork.allApproved;
+  if (!artwork.allApproved) return false;
+
+  return allMaterialsReceived(order);
 }
 
 /** Dashboard queue — any open sales order with production events, regardless of artwork */
 export function isOrderOnDashboardSchedulingQueue(order: Order): boolean {
+  if (isArchivedOrder(order)) return false;
   if (order.type !== "sales_order") return false;
   if (order.status === "shipped" || order.status === "completed") return false;
   return orderHasProductionEvents(order);
@@ -55,10 +49,28 @@ export function getSchedulingQueueBlockReason(order: Order): string | null {
   }
   if (!orderHasProductionEvents(order)) return "No production events on this order";
 
+  if (!SCHEDULABLE_STATUSES.has(order.status)) {
+    const approval = approvalSummary(order);
+    if (!approval.quoteApproved && !approval.artworkApproved) {
+      return "Send estimate and proofs — waiting for customer approval";
+    }
+    if (!approval.quoteApproved) {
+      return "Waiting for customer to approve the estimate";
+    }
+    if (!approval.artworkApproved) {
+      return `Proofs ${approval.artworkApprovedCount}/${approval.artworkTotal} approved`;
+    }
+    return "Approvals complete — order should be in production before scheduling";
+  }
+
   const artwork = getArtworkApprovalSummary(order);
   if (artwork.total === 0) return "Add production events to this order first";
   if (!artwork.allApproved) {
-    return `Artwork ${artwork.approved}/${artwork.total} approved — finish artwork approval first`;
+    return `Proofs ${artwork.approved}/${artwork.total} approved — finish approval first`;
+  }
+
+  if (!allMaterialsReceived(order)) {
+    return "Finish receiving on Blanks, DTF sheets, or Screens first";
   }
 
   return `Order status is "${order.status.replace(/_/g, " ")}"`;
@@ -69,6 +81,7 @@ export function getOrdersWithUnscheduledEvents(
   scheduleBlocks: import("@/types").ScheduleBlock[]
 ): Order[] {
   return orders.filter((order) => {
+    if (isArchivedOrder(order)) return false;
     if (!orderHasProductionEvents(order)) return false;
     const steps = getOrderProductionSteps(order);
     return steps.some(
@@ -90,6 +103,12 @@ export function getSchedulableJobs(
   const optionsList: SchedulableJobOption[] = [];
 
   for (const order of sourceOrders) {
+    if (
+      isArchivedOrder(order) &&
+      order.id !== options?.includeOrderId
+    ) {
+      continue;
+    }
     if (order.type !== "sales_order") continue;
 
     const isFocusedOrder =

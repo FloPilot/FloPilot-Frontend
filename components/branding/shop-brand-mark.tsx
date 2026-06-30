@@ -9,9 +9,11 @@ import { cn } from "@/lib/utils";
 
 export function ShopBrandMark({
   compact = false,
+  tone = "light",
   className,
 }: {
   compact?: boolean;
+  tone?: "light" | "dark";
   className?: string;
 }) {
   const { profile } = useAuth();
@@ -21,6 +23,8 @@ export function ShopBrandMark({
   const displayName = getDisplayShopName(settings.shopName, tenantName);
   const { logoUrl, logoDisplay } = settings.branding;
   const useFullLogo = logoDisplay === "full" && Boolean(logoUrl);
+
+  const onDark = tone === "dark";
 
   if (useFullLogo) {
     return (
@@ -48,7 +52,8 @@ export function ShopBrandMark({
     <div className={cn("flex items-center gap-3 min-w-0", className)}>
       <div
         className={cn(
-          "relative flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-brand-primary text-white",
+          "relative flex shrink-0 items-center justify-center overflow-hidden rounded-md text-white",
+          onDark ? "bg-white/10" : "bg-brand-primary",
           compact ? "size-8" : "size-9"
         )}
       >
@@ -66,10 +71,22 @@ export function ShopBrandMark({
       </div>
       {!compact && (
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold tracking-tight text-brand-ink">
+          <p
+            className={cn(
+              "truncate text-sm font-semibold tracking-tight",
+              onDark ? "text-white" : "text-brand-ink"
+            )}
+          >
             {displayName}
           </p>
-          <p className="truncate text-xs text-brand-muted">Shop workspace</p>
+          <p
+            className={cn(
+              "truncate text-xs",
+              onDark ? "text-white/50" : "text-brand-muted"
+            )}
+          >
+            Shop workspace
+          </p>
         </div>
       )}
     </div>

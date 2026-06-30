@@ -1,7 +1,33 @@
 import { parseISO } from "date-fns";
 import type { Order, OrderStatus } from "@/types";
+import { isArchivedOrder } from "@/lib/order-archive";
+import {
+  isActiveOrder,
+  isHistoricalOrder,
+} from "@/lib/order-list-filters";
 
 export type OrderHistorySort = "newest" | "oldest" | "due_soon";
+
+export type CustomerOrderScope = "open" | "archived" | "all";
+
+export function splitCustomerOrders(orders: Order[]) {
+  const openOrders = orders.filter((order) => !isArchivedOrder(order));
+  const archivedOrders = orders.filter((order) => isArchivedOrder(order));
+  return { openOrders, archivedOrders };
+}
+
+export function filterCustomerOrdersByScope(
+  orders: Order[],
+  scope: CustomerOrderScope
+): Order[] {
+  if (scope === "archived") {
+    return orders.filter((order) => isArchivedOrder(order));
+  }
+  if (scope === "open") {
+    return orders.filter((order) => !isArchivedOrder(order));
+  }
+  return orders;
+}
 
 export function filterCustomerOrders(
   orders: Order[],
@@ -22,7 +48,7 @@ export function filterCustomerOrders(
       order.status,
       order.inHandsDate,
       String(order.total),
-      order.jobs.map((j) => j.name).join(" "),
+      order.jobs.map((job) => job.name).join(" "),
     ]
       .join(" ")
       .toLowerCase();
@@ -56,30 +82,23 @@ export function sortCustomerOrders(
 }
 
 export function computeCustomerOrderStats(orders: Order[]) {
-  const activeStatuses: OrderStatus[] = [
-    "approved",
-    "in_production",
-    "ready_to_ship",
-    "awaiting_approval",
-    "quote_sent",
-  ];
+  const { openOrders, archivedOrders } = splitCustomerOrders(orders);
 
-  const openBalance = orders.reduce((sum, o) => sum + o.balance, 0);
-  const activeCount = orders.filter((o) =>
-    activeStatuses.includes(o.status)
-  ).length;
-  const completedCount = orders.filter(
-    (o) => o.status === "completed" || o.status === "shipped"
+  const openBalance = openOrders.reduce((sum, order) => sum + order.balance, 0);
+  const activeCount = openOrders.filter((order) => isActiveOrder(order)).length;
+  const completedCount = openOrders.filter((order) =>
+    isHistoricalOrder(order)
   ).length;
 
-  const sorted = sortCustomerOrders(orders, "newest");
+  const sorted = sortCustomerOrders(openOrders, "newest");
   const lastOrder = sorted[0];
 
   return {
     openBalance,
     activeCount,
     completedCount,
-    totalOrders: orders.length,
+    totalOrders: openOrders.length,
+    archivedCount: archivedOrders.length,
     lastOrderNumber: lastOrder?.number,
     lastOrderDate: lastOrder?.createdAt,
   };
@@ -96,4 +115,13 @@ export const ORDER_STATUS_FILTER_OPTIONS: {
   { value: "awaiting_approval", label: "Awaiting approval" },
   { value: "completed", label: "Completed" },
   { value: "shipped", label: "Shipped" },
+];
+
+export const CUSTOMER_ORDER_SCOPE_TABS: {
+  value: CustomerOrderScope;
+  label: string;
+}[] = [
+  { value: "open", label: "Open orders" },
+  { value: "archived", label: "Archived" },
+  { value: "all", label: "All" },
 ];

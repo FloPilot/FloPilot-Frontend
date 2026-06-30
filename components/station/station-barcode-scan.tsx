@@ -1,9 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Barcode, ScanLine } from "lucide-react";
+import { Barcode, CheckCircle2, Loader2, ScanLine } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  dashboardCardClass,
+  dashboardPrimaryButtonClass,
+} from "@/lib/dashboard-styles";
 import { cn } from "@/lib/utils";
 
 export function StationBarcodeScan({
@@ -44,25 +48,33 @@ export function StationBarcodeScan({
   };
 
   return (
-    <section className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
-      <div className="border-b border-border/60 px-5 py-4">
-        <div className="flex items-center gap-2.5">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand-primary/8 text-brand-primary">
-            <Barcode className="size-4" />
-          </div>
-          <div>
-            <h2 className="text-sm font-semibold text-brand-ink">
-              Start an event
-            </h2>
-            <p className="text-xs text-brand-muted mt-0.5">
-              Scan the barcode on the event bag to start the timer.
-            </p>
-          </div>
+    <section
+      className={cn(
+        dashboardCardClass,
+        disabled ? "opacity-90" : "border-[#c4d7f2]"
+      )}
+    >
+      <div
+        className={cn(
+          "flex items-center gap-3 border-b px-5 py-4",
+          disabled ? "border-[#ebebeb] bg-[#fafafa]" : "border-[#c4d7f2] bg-[#f4f7fd]"
+        )}
+      >
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-[#e8f0fb] text-[#2c6ecb]">
+          <Barcode className="size-5" strokeWidth={1.75} />
+        </div>
+        <div>
+          <h2 className="text-[15px] font-semibold leading-snug text-[#303030]">
+            Start an event
+          </h2>
+          <p className="mt-0.5 text-[13px] text-[#616161]">
+            Scan the barcode on the event bag to start the timer.
+          </p>
         </div>
       </div>
 
       <div className="p-5">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center">
           <Input
             ref={inputRef}
             value={value}
@@ -75,26 +87,33 @@ export function StationBarcodeScan({
             }}
             disabled={disabled || submitting}
             placeholder="Scan or type barcode…"
-            className="h-10 rounded-xl flex-1"
+            className="h-12 flex-1 rounded-lg border-[#e3e3e3] text-base focus-visible:border-[#2c6ecb]"
             autoComplete="off"
           />
           <Button
             type="button"
             disabled={disabled || submitting || !value.trim()}
-            className="h-10 rounded-full px-5 shrink-0"
+            className={cn(
+              dashboardPrimaryButtonClass,
+              "h-12 shrink-0 px-6 text-sm sm:w-auto"
+            )}
             onClick={submit}
           >
-            <ScanLine className="size-3.5" />
-            Start
+            {submitting ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <ScanLine className="size-4" />
+            )}
+            Start event
           </Button>
         </div>
 
-        {hintBarcode && (
-          <p className="mt-2.5 text-xs text-brand-muted">
+        {hintBarcode && !disabled && (
+          <p className="mt-2.5 text-xs text-[#616161]">
             Example:{" "}
             <button
               type="button"
-              className="font-mono text-brand-primary hover:underline"
+              className="font-mono text-[#2c6ecb] hover:underline"
               onClick={() => {
                 setValue(hintBarcode);
                 inputRef.current?.focus();
@@ -106,16 +125,13 @@ export function StationBarcodeScan({
         )}
 
         {error && (
-          <p className="mt-3 text-sm text-red-700 bg-red-50 border border-red-100 rounded-xl px-3 py-2">
+          <p className="mt-3 rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-sm text-[#8f1f1f]">
             {error}
           </p>
         )}
         {success && (
-          <p
-            className={cn(
-              "mt-3 text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2"
-            )}
-          >
+          <p className="mt-3 flex items-center gap-1.5 rounded-lg border border-[#86d4a8] bg-[#e8f5ee] px-3 py-2 text-sm text-[#0d5c2e]">
+            <CheckCircle2 className="size-4" />
             Event started — timer is running.
           </p>
         )}

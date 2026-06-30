@@ -107,33 +107,11 @@ export function analyzeOrderProductionFlow(
     );
 
     let status: FlowStepStatus;
-    let blockedByLabel: string | undefined;
-    let blockedByKey: string | undefined;
 
     if (block) {
       status = "scheduled";
     } else {
-      const blockingPrior = ordered.slice(0, index).find(
-        (prior) =>
-          !findScheduleBlockForStep(
-            scheduleBlocks,
-            order.id,
-            prior.job.id,
-            prior.imprint.id
-          )
-      );
-
-      if (blockingPrior) {
-        status = "blocked";
-        blockedByLabel = blockingPrior.imprint.label;
-        blockedByKey = schedulableJobKey(
-          order.id,
-          blockingPrior.job.id,
-          blockingPrior.imprint.id
-        );
-      } else {
-        status = "ready";
-      }
+      status = "ready";
     }
 
     return {
@@ -149,8 +127,6 @@ export function analyzeOrderProductionFlow(
       locationKey: step.imprint.locationKey,
       pieceCount,
       status,
-      blockedByLabel,
-      blockedByKey,
       scheduleBlock: block,
       scheduledSummary: block ? formatScheduleBlockSummary(block) : undefined,
     };
@@ -181,14 +157,6 @@ export function canScheduleFlowStep(
 
   if (step.status === "scheduled") {
     return { ok: false, reason: "This event is already on the calendar." };
-  }
-
-  if (step.status === "blocked" && step.blockedByLabel) {
-    return {
-      ok: false,
-      reason: `Schedule ${step.blockedByLabel} first to keep production in the correct order.`,
-      scheduleFirstKey: step.blockedByKey,
-    };
   }
 
   return { ok: true };

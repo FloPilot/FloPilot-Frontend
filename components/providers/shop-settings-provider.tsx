@@ -28,6 +28,7 @@ type ShopSettingsContextValue = {
       modules?: Partial<ShopSettings["modules"]>;
       branding?: Partial<TenantBranding>;
       onboarding?: Partial<ShopSettings["onboarding"]>;
+      productionDefaults?: Partial<ShopSettings["productionDefaults"]>;
     }
   ) => Promise<ShopSettings>;
 };
@@ -57,6 +58,7 @@ export function ShopSettingsProvider({ children }: { children: ReactNode }) {
         modules?: Partial<ShopSettings["modules"]>;
         branding?: Partial<TenantBranding>;
         onboarding?: Partial<ShopSettings["onboarding"]>;
+        productionDefaults?: Partial<ShopSettings["productionDefaults"]>;
       }
     ) => {
       const token = await getIdToken();

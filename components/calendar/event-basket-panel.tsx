@@ -12,7 +12,6 @@ import {
   FlowProgressDots,
   FlowStepList,
 } from "@/components/calendar/order-production-flow";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -22,6 +21,14 @@ import {
 } from "@/components/ui/select";
 import { RushBadge } from "@/components/status-badges";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import {
+  getCustomerAccent,
+  getCustomerInitials,
+} from "@/lib/production-customer-colors";
+import {
+  dashboardCardClass,
+  dashboardControlClass,
+} from "@/lib/dashboard-styles";
 import {
   buildSchedulingQueueOrders,
   getOrdersBlockedFromSchedulingQueue,
@@ -46,11 +53,11 @@ const SORT_OPTIONS: { value: EventBasketSort; label: string }[] = [
 function urgencyStyles(status: HealthStatus) {
   switch (status) {
     case "critical":
-      return "text-red-700";
+      return "text-[#8f1f1f]";
     case "warning":
-      return "text-amber-800";
+      return "text-[#8a6116]";
     default:
-      return "text-brand-muted";
+      return "text-[#616161]";
   }
 }
 
@@ -102,69 +109,86 @@ function QueueOrderRow({
   const progressLabel = next
     ? formatEventXOfY(next.flowStep, next.flowTotal)
     : `${item.progress.scheduled}/${item.progress.total} scheduled`;
+  const accent = getCustomerAccent(item.customerId, item.orderId);
 
   return (
     <article
       className={cn(
-        "rounded-xl border border-border/70 bg-white px-4 py-3.5",
-        item.rush && "border-l-[3px] border-l-orange-500 bg-orange-50/20"
+        "relative overflow-hidden rounded-lg border border-[#e3e3e3] bg-white px-4 py-3.5 transition-colors hover:bg-[#fafafa]",
+        item.rush && "bg-[#fffdf5] hover:bg-[#fafafa]"
       )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href={`/app/orders/${item.orderId}`}
-              className="text-sm font-semibold text-brand-ink hover:text-brand-primary"
-            >
-              {item.orderNumber}
-            </Link>
-            <span className="text-sm text-brand-muted truncate">
-              {item.customerName}
-            </span>
-            {item.rush && <RushBadge />}
-          </div>
-
-          {next ? (
-            <p className="text-sm text-brand-ink">
-              <span className="text-brand-muted">Next: </span>
-              {next.imprintLabel}
-              <span className="text-brand-muted">
-                {" "}
-                · {decorationLabel(next.decoration)}
-                {next.pieceCount > 0 && ` · ${next.pieceCount.toLocaleString()} pcs`}
-              </span>
-            </p>
-          ) : (
-            <p className="text-sm text-brand-muted">
-              {formatMoreEvents(item.waitingCount)} after current progress
-            </p>
-          )}
-
-          <div className="flex flex-wrap items-center gap-3 pt-0.5 text-xs text-brand-muted">
-            <span className={urgencyStyles(item.dueUrgency)}>
-              {item.dueLabel}
-            </span>
-            <span>ETA {formatDate(item.inHandsDate)}</span>
-            {item.totalPieceCount > 0 && (
-              <span>{item.totalPieceCount.toLocaleString()} pcs total</span>
+      <span
+        className={cn("absolute inset-y-0 left-0 w-1", accent.cap)}
+        aria-hidden
+      />
+      <div className="flex flex-wrap items-start justify-between gap-3 pl-1.5">
+        <div className="flex min-w-0 flex-1 gap-3">
+          <span
+            className={cn(
+              "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg border text-[11px] font-semibold tabular-nums",
+              accent.bg,
+              accent.border,
+              accent.text
             )}
-            {item.flowSteps.length > 1 && (
-              <span className="inline-flex items-center gap-1.5">
-                <FlowProgressDots steps={item.flowSteps} />
-                <span>{progressLabel}</span>
+            title={item.customerName}
+          >
+            {getCustomerInitials(item.customerName)}
+          </span>
+          <div className="min-w-0 flex-1 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href={`/app/orders/${item.orderId}`}
+                className="text-[13px] font-semibold text-[#303030] hover:text-[#2c6ecb] hover:underline"
+              >
+                {item.orderNumber}
+              </Link>
+              <span className="truncate text-[13px] text-[#616161]">
+                {item.customerName}
               </span>
+              {item.rush && <RushBadge />}
+            </div>
+
+            {next ? (
+              <p className="text-[13px] text-[#303030]">
+                <span className="text-[#616161]">Next: </span>
+                {next.imprintLabel}
+                <span className="text-[#616161]">
+                  {" "}
+                  · {decorationLabel(next.decoration)}
+                  {next.pieceCount > 0 &&
+                    ` · ${next.pieceCount.toLocaleString()} pcs`}
+                </span>
+              </p>
+            ) : (
+              <p className="text-[13px] text-[#616161]">
+                {formatMoreEvents(item.waitingCount)} after current progress
+              </p>
             )}
+
+            <div className="flex flex-wrap items-center gap-3 pt-0.5 text-[12px] text-[#616161]">
+              <span className={cn("font-medium", urgencyStyles(item.dueUrgency))}>
+                {item.dueLabel}
+              </span>
+              <span>ETA {formatDate(item.inHandsDate)}</span>
+              {item.totalPieceCount > 0 && (
+                <span>{item.totalPieceCount.toLocaleString()} pcs total</span>
+              )}
+              {item.flowSteps.length > 1 && (
+                <span className="inline-flex items-center gap-1.5">
+                  <FlowProgressDots steps={item.flowSteps} />
+                  <span>{progressLabel}</span>
+                </span>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           {item.flowSteps.length > 1 && (
-            <Button
+            <button
               type="button"
-              variant="ghost"
-              size="sm"
-              className="h-8 rounded-full px-2 text-xs text-brand-muted"
+              className="inline-flex h-8 items-center gap-1 rounded-lg px-2.5 text-[12px] font-medium text-[#616161] transition-colors hover:bg-[#f1f1f1] hover:text-[#303030]"
               onClick={() => setShowEvents((value) => !value)}
             >
               {showEvents ? "Hide" : eventsLabel}
@@ -174,23 +198,23 @@ function QueueOrderRow({
                   showEvents && "rotate-180"
                 )}
               />
-            </Button>
+            </button>
           )}
           {next && (
-            <Button
-              size="sm"
-              className="h-8 rounded-full px-4 text-xs font-semibold"
+            <button
+              type="button"
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-brand-primary bg-brand-primary px-3.5 text-[12px] font-semibold text-white transition-colors hover:bg-brand-primary/90"
               onClick={() => onSchedule(next.key)}
             >
               Schedule
               <ChevronRight className="size-3.5" />
-            </Button>
+            </button>
           )}
         </div>
       </div>
 
       {showEvents && item.flowSteps.length > 1 && (
-        <div className="mt-3 border-t border-border/60 pt-3">
+        <div className="mt-3 border-t border-[#ebebeb] pt-3">
           <FlowStepList steps={item.flowSteps} />
         </div>
       )}
@@ -203,19 +227,19 @@ export function EventBasketPanel({
 }: {
   onScheduleEvent: (jobKey: string) => void;
 }) {
-  const { orders, scheduleBlocks } = useSchedule();
+  const { activeOrders, activeScheduleBlocks } = useSchedule();
   const [expanded, setExpanded] = useState(true);
   const [filter, setFilter] = useState<QueueFilter>("ready");
   const [sort, setSort] = useState<EventBasketSort>("urgency");
 
   const allEvents = useMemo(
-    () => getUnscheduledEvents(orders, scheduleBlocks),
-    [orders, scheduleBlocks]
+    () => getUnscheduledEvents(activeOrders, activeScheduleBlocks),
+    [activeOrders, activeScheduleBlocks]
   );
 
   const queueOrders = useMemo(
-    () => buildSchedulingQueueOrders(orders, scheduleBlocks),
-    [orders, scheduleBlocks]
+    () => buildSchedulingQueueOrders(activeOrders, activeScheduleBlocks),
+    [activeOrders, activeScheduleBlocks]
   );
 
   const visibleOrders = useMemo(() => {
@@ -232,34 +256,33 @@ export function EventBasketPanel({
 
   const readyCount = queueOrders.filter((item) => item.nextEvent).length;
   const blockedOrders = useMemo(
-    () => getOrdersBlockedFromSchedulingQueue(orders, scheduleBlocks),
-    [orders, scheduleBlocks]
+    () =>
+      getOrdersBlockedFromSchedulingQueue(activeOrders, activeScheduleBlocks),
+    [activeOrders, activeScheduleBlocks]
   );
 
   if (allEvents.length === 0) {
     return (
       <div className="space-y-3">
-        <section className="rounded-2xl border border-emerald-200/70 bg-emerald-50/50 px-5 py-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <CheckCircle2 className="size-5 shrink-0 text-emerald-700 mt-0.5" />
-            <div>
-              <p className="text-sm font-semibold text-emerald-950">
-                Nothing to schedule
-              </p>
-              <p className="mt-0.5 text-xs text-emerald-900/80">
-                All {eventsLabel.toLowerCase()} are on the calendar.
-              </p>
-            </div>
+        <section className="flex items-start gap-3 rounded-lg border border-[#86d4a8] bg-[#e8f5ee] px-4 py-3.5 sm:px-5">
+          <CheckCircle2 className="mt-0.5 size-5 shrink-0 text-[#0d5c2e]" />
+          <div>
+            <p className="text-sm font-semibold text-[#0d5c2e]">
+              Nothing to schedule
+            </p>
+            <p className="mt-0.5 text-[13px] text-[#0d5c2e]/80">
+              All {eventsLabel.toLowerCase()} are on the calendar.
+            </p>
           </div>
         </section>
 
         {blockedOrders.length > 0 && (
-          <section className="rounded-2xl border border-amber-200/80 bg-amber-50/40 px-5 py-4 text-sm">
-            <p className="font-medium text-amber-950">
+          <section className="rounded-lg border border-[#f0d9a8] bg-[#fff8eb] px-4 py-3.5 text-sm sm:px-5">
+            <p className="font-semibold text-[#8a6116]">
               {blockedOrders.length} order
               {blockedOrders.length !== 1 ? "s" : ""} not in queue yet
             </p>
-            <ul className="mt-2 space-y-1.5 text-xs text-amber-900">
+            <ul className="mt-2 space-y-1.5 text-[13px] text-[#8a6116]">
               {blockedOrders.map(({ order, reason }) => (
                 <li key={order.id}>
                   <Link
@@ -279,77 +302,80 @@ export function EventBasketPanel({
     );
   }
 
+  const filterTabs = [
+    { value: "ready" as const, label: "Ready", count: readyCount },
+    { value: "all" as const, label: "All", count: queueOrders.length },
+    {
+      value: "rush" as const,
+      label: "Rush",
+      count: queueOrders.filter((item) => item.rush).length,
+    },
+    {
+      value: "overdue" as const,
+      label: "Overdue",
+      count: queueOrders.filter((item) => item.dueUrgency === "critical").length,
+    },
+  ];
+
   return (
-    <section className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden">
+    <section className={dashboardCardClass}>
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left hover:bg-brand-primary/[0.02] transition-colors"
+        className="flex w-full items-center justify-between gap-4 border-b border-[#ebebeb] bg-[#fafafa] px-4 py-3 text-left transition-colors hover:bg-[#f4f4f5] sm:px-5"
       >
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-primary/10 text-brand-primary">
-            <Inbox className="size-4" />
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#e8f0fb] text-[#2c6ecb]">
+            <Inbox className="size-4" strokeWidth={1.75} />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-brand-ink">
+            <h2 className="text-sm font-semibold text-[#303030]">
               Scheduling queue
-              <span className="ml-2 font-normal text-brand-muted">
+              <span className="ml-2 font-normal text-[#616161]">
                 {readyCount} order{readyCount !== 1 ? "s" : ""} ready
               </span>
             </h2>
-            <p className="text-xs text-brand-muted mt-0.5">
+            <p className="mt-0.5 text-[13px] text-[#616161]">
               One event at a time — schedule the next one for each order.
             </p>
           </div>
         </div>
         <ChevronDown
           className={cn(
-            "size-5 shrink-0 text-brand-muted transition-transform",
+            "size-5 shrink-0 text-[#616161] transition-transform",
             expanded && "rotate-180"
           )}
         />
       </button>
 
       {expanded && (
-        <div className="border-t border-border/80 px-5 py-4 space-y-3">
+        <div className="space-y-3 p-4 sm:p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap gap-1.5">
-              {(
-                [
-                  { value: "ready" as const, label: "Ready", count: readyCount },
-                  { value: "all" as const, label: "All", count: queueOrders.length },
-                  {
-                    value: "rush" as const,
-                    label: "Rush",
-                    count: queueOrders.filter((item) => item.rush).length,
-                  },
-                  {
-                    value: "overdue" as const,
-                    label: "Overdue",
-                    count: queueOrders.filter(
-                      (item) => item.dueUrgency === "critical"
-                    ).length,
-                  },
-                ] as const
-              ).map((option) => {
-                if (option.value !== "ready" && option.value !== "all" && option.count === 0) {
+              {filterTabs.map((option) => {
+                if (
+                  option.value !== "ready" &&
+                  option.value !== "all" &&
+                  option.count === 0
+                ) {
                   return null;
                 }
+                const active = filter === option.value;
                 return (
                   <button
                     key={option.value}
                     type="button"
                     onClick={() => setFilter(option.value)}
                     className={cn(
-                      "rounded-full px-3 py-1 text-xs font-medium transition-colors",
-                      filter === option.value
-                        ? "bg-brand-primary text-white"
-                        : "text-brand-muted hover:bg-muted"
+                      "rounded-lg border px-2.5 py-1 text-[12px] font-medium transition-colors",
+                      active
+                        ? "border-[#2c6ecb]/30 bg-[#f4f7fd] text-[#303030]"
+                        : "border-transparent text-[#616161] hover:bg-[#f6f6f7] hover:text-[#303030]"
                     )}
                   >
                     {option.label}
                     {option.count > 0 && (
-                      <span className="ml-1 opacity-80">{option.count}</span>
+                      <span className="ml-1 text-[#8a8a8a]">{option.count}</span>
                     )}
                   </button>
                 );
@@ -362,10 +388,15 @@ export function EventBasketPanel({
                 setSort((value ?? "urgency") as EventBasketSort)
               }
             >
-              <SelectTrigger className="h-8 w-[130px] rounded-full text-xs border-border/80">
+              <SelectTrigger
+                className={cn(
+                  dashboardControlClass,
+                  "w-[148px] data-[size=default]:h-9"
+                )}
+              >
                 <SelectValue placeholder="Sort" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent align="end" className="rounded-lg">
                 {SORT_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
@@ -376,13 +407,13 @@ export function EventBasketPanel({
           </div>
 
           {visibleOrders.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border py-8 text-center text-sm text-brand-muted">
+            <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] py-8 text-center text-[13px] text-[#616161]">
               {filter === "ready" ? (
                 <>
                   No orders with an event ready right now.{" "}
                   <button
                     type="button"
-                    className="text-brand-primary hover:underline"
+                    className="font-medium text-[#2c6ecb] hover:underline"
                     onClick={() => setFilter("all")}
                   >
                     View all waiting orders
@@ -393,7 +424,7 @@ export function EventBasketPanel({
               )}
             </div>
           ) : (
-            <div className="space-y-2 max-h-[min(420px,50vh)] overflow-y-auto pr-0.5">
+            <div className="max-h-[min(420px,50vh)] space-y-2 overflow-y-auto pr-0.5">
               {visibleOrders.map((item) => (
                 <QueueOrderRow
                   key={item.orderId}
@@ -405,10 +436,10 @@ export function EventBasketPanel({
           )}
 
           {filter === "ready" && queueOrders.length > readyCount && (
-            <p className="text-[11px] text-brand-muted text-center pt-1">
+            <p className="pt-1 text-center text-[11px] text-[#8a8a8a]">
               <button
                 type="button"
-                className="text-brand-primary hover:underline"
+                className="font-medium text-[#2c6ecb] hover:underline"
                 onClick={() => setFilter("all")}
               >
                 {queueOrders.length - readyCount} more order

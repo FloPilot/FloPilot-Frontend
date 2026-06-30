@@ -1,276 +1,302 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
-  ExternalLink,
   FileImage,
+  FileText,
   RotateCcw,
   Send,
 } from "lucide-react";
+import { PdfPreviewDialog } from "@/components/orders/pdf-preview-dialog";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { MockupPreview } from "@/components/orders/artwork/mockup-preview";
+import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
+import { ProofApprovalProgressBar } from "@/components/orders/artwork/proof-approval-progress";
 import { useSchedule } from "@/components/providers/schedule-provider";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { decorationLabel } from "@/lib/format";
 import { getArtworkApprovalSummary } from "@/lib/order-health";
+import {
+  dashboardCardClass,
+  dashboardControlClass,
+  dashboardInsetSurfaceClass,
+  dashboardTaskDetailClass,
+  dashboardTaskTitleClass,
+} from "@/lib/dashboard-styles";
 import type { Order } from "@/types";
 import { cn } from "@/lib/utils";
 
 export function OrderArtworkApprovalPanel({
   order,
-  onOpenFiles,
 }: {
   order: Order;
-  onOpenFiles: (jobId: string, imprintId: string) => void;
+  onOpenFiles?: (jobId: string, imprintId: string) => void;
 }) {
-  const { setArtworkStatus, sendProofToCustomer } = useSchedule();
-  const [toast, setToast] = useState<string | null>(null);
+  const {
+    setArtworkStatus,
+    sendProofToCustomer,
+    sendProofsAndEstimate,
+    previewOrderDocument,
+  } = useSchedule();
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error";
+  } | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const loadProofsPdf = useCallback(
+    () => previewOrderDocument(order.id, "proofs"),
+    [previewOrderDocument, order.id]
+  );
 
   const summary = useMemo(() => getArtworkApprovalSummary(order), [order]);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(
+    () => !getArtworkApprovalSummary(order).allApproved
+  );
+  const wasAllApprovedRef = useRef(summary.allApproved);
 
-  const showToast = (message: string) => {
-    setToast(message);
-    window.setTimeout(() => setToast(null), 4000);
+  useEffect(() => {
+    const justCompleted =
+      !wasAllApprovedRef.current && summary.allApproved;
+    wasAllApprovedRef.current = summary.allApproved;
+
+    if (!summary.allApproved) return;
+
+    if (justCompleted) {
+      const timer = window.setTimeout(() => setExpanded(false), 1300);
+      return () => window.clearTimeout(timer);
+    }
+  }, [summary.allApproved]);
+
+  const showToast = (message: string, type: "success" | "error" = "success") => {
+    setToast({ message, type });
+    window.setTimeout(() => setToast(null), 5000);
   };
 
-  const handleSendProof = (jobId: string, imprintId: string, label: string) => {
-    sendProofToCustomer(order.id, jobId, imprintId);
-    showToast(`Proof sent for ${label}. Customer can approve in their portal.`);
+  const handleSendProof = async (
+    jobId: string,
+    imprintId: string,
+    label: string
+  ) => {
+    await sendProofToCustomer(order.id, jobId, imprintId);
+    showToast(`Proof logged for ${label}.`);
   };
 
-  const handleSendAllProofs = () => {
-    const pending = summary.items.filter(
-      (item) => item.artwork.status !== "approved"
-    );
-    if (pending.length === 0) return;
-    pending.forEach((item) => {
-      sendProofToCustomer(order.id, item.job.id, item.imprint.id);
-    });
-    showToast(
-      `Sent ${pending.length} proof${pending.length !== 1 ? "s" : ""} to ${order.customerName.split(" ")[0]}.`
-    );
+  // Emails the customer the combined proofs + estimate PDF with approve links.
+  const handleSendProofsAndEstimate = async () => {
+    try {
+      const email = await sendProofsAndEstimate(order.id);
+      showToast(`Proofs & estimate emailed to ${email.to}.`);
+    } catch (err) {
+      showToast(
+        err instanceof Error
+          ? err.message
+          : "Could not send the email. Please try again.",
+        "error"
+      );
+      throw err;
+    }
   };
 
   if (summary.total === 0) {
     return (
-      <Card className="border-border/60 shadow-sm">
-        <CardHeader className="py-4">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <FileImage className="size-4" />
-            Artwork approval
-          </CardTitle>
-          <CardDescription>
-            Add production events with decoration artwork to request customer
-            approval before scheduling.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+      <section className={dashboardCardClass}>
+        <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
+          <h2 className={dashboardTaskTitleClass}>Proof approval</h2>
+          <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+            Add decoration events first — then send and approve proofs per
+            location before production.
+          </p>
+        </div>
+      </section>
     );
   }
 
   const pendingCount = summary.pending + summary.revisionRequested;
+  const compactComplete = summary.allApproved && !expanded;
 
   return (
-    <Card
+    <section
       className={cn(
-        "border-border/60 shadow-sm overflow-hidden transition-colors",
-        summary.needsCustomerReview && !expanded && "border-brand-primary/20",
-        summary.allApproved && !expanded && "border-emerald-200/80"
+        dashboardCardClass,
+        "transition-[border-color,box-shadow] duration-300",
+        compactComplete && "border-[#86d4a8] bg-[#fafffe]"
       )}
     >
-      <CardHeader className={cn("pb-0", expanded ? "pb-4" : "py-3")}>
+      <div
+        className={cn(
+          "border-b border-[#ebebeb]",
+          compactComplete ? "px-4 py-3 sm:px-5" : "px-4 py-3.5 sm:px-5"
+        )}
+      >
         <div className="flex items-start gap-3">
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            className="flex min-w-0 flex-1 items-start gap-3 rounded-lg text-left transition-colors hover:bg-brand-primary/[0.04] -m-2 p-2"
+            className="flex min-w-0 flex-1 items-start gap-3 rounded-lg text-left transition-colors hover:bg-[#fafafa] -m-1.5 p-1.5"
             aria-expanded={expanded}
           >
             <div
               className={cn(
-                "flex size-9 shrink-0 items-center justify-center rounded-xl",
+                "flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors duration-300",
                 summary.allApproved
-                  ? "bg-emerald-50 text-emerald-700"
-                  : "bg-brand-primary/8 text-brand-primary"
+                  ? "bg-[#e8f5ee] text-[#0d5c2e]"
+                  : "bg-[#f4f7fd] text-[#2c6ecb]"
               )}
             >
               {summary.allApproved ? (
-                <CheckCircle2 className="size-4" />
+                <CheckCircle2 className="size-4" strokeWidth={2} />
               ) : (
-                <FileImage className="size-4" />
+                <FileImage className="size-4" strokeWidth={1.75} />
               )}
             </div>
 
-            <div className="min-w-0 flex-1 pt-0.5">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <CardTitle className="text-base">Artwork approval</CardTitle>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className={dashboardTaskTitleClass}>Proof approval</h2>
                 <span
                   className={cn(
-                    "text-xs font-semibold tabular-nums",
-                    summary.allApproved ? "text-emerald-700" : "text-brand-ink"
+                    "rounded-md px-2 py-0.5 text-[11px] font-semibold tabular-nums transition-colors duration-300",
+                    summary.allApproved
+                      ? "bg-[#e8f5ee] text-[#0d5c2e]"
+                      : "bg-[#f1f1f1] text-[#616161]"
                   )}
                 >
                   {summary.approved}/{summary.total} approved
                 </span>
               </div>
 
-              {!expanded && (
-                <p className="mt-0.5 text-sm text-brand-muted">
-                  {summary.allApproved
-                    ? "All proofs approved — click to review or resend."
+              <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+                {compactComplete
+                  ? "All proofs approved — ready for production."
+                  : expanded
+                    ? "Send proofs to the customer and mark each location approved when signed off."
                     : pendingCount > 0
-                      ? `${pendingCount} proof${pendingCount !== 1 ? "s" : ""} need attention — click to manage.`
-                      : "Click to manage artwork proofs."}
-                </p>
-              )}
-
-              {expanded && (
-                <CardDescription className="mt-1">
-                  Send proofs to the customer and track approval before
-                  production.
-                </CardDescription>
-              )}
-
-              {!expanded && (
-                <div className="mt-2 h-1.5 max-w-[200px] rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-all",
-                      summary.allApproved ? "bg-emerald-500" : "bg-brand-primary"
-                    )}
-                    style={{
-                      width: `${Math.round((summary.approved / summary.total) * 100)}%`,
-                    }}
-                  />
-                </div>
-              )}
+                      ? `${pendingCount} proof${pendingCount !== 1 ? "s" : ""} still need attention.`
+                      : "Manage proofs for each decoration location."}
+              </p>
             </div>
 
             <ChevronDown
               className={cn(
-                "size-4 shrink-0 text-brand-muted transition-transform mt-1",
+                "mt-1 size-4 shrink-0 text-[#8a8a8a] transition-transform duration-200",
                 expanded && "rotate-180"
               )}
             />
           </button>
 
-          {!expanded && pendingCount > 0 && (
-            <Button
-              size="sm"
-              className="rounded-full shrink-0 mt-0.5"
-              onClick={(event) => {
-                event.stopPropagation();
-                handleSendAllProofs();
-              }}
+          {!expanded && pendingCount > 0 ? (
+            <ProofActionButton
+              variant="primary"
+              className="mt-0.5 shrink-0"
+              successLabel="Sent"
+              onClick={handleSendProofsAndEstimate}
             >
-              <Send className="size-3.5" />
-              <span className="hidden sm:inline">Send all</span>
-            </Button>
-          )}
+              <span className="inline-flex items-center gap-1.5">
+                <Send className="size-3.5" />
+                Send to customer
+              </span>
+            </ProofActionButton>
+          ) : null}
         </div>
 
-        {expanded && (
-          <>
-            <div className="mt-4 flex flex-wrap items-center gap-3 pl-12">
-              <div className="flex items-center gap-2 text-sm">
-                {summary.pending > 0 && (
-                  <span className="text-brand-muted">
-                    {summary.pending} awaiting review
-                  </span>
-                )}
-                {summary.revisionRequested > 0 && (
-                  <span className="text-amber-700">
-                    {summary.revisionRequested} revision
-                    {summary.revisionRequested !== 1 ? "s" : ""} requested
-                  </span>
-                )}
-              </div>
-              <div className="h-2 flex-1 min-w-[120px] max-w-xs rounded-full bg-muted overflow-hidden">
-                <div
-                  className={cn(
-                    "h-full rounded-full transition-all",
-                    summary.allApproved ? "bg-emerald-500" : "bg-brand-primary"
-                  )}
-                  style={{
-                    width: `${Math.round((summary.approved / summary.total) * 100)}%`,
-                  }}
-                />
-              </div>
-            </div>
+        {!expanded ? (
+          <ProofApprovalProgressBar
+            approved={summary.approved}
+            total={summary.total}
+            size={compactComplete ? "sm" : "md"}
+            className="mt-3 transition-all duration-500"
+          />
+        ) : null}
 
-            <div className="mt-4 flex flex-wrap items-center gap-2 pl-12">
-              {pendingCount > 0 && (
-                <Button
-                  size="sm"
-                  className="rounded-full"
-                  onClick={handleSendAllProofs}
-                >
-                  <Send className="size-3.5" />
-                  Send all proofs
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant="outline"
-                className="rounded-full bg-white"
-                onClick={() =>
-                  onOpenFiles(summary.items[0].job.id, summary.items[0].imprint.id)
-                }
-              >
-                <ExternalLink className="size-3.5" />
-                Files & mockups
-              </Button>
-            </div>
-
-            {toast && (
-              <div className="mt-4 ml-12 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900">
-                {toast}
-              </div>
+        {toast ? (
+          <div
+            className={cn(
+              "mt-3 rounded-lg border px-3 py-2 text-[13px] font-medium",
+              toast.type === "error"
+                ? "border-[#e7b4b4] bg-[#fdf2f2] text-[#b42318]"
+                : "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]"
             )}
-
-            {summary.needsCustomerReview && !summary.allApproved && (
-              <div className="mt-4 ml-12 rounded-xl border border-brand-primary/15 bg-brand-primary/[0.05] px-4 py-3 text-sm text-brand-ink">
-                Send proofs when mockups are ready. The customer receives a
-                portal message and can approve or request changes before you
-                schedule production.
-              </div>
-            )}
-          </>
-        )}
-
-        {!expanded && toast && (
-          <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-900">
-            {toast}
+          >
+            {toast.message}
           </div>
-        )}
-      </CardHeader>
+        ) : null}
+      </div>
 
-      {expanded && (
-        <CardContent className="space-y-4 pt-2">
-          <div className="grid gap-4 lg:grid-cols-2">
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows] duration-300 ease-out",
+          expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="space-y-4 p-4 sm:p-5">
+            <ProofApprovalProgressBar
+              approved={summary.approved}
+              total={summary.total}
+            />
+
+            <div className="flex flex-wrap items-center gap-2">
+              {pendingCount > 0 ? (
+                <ProofActionButton
+                  variant="primary"
+                  successLabel="Emailed"
+                  onClick={handleSendProofsAndEstimate}
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <Send className="size-3.5" />
+                    Send proofs + estimate
+                  </span>
+                </ProofActionButton>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(true)}
+                className={cn(
+                  dashboardControlClass,
+                  "inline-flex h-9 items-center gap-1.5 px-3 text-[13px]"
+                )}
+              >
+                <FileText className="size-3.5" />
+                Preview proofs
+              </button>
+              {summary.revisionRequested > 0 ? (
+                <span className="text-[12px] font-medium text-[#8a6116]">
+                  {summary.revisionRequested} revision
+                  {summary.revisionRequested !== 1 ? "s" : ""} requested
+                </span>
+              ) : null}
+            </div>
+
+          {summary.needsCustomerReview && !summary.allApproved ? (
+            <div className="rounded-lg border border-[#c4d7f2] bg-[#f4f7fd] px-3.5 py-3 text-[13px] text-[#303030]">
+              Send proofs + estimate to email {order.customerName.split(" ")[0]}{" "}
+              a branded PDF with approve buttons for the estimate and each
+              design. They can approve right from the email or reply with
+              changes.
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 lg:grid-cols-2">
             {summary.items.map(({ job, imprint }) => (
-              <div
+              <article
                 key={imprint.id}
-                className="rounded-xl border border-border/70 bg-white p-3 space-y-3"
+                className={cn(
+                  dashboardInsetSurfaceClass,
+                  "space-y-3 p-3",
+                  imprint.artwork.status === "approved" &&
+                    "border-[#86d4a8]/40 bg-[#fafffe]"
+                )}
               >
                 <MockupPreview entry={{ job, imprint }} compact />
 
-                <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">
+                    <p className="truncate text-[13px] font-semibold text-[#303030]">
                       {imprint.label}
                     </p>
-                    <p className="text-xs text-brand-muted truncate">
+                    <p className="truncate text-[12px] text-[#616161]">
                       {job.name} · {decorationLabel(imprint.decoration)} · v
                       {imprint.artwork.version}
                     </p>
@@ -279,21 +305,25 @@ export function OrderArtworkApprovalPanel({
                 </div>
 
                 <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    className="rounded-full flex-1 sm:flex-none"
+                  <ProofActionButton
+                    variant="primary"
+                    className="min-w-[120px] flex-1"
+                    disabled={imprint.artwork.status === "approved"}
+                    successLabel="Sent"
                     onClick={() =>
                       handleSendProof(job.id, imprint.id, imprint.label)
                     }
-                    disabled={imprint.artwork.status === "approved"}
                   >
-                    <Send className="size-3.5" />
-                    Send proof
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-full"
+                    <span className="inline-flex items-center gap-1.5">
+                      <Send className="size-3.5" />
+                      Send proof
+                    </span>
+                  </ProofActionButton>
+                  <ProofActionButton
+                    variant="success"
+                    className="min-w-[108px] flex-1"
+                    disabled={imprint.artwork.status === "approved"}
+                    successLabel="Approved"
                     onClick={() =>
                       setArtworkStatus(
                         order.id,
@@ -302,15 +332,19 @@ export function OrderArtworkApprovalPanel({
                         "approved"
                       )
                     }
-                    disabled={imprint.artwork.status === "approved"}
                   >
-                    <CheckCircle2 className="size-3.5" />
-                    Approve
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="rounded-full"
+                    <span className="inline-flex items-center gap-1.5">
+                      <CheckCircle2 className="size-3.5" />
+                      {imprint.artwork.status === "approved"
+                        ? "Approved"
+                        : "Approve"}
+                    </span>
+                  </ProofActionButton>
+                  <ProofActionButton
+                    variant="muted"
+                    className="min-w-[100px]"
+                    disabled={imprint.artwork.status === "revision_requested"}
+                    successLabel="Saved"
                     onClick={() =>
                       setArtworkStatus(
                         order.id,
@@ -320,15 +354,26 @@ export function OrderArtworkApprovalPanel({
                       )
                     }
                   >
-                    <RotateCcw className="size-3.5" />
-                    Revision
-                  </Button>
+                    <span className="inline-flex items-center gap-1.5">
+                      <RotateCcw className="size-3.5" />
+                      Revision
+                    </span>
+                  </ProofActionButton>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
-        </CardContent>
-      )}
-    </Card>
+          </div>
+        </div>
+      </div>
+
+      <PdfPreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        title={`Proofs · Order ${order.number}`}
+        subtitle="These are the art approval pages the customer receives."
+        load={loadProofsPdf}
+      />
+    </section>
   );
 }

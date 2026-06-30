@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   FileUp,
   FolderOpen,
+  Loader2,
   RotateCcw,
   Send,
   Upload,
@@ -21,6 +22,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { readImagePreviewDataUrl, readUploadContent } from "@/lib/artwork-preview";
+import {
+  dashboardControlClass,
+  dashboardPrimaryButtonClass,
+} from "@/lib/dashboard-styles";
 import { decorationLabel, formatDateTime } from "@/lib/format";
 import { collectOrderMockups, type MockupEntry } from "@/lib/job-imprints";
 import {
@@ -54,6 +60,8 @@ export function OrderFilesTab({
     setArtworkStatus,
     uploadArtworkVersion,
     addOrderFile,
+    uploadOrderFile,
+    deleteOrderFile,
     sendProofToCustomer,
   } = useSchedule();
 
@@ -88,11 +96,15 @@ export function OrderFilesTab({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const orderFileInputRef = useRef<HTMLInputElement>(null);
+  const replaceFileInputRef = useRef<HTMLInputElement>(null);
   const [pendingImprintUpload, setPendingImprintUpload] = useState<{
     jobId: string;
     imprintId: string;
     kind: OrderFileKind;
   } | null>(null);
+  const [replaceTarget, setReplaceTarget] = useState<OrderFileItem | null>(null);
+  const [replacingId, setReplacingId] = useState<string | null>(null);
+  const [replaceError, setReplaceError] = useState<string | null>(null);
 
   useEffect(() => {
     if (focusImprint) {
@@ -126,30 +138,90 @@ export function OrderFilesTab({
     fileInputRef.current?.click();
   };
 
-  const handleImprintFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImprintFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = e.target.files?.[0];
     if (!file || !pendingImprintUpload) return;
+    const { previewUrl } = await readImagePreviewDataUrl(file);
     uploadArtworkVersion(
       order.id,
       pendingImprintUpload.jobId,
       pendingImprintUpload.imprintId,
       file.name,
       undefined,
-      pendingImprintUpload.kind
+      pendingImprintUpload.kind,
+      previewUrl || undefined
     );
     setPendingImprintUpload(null);
     e.target.value = "";
   };
 
-  const handleOrderFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleOrderFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const { previewUrl } = await readImagePreviewDataUrl(file);
     addOrderFile(order.id, {
       name: file.name,
       kind: defaultUploadKindForCategory(category),
       uploadedBy: "Shop",
+      previewUrl: previewUrl || undefined,
     });
     e.target.value = "";
+  };
+
+  const triggerOrderFileReplace = (file: OrderFileItem) => {
+    setReplaceError(null);
+    setReplaceTarget(file);
+    replaceFileInputRef.current?.click();
+  };
+
+  const handleReplaceFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    const target = replaceTarget;
+    e.target.value = "";
+    if (!file || !target) {
+      setReplaceTarget(null);
+      return;
+    }
+
+    setReplacingId(target.id);
+    setReplaceError(null);
+    try {
+      const { base64, contentType, error } = await readUploadContent(file);
+      if (error) {
+        setReplaceError(error);
+        return;
+      }
+
+      // Keep the original logical name (e.g. "SO1048 - FRONT LEFT CHEST") but
+      // adopt the new file's extension so the listing stays accurate.
+      const base = target.name.replace(/\.[^./\\]+$/, "");
+      const newExt =
+        file.name.match(/\.[^./\\]+$/)?.[0] ??
+        target.name.match(/\.[^./\\]+$/)?.[0] ??
+        "";
+      const newName = `${base}${newExt}`;
+
+      await uploadOrderFile(order.id, {
+        name: newName,
+        kind: target.kind,
+        uploadedBy: "Shop",
+        contentBase64: base64,
+        contentType,
+        notes: target.notes,
+      });
+      await deleteOrderFile(order.id, target.id);
+    } catch {
+      setReplaceError("Could not replace this file. Please try again.");
+    } finally {
+      setReplacingId(null);
+      setReplaceTarget(null);
+    }
   };
 
   const uploadLabel =
@@ -172,6 +244,18 @@ export function OrderFilesTab({
         className="hidden"
         onChange={handleOrderFileChange}
       />
+      <input
+        ref={replaceFileInputRef}
+        type="file"
+        className="hidden"
+        onChange={handleReplaceFileChange}
+      />
+
+      {replaceError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {replaceError}
+        </div>
+      )}
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
@@ -184,10 +268,9 @@ export function OrderFilesTab({
                 type="button"
                 onClick={() => setCategory(tab.id)}
                 className={cn(
-                  "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors",
-                  selected
-                    ? "border-brand-primary bg-brand-primary text-white shadow-sm"
-                    : "border-border bg-white text-brand-muted hover:border-brand-primary/30 hover:text-brand-ink"
+                  dashboardControlClass,
+                  "h-8 shrink-0 px-2.5 text-[12px]",
+                  selected && "border-[#2c6ecb] bg-[#f4f7fd] text-[#2c6ecb]"
                 )}
               >
                 {tab.label}
@@ -195,8 +278,8 @@ export function OrderFilesTab({
                   className={cn(
                     "rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
                     selected
-                      ? "bg-white/20 text-white"
-                      : "bg-muted text-brand-muted"
+                      ? "bg-[#2c6ecb]/12 text-[#2c6ecb]"
+                      : "bg-[#f0f0f0] text-[#616161]"
                   )}
                 >
                   {count}
@@ -207,9 +290,7 @@ export function OrderFilesTab({
         </div>
 
         <Button
-          variant="outline"
-          size="sm"
-          className="rounded-full shrink-0"
+          className={cn(dashboardControlClass, "h-8 shrink-0 text-[12px]")}
           onClick={() => {
             if (category === "mockups" || category === "artwork") {
               const target = selectedEntry ?? allEntries[0];
@@ -311,8 +392,10 @@ export function OrderFilesTab({
 
                     <div className="flex flex-wrap gap-2">
                       <Button
-                        size="sm"
-                        className="rounded-full"
+                        className={cn(
+                          dashboardPrimaryButtonClass,
+                          "h-8 text-[12px]"
+                        )}
                         onClick={() =>
                           setArtworkStatus(
                             order.id,
@@ -329,9 +412,7 @@ export function OrderFilesTab({
                         Approve
                       </Button>
                       <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-full"
+                        className={cn(dashboardControlClass, "h-8 text-[12px]")}
                         onClick={() =>
                           setArtworkStatus(
                             order.id,
@@ -345,9 +426,7 @@ export function OrderFilesTab({
                         Request revision
                       </Button>
                       <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-full"
+                        className={cn(dashboardControlClass, "h-8 text-[12px]")}
                         onClick={() =>
                           sendProofToCustomer(
                             order.id,
@@ -360,9 +439,7 @@ export function OrderFilesTab({
                         Send proof
                       </Button>
                       <Button
-                        variant="outline"
-                        size="sm"
-                        className="rounded-full"
+                        className={cn(dashboardControlClass, "h-8 text-[12px]")}
                         onClick={() =>
                           triggerImprintUpload(
                             selectedEntry.job.id,
@@ -419,6 +496,8 @@ export function OrderFilesTab({
               <AllFilesGrouped
                 items={filteredList}
                 onUploadImprint={triggerImprintUpload}
+                onReplaceOrderFile={triggerOrderFileReplace}
+                replacingId={replacingId}
               />
             ) : category === "artwork" ? (
               <ArtworkByLocation
@@ -426,7 +505,11 @@ export function OrderFilesTab({
                 onUpload={triggerImprintUpload}
               />
             ) : (
-              <FileList items={filteredList} />
+              <FileList
+                items={filteredList}
+                onReplaceOrderFile={triggerOrderFileReplace}
+                replacingId={replacingId}
+              />
             )}
           </CardContent>
         </Card>
@@ -435,11 +518,28 @@ export function OrderFilesTab({
   );
 }
 
-function FileList({ items }: { items: OrderFileItem[] }) {
+function FileList({
+  items,
+  onReplaceOrderFile,
+  replacingId,
+}: {
+  items: OrderFileItem[];
+  onReplaceOrderFile?: (file: OrderFileItem) => void;
+  replacingId?: string | null;
+}) {
   return (
     <div>
       {items.map((file) => (
-        <FileRow key={file.id} file={file} />
+        <FileRow
+          key={file.id}
+          file={file}
+          onReplace={
+            onReplaceOrderFile && file.source === "order"
+              ? () => onReplaceOrderFile(file)
+              : undefined
+          }
+          replacing={replacingId === file.id}
+        />
       ))}
     </div>
   );
@@ -448,9 +548,13 @@ function FileList({ items }: { items: OrderFileItem[] }) {
 function AllFilesGrouped({
   items,
   onUploadImprint,
+  onReplaceOrderFile,
+  replacingId,
 }: {
   items: OrderFileItem[];
   onUploadImprint: (jobId: string, imprintId: string, kind: OrderFileKind) => void;
+  onReplaceOrderFile?: (file: OrderFileItem) => void;
+  replacingId?: string | null;
 }) {
   const groups = useMemo(() => {
     const map = new Map<string, OrderFileItem[]>();
@@ -488,6 +592,12 @@ function AllFilesGrouped({
                         )
                     : undefined
                 }
+                onReplace={
+                  onReplaceOrderFile && file.source === "order"
+                    ? () => onReplaceOrderFile(file)
+                    : undefined
+                }
+                replacing={replacingId === file.id}
               />
             ))}
           </div>
@@ -540,9 +650,7 @@ function ArtworkByLocation({
               <p className="text-sm font-semibold">{label}</p>
               {jobId && imprintId && (
                 <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 rounded-full text-xs"
+                  className={cn(dashboardControlClass, "h-8 text-[12px]")}
                   onClick={() => onUpload(jobId, imprintId, "production_art")}
                 >
                   <Upload className="size-3" />
@@ -565,9 +673,13 @@ function ArtworkByLocation({
 function FileRow({
   file,
   onUpload,
+  onReplace,
+  replacing,
 }: {
   file: OrderFileItem;
   onUpload?: () => void;
+  onReplace?: () => void;
+  replacing?: boolean;
 }) {
   return (
     <div
@@ -576,8 +688,16 @@ function FileRow({
         file.archived && "opacity-60"
       )}
     >
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate">{file.name}</p>
+      <div className="min-w-0 flex-1 flex items-center gap-3">
+        {file.previewUrl ? (
+          <img
+            src={file.previewUrl}
+            alt=""
+            className="size-10 shrink-0 rounded-md border border-border/60 object-cover"
+          />
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{file.name}</p>
         <p className="text-xs text-muted-foreground">
           {ORDER_FILE_KIND_LABELS[file.kind]}
           {file.imprintLabel && ` · ${file.imprintLabel}`}
@@ -587,17 +707,36 @@ function FileRow({
           {file.uploadedBy && ` · ${file.uploadedBy}`}
           {file.notes && ` · ${file.notes}`}
         </p>
+        </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {file.status && <ArtworkStatusBadge status={file.status} />}
         {onUpload && (
           <Button
-            variant="outline"
-            size="sm"
-            className="h-7 rounded-full text-xs"
+            className={cn(dashboardControlClass, "h-7 text-[12px]")}
             onClick={onUpload}
           >
+            <RotateCcw className="size-3" />
             Replace
+          </Button>
+        )}
+        {onReplace && (
+          <Button
+            className={cn(dashboardControlClass, "h-7 text-[12px]")}
+            onClick={onReplace}
+            disabled={replacing}
+          >
+            {replacing ? (
+              <>
+                <Loader2 className="size-3 animate-spin" />
+                Replacing
+              </>
+            ) : (
+              <>
+                <RotateCcw className="size-3" />
+                Replace
+              </>
+            )}
           </Button>
         )}
       </div>

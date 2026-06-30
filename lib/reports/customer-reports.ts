@@ -9,15 +9,20 @@ import {
 } from "@/lib/reports/format";
 import type { ReportDefinition, ReportResult, ReportContext } from "@/lib/reports/types";
 import type { Customer, LineItem, Order, OrderStatus } from "@/types";
+import { excludeArchivedOrders } from "@/lib/order-archive";
+import { resolveOrderFinancials } from "@/lib/order-estimate";
+import type { CustomerListFinancialContext } from "@/lib/customer-list-summary";
 
 export interface CustomersListReportData {
   customers: Customer[];
   orders: Order[];
+  financials?: CustomerListFinancialContext;
 }
 
 export interface CustomerDetailReportData {
   customer: Customer;
   orders: Order[];
+  financials?: CustomerListFinancialContext;
 }
 
 const DONE_STATUSES: OrderStatus[] = ["completed", "shipped"];
@@ -48,6 +53,27 @@ function buildResult(
     columns,
     rows,
     filename: `${filenameBase}-${reportTimestamp()}.csv`,
+  };
+}
+
+function resolveReportFinancials(
+  order: Order,
+  financials?: CustomerListFinancialContext
+) {
+  if (financials) {
+    return resolveOrderFinancials(
+      order,
+      financials.taxRate,
+      financials.pricingMatrix
+    );
+  }
+
+  return {
+    subtotal: order.subtotal ?? 0,
+    tax: order.tax ?? 0,
+    total: order.total ?? 0,
+    paid: order.paid ?? 0,
+    balance: order.balance ?? 0,
   };
 }
 
@@ -103,16 +129,18 @@ const customersOpenBalancesReport: ReportDefinition<CustomersListReportData> = {
   description: "Outstanding balances rolled up by customer with order counts.",
   category: "Billing",
   contexts: ["customers_list"],
-  run: ({ customers, orders }) => {
+  run: ({ customers, orders, financials }) => {
     const rows = customers
       .map((customer) => {
-        const customerOrders = orders.filter(
-          (order) => order.customerId === customer.id && order.balance > 0
-        );
+        const customerOrders = orders.filter((order) => {
+          if (order.customerId !== customer.id) return false;
+          return resolveReportFinancials(order, financials).balance > 0;
+        });
         if (customerOrders.length === 0) return null;
 
         const openBalance = customerOrders.reduce(
-          (sum, order) => sum + order.balance,
+          (sum, order) =>
+            sum + resolveReportFinancials(order, financials).balance,
           0
         );
         const oldestDue = customerOrders
@@ -157,7 +185,7 @@ const allCustomerOrdersReport: ReportDefinition<CustomersListReportData> = {
   description: "Every order across your customer base — status, due dates, and totals.",
   category: "Orders",
   contexts: ["customers_list"],
-  run: ({ orders }) =>
+  run: ({ orders, financials }) =>
     buildResult(
       allCustomerOrdersReport,
       [
@@ -177,18 +205,21 @@ const allCustomerOrdersReport: ReportDefinition<CustomersListReportData> = {
           (a, b) =>
             parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime()
         )
-        .map((order) => ({
-          orderNumber: order.number,
-          company: order.company,
-          contact: order.customerName,
-          type: documentTypeLabel(order.type),
-          status: orderStatusLabel(order.status),
-          inHandsDate: formatDate(order.inHandsDate),
-          createdAt: formatDate(order.createdAt),
-          total: formatCurrency(order.total),
-          balance: formatCurrency(order.balance),
-          rush: order.rush ? "Yes" : "No",
-        })),
+        .map((order) => {
+          const amounts = resolveReportFinancials(order, financials);
+          return {
+            orderNumber: order.number,
+            company: order.company,
+            contact: order.customerName,
+            type: documentTypeLabel(order.type),
+            status: orderStatusLabel(order.status),
+            inHandsDate: formatDate(order.inHandsDate),
+            createdAt: formatDate(order.createdAt),
+            total: formatCurrency(amounts.total),
+            balance: formatCurrency(amounts.balance),
+            rush: order.rush ? "Yes" : "No",
+          };
+        }),
       "all-customer-orders"
     ),
 };
@@ -199,7 +230,7 @@ const orderHistoryReport: ReportDefinition<CustomerDetailReportData> = {
   description: "Complete order list for this customer with totals and balances.",
   category: "Orders",
   contexts: ["customer_detail"],
-  run: ({ customer, orders }) =>
+  run: ({ customer, orders, financials }) =>
     buildResult(
       orderHistoryReport,
       [
@@ -219,21 +250,24 @@ const orderHistoryReport: ReportDefinition<CustomerDetailReportData> = {
           (a, b) =>
             parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime()
         )
-        .map((order) => ({
-          orderNumber: order.number,
-          type: documentTypeLabel(order.type),
-          status: orderStatusLabel(order.status),
-          jobs:
-            order.jobs.length > 0
-              ? order.jobs.map((job) => job.name).join("; ")
-              : "—",
-          inHandsDate: formatDate(order.inHandsDate),
-          createdAt: formatDate(order.createdAt),
-          total: formatCurrency(order.total),
-          paid: formatCurrency(order.paid),
-          balance: formatCurrency(order.balance),
-          rush: order.rush ? "Yes" : "No",
-        })),
+        .map((order) => {
+          const amounts = resolveReportFinancials(order, financials);
+          return {
+            orderNumber: order.number,
+            type: documentTypeLabel(order.type),
+            status: orderStatusLabel(order.status),
+            jobs:
+              order.jobs.length > 0
+                ? order.jobs.map((job) => job.name).join("; ")
+                : "—",
+            inHandsDate: formatDate(order.inHandsDate),
+            createdAt: formatDate(order.createdAt),
+            total: formatCurrency(amounts.total),
+            paid: formatCurrency(amounts.paid),
+            balance: formatCurrency(amounts.balance),
+            rush: order.rush ? "Yes" : "No",
+          };
+        }),
       `${slugifyFilename(customer.company)}-order-history`
     ),
 };
@@ -244,7 +278,7 @@ const pastDueOrdersReport: ReportDefinition<CustomerDetailReportData> = {
   description: "Open orders past their in-hands date that still need attention.",
   category: "Orders",
   contexts: ["customer_detail"],
-  run: ({ customer, orders }) => {
+  run: ({ customer, orders, financials }) => {
     const today = startOfDay(new Date());
     const pastDue = orders.filter((order) => isPastDue(order, today));
 
@@ -265,6 +299,7 @@ const pastDueOrdersReport: ReportDefinition<CustomerDetailReportData> = {
             parseISO(b.inHandsDate).getTime()
         )
         .map((order) => {
+          const amounts = resolveReportFinancials(order, financials);
           const daysPastDue = Math.max(
             0,
             Math.floor(
@@ -278,7 +313,7 @@ const pastDueOrdersReport: ReportDefinition<CustomerDetailReportData> = {
             jobs: order.jobs.map((job) => job.name).join("; "),
             inHandsDate: formatDate(order.inHandsDate),
             daysPastDue,
-            balance: formatCurrency(order.balance),
+            balance: formatCurrency(amounts.balance),
           };
         }),
       `${slugifyFilename(customer.company)}-past-due-orders`
@@ -292,7 +327,7 @@ const openBalancesReport: ReportDefinition<CustomerDetailReportData> = {
   description: "Orders with an outstanding balance for this customer.",
   category: "Billing",
   contexts: ["customer_detail"],
-  run: ({ customer, orders }) =>
+  run: ({ customer, orders, financials }) =>
     buildResult(
       openBalancesReport,
       [
@@ -304,15 +339,19 @@ const openBalancesReport: ReportDefinition<CustomerDetailReportData> = {
         { key: "balance", label: "Balance due", align: "right" },
       ],
       orders
-        .filter((order) => order.balance > 0)
-        .sort((a, b) => b.balance - a.balance)
         .map((order) => ({
+          order,
+          amounts: resolveReportFinancials(order, financials),
+        }))
+        .filter(({ amounts }) => amounts.balance > 0)
+        .sort((a, b) => b.amounts.balance - a.amounts.balance)
+        .map(({ order, amounts }) => ({
           orderNumber: order.number,
           status: orderStatusLabel(order.status),
           inHandsDate: formatDate(order.inHandsDate),
-          total: formatCurrency(order.total),
-          paid: formatCurrency(order.paid),
-          balance: formatCurrency(order.balance),
+          total: formatCurrency(amounts.total),
+          paid: formatCurrency(amounts.paid),
+          balance: formatCurrency(amounts.balance),
         })),
       `${slugifyFilename(customer.company)}-open-balances`
     ),
@@ -540,7 +579,7 @@ const completeCustomerExportReport: ReportDefinition<CustomersListReportData> = 
     "Full shop export — every customer with notes, metadata, and all associated order details in one file.",
   category: "Export",
   contexts: ["customers_list", "reports_hub"],
-  run: ({ customers, orders }) => {
+  run: ({ customers, orders, financials }) => {
     const rows: ReportResult["rows"] = [];
 
     for (const customer of customers) {
@@ -576,6 +615,7 @@ const completeCustomerExportReport: ReportDefinition<CustomersListReportData> = 
       }
 
       for (const order of customerOrders) {
+        const amounts = resolveReportFinancials(order, financials);
         rows.push({
           ...base,
           orderId: order.id,
@@ -584,11 +624,11 @@ const completeCustomerExportReport: ReportDefinition<CustomersListReportData> = 
           orderStatus: orderStatusLabel(order.status),
           orderCreated: formatDate(order.createdAt),
           inHandsDate: formatDate(order.inHandsDate),
-          subtotal: formatCurrency(order.subtotal),
-          tax: formatCurrency(order.tax),
-          total: formatCurrency(order.total),
-          paid: formatCurrency(order.paid),
-          balance: formatCurrency(order.balance),
+          subtotal: formatCurrency(amounts.subtotal),
+          tax: formatCurrency(amounts.tax),
+          total: formatCurrency(amounts.total),
+          paid: formatCurrency(amounts.paid),
+          balance: formatCurrency(amounts.balance),
           rush: order.rush ? "Yes" : "No",
           jobs: summarizeJobs(order),
           lineItems: summarizeLineItems(order),
@@ -650,7 +690,7 @@ const customerProfilesExportReport: ReportDefinition<CustomersListReportData> = 
     "One row per customer — contact info, notes, and a summary of their order history.",
   category: "Export",
   contexts: ["customers_list", "reports_hub"],
-  run: ({ customers, orders }) =>
+  run: ({ customers, orders, financials }) =>
     buildResult(
       customerProfilesExportReport,
       [
@@ -676,7 +716,13 @@ const customerProfilesExportReport: ReportDefinition<CustomersListReportData> = 
           (order) => order.customerId === customer.id
         );
         const openBalance = customerOrders.reduce(
-          (sum, order) => sum + order.balance,
+          (sum, order) =>
+            sum + resolveReportFinancials(order, financials).balance,
+          0
+        );
+        const lifetimeValue = customerOrders.reduce(
+          (sum, order) =>
+            sum + resolveReportFinancials(order, financials).total,
           0
         );
         const activeCount = customerOrders.filter(
@@ -700,8 +746,8 @@ const customerProfilesExportReport: ReportDefinition<CustomersListReportData> = 
             ? formatDate(customer.customerSince)
             : "",
           notes: customer.notes ?? "",
-          totalOrders: customer.totalOrders,
-          lifetimeValue: formatCurrency(customer.lifetimeValue),
+          totalOrders: customerOrders.length,
+          lifetimeValue: formatCurrency(lifetimeValue),
           openBalance: formatCurrency(openBalance),
           orderNumbers: customerOrders.map((order) => order.number).join("; "),
           activeOrderCount: activeCount,
@@ -748,5 +794,22 @@ export function runReport<TData>(
   report: ReportDefinition<TData>,
   data: TData
 ): ReportResult {
-  return report.run(data);
+  const normalized = normalizeReportData(data);
+  return report.run(normalized);
+}
+
+function normalizeReportData<TData>(data: TData): TData {
+  if (!data || typeof data !== "object" || !("orders" in data)) {
+    return data;
+  }
+
+  const withOrders = data as { orders?: Order[] };
+  if (!Array.isArray(withOrders.orders)) {
+    return data;
+  }
+
+  return {
+    ...(data as object),
+    orders: excludeArchivedOrders(withOrders.orders),
+  } as TData;
 }

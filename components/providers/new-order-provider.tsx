@@ -11,6 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { NewOrderDialog } from "@/components/orders/new-order-dialog";
+import { dashboardRadiusClass } from "@/lib/dashboard-styles";
 import { Button } from "@/components/ui/button";
 import type { Order } from "@/types";
 import { cn } from "@/lib/utils";
@@ -98,7 +99,7 @@ export function NewOrderButton({
       type="button"
       variant={variant}
       size={size}
-      className={cn("rounded-full", className)}
+      className={cn(dashboardRadiusClass, "h-9", className)}
       onClick={() => {
         onOpen?.();
         openNewOrder(customerId ? { customerId } : undefined);
