@@ -1,6 +1,9 @@
 import { addDays, format } from "date-fns";
+import { IMPRINT_LOCATION_LABELS } from "@/lib/job-imprints";
 import { buildCustomProductionJob } from "@/lib/order-production";
+import { buildLineItemFromCatalog, createLineItemId } from "@/lib/line-items";
 import type {
+  BlankSource,
   Customer,
   DecorationType,
   ImprintLocationKey,
@@ -16,67 +19,55 @@ export type NewOrderJobInput = {
   locationKey: ImprintLocationKey;
   notes: string;
   kind: "decoration" | "finishing";
-  /** Links an uploaded file from the Files step to this job's artwork */
-  attachedFileId?: string;
+  /** Blank line items this decoration runs on */
+  lineItemIds?: string[];
+  /** Optional mockup uploaded for this event during order creation */
+  mockupFile?: NewOrderMockupFile;
 };
 
-export type NewOrderFileInput = {
+export type NewOrderMockupFile = {
   id: string;
   name: string;
-  kind: OrderFileKind;
+  previewUrl?: string;
 };
 
-export function createFileDraftId(): string {
-  return `file-draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+export type NewOrderLineItemInput = {
+  id: string;
+  productKey: (typeof NEW_ORDER_PRODUCTS)[number]["key"];
+  colorKey: (typeof NEW_ORDER_COLORS)[number]["key"];
+  sizes: Record<(typeof NEW_ORDER_SIZES)[number], number>;
+  unitCost: number;
+};
+
+export function createLineItemDraftId(): string {
+  return createLineItemId();
 }
 
-export const NEW_ORDER_FILE_KINDS: { value: OrderFileKind; label: string }[] = [
-  { value: "production_art", label: "Production artwork" },
-  { value: "mockup", label: "Mockup / proof" },
-  { value: "customer_supplied", label: "Customer supplied" },
-  { value: "separation", label: "Separations" },
-  { value: "embroidery_file", label: "Embroidery file" },
-  { value: "purchase_order", label: "Purchase order" },
-  { value: "quote", label: "Quote" },
-  { value: "other", label: "Other" },
-];
-
-export const ARTWORK_ATTACHABLE_KINDS: OrderFileKind[] = [
-  "production_art",
-  "mockup",
-  "customer_supplied",
-  "separation",
-  "embroidery_file",
-];
-
-export function isArtworkAttachableFile(file: NewOrderFileInput): boolean {
-  return ARTWORK_ATTACHABLE_KINDS.includes(file.kind);
+export function createMockupDraftId(): string {
+  return `mockup-draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 export function createJobDraftId(): string {
   return `job-draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export function createEmptyNewOrderJob(
-  overrides?: Partial<NewOrderJobInput>
-): NewOrderJobInput {
+export function createEmptyNewOrderLineItem(): NewOrderLineItemInput {
+  const product = NEW_ORDER_PRODUCTS[0];
   return {
-    id: createJobDraftId(),
-    name: "",
-    decorationType: "screen_print",
-    locationKey: "front_chest",
-    notes: "",
-    kind: "decoration",
-    ...overrides,
+    id: createLineItemDraftId(),
+    productKey: product.key,
+    colorKey: "heather",
+    sizes: { S: 0, M: 0, L: 0, XL: 0 },
+    unitCost: product.unitCost,
   };
 }
 
 export const NEW_ORDER_STEPS = [
   { id: 1, title: "Customer" },
-  { id: 2, title: "Files" },
+  { id: 2, title: "Blanks" },
   { id: 3, title: "Events" },
-  { id: 4, title: "Products" },
-  { id: 5, title: "Shipment" },
+  { id: 4, title: "Mockups" },
+  { id: 5, title: "Shipping" },
 ] as const;
 
 export const NEW_ORDER_PRODUCTS = [
@@ -114,36 +105,71 @@ export const SHIPPING_METHODS = [
   { key: "will_call", label: "Will Call" },
 ] as const;
 
+export const BLANK_SOURCE_OPTIONS: { value: BlankSource; label: string }[] = [
+  { value: "shop_orders", label: "Shop orders blanks" },
+  { value: "customer_supplies", label: "Customer ships garments" },
+];
+
+export const ARTWORK_ATTACHABLE_KINDS: OrderFileKind[] = [
+  "production_art",
+  "mockup",
+  "customer_supplied",
+  "separation",
+  "embroidery_file",
+];
+
 export type NewOrderFormInput = {
   customerId: string;
-  files: NewOrderFileInput[];
+  lineItems: NewOrderLineItemInput[];
+  blankSource?: BlankSource;
   jobs: NewOrderJobInput[];
-  productKey: (typeof NEW_ORDER_PRODUCTS)[number]["key"];
-  colorKey: (typeof NEW_ORDER_COLORS)[number]["key"];
-  sizes: Record<(typeof NEW_ORDER_SIZES)[number], number>;
   shippingMethod: (typeof SHIPPING_METHODS)[number]["key"];
   inHandsDate: string;
   rush: boolean;
 };
+
+export function createEmptyNewOrderJob(
+  overrides?: Partial<NewOrderJobInput>
+): NewOrderJobInput {
+  return {
+    id: createJobDraftId(),
+    name: "",
+    decorationType: "screen_print",
+    locationKey: "front_chest",
+    notes: "",
+    kind: "decoration",
+    lineItemIds: [],
+    ...overrides,
+  };
+}
 
 export function createEmptyNewOrderForm(
   customerId = ""
 ): NewOrderFormInput {
   return {
     customerId,
-    files: [],
+    lineItems: [],
+    blankSource: undefined,
     jobs: [],
-    productKey: "g64000",
-    colorKey: "heather",
-    sizes: { S: 0, M: 0, L: 0, XL: 0 },
     shippingMethod: "ups_ground",
     inHandsDate: format(addDays(new Date(), 21), "yyyy-MM-dd"),
     rush: false,
   };
 }
 
+export function lineItemInputPieceCount(item: NewOrderLineItemInput): number {
+  return Object.values(item.sizes).reduce((sum, quantity) => sum + quantity, 0);
+}
+
 export function countOrderFormPieces(form: NewOrderFormInput): number {
-  return Object.values(form.sizes).reduce((sum, quantity) => sum + quantity, 0);
+  return form.lineItems.reduce(
+    (sum, item) => sum + lineItemInputPieceCount(item),
+    0
+  );
+}
+
+export function activeLineItems(form: NewOrderFormInput): NewOrderLineItemInput[] {
+  return form.lineItems.filter((item) => lineItemInputPieceCount(item) > 0);
 }
 
 export function validateNewOrderStep(
@@ -153,11 +179,23 @@ export function validateNewOrderStep(
   switch (step) {
     case 1:
       return form.customerId ? null : "Select a customer to continue.";
-    case 2:
+    case 2: {
+      const blanks = activeLineItems(form);
+      if (blanks.length > 0 && !form.blankSource) {
+        return "Choose who is ordering the blank garments.";
+      }
       return null;
+    }
     case 3: {
       if (form.jobs.some((job) => !job.name.trim())) {
         return "Every event needs a name, or remove empty events.";
+      }
+      const blanks = activeLineItems(form);
+      for (const job of form.jobs) {
+        if (job.kind === "finishing" || blanks.length === 0) continue;
+        if (!job.lineItemIds?.length) {
+          return `Select which blanks apply to "${job.name.trim() || "this event"}".`;
+        }
       }
       return null;
     }
@@ -202,80 +240,134 @@ export function previewOrderTotals(form: NewOrderFormInput) {
   return estimateOrderTotals(countOrderFormPieces(form));
 }
 
+export function compactOrderNumberForLabel(orderNumber: string): string {
+  return orderNumber.replace(/-/g, "").toUpperCase();
+}
+
+/** e.g. SO1054 - FRONT LEFT CHEST */
+export function formatAutoEventName(
+  orderNumber: string,
+  locationKey: ImprintLocationKey
+): string {
+  const prefix = compactOrderNumberForLabel(orderNumber);
+  const placement = IMPRINT_LOCATION_LABELS[locationKey].toUpperCase();
+  return `${prefix} - ${placement}`;
+}
+
+export function formatAutoEventNameList(
+  orderNumber: string,
+  jobs: Array<{ locationKey: ImprintLocationKey }>
+): string[] {
+  const seen = new Map<string, number>();
+
+  return jobs.map((job) => {
+    const base = formatAutoEventName(orderNumber, job.locationKey);
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return count > 1 ? `${base} (${count})` : base;
+  });
+}
+
+export function applyAutoEventNames(
+  orderNumber: string,
+  jobs: NewOrderJobInput[]
+): NewOrderJobInput[] {
+  const names = formatAutoEventNameList(orderNumber, jobs);
+  return jobs.map((job, index) => ({ ...job, name: names[index] }));
+}
+
+export function formatLineItemInputLabel(item: NewOrderLineItemInput): string {
+  const product =
+    NEW_ORDER_PRODUCTS.find((entry) => entry.key === item.productKey) ??
+    NEW_ORDER_PRODUCTS[0];
+  const color =
+    NEW_ORDER_COLORS.find((entry) => entry.key === item.colorKey) ??
+    NEW_ORDER_COLORS[0];
+  const pieces = lineItemInputPieceCount(item);
+  return `${product.brand} ${product.name} · ${color.label} · ${pieces} pcs`;
+}
+
+function resolveLineItemId(item: NewOrderLineItemInput, suffix: string): string {
+  return item.id.startsWith("li-") ? item.id : `li-${suffix}-${item.id}`;
+}
+
 export function buildOrderFromForm(
   form: NewOrderFormInput,
   customer: Customer,
   existingNumbers: string[]
 ): Order {
-  const product =
-    NEW_ORDER_PRODUCTS.find((item) => item.key === form.productKey) ??
-    NEW_ORDER_PRODUCTS[0];
-  const color =
-    NEW_ORDER_COLORS.find((item) => item.key === form.colorKey) ??
-    NEW_ORDER_COLORS[0];
   const shipping =
     SHIPPING_METHODS.find((item) => item.key === form.shippingMethod) ??
     SHIPPING_METHODS[0];
 
   const suffix = String(Date.now());
-  const lineItemId = `li-${suffix}`;
-  const sizeRows = NEW_ORDER_SIZES.map((size) => ({
-    size,
-    quantity: form.sizes[size] || 0,
-  })).filter((row) => row.quantity > 0);
-
   const pieceCount = countOrderFormPieces(form);
-  const { subtotal, tax, total } = estimateOrderTotals(pieceCount);
   const hasProducts = pieceCount > 0;
+  const { subtotal, tax, total } = estimateOrderTotals(pieceCount);
   const now = new Date().toISOString();
   const number = generateOrderNumber(existingNumbers);
 
-  const attachedFileIds = new Set(
-    form.jobs
-      .map((job) => job.attachedFileId)
-      .filter((id): id is string => Boolean(id))
+  const draftToFinalId = new Map(
+    form.lineItems.map((item) => [item.id, resolveLineItemId(item, suffix)])
   );
 
-  const orderFiles: OrderFile[] = form.files
-    .filter((file) => !attachedFileIds.has(file.id))
-    .map((file, index) => ({
-      id: `file-${suffix}-${index}`,
-      name: file.name,
-      kind: file.kind,
-      uploadedAt: now,
-      uploadedBy: "Shop",
-    }));
+  const lineItems = activeLineItems(form).map((item) => {
+    const built = buildLineItemFromCatalog(
+      item.productKey,
+      item.colorKey,
+      item.sizes,
+      resolveLineItemId(item, suffix)
+    );
+    return {
+      ...built,
+      unitCost: item.unitCost,
+    };
+  });
+
+  const lineItemIdSet = new Set(lineItems.map((item) => item.id));
+  const jobNames = formatAutoEventNameList(number, form.jobs);
 
   const jobs = form.jobs.map((jobInput, index) => {
+    const eventName = jobNames[index] ?? formatAutoEventName(number, jobInput.locationKey);
     const built = buildCustomProductionJob({
-      name: jobInput.name.trim(),
+      name: eventName,
       locationKey: jobInput.locationKey,
       decoration:
         jobInput.kind === "finishing" ? "finishing" : jobInput.decorationType,
       kind: jobInput.kind,
     });
+
     if (jobInput.kind !== "finishing" && hasProducts) {
-      built.lineItemIds = [lineItemId];
+      const linkedIds = (jobInput.lineItemIds ?? [])
+        .map((id) => draftToFinalId.get(id) ?? id)
+        .filter((id) => lineItemIdSet.has(id));
+      built.lineItemIds =
+        linkedIds.length > 0 ? linkedIds : lineItems.map((item) => item.id);
     }
 
-    const attached = jobInput.attachedFileId
-      ? form.files.find((file) => file.id === jobInput.attachedFileId)
-      : undefined;
-
-    if (attached && built.imprints[0] && jobInput.kind !== "finishing") {
-      const artworkKind = isArtworkAttachableFile(attached)
-        ? attached.kind
-        : "production_art";
-
-      built.imprints[0].artwork = {
-        id: `art-${suffix}-${index}`,
-        name: attached.name,
-        version: 1,
-        status: "pending",
-        uploadedAt: now,
-        uploadedBy: "Shop",
-        kind: artworkKind,
-      };
+    if (built.imprints[0] && jobInput.kind !== "finishing") {
+      if (jobInput.mockupFile) {
+        built.imprints[0].artwork = {
+          id: `art-${suffix}-${index}`,
+          name: eventName,
+          version: 1,
+          status: "pending",
+          uploadedAt: now,
+          uploadedBy: "Shop",
+          kind: "mockup",
+          previewUrl: jobInput.mockupFile.previewUrl,
+        };
+      } else {
+        built.imprints[0].artwork = {
+          id: `art-${suffix}-${index}`,
+          name: "No mockup attached",
+          version: 1,
+          status: "pending",
+          uploadedAt: now,
+          uploadedBy: "Shop",
+          kind: "mockup",
+        };
+      }
     }
 
     return built;
@@ -284,10 +376,12 @@ export function buildOrderFromForm(
   const internalNotes = [];
   form.jobs.forEach((jobInput, index) => {
     if (jobInput.notes.trim()) {
+      const noteEventName =
+        jobNames[index] ?? formatAutoEventName(number, jobInput.locationKey);
       internalNotes.push({
         id: `inote-job-${suffix}-${index}`,
         author: "Shop",
-        content: `${jobInput.name.trim()}: ${jobInput.notes.trim()}`,
+        content: `${noteEventName}: ${jobInput.notes.trim()}`,
         timestamp: now,
       });
     }
@@ -307,6 +401,8 @@ export function buildOrderFromForm(
     });
   }
 
+  const orderFiles: OrderFile[] = [];
+
   return {
     id: `ord-${suffix}`,
     number,
@@ -323,20 +419,20 @@ export function buildOrderFromForm(
     paid: 0,
     balance: total,
     rush: form.rush,
-    lineItems: hasProducts
-      ? [
-          {
-            id: lineItemId,
-            productName: product.name,
-            brand: product.brand,
-            color: color.label,
-            sizes: sizeRows,
-            unitCost: product.unitCost,
-            productKey: product.key,
-            colorKey: color.key,
-          },
-        ]
-      : [],
+    garments: hasProducts
+      ? {
+          status: "waiting",
+          expectedCount: pieceCount,
+          receivedCount: 0,
+        }
+      : undefined,
+    materials: hasProducts
+      ? {
+          blankSource: form.blankSource,
+          lines: [],
+        }
+      : undefined,
+    lineItems,
     jobs,
     shipments: [],
     messages: [],
@@ -351,14 +447,21 @@ export function buildOrderFromForm(
         timestamp: now,
         author: "Shop",
       },
-      ...form.files.map((file, index) => ({
-        id: `act-file-${suffix}-${index}`,
-        type: "file_uploaded" as const,
-        title: "File uploaded",
-        detail: file.name,
-        timestamp: now,
-        author: "Shop",
-      })),
+      ...lineItems.map((item, index) => {
+        const source = form.lineItems.find(
+          (entry) => draftToFinalId.get(entry.id) === item.id
+        );
+        return {
+          id: `act-blank-${suffix}-${index}`,
+          type: "status" as const,
+          title: "Blank added",
+          detail: source
+            ? formatLineItemInputLabel(source)
+            : `${item.brand} ${item.productName} · ${item.color}`,
+          timestamp: now,
+          author: "Shop",
+        };
+      }),
     ],
   };
 }

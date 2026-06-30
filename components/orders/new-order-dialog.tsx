@@ -5,8 +5,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  FileUp,
-  FolderOpen,
+  FileImage,
   Package,
   Palette,
   Plus,
@@ -17,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { OrderPriorityToggle } from "@/components/orders/order-priority-toggle";
+import { NewOrderBlanksStep } from "@/components/orders/new-order-blanks-step";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,34 +37,38 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { readImagePreviewDataUrl } from "@/lib/artwork-preview";
 import {
+  activeLineItems,
+  applyAutoEventNames,
+  compactOrderNumberForLabel,
   countOrderFormPieces,
   createEmptyNewOrderForm,
   createEmptyNewOrderJob,
-  createFileDraftId,
-  isArtworkAttachableFile,
-  NEW_ORDER_COLORS,
-  NEW_ORDER_FILE_KINDS,
-  NEW_ORDER_PRODUCTS,
-  NEW_ORDER_SIZES,
+  createMockupDraftId,
+  formatLineItemInputLabel,
+  generateOrderNumber,
   NEW_ORDER_STEPS,
   previewOrderTotals,
   SHIPPING_METHODS,
   validateNewOrderStep,
   type NewOrderFormInput,
-  type NewOrderFileInput,
   type NewOrderJobInput,
 } from "@/lib/create-order";
+import {
+  dashboardControlClass,
+  dashboardPrimaryButtonClass,
+  dashboardTaskDetailClass,
+  dashboardTaskTitleClass,
+} from "@/lib/dashboard-styles";
 import { decorationLabel, formatCurrency } from "@/lib/format";
 import { IMPRINT_LOCATION_LABELS } from "@/lib/job-imprints";
-import { eventLabel, eventsLabel } from "@/lib/terminology";
-import { ORDER_FILE_KIND_LABELS } from "@/lib/order-files";
 import { PRODUCTION_STEP_TEMPLATES } from "@/lib/order-production";
+import { eventLabel, eventsLabel } from "@/lib/terminology";
 import type { DecorationType, ImprintLocationKey, Order } from "@/types";
 import { cn } from "@/lib/utils";
 
-const stepIcons = [User, FolderOpen, Palette, Package, Truck] as const;
-const inputClassName = "h-10 rounded-lg";
+const stepIcons = [User, Package, Palette, FileImage, Truck] as const;
 
 export function NewOrderDialog({
   open,
@@ -77,14 +81,13 @@ export function NewOrderDialog({
   initialCustomerId?: string;
   onCreated?: (order: Order) => void;
 }) {
-  const { customers, getCustomerById, createOrderFromForm } = useSchedule();
+  const { customers, orders, getCustomerById, createOrderFromForm } = useSchedule();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<NewOrderFormInput>(() =>
     createEmptyNewOrderForm(initialCustomerId)
   );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -106,41 +109,54 @@ export function NewOrderDialog({
     [customers]
   );
 
+  const previewOrderNumber = useMemo(
+    () => generateOrderNumber(orders.map((order) => order.number)),
+    [orders]
+  );
+
+  const syncJobNames = (jobs: NewOrderJobInput[]) =>
+    applyAutoEventNames(previewOrderNumber, jobs);
+
   const totals = useMemo(() => previewOrderTotals(form), [form]);
   const pieceCount = useMemo(() => countOrderFormPieces(form), [form]);
+  const blanks = useMemo(() => activeLineItems(form), [form]);
   const hasProducts = pieceCount > 0;
+  const decorationJobs = useMemo(
+    () => form.jobs.filter((job) => job.kind !== "finishing"),
+    [form.jobs]
+  );
 
-  const updateForm = <K extends keyof NewOrderFormInput>(
-    key: K,
-    value: NewOrderFormInput[K]
-  ) => {
-    setForm((current) => ({ ...current, [key]: value }));
-    if (error) setError(null);
-  };
-
-  const updateSize = (size: (typeof NEW_ORDER_SIZES)[number], value: string) => {
-    const quantity = Math.max(0, Number.parseInt(value, 10) || 0);
-    setForm((current) => ({
-      ...current,
-      sizes: { ...current.sizes, [size]: quantity },
-    }));
+  const patchForm = (patch: Partial<NewOrderFormInput>) => {
+    setForm((current) => ({ ...current, ...patch }));
     if (error) setError(null);
   };
 
   const updateJob = (id: string, patch: Partial<NewOrderJobInput>) => {
-    setForm((current) => ({
-      ...current,
-      jobs: current.jobs.map((job) =>
+    setForm((current) => {
+      const nextJobs = current.jobs.map((job) =>
         job.id === id ? { ...job, ...patch } : job
-      ),
-    }));
+      );
+      const shouldRename =
+        patch.locationKey !== undefined || patch.kind !== undefined;
+      return {
+        ...current,
+        jobs: shouldRename ? syncJobNames(nextJobs) : nextJobs,
+      };
+    });
     if (error) setError(null);
   };
 
   const addJob = (seed?: Partial<NewOrderJobInput>) => {
+    const defaultLineItemIds = blanks.map((item) => item.id);
     setForm((current) => ({
       ...current,
-      jobs: [...current.jobs, createEmptyNewOrderJob(seed)],
+      jobs: syncJobNames([
+        ...current.jobs,
+        createEmptyNewOrderJob({
+          lineItemIds: defaultLineItemIds,
+          ...seed,
+        }),
+      ]),
     }));
     if (error) setError(null);
   };
@@ -148,7 +164,7 @@ export function NewOrderDialog({
   const removeJob = (id: string) => {
     setForm((current) => ({
       ...current,
-      jobs: current.jobs.filter((job) => job.id !== id),
+      jobs: syncJobNames(current.jobs.filter((job) => job.id !== id)),
     }));
     if (error) setError(null);
   };
@@ -159,52 +175,26 @@ export function NewOrderDialog({
     );
     if (!template) return;
     addJob({
-      name: template.name,
       decorationType: template.decoration,
       locationKey: template.locationKey,
       kind: template.kind,
     });
   };
 
-  const addFiles = (fileList: FileList | null, kind = NEW_ORDER_FILE_KINDS[0].value) => {
-    if (!fileList?.length) return;
-    const next = Array.from(fileList).map((file) => ({
-      id: createFileDraftId(),
-      name: file.name,
-      kind,
-    }));
+  const toggleJobLineItem = (jobId: string, lineItemId: string) => {
     setForm((current) => ({
       ...current,
-      files: [...current.files, ...next],
+      jobs: current.jobs.map((job) => {
+        if (job.id !== jobId) return job;
+        const currentIds = job.lineItemIds ?? [];
+        const nextIds = currentIds.includes(lineItemId)
+          ? currentIds.filter((id) => id !== lineItemId)
+          : [...currentIds, lineItemId];
+        return { ...job, lineItemIds: nextIds };
+      }),
     }));
     if (error) setError(null);
   };
-
-  const updateFile = (id: string, patch: Partial<NewOrderFileInput>) => {
-    setForm((current) => ({
-      ...current,
-      files: current.files.map((file) =>
-        file.id === id ? { ...file, ...patch } : file
-      ),
-    }));
-  };
-
-  const removeFile = (id: string) => {
-    setForm((current) => ({
-      ...current,
-      files: current.files.filter((file) => file.id !== id),
-      jobs: current.jobs.map((job) =>
-        job.attachedFileId === id
-          ? { ...job, attachedFileId: undefined }
-          : job
-      ),
-    }));
-  };
-
-  const attachableFiles = useMemo(
-    () => form.files.filter(isArtworkAttachableFile),
-    [form.files]
-  );
 
   const goNext = () => {
     const validationError = validateNewOrderStep(step, form);
@@ -250,27 +240,27 @@ export function NewOrderDialog({
   const stepMeta = NEW_ORDER_STEPS[step - 1];
   const stepDescriptions: Record<number, string> = {
     1: "Choose the account this quote or sales order belongs to.",
-    2: "Upload artwork, mockups, POs, and other files for this order.",
-    3: `Add ${eventsLabel.toLowerCase()} now, or skip and add them later on the order.`,
-    4: "Add garments and quantities now, or skip and add them later on the order.",
+    2: "Add catalog blanks and choose who is ordering the garments.",
+    3: `Create decoration events and attach blanks. Names use your order number and placement (e.g. ${compactOrderNumberForLabel(previewOrderNumber)} - FRONT CHEST).`,
+    4: "Upload a mockup for each decoration event, or skip and add proofs later.",
     5: "Set shipping details and review totals.",
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl rounded-2xl p-0 gap-0 overflow-hidden max-h-[min(92vh,820px)] flex flex-col">
-        <DialogHeader className="px-8 pt-7 pb-5 border-b border-border shrink-0 text-left">
-          <DialogTitle className="text-xl font-semibold text-brand-ink">
+      <DialogContent className="flex max-h-[min(92vh,820px)] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-3xl">
+        <DialogHeader className="shrink-0 border-b border-[#ebebeb] px-5 py-4 text-left">
+          <DialogTitle className={dashboardTaskTitleClass}>
             New sales order
           </DialogTitle>
-          <DialogDescription className="text-sm leading-relaxed">
+          <DialogDescription className={dashboardTaskDetailClass}>
             Create a quote or sales order in a few steps without leaving your
             current screen.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="px-8 pt-5 pb-2 shrink-0">
-          <nav className="grid grid-cols-5 gap-1.5 sm:gap-2">
+        <div className="shrink-0 border-b border-[#ebebeb] px-5 py-3">
+          <nav className="grid grid-cols-5 gap-1.5">
             {NEW_ORDER_STEPS.map((item, index) => {
               const Icon = stepIcons[index];
               const isActive = step === item.id;
@@ -287,40 +277,51 @@ export function NewOrderDialog({
                     }
                   }}
                   className={cn(
-                    "flex items-center justify-center gap-2 rounded-lg border px-2 py-2 text-xs font-medium transition-colors",
+                    "flex items-center gap-2 rounded-lg border px-2 py-2 text-left transition-colors",
                     isActive
-                      ? "border-brand-primary/30 bg-brand-primary/8 text-brand-ink"
+                      ? "border-brand-primary/25 bg-brand-primary/[0.04]"
                       : isComplete
-                        ? "border-emerald-200 bg-emerald-50/80 text-emerald-800"
-                        : "border-border bg-white text-brand-muted hover:bg-muted/30"
+                        ? "border-[#86d4a8]/50 bg-[#fafffe]"
+                        : "border-[#ebebeb] bg-white hover:bg-[#fafafa]"
                   )}
                 >
                   <span
                     className={cn(
-                      "flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
+                      "flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
                       isActive
                         ? "bg-brand-primary text-white"
                         : isComplete
-                          ? "bg-emerald-600 text-white"
-                          : "bg-muted text-brand-muted"
+                          ? "bg-[#0d5c2e] text-white"
+                          : "bg-[#f1f1f1] text-[#616161]"
                     )}
                   >
                     {isComplete ? <Check className="size-3.5" /> : item.id}
                   </span>
-                  <span className="hidden md:inline">{item.title}</span>
-                  <Icon className="size-3.5 shrink-0 sm:hidden" />
+                  <span
+                    className={cn(
+                      "hidden min-w-0 truncate text-[11px] font-medium sm:inline",
+                      isActive
+                        ? "text-[#303030]"
+                        : isComplete
+                          ? "text-[#0d5c2e]"
+                          : "text-[#616161]"
+                    )}
+                  >
+                    {item.title}
+                  </span>
+                  <Icon className="size-3.5 shrink-0 text-[#8a8a8a] sm:hidden" />
                 </button>
               );
             })}
           </nav>
         </div>
 
-        <div className="overflow-y-auto flex-1 px-8 py-5">
-          <div className="mb-5">
-            <h3 className="text-sm font-semibold text-brand-ink">
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          <div className="mb-4">
+            <h3 className="text-[13px] font-semibold text-[#303030]">
               {stepMeta.title}
             </h3>
-            <p className="text-xs text-brand-muted mt-1">
+            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
               {stepDescriptions[step]}
             </p>
           </div>
@@ -332,12 +333,12 @@ export function NewOrderDialog({
                   value={form.customerId || null}
                   items={customerSelectItems}
                   onValueChange={(value) =>
-                    updateForm("customerId", value ?? "")
+                    patchForm({ customerId: value ?? "" })
                   }
                 >
                   <SelectTrigger
                     id="new-order-customer"
-                    className={cn(inputClassName, "w-full")}
+                    className={cn(dashboardControlClass, "h-10 w-full")}
                   >
                     <SelectValue placeholder="Search or select a customer" />
                   </SelectTrigger>
@@ -352,14 +353,14 @@ export function NewOrderDialog({
               </Field>
 
               {selectedCustomer && (
-                <div className="rounded-xl border border-border/70 bg-brand-primary/[0.04] px-4 py-3 text-sm">
-                  <p className="font-medium text-brand-ink">
+                <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-4 py-3 text-sm">
+                  <p className="font-medium text-[#303030]">
                     {selectedCustomer.company}
                   </p>
-                  <p className="text-brand-muted mt-0.5">
+                  <p className="mt-0.5 text-[#616161]">
                     {selectedCustomer.email} · {selectedCustomer.phone}
                   </p>
-                  <p className="text-brand-muted">
+                  <p className="text-[#616161]">
                     {selectedCustomer.city}, {selectedCustomer.state}
                   </p>
                 </div>
@@ -368,112 +369,13 @@ export function NewOrderDialog({
           )}
 
           {step === 2 && (
-            <div className="space-y-4">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                accept=".pdf,.ai,.eps,.png,.jpg,.jpeg,.dst,.svg,.zip"
-                onChange={(event) => {
-                  addFiles(event.target.files);
-                  event.target.value = "";
-                }}
-              />
-
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-brand-primary/25 bg-brand-primary/[0.03] px-6 py-10 text-center transition-colors hover:border-brand-primary/40 hover:bg-brand-primary/[0.06]"
-              >
-                <div className="flex size-11 items-center justify-center rounded-xl bg-brand-primary/10 text-brand-primary">
-                  <Upload className="size-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-brand-ink">
-                    Upload files for this order
-                  </p>
-                  <p className="mt-1 text-xs text-brand-muted">
-                    Artwork, mockups, purchase orders, customer files, and more.
-                  </p>
-                </div>
-                <span className="text-xs font-medium text-brand-primary">
-                  Browse files
-                </span>
-              </button>
-
-              {form.files.length === 0 ? (
-                <p className="text-center text-sm text-brand-muted py-2">
-                  No files yet — you can skip this step and upload later, or add
-                  files now to attach them to events.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-brand-muted">
-                    {form.files.length} file{form.files.length !== 1 ? "s" : ""}{" "}
-                    ready
-                  </p>
-                  {form.files.map((file) => (
-                    <div
-                      key={file.id}
-                      className="flex flex-col gap-2 rounded-xl border border-border/70 bg-white p-3 sm:flex-row sm:items-center"
-                    >
-                      <div className="flex min-w-0 flex-1 items-start gap-3">
-                        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-primary/8 text-brand-primary">
-                          <FileUp className="size-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium truncate text-brand-ink">
-                            {file.name}
-                          </p>
-                          <p className="text-xs text-brand-muted mt-0.5">
-                            {isArtworkAttachableFile(file)
-                              ? "Can attach to an event"
-                              : "Saved to order files"}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 sm:shrink-0">
-                        <Select
-                          value={file.kind}
-                          onValueChange={(value) =>
-                            updateFile(file.id, {
-                              kind: (value ??
-                                "production_art") as NewOrderFileInput["kind"],
-                            })
-                          }
-                        >
-                          <SelectTrigger className="h-9 w-full sm:w-[180px] rounded-lg text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {NEW_ORDER_FILE_KINDS.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <button
-                          type="button"
-                          onClick={() => removeFile(file.id)}
-                          className="rounded-lg p-2 text-brand-muted transition-colors hover:bg-destructive/10 hover:text-destructive"
-                          aria-label={`Remove ${file.name}`}
-                        >
-                          <X className="size-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <NewOrderBlanksStep form={form} onChange={patchForm} />
           )}
 
           {step === 3 && (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs text-brand-muted">
+                <p className={dashboardTaskDetailClass}>
                   {form.jobs.length === 0
                     ? `No ${eventsLabel.toLowerCase()} yet — optional`
                     : `${form.jobs.length} ${form.jobs.length !== 1 ? eventsLabel.toLowerCase() : eventLabel.toLowerCase()}`}
@@ -484,7 +386,7 @@ export function NewOrderDialog({
                       key={template.id}
                       type="button"
                       onClick={() => addJobFromTemplate(template.id)}
-                      className="rounded-full border border-border bg-white px-2.5 py-1 text-[11px] font-medium text-brand-muted transition-colors hover:border-brand-primary/30 hover:bg-brand-primary/5 hover:text-brand-ink"
+                      className="rounded-full border border-[#e3e3e3] bg-white px-2.5 py-1 text-[11px] font-medium text-[#616161] transition-colors hover:border-brand-ink/25 hover:bg-brand-ink/[0.04] hover:text-[#303030]"
                     >
                       + {template.name}
                     </button>
@@ -493,11 +395,11 @@ export function NewOrderDialog({
               </div>
 
               {form.jobs.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border/70 bg-muted/15 px-4 py-8 text-center">
-                  <p className="text-sm font-medium text-brand-ink">
+                <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-8 text-center">
+                  <p className="text-[13px] font-medium text-[#303030]">
                     Skip for now
                   </p>
-                  <p className="mt-1 text-xs text-brand-muted max-w-sm mx-auto">
+                  <p className={cn("mx-auto mt-1 max-w-sm", dashboardTaskDetailClass)}>
                     You can add decoration and finishing events from the order
                     detail page after the order is created.
                   </p>
@@ -509,10 +411,13 @@ export function NewOrderDialog({
                       key={job.id}
                       index={index}
                       job={job}
-                      uploadedFiles={attachableFiles}
+                      blanks={blanks}
                       canRemove
                       onChange={(patch) => updateJob(job.id, patch)}
                       onRemove={() => removeJob(job.id)}
+                      onToggleLineItem={(lineItemId) =>
+                        toggleJobLineItem(job.id, lineItemId)
+                      }
                     />
                   ))}
                 </div>
@@ -521,7 +426,7 @@ export function NewOrderDialog({
               <Button
                 type="button"
                 variant="outline"
-                className="w-full rounded-lg border-dashed h-10 text-xs"
+                className="h-10 w-full rounded-lg border-dashed text-xs"
                 onClick={() => addJob()}
               >
                 <Plus className="size-3.5" />
@@ -532,96 +437,33 @@ export function NewOrderDialog({
 
           {step === 4 && (
             <div className="space-y-4">
-              <p className="text-xs text-brand-muted">
-                {hasProducts
-                  ? `${pieceCount} piece${pieceCount !== 1 ? "s" : ""} in this order`
-                  : "No products yet — optional"}
-              </p>
-
-              {!hasProducts && (
-                <div className="rounded-xl border border-dashed border-border/70 bg-muted/15 px-4 py-8 text-center">
-                  <p className="text-sm font-medium text-brand-ink">
-                    Skip for now
+              {decorationJobs.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-8 text-center">
+                  <p className="text-[13px] font-medium text-[#303030]">
+                    No decoration events
                   </p>
-                  <p className="mt-1 text-xs text-brand-muted max-w-sm mx-auto">
-                    Leave quantities at zero to create a placeholder order. Add
-                    blanks and sizes from the order detail page later.
+                  <p className={cn("mx-auto mt-1 max-w-sm", dashboardTaskDetailClass)}>
+                    Mockups attach to decoration events only. Skip this step if
+                    you did not add events, or go back to add them.
                   </p>
                 </div>
-              )}
-
-              <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                <Field label="Product" optional={!hasProducts}>
-                  <Select
-                    value={form.productKey}
-                    onValueChange={(value) =>
-                      updateForm(
-                        "productKey",
-                        (value ??
-                          "g64000") as NewOrderFormInput["productKey"]
-                      )
-                    }
-                  >
-                    <SelectTrigger className={cn(inputClassName, "w-full")}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {NEW_ORDER_PRODUCTS.map((product) => (
-                        <SelectItem key={product.key} value={product.key}>
-                          {product.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="Color" optional={!hasProducts}>
-                  <Select
-                    value={form.colorKey}
-                    onValueChange={(value) =>
-                      updateForm(
-                        "colorKey",
-                        (value ?? "heather") as NewOrderFormInput["colorKey"]
-                      )
-                    }
-                  >
-                    <SelectTrigger className={cn(inputClassName, "w-full")}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {NEW_ORDER_COLORS.map((color) => (
-                        <SelectItem key={color.key} value={color.key}>
-                          {color.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-              </div>
-
-              <div>
-                <Label className="text-sm text-brand-ink">
-                  Size matrix
-                  {!hasProducts && (
-                    <span className="ml-1 font-normal text-brand-muted">
-                      (optional)
-                    </span>
-                  )}
-                </Label>
-                <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {NEW_ORDER_SIZES.map((size) => (
-                    <div key={size} className="space-y-1.5">
-                      <Label className="text-xs text-brand-muted">{size}</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={form.sizes[size]}
-                        onChange={(event) => updateSize(size, event.target.value)}
-                        className={inputClassName}
+              ) : (
+                <>
+                  <p className={dashboardTaskDetailClass}>
+                    Optional — upload a mockup for each decoration event. Events
+                    without a file will show as no mockup attached on proofs.
+                  </p>
+                  <div className="space-y-3">
+                    {decorationJobs.map((job) => (
+                      <MockupUploadCard
+                        key={job.id}
+                        job={job}
+                        onChange={(patch) => updateJob(job.id, patch)}
                       />
-                    </div>
-                  ))}
-                </div>
-              </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -632,14 +474,15 @@ export function NewOrderDialog({
                   <Select
                     value={form.shippingMethod}
                     onValueChange={(value) =>
-                      updateForm(
-                        "shippingMethod",
-                        (value ??
-                          "ups_ground") as NewOrderFormInput["shippingMethod"]
-                      )
+                      patchForm({
+                        shippingMethod: (value ??
+                          "ups_ground") as NewOrderFormInput["shippingMethod"],
+                      })
                     }
                   >
-                    <SelectTrigger className={cn(inputClassName, "w-full")}>
+                    <SelectTrigger
+                      className={cn(dashboardControlClass, "h-10 w-full")}
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -657,90 +500,81 @@ export function NewOrderDialog({
                     type="date"
                     value={form.inHandsDate}
                     onChange={(event) =>
-                      updateForm("inHandsDate", event.target.value)
+                      patchForm({ inHandsDate: event.target.value })
                     }
-                    className={inputClassName}
+                    className={cn(dashboardControlClass, "h-10")}
                   />
                 </Field>
               </div>
 
-              <div className="rounded-xl border border-border/70 bg-muted/15 p-4">
-                <p className="mb-3 text-sm font-medium text-brand-ink">
+              <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] p-4">
+                <p className="mb-3 text-[13px] font-medium text-[#303030]">
                   Priority
                 </p>
                 <OrderPriorityToggle
                   rush={form.rush}
-                  onChange={(rush) => updateForm("rush", rush)}
+                  onChange={(rush) => patchForm({ rush })}
                 />
               </div>
 
-              <div className="rounded-xl border border-border/70 bg-muted/15 p-4 space-y-2 text-sm">
+              <div className="space-y-2 rounded-lg border border-[#ebebeb] bg-white p-4 text-sm">
                 <div className="flex justify-between gap-4">
-                  <span className="text-brand-muted">Customer</span>
-                  <span className="font-medium text-right">
+                  <span className="text-[#616161]">Customer</span>
+                  <span className="text-right font-medium">
                     {selectedCustomer?.company ?? "—"}
                   </span>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <span className="text-brand-muted">Files</span>
-                  <span className="font-medium text-right">
-                    {form.files.length} uploaded
+                  <span className="text-[#616161]">Blanks</span>
+                  <span className="text-right font-medium">
+                    {hasProducts
+                      ? `${pieceCount} piece${pieceCount !== 1 ? "s" : ""}`
+                      : "None — add later"}
                   </span>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <span className="text-brand-muted">{eventsLabel}</span>
-                  <span className="font-medium text-right">
+                  <span className="text-[#616161]">{eventsLabel}</span>
+                  <span className="text-right font-medium">
                     {form.jobs.length === 0
                       ? "None — add later"
                       : `${form.jobs.length} ${form.jobs.length !== 1 ? eventsLabel.toLowerCase() : eventLabel.toLowerCase()}`}
                   </span>
                 </div>
                 {form.jobs.length > 0 && (
-                  <ul className="space-y-1 text-xs text-brand-muted">
-                    {form.jobs.map((job) => {
-                      const attached = job.attachedFileId
-                        ? form.files.find((file) => file.id === job.attachedFileId)
-                        : undefined;
-                      return (
-                        <li key={job.id} className="flex justify-between gap-3">
-                          <span className="truncate">
-                            {job.name || `Untitled ${eventLabel.toLowerCase()}`}
-                            {attached && (
-                              <span className="text-brand-muted">
-                                {" "}
-                                · {attached.name}
-                              </span>
-                            )}
-                          </span>
-                          <span className="shrink-0">
-                            {job.kind === "finishing"
-                              ? "Finishing"
-                              : decorationLabel(job.decorationType)}
-                          </span>
-                        </li>
-                      );
-                    })}
+                  <ul className="space-y-1 text-xs text-[#616161]">
+                    {form.jobs.map((job) => (
+                      <li key={job.id} className="flex justify-between gap-3">
+                        <span className="truncate">
+                          {job.name || `Untitled ${eventLabel.toLowerCase()}`}
+                          {job.mockupFile ? (
+                            <span> · {job.mockupFile.name}</span>
+                          ) : job.kind !== "finishing" ? (
+                            <span className="text-[#8a8a8a]">
+                              {" "}
+                              · No mockup
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="shrink-0">
+                          {job.kind === "finishing"
+                            ? "Finishing"
+                            : decorationLabel(job.decorationType)}
+                        </span>
+                      </li>
+                    ))}
                   </ul>
                 )}
-                <div className="flex justify-between gap-4">
-                  <span className="text-brand-muted">Products</span>
-                  <span className="font-medium text-right">
-                    {hasProducts
-                      ? `${pieceCount} piece${pieceCount !== 1 ? "s" : ""}`
-                      : "None — add later"}
-                  </span>
-                </div>
                 <Separator />
                 <div className="flex justify-between gap-4">
-                  <span className="text-brand-muted">Subtotal</span>
+                  <span className="text-[#616161]">Subtotal</span>
                   <span>{formatCurrency(totals.subtotal)}</span>
                 </div>
                 <div className="flex justify-between gap-4">
-                  <span className="text-brand-muted">Tax (8%)</span>
+                  <span className="text-[#616161]">Tax (8%)</span>
                   <span>{formatCurrency(totals.tax)}</span>
                 </div>
                 <Separator />
-                <div className="flex justify-between gap-4 font-semibold text-base">
+                <div className="flex justify-between gap-4 text-base font-semibold">
                   <span>Total</span>
                   <span>{formatCurrency(totals.total)}</span>
                 </div>
@@ -749,17 +583,17 @@ export function NewOrderDialog({
           )}
 
           {error && (
-            <p className="mt-4 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+            <p className="mt-4 rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2.5 text-[13px] text-[#8f1f1f]">
               {error}
             </p>
           )}
         </div>
 
-        <div className="shrink-0 border-t border-border px-8 py-4 flex items-center justify-between gap-3 bg-muted/15">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-4">
           <Button
             type="button"
             variant="ghost"
-            className="rounded-full"
+            className="rounded-lg"
             disabled={step === 1}
             onClick={goBack}
           >
@@ -771,20 +605,24 @@ export function NewOrderDialog({
             <Button
               type="button"
               variant="ghost"
-              className="rounded-full"
+              className="rounded-lg"
               onClick={() => onOpenChange(false)}
             >
               Cancel
             </Button>
             {step < 5 ? (
-              <Button type="button" className="rounded-full" onClick={goNext}>
+              <Button
+                type="button"
+                className={cn(dashboardPrimaryButtonClass, "rounded-lg")}
+                onClick={goNext}
+              >
                 Continue
                 <ArrowRight className="size-4" />
               </Button>
             ) : (
               <Button
                 type="button"
-                className="rounded-full"
+                className={cn(dashboardPrimaryButtonClass, "rounded-lg")}
                 disabled={submitting}
                 onClick={() => void handleCreate()}
               >
@@ -801,34 +639,33 @@ export function NewOrderDialog({
 function JobStepCard({
   index,
   job,
-  uploadedFiles,
+  blanks,
   canRemove,
   onChange,
   onRemove,
+  onToggleLineItem,
 }: {
   index: number;
   job: NewOrderJobInput;
-  uploadedFiles: NewOrderFileInput[];
+  blanks: ReturnType<typeof activeLineItems>;
   canRemove: boolean;
   onChange: (patch: Partial<NewOrderJobInput>) => void;
   onRemove: () => void;
+  onToggleLineItem: (lineItemId: string) => void;
 }) {
   const isFinishing = job.kind === "finishing";
-  const attachedFile = job.attachedFileId
-    ? uploadedFiles.find((file) => file.id === job.attachedFileId)
-    : undefined;
 
   return (
-    <div className="rounded-xl border border-border/70 bg-white p-4 space-y-3 shadow-sm">
+    <div className="space-y-3 rounded-lg border border-[#ebebeb] bg-white p-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-brand-muted">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
           {eventLabel} {index + 1}
         </p>
         {canRemove && (
           <button
             type="button"
             onClick={onRemove}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-brand-muted transition-colors hover:bg-destructive/10 hover:text-destructive"
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[#616161] transition-colors hover:bg-[#fff1f1] hover:text-[#8f1f1f]"
           >
             <Trash2 className="size-3" />
             Remove
@@ -836,16 +673,20 @@ function JobStepCard({
         )}
       </div>
 
+      <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-3 py-2.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+          Event name
+        </p>
+        <p className="mt-0.5 text-[13px] font-semibold tracking-wide text-[#303030]">
+          {job.name}
+        </p>
+        <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+          Named from order number and placement. Mockups and proofs use this
+          label.
+        </p>
+      </div>
+
       <div className="grid gap-x-4 gap-y-3 sm:grid-cols-2">
-        <Field label={`${eventLabel} name`} htmlFor={`job-name-${job.id}`}>
-          <Input
-            id={`job-name-${job.id}`}
-            value={job.name}
-            onChange={(event) => onChange({ name: event.target.value })}
-            placeholder="Spring Season Logo — Front"
-            className={inputClassName}
-          />
-        </Field>
         <Field label={`${eventLabel} type`}>
           <Select
             value={job.kind}
@@ -857,7 +698,7 @@ function JobStepCard({
               })
             }
           >
-            <SelectTrigger className={cn(inputClassName, "w-full")}>
+            <SelectTrigger className={cn(dashboardControlClass, "h-10 w-full")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -878,7 +719,9 @@ function JobStepCard({
                   })
                 }
               >
-                <SelectTrigger className={cn(inputClassName, "w-full")}>
+                <SelectTrigger
+                  className={cn(dashboardControlClass, "h-10 w-full")}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -899,7 +742,9 @@ function JobStepCard({
                   })
                 }
               >
-                <SelectTrigger className={cn(inputClassName, "w-full")}>
+                <SelectTrigger
+                  className={cn(dashboardControlClass, "h-10 w-full")}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -917,41 +762,41 @@ function JobStepCard({
         )}
       </div>
 
-      {!isFinishing && uploadedFiles.length > 0 && (
-        <Field label="Attach artwork" optional>
-          <Select
-            value={job.attachedFileId ?? "none"}
-            onValueChange={(value) =>
-              onChange({
-                attachedFileId: value === "none" ? undefined : value ?? undefined,
-              })
-            }
-          >
-            <SelectTrigger className={cn(inputClassName, "w-full")}>
-              <SelectValue placeholder="Select uploaded file" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">No file attached</SelectItem>
-              {uploadedFiles.map((file) => (
-                <SelectItem key={file.id} value={file.id}>
-                  {file.name} · {ORDER_FILE_KIND_LABELS[file.kind]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {attachedFile && (
-            <p className="mt-1.5 text-xs text-brand-muted">
-              This file will become the artwork proof for this event when the
-              order is created.
-            </p>
-          )}
-        </Field>
-      )}
-
-      {!isFinishing && uploadedFiles.length === 0 && (
-        <p className="text-xs text-brand-muted rounded-lg bg-muted/30 px-3 py-2">
-          Upload files in the previous section to attach artwork to this event.
-        </p>
+      {!isFinishing && blanks.length > 0 && (
+        <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+            Blanks for this event
+          </p>
+          <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+            Select which garments this decoration runs on.
+          </p>
+          <div className="mt-3 space-y-2">
+            {blanks.map((item) => {
+              const checked = (job.lineItemIds ?? []).includes(item.id);
+              return (
+                <label
+                  key={item.id}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2.5 transition-colors",
+                    checked
+                      ? "border-brand-ink/25 bg-white"
+                      : "border-transparent bg-white/70 hover:border-[#e3e3e3]"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => onToggleLineItem(item.id)}
+                    className="size-4 rounded border-[#c9c9c9] text-brand-ink"
+                  />
+                  <span className="min-w-0 text-[13px] text-[#303030]">
+                    {formatLineItemInputLabel(item)}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       <Field label="Notes" htmlFor={`job-notes-${job.id}`} optional>
@@ -961,9 +806,98 @@ function JobStepCard({
           onChange={(event) => onChange({ notes: event.target.value })}
           placeholder="Placement, colors, special instructions…"
           rows={2}
-          className="rounded-lg resize-none min-h-[72px]"
+          className="min-h-[72px] resize-none rounded-lg"
         />
       </Field>
+    </div>
+  );
+}
+
+function MockupUploadCard({
+  job,
+  onChange,
+}: {
+  job: NewOrderJobInput;
+  onChange: (patch: Partial<NewOrderJobInput>) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleFiles = async (fileList: FileList | null) => {
+    const file = fileList?.[0];
+    if (!file) return;
+    const { previewUrl } = await readImagePreviewDataUrl(file);
+    onChange({
+      mockupFile: {
+        id: createMockupDraftId(),
+        name: file.name,
+        previewUrl: previewUrl || undefined,
+      },
+    });
+  };
+
+  return (
+    <div className="rounded-lg border border-[#ebebeb] bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-[13px] font-semibold text-[#303030]">
+            {job.name || "Untitled event"}
+          </p>
+          <p className="text-[12px] text-[#616161]">
+            {decorationLabel(job.decorationType)} ·{" "}
+            {IMPRINT_LOCATION_LABELS[job.locationKey]}
+          </p>
+        </div>
+        {job.mockupFile ? (
+          <button
+            type="button"
+            onClick={() => onChange({ mockupFile: undefined })}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[#616161] hover:bg-[#fff1f1] hover:text-[#8f1f1f]"
+          >
+            <X className="size-3" />
+            Remove
+          </button>
+        ) : null}
+      </div>
+
+      <input
+        ref={inputRef}
+        type="file"
+        className="hidden"
+        accept=".pdf,.ai,.eps,.png,.jpg,.jpeg,.svg"
+        onChange={(event) => {
+          void handleFiles(event.target.files);
+          event.target.value = "";
+        }}
+      />
+
+      {job.mockupFile?.previewUrl ? (
+        <div className="mt-3 overflow-hidden rounded-lg border border-[#ebebeb] bg-[#fafafa] p-2">
+          <img
+            src={job.mockupFile.previewUrl}
+            alt={job.mockupFile.name}
+            className="mx-auto max-h-40 w-full object-contain"
+          />
+          <p className="mt-2 truncate text-center text-[12px] text-[#616161]">
+            {job.mockupFile.name}
+          </p>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="mt-3 flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[#d9d9d9] bg-[#fafafa] px-4 py-8 text-center transition-colors hover:border-brand-ink/30 hover:bg-brand-ink/[0.03]"
+        >
+          <div className="flex size-10 items-center justify-center rounded-lg bg-[#f4f7fd] text-[#2c6ecb]">
+            <Upload className="size-4" />
+          </div>
+          <p className="text-[13px] font-medium text-[#303030]">
+            Upload mockup
+          </p>
+          <p className="text-[12px] text-[#616161]">
+            Optional — skip if you will add proofs later
+          </p>
+        </button>
+      )}
     </div>
   );
 }
@@ -981,10 +915,10 @@ function Field({
 }) {
   return (
     <div>
-      <Label htmlFor={htmlFor} className="text-sm text-brand-ink">
+      <Label htmlFor={htmlFor} className="text-[13px] text-[#303030]">
         {label}
         {optional && (
-          <span className="ml-1 font-normal text-brand-muted">(optional)</span>
+          <span className="ml-1 font-normal text-[#8a8a8a]">(optional)</span>
         )}
       </Label>
       <div className="mt-1.5">{children}</div>

@@ -6,6 +6,7 @@ import type { ShopModules } from "@/lib/shop-settings";
 
 export const WORKSPACE_AREA_KEYS = [
   "dashboard",
+  "tasks",
   "orders",
   "customers",
   "production",
@@ -35,6 +36,11 @@ export const WORKSPACE_AREA_OPTIONS: {
     key: "dashboard",
     label: "Dashboard",
     description: "Shop overview and KPIs",
+  },
+  {
+    key: "tasks",
+    label: "Tasks",
+    description: "Open work, urgent items, and completed actions",
   },
   {
     key: "orders",
@@ -92,6 +98,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
   {
     admin: {
       dashboard: true,
+      tasks: true,
       orders: true,
       customers: true,
       production: true,
@@ -104,6 +111,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
     },
     manager: {
       dashboard: true,
+      tasks: true,
       orders: true,
       customers: true,
       production: true,
@@ -116,6 +124,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
     },
     production: {
       dashboard: true,
+      tasks: true,
       orders: true,
       customers: false,
       production: true,
@@ -128,6 +137,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
     },
     viewer: {
       dashboard: true,
+      tasks: true,
       orders: true,
       customers: true,
       production: true,
@@ -238,6 +248,7 @@ export function getDefaultLandingPath(
 ): string {
   const areaToPath: Record<WorkspaceAreaKey, string> = {
     dashboard: "/app/dashboard",
+    tasks: "/app/tasks",
     orders: "/app/orders",
     customers: "/app/customers",
     production: "/app/production",
@@ -332,6 +343,8 @@ export function getWorkspaceAreaForPath(
   if (pathname === "/app" || pathname === "/app/") return "dashboard";
   if (pathname.startsWith("/app/machines/settings")) return "machines-settings";
   if (pathname.startsWith("/app/dashboard")) return "dashboard";
+  if (pathname.startsWith("/app/notifications")) return "dashboard";
+  if (pathname.startsWith("/app/tasks")) return "tasks";
   if (pathname.startsWith("/app/orders")) return "orders";
   if (pathname.startsWith("/app/customers")) return "customers";
   if (pathname.startsWith("/app/production")) return "production";

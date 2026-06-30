@@ -17,20 +17,30 @@ import {
   Clock,
   Layers,
   Plus,
+  Wrench,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { EventBasketPanel } from "@/components/calendar/event-basket-panel";
 import { MachineTimelineCalendar } from "@/components/station/machine-timeline-calendar";
 import { ScheduleJobDialog } from "@/components/calendar/schedule-job-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { computeMachineWeekKpis, computeShopWeekKpis } from "@/lib/calendar-kpis";
 import {
   machineColorStyles,
   RESOURCE_TYPE_LABELS,
 } from "@/lib/machine-styles";
 import { formatOperatingHoursSummary } from "@/lib/machine-hours";
+import {
+  dashboardCardClass,
+  dashboardControlClass,
+  dashboardElevatedShadow,
+  dashboardKpiTitleClass,
+  dashboardPrimaryButtonClass,
+  dashboardSectionTitleClass,
+  dashboardTaskDetailClass,
+  dashboardValueClass,
+} from "@/lib/dashboard-styles";
 import type { Machine, ScheduleBlock } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -174,50 +184,78 @@ export function ShopTimelineCalendar() {
     : "max-h-[min(380px,42vh)]";
 
   return (
-    <div className="space-y-5">
+    <main className="flex w-full flex-1 flex-col gap-4 p-4 sm:gap-5 sm:p-6 lg:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className={dashboardSectionTitleClass}>Production calendar</h1>
+          <p className={cn("mt-1 max-w-2xl", dashboardTaskDetailClass)}>
+            Review the scheduling queue, then drag events onto machine timelines
+            to plan the week.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/app/machines" className={dashboardControlClass}>
+            <Wrench className="size-4 text-[#616161]" strokeWidth={1.75} />
+            Stations
+          </Link>
+          <button
+            type="button"
+            className={dashboardPrimaryButtonClass}
+            onClick={() => openSchedule()}
+            disabled={visibleMachines.length === 0}
+          >
+            <Plus className="size-4" />
+            Schedule event
+          </button>
+        </div>
+      </div>
+
       <EventBasketPanel onScheduleEvent={scheduleFromBasket} />
 
-      <div className="rounded-2xl border border-border bg-white p-4 sm:p-5 shadow-sm space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+      <section className={dashboardCardClass}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebebeb] bg-[#fafafa] px-4 py-3 sm:px-5">
           <div>
-            <p className="text-sm font-semibold text-brand-ink">
-              {compareMode ? "Compare machines" : "Select a machine"}
-            </p>
-            <p className="text-xs text-brand-muted mt-0.5">
+            <h2 className="text-sm font-semibold text-[#303030]">
+              {compareMode ? "Compare machines" : "Stations"}
+            </h2>
+            <p className="mt-0.5 text-[13px] text-[#616161]">
               {compareMode
                 ? `Choose up to ${MAX_COMPARE_MACHINES} machines to view side by side.`
-                : "Pick one station to focus on its weekly schedule."}
+                : "Pick a station to focus on its weekly schedule."}
             </p>
           </div>
           {!compareMode ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-full bg-white shrink-0"
+            <button
+              type="button"
+              className={cn(dashboardControlClass, "h-8")}
               onClick={() => setCompareMode(true)}
               disabled={sortedMachines.length < 2}
             >
-              <Layers className="size-3.5" />
+              <Layers className="size-3.5 text-[#616161]" strokeWidth={1.75} />
               Compare
-            </Button>
+            </button>
           ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-full bg-white shrink-0"
+            <button
+              type="button"
+              className={cn(dashboardControlClass, "h-8")}
               onClick={exitCompareMode}
             >
-              <X className="size-3.5" />
+              <X className="size-3.5 text-[#616161]" strokeWidth={1.75} />
               Single view
-            </Button>
+            </button>
           )}
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+        <div className="flex gap-2.5 overflow-x-auto p-4 sm:p-5">
           {sortedMachines.map((machine) => {
             const styles = machineColorStyles[machine.color];
             const selected = selectedIds.includes(machine.id);
             const kpis = shopKpis.perMachine[machine.id];
+            const utilization = Math.min(
+              100,
+              Math.max(0, kpis?.utilization ?? 0)
+            );
+            const hasConflict = (kpis?.conflictCount ?? 0) > 0;
             const atMax =
               compareMode &&
               !selected &&
@@ -230,45 +268,55 @@ export function ShopTimelineCalendar() {
                 disabled={atMax}
                 onClick={() => selectMachine(machine.id)}
                 className={cn(
-                  "shrink-0 flex items-center gap-2.5 rounded-xl border px-3.5 py-2.5 text-left transition-all min-w-[148px] max-w-[220px]",
+                  "group relative shrink-0 overflow-hidden rounded-lg border pl-3.5 pr-3 py-2.5 text-left transition-colors min-w-[170px] max-w-[230px]",
+                  dashboardElevatedShadow,
                   selected
-                    ? "border-brand-primary/40 bg-brand-primary/5 shadow-sm ring-1 ring-brand-primary/20"
-                    : "border-border bg-white hover:border-brand-primary/25 hover:bg-brand-primary/[0.03]",
+                    ? "border-[#2c6ecb]/40 bg-[#f4f7fd] ring-1 ring-[#2c6ecb]/20"
+                    : "border-[#e3e3e3] bg-white hover:bg-[#fafafa]",
                   !machine.active && "opacity-70",
                   atMax && "opacity-40 cursor-not-allowed"
                 )}
               >
                 <span
-                  className={cn("size-2.5 rounded-full shrink-0", styles.dot)}
+                  className={cn("absolute inset-y-0 left-0 w-1", styles.cap)}
+                  aria-hidden
                 />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium truncate text-brand-ink">
+                <div className="flex items-center gap-2 pl-1">
+                  <span
+                    className={cn("size-2.5 rounded-full shrink-0", styles.dot)}
+                  />
+                  <p className="flex-1 truncate text-[13px] font-semibold text-[#303030]">
                     {machine.name}
                   </p>
-                  <p className="text-[11px] text-brand-muted truncate">
-                    {kpis?.jobCount ?? 0} event
-                    {(kpis?.jobCount ?? 0) !== 1 ? "s" : ""} this week
-                    {!machine.active && " · Offline"}
-                  </p>
+                  {compareMode && selected && (
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[#2c6ecb] text-white">
+                      <Check className="size-3" />
+                    </span>
+                  )}
                 </div>
-                {compareMode && selected && (
-                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-primary text-white">
-                    <Check className="size-3" />
-                  </span>
-                )}
+                <p className="mt-0.5 truncate pl-1 text-[12px] tabular-nums text-[#616161]">
+                  {kpis?.jobCount ?? 0} event
+                  {(kpis?.jobCount ?? 0) !== 1 ? "s" : ""}
+                  {kpis ? ` · ${kpis.bookedHours}h` : ""}
+                  {!machine.active && " · Offline"}
+                </p>
+                <div className="ml-1 mt-1.5 h-1 overflow-hidden rounded-full bg-[#f1f1f1]">
+                  <span
+                    className={cn(
+                      "block h-full rounded-full",
+                      hasConflict ? "bg-[#d98c1f]" : "bg-[#2c6ecb]"
+                    )}
+                    style={{ width: `${utilization}%` }}
+                  />
+                </div>
               </button>
             );
           })}
         </div>
-      </div>
+      </section>
 
       {visibleMachines.length > 0 && (
-        <div
-          className={cn(
-            "grid gap-3",
-            singleMachineView ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-2 lg:grid-cols-4"
-          )}
-        >
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {singleMachineKpis ? (
             <>
               <KpiCard
@@ -276,18 +324,21 @@ export function ShopTimelineCalendar() {
                 value={String(singleMachineKpis.jobCount)}
                 detail={`${singleMachineKpis.todayCount} scheduled today`}
                 icon={CalendarDays}
+                tone="neutral"
               />
               <KpiCard
                 label="Booked hours"
                 value={`${singleMachineKpis.bookedHours}h`}
                 detail={`${singleMachineKpis.availableHours}h available`}
                 icon={Clock}
+                tone="blue"
               />
               <KpiCard
                 label="Utilization"
                 value={`${singleMachineKpis.utilization}%`}
                 detail={`Open ${singleMachineKpis.openDays} days this week`}
                 icon={Layers}
+                tone="green"
               />
               <KpiCard
                 label="Issues"
@@ -298,7 +349,7 @@ export function ShopTimelineCalendar() {
                     : "Overlap or off-hours"
                 }
                 icon={AlertTriangle}
-                tone={singleMachineKpis.conflictCount > 0 ? "warning" : "good"}
+                tone={singleMachineKpis.conflictCount > 0 ? "red" : "neutral"}
               />
             </>
           ) : multiMachineKpis ? (
@@ -308,18 +359,21 @@ export function ShopTimelineCalendar() {
                 value={String(visibleMachines.length)}
                 detail={compareMode ? "Compare mode" : "Focused view"}
                 icon={Layers}
+                tone="neutral"
               />
               <KpiCard
                 label="Events this week"
                 value={String(multiMachineKpis.jobs)}
                 detail="Across selected machines"
                 icon={CalendarDays}
+                tone="neutral"
               />
               <KpiCard
                 label="Booked hours"
                 value={`${multiMachineKpis.booked}h`}
                 detail={`${multiMachineKpis.utilization}% avg utilization`}
                 icon={Clock}
+                tone="blue"
               />
               <KpiCard
                 label="Issues"
@@ -330,68 +384,73 @@ export function ShopTimelineCalendar() {
                     : "Review red blocks below"
                 }
                 icon={AlertTriangle}
-                tone={multiMachineKpis.conflicts > 0 ? "warning" : "good"}
+                tone={multiMachineKpis.conflicts > 0 ? "red" : "neutral"}
               />
             </>
           ) : null}
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div
+        className={cn(
+          "flex flex-wrap items-center justify-between gap-3 px-3 py-2.5 sm:px-4",
+          dashboardCardClass
+        )}
+      >
         <div className="flex items-center gap-1.5 sm:gap-2">
-          <Button
-            variant="outline"
-            size="icon"
-            className="rounded-full bg-white"
+          <button
+            type="button"
+            className={cn(dashboardControlClass, "size-9 justify-center px-0")}
             onClick={() => setWeekStart(addDays(weekStart, -7))}
+            aria-label="Previous week"
           >
-            <ChevronLeft className="size-4" />
-          </Button>
-          <div className="min-w-[200px] text-center">
-            <p className="text-sm font-semibold text-brand-ink">
+            <ChevronLeft className="size-4 text-[#616161]" />
+          </button>
+          <div className="min-w-[180px] text-center">
+            <p className="text-[13px] font-semibold tabular-nums text-[#303030]">
               {format(weekDays[0], "MMM d")} –{" "}
               {format(weekDays[6], "MMM d, yyyy")}
             </p>
-            <p className="text-xs text-brand-muted">
-              Drag events on the timeline to reschedule
+            <p className="text-[11px] text-[#8a8a8a]">
+              Drag events to reschedule
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="icon"
-            className="rounded-full bg-white"
+          <button
+            type="button"
+            className={cn(dashboardControlClass, "size-9 justify-center px-0")}
             onClick={() => setWeekStart(addDays(weekStart, 7))}
+            aria-label="Next week"
           >
-            <ChevronRight className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-brand-primary rounded-full"
+            <ChevronRight className="size-4 text-[#616161]" />
+          </button>
+          <button
+            type="button"
+            className={cn(dashboardControlClass, "h-9")}
             onClick={() =>
               setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))
             }
           >
             Today
-          </Button>
+          </button>
         </div>
 
-        <Button
-          className="rounded-full"
+        <button
+          type="button"
+          className={dashboardPrimaryButtonClass}
           onClick={() => openSchedule()}
           disabled={visibleMachines.length === 0}
         >
           <Plus className="size-4" />
           Schedule event
-        </Button>
+        </button>
       </div>
 
       {visibleMachines.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border py-16 text-center text-sm text-brand-muted">
+        <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] py-16 text-center text-[13px] text-[#616161]">
           No machines yet.{" "}
           <Link
             href="/app/machines/settings"
-            className="text-brand-primary hover:underline"
+            className="font-medium text-[#2c6ecb] hover:underline"
           >
             Add a machine
           </Link>{" "}
@@ -404,81 +463,53 @@ export function ShopTimelineCalendar() {
             const kpis = shopKpis.perMachine[machine.id];
 
             return (
-              <div
-                key={machine.id}
-                className="rounded-2xl border border-border bg-white shadow-sm overflow-hidden"
-              >
-                {!singleMachineView && (
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 px-4 py-3 sm:px-5">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span
-                        className={cn("size-3 rounded-full shrink-0", styles.dot)}
-                      />
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-sm font-semibold text-brand-ink truncate">
-                            {machine.name}
-                          </h3>
-                          {!machine.active && (
-                            <Badge
-                              variant="outline"
-                              className="rounded-full text-[10px] border-slate-200"
-                            >
-                              Offline
-                            </Badge>
+              <section key={machine.id} className={dashboardCardClass}>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebebeb] bg-[#fafafa] px-4 py-3 sm:px-5">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <span
+                      className={cn("size-3 shrink-0 rounded-full", styles.dot)}
+                    />
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3
+                          className={cn(
+                            "truncate font-semibold text-[#303030]",
+                            singleMachineView ? "text-[15px]" : "text-sm"
                           )}
-                          {kpis && kpis.conflictCount > 0 && (
-                            <Badge
-                              variant="outline"
-                              className="rounded-full text-[10px] border-amber-200 bg-amber-50 text-amber-800"
-                            >
-                              {kpis.conflictCount} issue
-                              {kpis.conflictCount !== 1 ? "s" : ""}
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-xs text-brand-muted truncate">
-                          {RESOURCE_TYPE_LABELS[machine.type]} ·{" "}
-                          {formatOperatingHoursSummary(machine)}
-                        </p>
+                        >
+                          {machine.name}
+                        </h3>
+                        {!machine.active && (
+                          <span className="inline-flex items-center rounded-md border border-[#e3e3e3] bg-white px-2 py-0.5 text-[11px] font-medium text-[#616161]">
+                            Offline
+                          </span>
+                        )}
+                        {kpis && kpis.conflictCount > 0 && (
+                          <span className="inline-flex items-center rounded-md border border-[#f0d9a8] bg-[#fff8eb] px-2 py-0.5 text-[11px] font-medium text-[#8a6116]">
+                            {kpis.conflictCount} issue
+                            {kpis.conflictCount !== 1 ? "s" : ""}
+                          </span>
+                        )}
                       </div>
-                    </div>
-                    {kpis && (
-                      <p className="text-xs text-brand-muted tabular-nums">
-                        {kpis.jobCount} events · {kpis.bookedHours}h ·{" "}
-                        {kpis.utilization}%
+                      <p className="mt-0.5 truncate text-[12px] text-[#616161]">
+                        {RESOURCE_TYPE_LABELS[machine.type]} ·{" "}
+                        {formatOperatingHoursSummary(machine)}
+                        {singleMachineView && kpis?.nextJobLabel && (
+                          <> · Next: {kpis.nextJobLabel}</>
+                        )}
                       </p>
-                    )}
-                  </div>
-                )}
-
-                {singleMachineView && (
-                  <div className="border-b border-border/80 px-4 py-3 sm:px-5">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={cn("size-3 rounded-full shrink-0", styles.dot)}
-                      />
-                      <h3 className="text-base font-semibold text-brand-ink">
-                        {machine.name}
-                      </h3>
-                      {!machine.active && (
-                        <Badge variant="outline" className="rounded-full">
-                          Offline
-                        </Badge>
-                      )}
                     </div>
-                    <p className="text-xs text-brand-muted mt-1">
-                      {RESOURCE_TYPE_LABELS[machine.type]} ·{" "}
-                      {formatOperatingHoursSummary(machine)}
-                      {kpis?.nextJobLabel && (
-                        <> · Next: {kpis.nextJobLabel}</>
-                      )}
-                    </p>
                   </div>
-                )}
+                  {kpis && (
+                    <p className="text-[12px] tabular-nums text-[#616161]">
+                      {kpis.jobCount} events · {kpis.bookedHours}h ·{" "}
+                      {kpis.utilization}%
+                    </p>
+                  )}
+                </div>
 
-                <div className="grid grid-cols-[52px_repeat(7,minmax(100px,1fr))] border-b border-border bg-brand-surface/50">
-                  <div className="border-r border-border px-2 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-brand-muted">
+                <div className="grid grid-cols-[52px_repeat(7,minmax(100px,1fr))] border-b border-[#ebebeb] bg-[#fafafa]">
+                  <div className="border-r border-[#ebebeb] px-2 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
                     Time
                   </div>
                   {weekDays.map((day) => {
@@ -487,22 +518,22 @@ export function ShopTimelineCalendar() {
                       <div
                         key={day.toISOString()}
                         className={cn(
-                          "px-2 py-2.5 text-center border-r border-border last:border-r-0",
-                          isToday && "bg-brand-primary/5"
+                          "border-r border-[#ebebeb] px-2 py-2.5 text-center last:border-r-0",
+                          isToday && "bg-[#f4f7fd]"
                         )}
                       >
                         <p
                           className={cn(
                             "text-xs font-medium",
-                            isToday ? "text-brand-primary" : "text-brand-muted"
+                            isToday ? "text-[#2c6ecb]" : "text-[#616161]"
                           )}
                         >
                           {format(day, "EEE")}
                         </p>
                         <p
                           className={cn(
-                            "text-sm font-semibold",
-                            isToday ? "text-brand-primary" : "text-brand-ink"
+                            "text-sm font-semibold tabular-nums",
+                            isToday ? "text-[#2c6ecb]" : "text-[#303030]"
                           )}
                         >
                           {format(day, "MMM d")}
@@ -512,7 +543,7 @@ export function ShopTimelineCalendar() {
                   })}
                 </div>
 
-                <div className="px-2 sm:px-3 py-2">
+                <div className="px-2 py-2 sm:px-3">
                   <MachineTimelineCalendar
                     machine={machine}
                     weekStart={weekStart}
@@ -524,30 +555,31 @@ export function ShopTimelineCalendar() {
                   />
                 </div>
 
-                {(singleMachineView || index === visibleMachines.length - 1) && (
-                  <p className="px-5 pb-3 text-[11px] text-brand-muted">
+                {(singleMachineView ||
+                  index === visibleMachines.length - 1) && (
+                  <p className="border-t border-[#ebebeb] px-4 py-2.5 text-[11px] text-[#8a8a8a] sm:px-5">
                     Striped areas are outside operating hours. Red blocks
                     indicate overlaps or off-hours scheduling.
                   </p>
                 )}
-              </div>
+              </section>
             );
           })}
         </div>
       )}
 
-      <div className="flex flex-wrap gap-4 text-xs text-brand-muted">
+      <div className="flex flex-wrap items-center gap-4 px-1 text-[12px] text-[#616161]">
         <span className="flex items-center gap-2">
-          <span className="size-3 rounded-sm bg-muted/60 border border-border" />
+          <span className="size-3 rounded-sm border border-[#e3e3e3] bg-[#f1f1f1]" />
           Outside operating hours
         </span>
         <span className="flex items-center gap-2">
-          <span className="size-3 rounded-sm bg-red-50 border border-red-300" />
+          <span className="size-3 rounded-sm border border-red-300 bg-red-50" />
           Overlap or off-hours event
         </span>
         <Link
           href="/app/machines/settings"
-          className="text-brand-primary hover:underline ml-auto"
+          className="ml-auto font-medium text-[#2c6ecb] hover:underline"
         >
           Manage machines →
         </Link>
@@ -564,9 +596,58 @@ export function ShopTimelineCalendar() {
         prefillJobKey={prefillJobKey}
         editingBlock={editingBlock}
       />
-    </div>
+    </main>
   );
 }
+
+type KpiTone = "neutral" | "blue" | "green" | "amber" | "red";
+
+const KPI_TONE_STYLES: Record<
+  KpiTone,
+  {
+    surface: string;
+    border: string;
+    iconWrap: string;
+    iconColor: string;
+    valueColor: string;
+  }
+> = {
+  neutral: {
+    surface: "bg-white",
+    border: "border-[#e3e3e3]",
+    iconWrap: "bg-[#f1f1f1]",
+    iconColor: "text-[#303030]",
+    valueColor: "text-[#303030]",
+  },
+  blue: {
+    surface: "bg-[#f4f7fd]",
+    border: "border-[#c4d7f2]",
+    iconWrap: "bg-[#e8f0fb]",
+    iconColor: "text-[#2c6ecb]",
+    valueColor: "text-[#2c6ecb]",
+  },
+  green: {
+    surface: "bg-[#e8f5ee]",
+    border: "border-[#86d4a8]",
+    iconWrap: "bg-[#d4eddf]",
+    iconColor: "text-[#0d5c2e]",
+    valueColor: "text-[#0d5c2e]",
+  },
+  amber: {
+    surface: "bg-[#fff8eb]",
+    border: "border-[#f0d9a8]",
+    iconWrap: "bg-[#fff1d6]",
+    iconColor: "text-[#8a6116]",
+    valueColor: "text-[#8a6116]",
+  },
+  red: {
+    surface: "bg-[#fff1f1]",
+    border: "border-[#f5b5b5]",
+    iconWrap: "bg-[#fde2e2]",
+    iconColor: "text-[#8f1f1f]",
+    valueColor: "text-[#8f1f1f]",
+  },
+};
 
 function KpiCard({
   label,
@@ -578,28 +659,35 @@ function KpiCard({
   label: string;
   value: string;
   detail: string;
-  icon: typeof CalendarDays;
-  tone?: "good" | "warning" | "neutral";
+  icon: LucideIcon;
+  tone?: KpiTone;
 }) {
-  const styles =
-    tone === "good"
-      ? "border-emerald-200/80 bg-emerald-50/80"
-      : tone === "warning"
-        ? "border-amber-200/80 bg-amber-50/80"
-        : "border-border/60 bg-white";
+  const styles = KPI_TONE_STYLES[tone];
 
   return (
-    <div className={cn("rounded-xl border px-4 py-3 shadow-sm", styles)}>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-muted">
-          {label}
-        </p>
-        <Icon className="size-4 text-brand-muted shrink-0" />
+    <div
+      className={cn(
+        "relative flex flex-col rounded-lg border p-4",
+        styles.surface,
+        styles.border,
+        dashboardElevatedShadow
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <div
+          className={cn(
+            "flex size-8 shrink-0 items-center justify-center rounded-lg",
+            styles.iconWrap
+          )}
+        >
+          <Icon className={cn("size-3.5", styles.iconColor)} strokeWidth={1.75} />
+        </div>
+        <p className={dashboardKpiTitleClass}>{label}</p>
       </div>
-      <p className="text-2xl font-semibold text-brand-ink mt-1 tabular-nums">
+      <p className={cn(dashboardValueClass, "mt-2.5", styles.valueColor)}>
         {value}
       </p>
-      <p className="text-xs text-brand-muted mt-0.5">{detail}</p>
+      <p className="mt-1.5 text-xs leading-snug text-[#616161]">{detail}</p>
     </div>
   );
 }

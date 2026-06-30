@@ -40,6 +40,7 @@ export type UnscheduledEvent = {
   key: string;
   orderId: string;
   orderNumber: string;
+  customerId: string;
   customerName: string;
   jobId: string;
   jobName: string;
@@ -96,6 +97,7 @@ export type EventBasketSort =
 export type EventBasketGroup = {
   orderId: string;
   orderNumber: string;
+  customerId: string;
   customerName: string;
   rush: boolean;
   priorityTier: "Rush" | "Standard";
@@ -184,6 +186,7 @@ export function getUnscheduledEvents(
       key: schedulableJobKey(job.orderId, job.jobId, job.imprintId),
       orderId: job.orderId,
       orderNumber: job.orderNumber,
+      customerId: order.customerId,
       customerName: job.customerName,
       jobId: job.jobId,
       jobName: job.jobName,
@@ -207,10 +210,9 @@ export function getUnscheduledEvents(
       orderProgress: countOrderScheduleProgress(order, scheduleBlocks),
       flowStep: flowStep?.flowIndex ?? 0,
       flowTotal: flowStep?.flowTotal ?? 0,
-      flowStatus:
-        flowStep?.status === "blocked" ? "blocked" : "ready",
-      blockedByLabel: flowStep?.blockedByLabel,
-      blockedByKey: flowStep?.blockedByKey,
+      flowStatus: "ready",
+      blockedByLabel: undefined,
+      blockedByKey: undefined,
       priorityTier: priorityTierLabel(order.rush),
       daysSinceSubmitted: daysSinceSubmitted(order.createdAt),
       totalPieceCount: getOrderPieceCount(order),
@@ -354,6 +356,7 @@ export function groupUnscheduledEventsByOrder(
     byOrder.set(event.orderId, {
       orderId: event.orderId,
       orderNumber: event.orderNumber,
+      customerId: event.customerId,
       customerName: event.customerName,
       rush: event.rush,
       priorityTier: event.priorityTier,
@@ -417,6 +420,7 @@ export {
 export type SchedulingQueueOrder = {
   orderId: string;
   orderNumber: string;
+  customerId: string;
   customerName: string;
   rush: boolean;
   inHandsDate: string;
@@ -425,7 +429,11 @@ export type SchedulingQueueOrder = {
   dueLabel: string;
   dueUrgency: HealthStatus;
   progress: { scheduled: number; total: number };
+  /** All unscheduled production events for this order */
+  unscheduledEvents: UnscheduledEvent[];
+  /** @deprecated First event in flow order — use unscheduledEvents */
   nextEvent: UnscheduledEvent | null;
+  /** @deprecated */
   waitingCount: number;
   flowSteps: OrderFlowStep[];
   artworkApproved: boolean;
@@ -448,6 +456,7 @@ export function buildSchedulingQueueOrders(
     return {
       orderId: group.orderId,
       orderNumber: group.orderNumber,
+      customerId: group.customerId,
       customerName: group.customerName,
       rush: group.rush,
       inHandsDate: group.inHandsDate,
@@ -456,10 +465,9 @@ export function buildSchedulingQueueOrders(
       dueLabel: group.dueLabel,
       dueUrgency: group.dueUrgency,
       progress: group.progress,
-      nextEvent:
-        group.events.find((event) => event.flowStatus === "ready") ?? null,
-      waitingCount: group.events.filter((event) => event.flowStatus === "blocked")
-        .length,
+      unscheduledEvents: group.events,
+      nextEvent: group.events[0] ?? null,
+      waitingCount: Math.max(0, group.events.length - 1),
       flowSteps: group.flowSteps,
       artworkApproved: artwork?.allApproved ?? true,
       artworkLabel:

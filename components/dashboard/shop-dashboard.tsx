@@ -1,40 +1,39 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
-import {
-  ArrowRight,
-  Calendar,
-  ClipboardList,
-  Package,
-  Palette,
-} from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowRight } from "lucide-react";
+import { DashboardAreaChart } from "@/components/dashboard/dashboard-area-chart";
+import { DashboardTasksSection } from "@/components/dashboard/dashboard-tasks-section";
 import { DashboardKpiSection } from "@/components/dashboard/dashboard-kpi-section";
-import { DashboardAttentionPanel } from "@/components/dashboard/dashboard-attention-panel";
-import { DashboardSchedulingQueue } from "@/components/dashboard/dashboard-scheduling-queue";
-import { NewOrderButton } from "@/components/providers/new-order-provider";
+import { DashboardProductionSection } from "@/components/dashboard/dashboard-production-section";
+import { DashboardToolbar } from "@/components/dashboard/dashboard-toolbar";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
-import { StaffHeader } from "@/components/layout/staff-header";
 import { OrderStatusBadge, RushBadge } from "@/components/status-badges";
 import { Button } from "@/components/ui/button";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
+import { buildDashboardKpiSnapshot } from "@/lib/dashboard-charts";
 import {
-  computeDashboardInsights,
-  type DashboardAttentionItem,
-  type TodayFloorItem,
-} from "@/lib/dashboard-insights";
+  applyDashboardFilters,
+  buildDashboardCustomerOptions,
+  buildDashboardMachineOptions,
+  DEFAULT_DASHBOARD_FILTERS,
+  getDashboardDateRange,
+  type DashboardFilters,
+} from "@/lib/dashboard-filters";
+import { computeDashboardInsights } from "@/lib/dashboard-insights";
+import {
+  dashboardCardClass,
+  dashboardInsetSurfaceClass,
+  dashboardSectionTitleClass,
+  dashboardTaskDetailClass,
+} from "@/lib/dashboard-styles";
 import { formatCurrency, formatDate } from "@/lib/format";
-import {
-  formatEventsToSchedule,
-  formatProductionEventsAcrossOrders,
-  productionEventsWaitingMessage,
-} from "@/lib/terminology";
-import { machineColorStyles } from "@/lib/machine-styles";
 import { cn } from "@/lib/utils";
-import type { Order, Task } from "@/types";
+import type { DashboardAttentionItem } from "@/lib/dashboard-insights";
 
-function DashboardPanel({
+function Panel({
   title,
   description,
   action,
@@ -48,179 +47,18 @@ function DashboardPanel({
   className?: string;
 }) {
   return (
-    <section
-      className={cn(
-        "flex h-full min-h-0 flex-col rounded-2xl border border-white/80 bg-white shadow-sm",
-        className
-      )}
-    >
-      <div className="flex items-start justify-between gap-3 border-b border-border/50 px-5 py-3.5 sm:px-6">
+    <section className={cn(dashboardCardClass, className)}>
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#ebebeb] bg-[#fafafa] px-4 py-3 sm:px-5">
         <div>
-          <h2 className="text-sm font-semibold text-brand-ink">{title}</h2>
-          {description && (
-            <p className="text-xs text-brand-muted mt-0.5">{description}</p>
-          )}
+          <h3 className="text-sm font-semibold text-[#303030]">{title}</h3>
+          {description ? (
+            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>{description}</p>
+          ) : null}
         </div>
         {action}
       </div>
-      <div className="flex flex-1 flex-col px-5 py-4 sm:px-6">{children}</div>
+      <div className="p-4 sm:p-5">{children}</div>
     </section>
-  );
-}
-
-function EmptyPanelState({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-xl border border-dashed border-border/80 bg-slate-50/50 px-4 py-8 text-center text-sm text-brand-muted",
-        className
-      )}
-    >
-      {children}
-    </div>
-  );
-}
-
-function TodayFloorList({ items }: { items: TodayFloorItem[] }) {
-  if (items.length === 0) {
-    return (
-      <EmptyPanelState className="flex flex-1 items-center justify-center">
-        Nothing on the floor today.{" "}
-        <Link href="/app/calendar" className="text-brand-primary hover:underline">
-          Schedule work
-        </Link>
-      </EmptyPanelState>
-    );
-  }
-
-  return (
-    <ul className="w-full space-y-2">
-      {items.slice(0, 6).map((item) => (
-        <li key={item.id}>
-          <Link
-            href={item.href}
-            className="flex items-start gap-3 rounded-xl border border-border/50 bg-slate-50/40 px-4 py-3 hover:bg-slate-50 transition-colors"
-          >
-            {item.kind === "scheduled" && item.machineColor && (
-              <span
-                className={cn(
-                  "mt-1.5 size-2.5 shrink-0 rounded-full",
-                  machineColorStyles[item.machineColor].dot
-                )}
-              />
-            )}
-            {item.kind === "running" && (
-              <span className="mt-1.5 size-2.5 shrink-0 rounded-full bg-emerald-500 animate-pulse" />
-            )}
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium text-brand-ink">
-                  {item.orderNumber}
-                </span>
-                {item.kind === "running" && (
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                    Running
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-brand-muted truncate">
-                {item.imprintLabel} · {item.machineName}
-              </p>
-              {item.kind === "scheduled" && (
-                <p className="text-xs text-brand-muted/80 mt-0.5">
-                  {item.timeLabel}
-                </p>
-              )}
-            </div>
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function RecentOrdersList({ orders }: { orders: Order[] }) {
-  if (orders.length === 0) {
-    return (
-      <EmptyPanelState>
-        <p className="font-medium text-brand-ink">No orders yet</p>
-        <p className="mt-1">Create your first order to see activity here.</p>
-        <div className="mt-4 flex justify-center gap-2">
-          <Button
-            variant="outline"
-            className="rounded-full bg-white"
-            nativeButton={false}
-            render={<Link href="/app/customers" />}
-          >
-            Add customer
-          </Button>
-          <NewOrderButton label="New order" />
-        </div>
-      </EmptyPanelState>
-    );
-  }
-
-  return (
-    <div className="w-full divide-y divide-border/50 overflow-hidden rounded-xl border border-border/50">
-      {orders.map((order) => (
-        <Link
-          key={order.id}
-          href={`/app/orders/${order.id}`}
-          className="flex items-center justify-between gap-4 bg-slate-50/30 px-4 py-3.5 hover:bg-slate-50 transition-colors first:rounded-t-xl last:rounded-b-xl"
-        >
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-brand-ink">
-                {order.number}
-              </span>
-              <OrderStatusBadge status={order.status} />
-              {order.rush && <RushBadge />}
-            </div>
-            <p className="text-xs text-brand-muted truncate mt-0.5">
-              {order.company} · Due {formatDate(order.inHandsDate)}
-            </p>
-          </div>
-          <p className="text-sm font-medium tabular-nums text-brand-ink shrink-0">
-            {formatCurrency(order.total)}
-          </p>
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-function TaskList({ tasks }: { tasks: Task[] }) {
-  if (tasks.length === 0) {
-    return (
-      <EmptyPanelState className="flex flex-1 items-center justify-center py-10">
-        No open production tasks.
-      </EmptyPanelState>
-    );
-  }
-
-  return (
-    <ul className="w-full space-y-2">
-      {tasks.map((task) => (
-        <li
-          key={task.id}
-          className="rounded-xl border border-border/50 bg-slate-50/40 px-4 py-3"
-        >
-          <p className="text-sm font-medium text-brand-ink leading-snug">
-            {task.title}
-          </p>
-          <p className="text-xs text-brand-muted mt-1">
-            {task.orderNumber} · {task.department}
-            {task.dueDate && ` · Due ${formatDate(task.dueDate)}`}
-          </p>
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -230,6 +68,7 @@ export function ShopDashboard() {
     scheduleBlocks,
     jobRuns,
     machines,
+    customers,
     productionTasks,
     dashboardStats,
     shopDataLoading,
@@ -237,21 +76,47 @@ export function ShopDashboard() {
     refreshShopData,
   } = useSchedule();
   const { isModuleEnabled } = useShopSettings();
+  const [filters, setFilters] = useState<DashboardFilters>(
+    DEFAULT_DASHBOARD_FILTERS
+  );
+
+  const dateRange = getDashboardDateRange(filters.dateRangeKey);
+
+  const filteredData = useMemo(
+    () =>
+      applyDashboardFilters({
+        orders,
+        scheduleBlocks,
+        jobRuns,
+        filters,
+      }),
+    [orders, scheduleBlocks, jobRuns, filters]
+  );
+
+  const machineOptions = useMemo(
+    () => buildDashboardMachineOptions(machines),
+    [machines]
+  );
+
+  const customerOptions = useMemo(
+    () => buildDashboardCustomerOptions(orders, customers),
+    [orders, customers]
+  );
 
   const insights = useMemo(
     () =>
       computeDashboardInsights({
-        orders,
-        scheduleBlocks,
-        jobRuns,
+        orders: filteredData.orders,
+        scheduleBlocks: filteredData.scheduleBlocks,
+        jobRuns: filteredData.jobRuns,
         machines,
         productionTasks,
         apiStats: dashboardStats,
       }),
     [
-      orders,
-      scheduleBlocks,
-      jobRuns,
+      filteredData.orders,
+      filteredData.scheduleBlocks,
+      filteredData.jobRuns,
       machines,
       productionTasks,
       dashboardStats,
@@ -261,18 +126,34 @@ export function ShopDashboard() {
   const {
     stats,
     attention,
+    recentOrders,
+    todayFloor,
+    tomorrowFloor,
     schedulingQueue,
-    activeOrdersList,
-    dueThisWeekOrders,
     artworkPendingEntries,
     awaitingApprovalOrders,
     rushOrdersList,
     overdueOrders,
-    recentOrders,
-    todayFloor,
-    openTasks,
     readyToShipOrders,
   } = insights;
+
+  const financialSnapshot = useMemo(
+    () =>
+      buildDashboardKpiSnapshot(
+        filteredData.orders,
+        stats.activeOrders,
+        stats.dueThisWeek,
+        filteredData.scheduleBlocks,
+        dateRange.trendDays
+      ),
+    [
+      filteredData.orders,
+      filteredData.scheduleBlocks,
+      stats.activeOrders,
+      stats.dueThisWeek,
+      dateRange.trendDays,
+    ]
+  );
 
   const filteredAttention = useMemo(
     () =>
@@ -286,27 +167,22 @@ export function ShopDashboard() {
     [attention, isModuleEnabled]
   );
 
-  const showArtwork = isModuleEnabled("artwork");
-  const showInventory = isModuleEnabled("inventory");
-  const showProductionTasks = isModuleEnabled("productionTasks");
-
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col">
-      <StaffHeader
-        title="Dashboard"
-        description="Live overview of orders, production, and what needs you today"
-        action={<NewOrderButton label="New Order" />}
-      />
-
-      <main className="flex w-full flex-1 flex-col gap-5 p-4 sm:gap-6 sm:p-6 lg:p-8">
+      <main className="flex w-full flex-1 flex-col gap-4 p-4 sm:gap-5 sm:p-6 lg:p-8">
         {shopDataError && (
-          <div className="rounded-xl border border-destructive/30 bg-white px-4 py-3 text-sm text-destructive flex items-center justify-between gap-3 shadow-sm">
+          <div
+            className={cn(
+              dashboardCardClass,
+              "flex items-center justify-between gap-3 border-destructive/30 px-4 py-3 text-sm text-destructive"
+            )}
+          >
             <span>{shopDataError}</span>
             <Button
               type="button"
               variant="outline"
               size="sm"
-              className="rounded-full shrink-0 bg-white"
+              className="shrink-0 bg-white"
               onClick={() => void refreshShopData()}
             >
               Retry
@@ -314,238 +190,193 @@ export function ShopDashboard() {
           </div>
         )}
 
-        {shopDataLoading || (!shopDataError && orders.length === 0 && !dashboardStats) ? (
+        {shopDataLoading ||
+        (!shopDataError && orders.length === 0 && !dashboardStats) ? (
           <AppLoadingScreen label="Loading shop data…" />
         ) : (
           <>
-            <DashboardKpiSection
+            <DashboardToolbar
               stats={stats}
-              activeOrdersList={activeOrdersList}
-              schedulingQueue={schedulingQueue}
-              dueThisWeekOrders={dueThisWeekOrders}
-              artworkPendingEntries={artworkPendingEntries}
-              showProofsKpi={showArtwork}
+              filters={filters}
+              machineOptions={machineOptions}
+              customerOptions={customerOptions}
+              onFiltersChange={setFilters}
             />
 
-            <DashboardPanel
-              title="Scheduling queue"
-              description={
-                stats.toSchedule > 0
-                  ? formatProductionEventsAcrossOrders(
-                      stats.toSchedule,
-                      stats.toScheduleOrders
-                    )
-                  : productionEventsWaitingMessage
-              }
+            <DashboardKpiSection
+              stats={stats}
+              snapshot={financialSnapshot}
+              periodLabel={dateRange.label}
+            />
+
+            <DashboardTasksSection
+              attentionItems={filteredAttention}
+              productionTasks={productionTasks}
+              schedulingQueue={schedulingQueue}
+              artworkPendingEntries={artworkPendingEntries}
+              awaitingApprovalOrders={awaitingApprovalOrders}
+              rushOrdersList={rushOrdersList}
+              overdueOrders={overdueOrders}
+              readyToShipOrders={readyToShipOrders}
+              orders={filteredData.orders}
+              scheduleBlocks={filteredData.scheduleBlocks}
+              jobRuns={filteredData.jobRuns}
+              stats={stats}
+              limit={8}
+            />
+
+            <DashboardProductionSection
+              orders={filteredData.orders}
+              scheduleBlocks={filteredData.scheduleBlocks}
+              jobRuns={filteredData.jobRuns}
+              productionTasks={productionTasks}
+              todayFloor={todayFloor}
+              tomorrowFloor={tomorrowFloor}
+            />
+
+            <section className="mt-4 space-y-4 border-t border-[#e3e3e3] pt-5">
+              <div>
+                <h2 className={dashboardSectionTitleClass}>Business snapshot</h2>
+                <p className={cn("mt-1", dashboardTaskDetailClass)}>
+                  Order and revenue trends for {dateRange.label.toLowerCase()}
+                </p>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2 lg:gap-5">
+                <Panel
+                  title="Orders"
+                  description={`New orders · ${dateRange.label.toLowerCase()}`}
+                >
+                  {financialSnapshot.orderTrend.some((point) => point.orders > 0) ? (
+                    <DashboardAreaChart
+                      points={financialSnapshot.orderTrend}
+                      valueKey="orders"
+                      formatValue={(value) => String(value)}
+                      height={140}
+                      changePct={financialSnapshot.ordersChangePct}
+                    />
+                  ) : (
+                    <div className="flex min-h-[140px] flex-col items-center justify-center rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-8 text-center shadow-[inset_0_1px_2px_rgba(26,26,26,0.03)]">
+                      <p className="text-sm font-semibold text-[#303030]">
+                        No orders yet
+                      </p>
+                      <p className={cn("mt-1", dashboardTaskDetailClass)}>
+                        New orders will show a trend here for{" "}
+                        {dateRange.label.toLowerCase()}.
+                      </p>
+                    </div>
+                  )}
+                </Panel>
+
+                <Panel
+                  title="Revenue"
+                  description={`Collected revenue · ${dateRange.label.toLowerCase()}`}
+                >
+                  {financialSnapshot.revenueInPeriod > 0 ? (
+                    <DashboardAreaChart
+                      points={financialSnapshot.orderTrend}
+                      valueKey="revenue"
+                      formatValue={(value) => formatCurrency(value)}
+                      height={140}
+                      changePct={financialSnapshot.revenueChangePct}
+                    />
+                  ) : (
+                    <div className="flex min-h-[140px] flex-col items-center justify-center rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-8 text-center shadow-[inset_0_1px_2px_rgba(26,26,26,0.03)]">
+                      <p className="text-sm font-semibold text-[#303030]">
+                        No revenue yet
+                      </p>
+                      <p className={cn("mt-1", dashboardTaskDetailClass)}>
+                        Revenue for {dateRange.label.toLowerCase()} will appear
+                        here.
+                      </p>
+                    </div>
+                  )}
+                </Panel>
+              </div>
+            </section>
+
+            <Panel
+              title="Recent orders"
+              description="Latest work entering the shop"
               action={
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="rounded-full text-xs text-brand-primary h-8"
+                  className="h-9 rounded-lg px-2.5 text-[13px] text-brand-primary"
                   nativeButton={false}
-                  render={<Link href="/app/calendar" />}
+                  render={<Link href="/app/orders" />}
                 >
-                  Open calendar
+                  View all
                   <ArrowRight className="size-3.5" />
                 </Button>
               }
             >
-              <DashboardSchedulingQueue items={schedulingQueue} />
-            </DashboardPanel>
-
-            <div className="grid w-full items-stretch gap-5 lg:grid-cols-5 lg:gap-6">
-              <DashboardPanel
-                className="lg:col-span-3"
-                title="Needs attention"
-                description="Tap a row to review and take action"
-              >
-                <DashboardAttentionPanel
-                  items={filteredAttention}
-                  schedulingQueue={schedulingQueue}
-                  artworkPendingEntries={artworkPendingEntries}
-                  awaitingApprovalOrders={awaitingApprovalOrders}
-                  rushOrdersList={rushOrdersList}
-                  overdueOrders={overdueOrders}
-                  readyToShipOrders={readyToShipOrders}
-                  stats={{
-                    toSchedule: stats.toSchedule,
-                    toScheduleOrders: stats.toScheduleOrders,
-                    lowStockItems: stats.lowStockItems,
-                  }}
-                />
-              </DashboardPanel>
-
-              <DashboardPanel
-                className="lg:col-span-2"
-                title="On the floor today"
-                description={
-                  stats.runningNow > 0
-                    ? `${stats.runningNow} running · ${stats.scheduledToday} scheduled`
-                    : `${stats.scheduledToday} scheduled`
-                }
-                action={
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-full text-xs text-brand-primary h-8"
-                    nativeButton={false}
-                    render={<Link href="/app/calendar" />}
-                  >
-                    Calendar
-                  </Button>
-                }
-              >
-                <TodayFloorList items={todayFloor} />
-              </DashboardPanel>
-            </div>
-
-            <div
-              className={cn(
-                "grid w-full items-stretch gap-5 lg:gap-6",
-                showProductionTasks ? "lg:grid-cols-3" : "lg:grid-cols-1"
+              {recentOrders.length === 0 ? (
+                <div className="py-10 text-center">
+                  <p className="text-sm font-semibold text-[#303030]">
+                    No orders yet
+                  </p>
+                  <p className={cn("mt-1", dashboardTaskDetailClass)}>
+                    Orders will appear here once you start tracking production.
+                  </p>
+                </div>
+              ) : (
+                <div className={cn(dashboardInsetSurfaceClass, "overflow-hidden")}>
+                  <table className="w-full text-left text-sm">
+                    <thead className="border-b border-[#ebebeb] bg-[#fafafa] text-xs font-semibold uppercase tracking-[0.04em] text-[#616161]">
+                      <tr>
+                        <th className="px-3 py-2.5 font-medium">Order</th>
+                        <th className="hidden px-3 py-2.5 font-medium sm:table-cell">
+                          Customer
+                        </th>
+                        <th className="px-3 py-2.5 font-medium">Status</th>
+                        <th className="hidden px-3 py-2.5 font-medium md:table-cell">
+                          In hands
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          Total
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#ebebeb]">
+                      {recentOrders.slice(0, 6).map((order) => (
+                        <tr key={order.id} className="hover:bg-[#fafafa]">
+                          <td className="px-3 py-3">
+                            <Link
+                              href={`/app/orders/${order.id}`}
+                              className="text-[15px] font-semibold text-[#303030] hover:text-brand-primary"
+                            >
+                              {order.number}
+                            </Link>
+                            <p className="mt-0.5 text-xs text-[#616161] sm:hidden">
+                              {order.company}
+                            </p>
+                          </td>
+                          <td className="hidden px-3 py-2.5 text-[#616161] sm:table-cell">
+                            {order.company}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <OrderStatusBadge status={order.status} />
+                              {order.rush && <RushBadge />}
+                            </div>
+                          </td>
+                          <td className="hidden px-3 py-2.5 text-[#616161] md:table-cell">
+                            {formatDate(order.inHandsDate)}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-medium tabular-nums text-[#303030]">
+                            {formatCurrency(order.total)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
-            >
-              <DashboardPanel
-                className={showProductionTasks ? "lg:col-span-2" : undefined}
-                title="Recent orders"
-                action={
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-full text-xs h-8"
-                    nativeButton={false}
-                    render={<Link href="/app/orders" />}
-                  >
-                    View all
-                    <ArrowRight className="size-3.5" />
-                  </Button>
-                }
-              >
-                <RecentOrdersList orders={recentOrders} />
-              </DashboardPanel>
-
-              {showProductionTasks && (
-              <DashboardPanel
-                title="Production tasks"
-                action={
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-full text-xs h-8"
-                    nativeButton={false}
-                    render={<Link href="/app/production" />}
-                  >
-                    View all
-                  </Button>
-                }
-              >
-                <TaskList tasks={openTasks} />
-              </DashboardPanel>
-              )}
-            </div>
-
-            <section
-              className={cn(
-                "grid w-full grid-cols-2 gap-3 sm:gap-4",
-                showArtwork && showInventory
-                  ? "lg:grid-cols-4"
-                  : showArtwork || showInventory
-                    ? "lg:grid-cols-3"
-                    : "lg:grid-cols-2"
-              )}
-            >
-              <QuickLink
-                href="/app/calendar"
-                icon={Calendar}
-                label="Calendar"
-                detail={
-                  stats.toSchedule > 0
-                    ? formatEventsToSchedule(stats.toSchedule)
-                    : "Production schedule"
-                }
-                active={stats.toSchedule > 0}
-              />
-              {showArtwork && (
-              <QuickLink
-                href="/app/artwork"
-                icon={Palette}
-                label="Artwork"
-                detail={
-                  stats.artworkPending > 0
-                    ? `${stats.artworkPending} proofs pending`
-                    : "Proof queue"
-                }
-                active={stats.artworkPending > 0}
-              />
-              )}
-              {showInventory && (
-              <QuickLink
-                href="/app/inventory"
-                icon={Package}
-                label="Inventory"
-                detail={
-                  stats.lowStockItems > 0
-                    ? `${stats.lowStockItems} low stock`
-                    : "Stock levels"
-                }
-                active={stats.lowStockItems > 0}
-              />
-              )}
-              <QuickLink
-                href="/app/orders"
-                icon={ClipboardList}
-                label="Orders"
-                detail={
-                  stats.readyToShip > 0
-                    ? `${stats.readyToShip} ready to ship`
-                    : `${stats.openPipeline} in pipeline`
-                }
-              />
-            </section>
+            </Panel>
           </>
         )}
       </main>
     </div>
-  );
-}
-
-function QuickLink({
-  href,
-  icon: Icon,
-  label,
-  detail,
-  active,
-}: {
-  href: string;
-  icon: typeof Calendar;
-  label: string;
-  detail: string;
-  active?: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        "flex h-full min-h-[4.5rem] items-center gap-3 rounded-2xl border bg-white px-4 py-3.5 shadow-sm transition-all hover:shadow-md sm:px-5",
-        active
-          ? "border-brand-primary/20 hover:border-brand-primary/30"
-          : "border-white/80 hover:border-border"
-      )}
-    >
-      <div
-        className={cn(
-          "flex size-9 shrink-0 items-center justify-center rounded-xl",
-          active
-            ? "bg-brand-primary/10 text-brand-primary"
-            : "bg-slate-100 text-brand-muted"
-        )}
-      >
-        <Icon className="size-4" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-brand-ink">{label}</p>
-        <p className="text-xs text-brand-muted truncate">{detail}</p>
-      </div>
-    </Link>
   );
 }

@@ -1,10 +1,11 @@
-import { format, parseISO } from "date-fns";
-import type {
-  Message,
-  Order,
-  OrderActivityEvent,
-  ScheduleBlock,
-} from "@/types";
+import {
+  format,
+  isToday,
+  isYesterday,
+  parseISO,
+  startOfDay,
+} from "date-fns";
+import type { Order, OrderActivityEvent, ScheduleBlock } from "@/types";
 import { formatScheduleBlockSummary } from "@/lib/order-production";
 
 const ACTIVITY_ICONS: Record<OrderActivityEvent["type"], string> = {
@@ -17,61 +18,70 @@ const ACTIVITY_ICONS: Record<OrderActivityEvent["type"], string> = {
   note: "note",
   status: "status",
   file_uploaded: "file",
+  file_deleted: "file",
   proof_sent: "send",
+  ink_updated: "ink",
+  review_sent: "send",
 };
 
 export function getActivityIconType(type: OrderActivityEvent["type"]): string {
   return ACTIVITY_ICONS[type] ?? "status";
 }
 
-export function buildOrderActivityFeed(
+function activityFingerprint(event: OrderActivityEvent): string {
+  return [
+    event.type,
+    event.title,
+    event.timestamp.slice(0, 16),
+    event.author ?? "",
+    (event.detail ?? "").slice(0, 80),
+  ].join("|");
+}
+
+/** Schedule blocks not yet logged on the order (legacy / pre-logging). */
+function syntheticScheduleEvents(
   order: Order,
   scheduleBlocks: ScheduleBlock[],
-  liveMessages: Message[]
+  persisted: OrderActivityEvent[]
 ): OrderActivityEvent[] {
-  const events: OrderActivityEvent[] = [...(order.activity ?? [])];
+  const scheduledTitles = new Set(
+    persisted
+      .filter((event) => event.type === "scheduled")
+      .map((event) => event.title.toLowerCase())
+  );
 
-  for (const block of scheduleBlocks.filter((b) => b.orderId === order.id)) {
-    events.push({
+  return scheduleBlocks
+    .filter((block) => block.orderId === order.id)
+    .filter((block) => {
+      const title = `${block.imprintLabel} scheduled`.toLowerCase();
+      return !scheduledTitles.has(title);
+    })
+    .map((block) => ({
       id: `sched-${block.id}`,
-      type: "scheduled",
+      type: "scheduled" as const,
       title: `${block.imprintLabel} scheduled`,
       detail: formatScheduleBlockSummary(block),
       timestamp: block.startAt,
       author: "Shop",
-    });
-  }
+    }));
+}
 
-  for (const message of liveMessages) {
-    events.push({
-      id: `msg-act-${message.id}`,
-      type: "message",
-      title:
-        message.role === "customer"
-          ? "Customer message"
-          : "Message sent to customer",
-      detail: message.content.slice(0, 120),
-      timestamp: message.timestamp,
-      author: message.author,
-    });
-  }
-
-  for (const note of order.internalNotes ?? []) {
-    events.push({
-      id: `note-act-${note.id}`,
-      type: "note",
-      title: "Internal note added",
-      detail: note.content.slice(0, 120),
-      timestamp: note.timestamp,
-      author: note.author,
-    });
-  }
+export function buildOrderActivityFeed(
+  order: Order,
+  scheduleBlocks: ScheduleBlock[] = []
+): OrderActivityEvent[] {
+  const persisted = [...(order.activity ?? [])];
+  const events = [
+    ...persisted,
+    ...syntheticScheduleEvents(order, scheduleBlocks, persisted),
+  ];
 
   const seen = new Set<string>();
   return events
-    .filter((e) => {
-      if (seen.has(e.id)) return false;
-      seen.add(e.id);
+    .filter((event) => {
+      const key = activityFingerprint(event);
+      if (seen.has(key)) return false;
+      seen.add(key);
       return true;
     })
     .sort(
@@ -82,6 +92,84 @@ export function buildOrderActivityFeed(
 
 export function formatActivityTimestamp(iso: string): string {
   return format(parseISO(iso), "MMM d · h:mm a");
+}
+
+export function formatActivityTime(iso: string): string {
+  return format(parseISO(iso), "h:mm a");
+}
+
+export function formatActivityDateGroup(iso: string): string {
+  const date = parseISO(iso);
+  if (isToday(date)) return "Today";
+  if (isYesterday(date)) return "Yesterday";
+  return format(date, "EEEE, MMM d");
+}
+
+export function groupActivityByDate(
+  events: OrderActivityEvent[]
+): { label: string; events: OrderActivityEvent[] }[] {
+  const groups = new Map<string, OrderActivityEvent[]>();
+
+  for (const event of events) {
+    const key = startOfDay(parseISO(event.timestamp)).toISOString();
+    const bucket = groups.get(key) ?? [];
+    bucket.push(event);
+    groups.set(key, bucket);
+  }
+
+  return [...groups.entries()]
+    .sort(([a], [b]) => parseISO(b).getTime() - parseISO(a).getTime())
+    .map(([, bucket]) => ({
+      label: formatActivityDateGroup(bucket[0]!.timestamp),
+      events: bucket,
+    }));
+}
+
+export type ActivityActorKind = "customer" | "shop" | "system";
+
+export function inferActivityActorKind(
+  order: Order,
+  event: OrderActivityEvent
+): ActivityActorKind {
+  const author = event.author?.trim();
+  if (!author || author === "Shop") return "shop";
+  if (author === "System") return "system";
+  if (author === order.customerName) return "customer";
+  if (event.title.toLowerCase().includes("customer")) return "customer";
+  if (event.type === "payment" && author !== "Shop") return "customer";
+  return "shop";
+}
+
+export function activityActorLabel(kind: ActivityActorKind): string {
+  if (kind === "customer") return "Customer";
+  if (kind === "system") return "System";
+  return "Team";
+}
+
+/** Who performed the action — employee name when known. */
+export function formatActivityActorName(
+  order: Order,
+  event: OrderActivityEvent
+): string {
+  const author = event.author?.trim();
+  const kind = inferActivityActorKind(order, event);
+
+  if (kind === "customer") {
+    return author || order.customerName || "Customer";
+  }
+  if (kind === "system") return "System";
+  if (author && author !== "Shop") return author;
+  return "Team";
+}
+
+export function shouldShowActivityActorName(
+  order: Order,
+  event: OrderActivityEvent
+): boolean {
+  const kind = inferActivityActorKind(order, event);
+  if (kind !== "shop") return true;
+  const author = event.author?.trim();
+  return Boolean(author && author !== "Shop");
 }
 
 export { ORDER_FILE_KIND_LABELS } from "@/lib/order-files";

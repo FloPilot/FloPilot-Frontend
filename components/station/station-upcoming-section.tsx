@@ -9,6 +9,11 @@ import { StationRunStatusBadge } from "@/components/station/station-run-status-b
 import { Button } from "@/components/ui/button";
 import type { Machine, ScheduleBlock, StationJobRun } from "@/types";
 import { groupUpcomingByDay } from "@/lib/station-runs";
+import {
+  dashboardCardClass,
+  dashboardControlClass,
+  dashboardElevatedShadow,
+} from "@/lib/dashboard-styles";
 import { cn } from "@/lib/utils";
 
 type ViewMode = "list" | "calendar";
@@ -36,62 +41,70 @@ export function StationUpcomingSection({
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-brand-ink">Upcoming</h2>
-          <p className="text-sm text-brand-muted mt-0.5">
+          <h2 className="text-[15px] font-semibold leading-snug text-[#303030]">
+            Upcoming
+          </h2>
+          <p className="mt-0.5 text-sm text-[#616161]">
             {upcoming.length === 0
               ? "Nothing queued on this machine."
               : `${upcoming.length} event${upcoming.length !== 1 ? "s" : ""} in queue`}
           </p>
         </div>
 
-        <div className="flex rounded-full border border-border/70 bg-white p-0.5">
-          <button
-            type="button"
-            onClick={() => setView("calendar")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-              view === "calendar"
-                ? "bg-brand-primary text-white"
-                : "text-brand-muted hover:text-brand-ink"
-            )}
-          >
-            <CalendarDays className="size-3.5" />
-            Calendar
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("list")}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-              view === "list"
-                ? "bg-brand-primary text-white"
-                : "text-brand-muted hover:text-brand-ink"
-            )}
-          >
-            <List className="size-3.5" />
-            List
-          </button>
+        <div
+          className={cn(
+            "flex gap-1.5 rounded-lg border border-[#e3e3e3] bg-white p-1",
+            dashboardElevatedShadow
+          )}
+        >
+          {(
+            [
+              { id: "calendar", label: "Calendar", icon: CalendarDays },
+              { id: "list", label: "List", icon: List },
+            ] as const
+          ).map((option) => {
+            const Icon = option.icon;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setView(option.id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors",
+                  view === option.id
+                    ? "bg-[#f4f7fd] text-[#2c6ecb]"
+                    : "text-[#616161] hover:text-[#303030]"
+                )}
+              >
+                <Icon className="size-3.5" />
+                {option.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {upcoming.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border/70 bg-white px-6 py-12 text-center">
-          <p className="text-sm text-brand-muted">
+        <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-6 py-12 text-center">
+          <p className="text-sm text-[#616161]">
             Schedule work from the{" "}
-            <span className="text-brand-primary">production calendar</span>.
+            <span className="font-medium text-[#2c6ecb]">
+              production calendar
+            </span>
+            .
           </p>
         </div>
       ) : view === "list" ? (
         <div className="space-y-6">
           {grouped.map((group) => (
             <div key={group.label}>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-brand-muted mb-3">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#616161]">
                 {group.label}
               </h3>
               <div className="space-y-3">
                 {group.items.map(({ block, run }) => (
                   <div key={block.id} className="relative">
-                    <div className="absolute top-3.5 right-3.5 z-10">
+                    <div className="absolute right-3.5 top-3.5 z-10">
                       <StationRunStatusBadge status={run.status} />
                     </div>
                     <StationJobCard
@@ -107,24 +120,23 @@ export function StationUpcomingSection({
           ))}
         </div>
       ) : (
-        <div className="rounded-2xl border border-border/60 bg-white shadow-sm overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 px-4 py-3 sm:px-5">
-            <p className="text-sm font-medium text-brand-ink">
-              {weekLabel}
-            </p>
+        <div className={dashboardCardClass}>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebebeb] px-4 py-3 sm:px-5">
+            <p className="text-sm font-medium text-[#303030]">{weekLabel}</p>
             <div className="flex items-center gap-1">
               <Button
-                variant="outline"
-                size="icon-sm"
-                className="rounded-full"
+                type="button"
+                className={cn(dashboardControlClass, "size-8 p-0")}
                 onClick={() => setWeekStart((d) => addDays(d, -7))}
+                aria-label="Previous week"
               >
                 <ChevronLeft className="size-4" />
               </Button>
               <Button
+                type="button"
                 variant="ghost"
                 size="sm"
-                className="text-brand-primary text-xs h-8"
+                className="h-8 text-xs text-[#2c6ecb]"
                 onClick={() =>
                   setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))
                 }
@@ -132,28 +144,28 @@ export function StationUpcomingSection({
                 This week
               </Button>
               <Button
-                variant="outline"
-                size="icon-sm"
-                className="rounded-full"
+                type="button"
+                className={cn(dashboardControlClass, "size-8 p-0")}
                 onClick={() => setWeekStart((d) => addDays(d, 7))}
+                aria-label="Next week"
               >
                 <ChevronRight className="size-4" />
               </Button>
             </div>
           </div>
           <div className="p-4 sm:p-5">
-            <p className="text-xs text-brand-muted mb-4">
+            <p className="mb-4 text-xs text-[#616161]">
               Drag to reschedule ·{" "}
-              <span className="text-red-700 font-medium">Red</span> indicates
+              <span className="font-medium text-red-700">Red</span> indicates
               overlap or hours conflict
             </p>
             <MachineTimelineCalendar
-            machine={machine}
-            weekStart={weekStart}
-            enableBlockActions
-            onEditBlock={onEditSchedule}
-            onViewOrderBlock={(block) => onOpenOrder(block.orderId, block)}
-          />
+              machine={machine}
+              weekStart={weekStart}
+              enableBlockActions
+              onEditBlock={onEditSchedule}
+              onViewOrderBlock={(block) => onOpenOrder(block.orderId, block)}
+            />
           </div>
         </div>
       )}

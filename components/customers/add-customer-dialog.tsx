@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { CustomerBrandingFields } from "@/components/customers/customer-branding-fields";
+import { normalizeAccentPickerValue } from "@/components/customers/customer-accent-picker";
+import type { CustomerAccentKey } from "@/lib/production-customer-colors";
 import {
   Dialog,
   DialogContent,
@@ -40,12 +43,18 @@ export function AddCustomerDialog({
   onCreate: (input: NewCustomerInput) => Customer | Promise<Customer>;
 }) {
   const [form, setForm] = useState<NewCustomerInput>(EMPTY_NEW_CUSTOMER);
+  const [logo, setLogo] = useState<string | null>(null);
+  const [accentColorKey, setAccentColorKey] = useState<CustomerAccentKey | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (open) {
       setForm(EMPTY_NEW_CUSTOMER);
+      setLogo(null);
+      setAccentColorKey(null);
       setError(null);
     }
   }, [open]);
@@ -68,7 +77,11 @@ export function AddCustomerDialog({
     setSubmitting(true);
     setError(null);
     try {
-      await onCreate(form);
+      await onCreate({
+        ...form,
+        ...(logo ? { logoUrl: logo } : {}),
+        ...(accentColorKey ? { accentColorKey } : {}),
+      });
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create customer");
@@ -92,6 +105,17 @@ export function AddCustomerDialog({
           </DialogHeader>
 
           <div className="overflow-y-auto flex-1 px-8 py-6 space-y-5">
+            <FormSection title="Brand identity" optional>
+              <CustomerBrandingFields
+                company={form.company}
+                logo={logo}
+                onLogoChange={setLogo}
+                accentColorKey={accentColorKey}
+                onAccentColorKeyChange={setAccentColorKey}
+                onError={setError}
+              />
+            </FormSection>
+
             <FormSection title="Account">
               <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
                 <Field

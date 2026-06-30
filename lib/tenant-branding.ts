@@ -12,7 +12,9 @@ export const PLATFORM_URL = "https://flopilot.io";
 export const PLATFORM_TAGLINE = "Print shop operations";
 
 export const DEFAULT_PRIMARY_COLOR = "#2762ff";
-export const DEFAULT_BRAND_SURFACE = "#dfe8f5";
+/** Neutral Shopify-style workspace background — not tinted by brand color. */
+export const STAFF_WORKSPACE_SURFACE = "#f6f6f7";
+export const DEFAULT_BRAND_SURFACE = STAFF_WORKSPACE_SURFACE;
 
 export const DEFAULT_TENANT_BRANDING: TenantBranding = {
   primaryColor: DEFAULT_PRIMARY_COLOR,
@@ -156,10 +158,17 @@ export const BRANDING_CSS_VAR_KEYS = [
 export function getBrandingCssVars(
   branding: TenantBranding
 ): Record<string, string> {
-  const primary = branding.primaryColor;
+  // The in-app workspace uses a single fixed theme color for a consistent,
+  // professional look (Shopify-style). A shop's selected brand color is
+  // intentionally NOT applied to the app chrome — it is reserved for
+  // customer-facing surfaces (estimates and proof emails), which read
+  // `branding.primaryColor` directly on the backend. The parameter is kept for
+  // API compatibility.
+  void branding;
+  const primary = DEFAULT_PRIMARY_COLOR;
   const hover = darkenHex(primary, 12);
   const accent = lightenHex(primary, 8);
-  const surface = brandSurfaceFromPrimary(primary);
+  const surface = STAFF_WORKSPACE_SURFACE;
 
   return {
     "--brand-primary": primary,

@@ -220,6 +220,48 @@ export function rescheduleBlockOnTimeline(
   };
 }
 
+/**
+ * Resize a block by dragging its bottom edge. Keeps the start fixed, snaps the
+ * new duration to the slot grid, and clamps the end to the machine's close time.
+ */
+export function resizeBlockOnTimeline(
+  block: ScheduleBlock,
+  newHeightPx: number,
+  machine: Machine
+): Omit<ScheduleBlock, "id"> | null {
+  const pxPerMin = TIMELINE_ROW_HEIGHT_PX / TIMELINE_SLOT_MINUTES;
+  const rawMin = newHeightPx / pxPerMin;
+  const snappedMin = Math.max(
+    TIMELINE_SLOT_MINUTES,
+    Math.round(rawMin / TIMELINE_SLOT_MINUTES) * TIMELINE_SLOT_MINUTES
+  );
+
+  const start = parseISO(block.startAt);
+  const day = startOfDay(start);
+  let end = new Date(start.getTime() + snappedMin * 60 * 1000);
+
+  const window = getDayOperatingWindow(machine, day);
+  if (window) {
+    const closeAt = set(day, {
+      hours: Math.floor(window.closeMin / 60),
+      minutes: window.closeMin % 60,
+      seconds: 0,
+      milliseconds: 0,
+    });
+    if (end > closeAt) end = closeAt;
+  }
+
+  if (end.getTime() - start.getTime() < TIMELINE_SLOT_MINUTES * 60 * 1000) {
+    return null;
+  }
+
+  const { id: _id, ...rest } = block;
+  return {
+    ...rest,
+    endAt: end.toISOString(),
+  };
+}
+
 export function getUnavailableRegionsPx(machine: Machine, day: Date) {
   const layout = getTimelineLayout(machine);
   const window = getDayOperatingWindow(machine, day);

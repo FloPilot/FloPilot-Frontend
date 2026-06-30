@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { format, parseISO } from "date-fns";
+import { CalendarCheck2, ChevronRight } from "lucide-react";
 import type { Machine, ScheduleBlock } from "@/types";
 import { useSchedule } from "@/components/providers/schedule-provider";
-import { Button } from "@/components/ui/button";
+import { OrderStatusBadge } from "@/components/status-badges";
 import {
   Dialog,
   DialogContent,
@@ -23,6 +25,17 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { schedulableJobKey } from "@/lib/job-imprints";
+import {
+  dashboardControlClass,
+  dashboardInsetSurfaceClass,
+  dashboardPrimaryButtonClass,
+  dashboardTaskDetailClass,
+  dashboardTaskTitleClass,
+} from "@/lib/dashboard-styles";
+import {
+  getCustomerAccent,
+  getCustomerInitials,
+} from "@/lib/production-customer-colors";
 import { decorationLabel } from "@/lib/format";
 import {
   clampBlockToMachineHours,
@@ -31,10 +44,11 @@ import {
 } from "@/lib/machine-hours";
 import { FlowStepList } from "@/components/calendar/order-production-flow";
 import { getSchedulableJobs } from "@/lib/production-schedule";
+import { findScheduleBlockForStep } from "@/lib/order-production";
+import { getOrdersBlockedFromSchedulingQueue } from "@/lib/event-basket";
 import {
   analyzeOrderProductionFlow,
   canScheduleFlowStep,
-  validateFlowScheduleTiming,
 } from "@/lib/production-flow";
 import { machineColorStyles } from "@/lib/machine-styles";
 import { formatDate } from "@/lib/format";
@@ -86,7 +100,13 @@ export function ScheduleJobDialog({
     updateScheduleBlock,
     removeScheduleBlock,
   } = useSchedule();
+  const router = useRouter();
   const orderScopeId = editingBlock?.orderId ?? filterOrderId;
+
+  const openOrder = (orderId: string) => {
+    onOpenChange(false);
+    router.push(`/app/orders/${orderId}`);
+  };
 
   const schedulableJobs = useMemo(
     () => getSchedulableJobs(orders, { includeOrderId: orderScopeId }),
@@ -97,6 +117,31 @@ export function ScheduleJobDialog({
     return schedulableJobs.filter((job) => job.orderId === orderScopeId);
   }, [schedulableJobs, orderScopeId]);
 
+  const editingJobKey = editingBlock
+    ? schedulableJobKey(
+        editingBlock.orderId,
+        editingBlock.jobId,
+        editingBlock.imprintId
+      )
+    : null;
+
+  // Only surface events that still need a calendar slot — anything already
+  // scheduled stays out of the picker (except the event being edited).
+  const schedulableJobOptions = useMemo(
+    () =>
+      filteredSchedulableJobs.filter((job) => {
+        const key = schedulableJobKey(job.orderId, job.jobId, job.imprintId);
+        if (editingJobKey && key === editingJobKey) return true;
+        return !findScheduleBlockForStep(
+          scheduleBlocks,
+          job.orderId,
+          job.jobId,
+          job.imprintId
+        );
+      }),
+    [filteredSchedulableJobs, scheduleBlocks, editingJobKey]
+  );
+
   const activeMachines = useMemo(
     () => machines.filter((machine) => machine.active),
     [machines]
@@ -104,12 +149,12 @@ export function ScheduleJobDialog({
   const firstActiveMachineId = activeMachines[0]?.id;
   const singleScopedJobKey = useMemo(() => {
     if (prefillJobKey) return prefillJobKey;
-    if (orderScopeId && filteredSchedulableJobs.length === 1) {
-      const job = filteredSchedulableJobs[0];
+    if (orderScopeId && schedulableJobOptions.length === 1) {
+      const job = schedulableJobOptions[0];
       return schedulableJobKey(job.orderId, job.jobId, job.imprintId);
     }
     return "";
-  }, [prefillJobKey, orderScopeId, filteredSchedulableJobs]);
+  }, [prefillJobKey, orderScopeId, schedulableJobOptions]);
 
   const [form, setForm] = useState<ScheduleForm>(defaultForm);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
@@ -152,7 +197,7 @@ export function ScheduleJobDialog({
     firstActiveMachineId,
   ]);
 
-  const selectedJob = filteredSchedulableJobs.find(
+  const selectedJob = schedulableJobOptions.find(
     (j) =>
       schedulableJobKey(j.orderId, j.jobId, j.imprintId) === form.jobKey
   );
@@ -262,18 +307,6 @@ export function ScheduleJobDialog({
         setScheduleError(sequenceCheck.reason);
         return;
       }
-
-      const timingCheck = validateFlowScheduleTiming(
-        selectedOrder,
-        selectedJob.jobId,
-        selectedJob.imprintId,
-        block.startAt,
-        scheduleBlocks
-      );
-      if (!timingCheck.ok) {
-        setScheduleError(timingCheck.reason);
-        return;
-      }
     }
 
     if (editingBlock) {
@@ -291,45 +324,166 @@ export function ScheduleJobDialog({
     }
   };
 
+  const accent = selectedJob
+    ? getCustomerAccent(selectedOrder?.customerId, selectedJob.orderId)
+    : null;
+  const labelClass =
+    "text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]";
+
+  // Nothing left to schedule (new event flow) — surface why instead of a blank picker.
+  const showEmptyState = !editingBlock && schedulableJobOptions.length === 0;
+  const blockedQueueOrders = useMemo(() => {
+    if (orderScopeId) return [];
+    const seen = new Set<string>();
+    return getOrdersBlockedFromSchedulingQueue(orders, scheduleBlocks).filter(
+      ({ order }) => {
+        if (seen.has(order.id)) return false;
+        seen.add(order.id);
+        return true;
+      }
+    );
+  }, [orders, scheduleBlocks, orderScopeId]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg rounded-2xl p-0 gap-0 overflow-hidden">
+      <DialogContent
+        className={cn(
+          "gap-0 overflow-hidden rounded-lg border-[#e3e3e3] p-0",
+          showEmptyState && blockedQueueOrders.length > 0
+            ? "sm:max-w-2xl"
+            : "sm:max-w-xl"
+        )}
+      >
         <form onSubmit={handleSubmit}>
-          <DialogHeader className="px-6 pt-6 pb-2 border-b border-border">
-            <DialogTitle className="text-sm font-bold tracking-widest uppercase text-brand-ink">
-              {editingBlock ? "Edit Schedule" : "Schedule Event"}
+          <DialogHeader className="border-b border-[#ebebeb] bg-[#fafafa] px-5 py-4">
+            <DialogTitle className={dashboardTaskTitleClass}>
+              {editingBlock ? "Edit schedule" : "Schedule on calendar"}
             </DialogTitle>
-            <DialogDescription className="text-brand-muted pb-4">
-              Assign a production event to a machine. Only active machines can be
-              scheduled.
+            <DialogDescription className={dashboardTaskDetailClass}>
+              Pick a machine and time for this production event. You can schedule
+              events in any order.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-5 px-6 py-6 max-h-[70vh] overflow-y-auto">
+          {showEmptyState ? (
+            <>
+              <div className="bg-white px-5 py-6">
+                <div className="flex flex-col items-center text-center">
+                  <div className="flex size-11 items-center justify-center rounded-full bg-[#e8f5ee] text-[#0d5c2e]">
+                    <CalendarCheck2 className="size-5" strokeWidth={1.75} />
+                  </div>
+                  <h3 className="mt-3.5 text-[15px] font-semibold text-[#303030]">
+                    {blockedQueueOrders.length > 0
+                      ? "Nothing ready to schedule"
+                      : "All caught up"}
+                  </h3>
+                  <p className="mt-1.5 max-w-sm text-[13px] leading-relaxed text-[#616161]">
+                    {blockedQueueOrders.length > 0
+                      ? "These orders are in the queue but waiting on approvals or materials. Open one to see what it needs."
+                      : "Every event that's ready is already on the calendar. New events show up here as orders are approved and move into production."}
+                  </p>
+                </div>
+
+                {blockedQueueOrders.length > 0 && (
+                  <div
+                    className={cn(
+                      dashboardInsetSurfaceClass,
+                      "mt-5 overflow-hidden text-left"
+                    )}
+                  >
+                    <div className="border-b border-[#ebebeb] bg-[#fafafa] px-4 py-2.5">
+                      <p className="text-[12px] font-semibold text-[#303030]">
+                        In the queue
+                        <span className="ml-1.5 font-normal text-[#616161]">
+                          · {blockedQueueOrders.length} waiting
+                        </span>
+                      </p>
+                    </div>
+                    <div className="max-h-[300px] overflow-y-auto">
+                      <table className="w-full text-left text-[13px]">
+                        <thead className="sticky top-0 z-10 border-b border-[#ebebeb] bg-[#fafafa] text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                          <tr>
+                            <th className="px-4 py-2 font-medium">Order</th>
+                            <th className="px-3 py-2 font-medium">Status</th>
+                            <th className="px-3 py-2 font-medium">Waiting on</th>
+                            <th className="w-8 px-3 py-2" />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#ebebeb]">
+                          {blockedQueueOrders.map(({ order, reason }) => (
+                            <tr
+                              key={order.id}
+                              role="link"
+                              tabIndex={0}
+                              aria-label={`Open order ${order.number}`}
+                              onClick={() => openOrder(order.id)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  openOrder(order.id);
+                                }
+                              }}
+                              className="group cursor-pointer transition-colors hover:bg-[#fafafa] focus-visible:bg-[#fafafa] focus-visible:outline-none"
+                            >
+                              <td className="px-4 py-2.5 align-top">
+                                <p className="font-semibold text-[#303030] group-hover:text-[#2c6ecb]">
+                                  {order.number}
+                                </p>
+                                <p className="mt-0.5 truncate text-[12px] text-[#616161]">
+                                  {order.company}
+                                </p>
+                              </td>
+                              <td className="px-3 py-2.5 align-top">
+                                <OrderStatusBadge
+                                  status={order.status}
+                                  className="text-[11px] font-medium"
+                                />
+                              </td>
+                              <td className="px-3 py-2.5 align-top text-[12px] leading-snug text-[#616161]">
+                                {reason}
+                              </td>
+                              <td className="px-3 py-2.5 align-middle text-right">
+                                <ChevronRight className="ml-auto size-4 text-[#c9cccf] transition-colors group-hover:text-[#616161]" />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end border-t border-[#ebebeb] bg-[#fafafa] px-5 py-4">
+                <button
+                  type="button"
+                  className={dashboardPrimaryButtonClass}
+                  onClick={() => onOpenChange(false)}
+                >
+                  Got it
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+          <div className="max-h-[70vh] space-y-4 overflow-y-auto bg-white px-5 py-5">
             {!flowGate.ok && (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+              <div className="rounded-lg border border-[#f0d9a8] bg-[#fff8eb] px-4 py-3 text-[13px] text-[#8a6116]">
                 {flowGate.reason}
               </div>
             )}
 
-            {selectedOrder && orderFlow.length > 1 && (
-              <div className="rounded-xl border border-border/70 bg-brand-surface/30 px-4 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-brand-muted mb-2">
-                  Production order
-                </p>
-                <FlowStepList steps={orderFlow} />
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label>Imprint location to schedule</Label>
+            <div className="space-y-1.5">
+              <Label className={labelClass}>Imprint location to schedule</Label>
               <Select
                 value={form.jobKey}
                 onValueChange={(v) =>
                   setForm((f) => ({ ...f, jobKey: v ?? "" }))
                 }
               >
-                <SelectTrigger className="h-11 w-full rounded-xl">
+                <SelectTrigger
+                  className={cn(dashboardControlClass, "h-10 w-full justify-between")}
+                >
                   {selectedJobLabel ? (
                     <span className="truncate">{selectedJobLabel}</span>
                   ) : (
@@ -337,7 +491,7 @@ export function ScheduleJobDialog({
                   )}
                 </SelectTrigger>
                 <SelectContent>
-                  {filteredSchedulableJobs.map((job) => (
+                  {schedulableJobOptions.map((job) => (
                       <SelectItem
                         key={schedulableJobKey(
                           job.orderId,
@@ -356,19 +510,41 @@ export function ScheduleJobDialog({
                     ))}
                 </SelectContent>
               </Select>
-              {selectedJob && selectedOrder && (
-                <div className="text-xs text-brand-muted space-y-1">
-                  <p>
-                    {selectedJob.jobName} · {selectedJob.customerName} ·{" "}
-                    {selectedJob.pieceCount.toLocaleString()} pcs
+            </div>
+
+            {selectedJob && selectedOrder && accent && (
+              <div
+                className={cn(
+                  dashboardInsetSurfaceClass,
+                  "flex items-start gap-3 bg-[#fafafa] px-4 py-3"
+                )}
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg border text-[12px] font-semibold tabular-nums",
+                    accent.bg,
+                    accent.border,
+                    accent.text
+                  )}
+                  title={selectedJob.customerName}
+                >
+                  {getCustomerInitials(selectedJob.customerName)}
+                </span>
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <p className="text-[13px] font-semibold text-[#303030]">
+                    {selectedJob.orderNumber}
+                    <span className="ml-1.5 font-normal text-[#616161]">
+                      {selectedJob.customerName}
+                    </span>
                   </p>
-                  <p>
-                    Client ETA {formatDate(selectedOrder.inHandsDate)}
-                    {selectedOrder.rush ? " · Rush" : " · Standard"}
-                    {" · "}Submitted {formatDate(selectedOrder.createdAt)}
+                  <p className="text-[12px] text-[#616161]">
+                    {selectedJob.jobName} ·{" "}
+                    {selectedJob.pieceCount.toLocaleString()} pcs · Client ETA{" "}
+                    {formatDate(selectedOrder.inHandsDate)}
+                    {selectedOrder.rush ? " · Rush" : ""}
                   </p>
                   {selectedFlowStep && selectedFlowStep.flowTotal > 1 && (
-                    <p className="text-brand-primary font-medium">
+                    <p className="text-[12px] font-medium text-[#2c6ecb]">
                       {formatEventXOfY(
                         selectedFlowStep.flowIndex,
                         selectedFlowStep.flowTotal
@@ -377,18 +553,31 @@ export function ScheduleJobDialog({
                     </p>
                   )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
-            <div className="space-y-2">
-              <Label>Machine</Label>
+            {selectedOrder && orderFlow.length > 1 && (
+              <div className={cn(dashboardInsetSurfaceClass, "overflow-hidden")}>
+                <div className="border-b border-[#ebebeb] bg-[#fafafa] px-4 py-2.5">
+                  <p className={labelClass}>Production order</p>
+                </div>
+                <div className="px-4 py-3">
+                  <FlowStepList steps={orderFlow} />
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Label className={labelClass}>Machine</Label>
               <Select
                 value={form.machineId}
                 onValueChange={(v) =>
                   setForm((f) => ({ ...f, machineId: v ?? "" }))
                 }
               >
-                <SelectTrigger className="h-11 w-full rounded-xl">
+                <SelectTrigger
+                  className={cn(dashboardControlClass, "h-10 w-full justify-between")}
+                >
                   {selectedMachine ? (
                     <span className="flex min-w-0 items-center gap-2 truncate">
                       <span
@@ -420,20 +609,22 @@ export function ScheduleJobDialog({
                 </SelectContent>
               </Select>
               {activeMachines.length === 0 && (
-                <p className="text-xs text-destructive">
+                <p className="text-[12px] text-[#8f1f1f]">
                   No active machines. Add or activate a machine first.
                 </p>
               )}
               {selectedMachine && (
-                <p className="text-xs text-brand-muted">
+                <p className="text-[12px] text-[#616161]">
                   Operating hours: {formatOperatingHoursSummary(selectedMachine)}
                 </p>
               )}
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="space-y-2 sm:col-span-1">
-                <Label htmlFor="sched-date">Date</Label>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="sched-date" className={labelClass}>
+                  Date
+                </Label>
                 <Input
                   id="sched-date"
                   type="date"
@@ -441,11 +632,13 @@ export function ScheduleJobDialog({
                   onChange={(e) =>
                     setForm((f) => ({ ...f, date: e.target.value }))
                   }
-                  className="h-11 rounded-xl"
+                  className="h-10 rounded-lg border-[#e3e3e3] text-[13px]"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="sched-start">Start</Label>
+              <div className="space-y-1.5">
+                <Label htmlFor="sched-start" className={labelClass}>
+                  Start
+                </Label>
                 <Input
                   id="sched-start"
                   type="time"
@@ -453,32 +646,32 @@ export function ScheduleJobDialog({
                   onChange={(e) =>
                     setForm((f) => ({ ...f, startTime: e.target.value }))
                   }
-                  className="h-11 rounded-xl"
+                  className="h-10 rounded-lg border-[#e3e3e3] text-[13px]"
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="sched-duration">Duration (hrs)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="sched-duration"
-                    type="number"
-                    min={1}
-                    max={24}
-                    value={form.durationHours}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        durationHours: Number(e.target.value) || 1,
-                      }))
-                    }
-                    className="h-11 rounded-xl"
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="sched-duration" className={labelClass}>
+                  Duration (hrs)
+                </Label>
+                <Input
+                  id="sched-duration"
+                  type="number"
+                  min={1}
+                  max={24}
+                  value={form.durationHours}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      durationHours: Number(e.target.value) || 1,
+                    }))
+                  }
+                  className="h-10 rounded-lg border-[#e3e3e3] text-[13px] tabular-nums"
+                />
                 {selectedMachine?.capacityPerHour ? (
                   <button
                     type="button"
                     onClick={suggestDuration}
-                    className="text-xs text-brand-primary hover:underline"
+                    className="text-[12px] font-medium text-[#2c6ecb] hover:underline"
                   >
                     Suggest from capacity ({selectedMachine.capacityPerHour}/hr)
                   </button>
@@ -486,8 +679,10 @@ export function ScheduleJobDialog({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="sched-notes">Notes (optional)</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="sched-notes" className={labelClass}>
+                Notes (optional)
+              </Label>
               <Textarea
                 id="sched-notes"
                 value={form.notes}
@@ -495,47 +690,52 @@ export function ScheduleJobDialog({
                   setForm((f) => ({ ...f, notes: e.target.value }))
                 }
                 rows={2}
-                className="rounded-xl resize-none"
+                className="resize-none rounded-lg border-[#e3e3e3] text-[13px]"
                 placeholder="Shift notes, colors, setup..."
               />
             </div>
 
             {scheduleError && (
-              <p className="text-sm text-destructive px-6 -mt-2">{scheduleError}</p>
+              <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[13px] text-[#8f1f1f]">
+                {scheduleError}
+              </p>
             )}
           </div>
 
-          <div className="flex flex-row items-center justify-between gap-3 border-t border-border bg-muted/30 px-6 py-5">
+          <div className="flex flex-row items-center justify-between gap-3 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-4">
             {editingBlock ? (
-              <Button
+              <button
                 type="button"
-                variant="destructive"
-                className="rounded-full h-11"
+                className="inline-flex h-9 items-center rounded-lg border border-[#f5b5b5] bg-white px-4 text-[13px] font-medium text-[#8f1f1f] transition-colors hover:bg-[#fff1f1]"
                 onClick={handleDelete}
               >
                 Remove
-              </Button>
+              </button>
             ) : (
               <span />
             )}
-            <div className="flex items-center gap-3 ml-auto">
-              <Button
+            <div className="ml-auto flex items-center gap-2">
+              <button
                 type="button"
-                variant="outline"
-                className="rounded-full px-6 h-11 bg-white"
+                className={dashboardControlClass}
                 onClick={() => onOpenChange(false)}
               >
                 Cancel
-              </Button>
-              <Button
+              </button>
+              <button
                 type="submit"
                 disabled={!form.jobKey || !form.machineId || !flowGate.ok}
-                className="rounded-full px-8 h-11 font-semibold"
+                className={cn(
+                  dashboardPrimaryButtonClass,
+                  "disabled:cursor-not-allowed disabled:opacity-50"
+                )}
               >
                 {editingBlock ? "Update" : "Schedule"}
-              </Button>
+              </button>
             </div>
           </div>
+            </>
+          )}
         </form>
       </DialogContent>
     </Dialog>

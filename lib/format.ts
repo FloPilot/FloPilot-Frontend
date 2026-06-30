@@ -7,6 +7,22 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+export function formatCompactCurrency(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(amount);
+}
+
+export function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
 export function formatDate(date: string): string {
   return format(parseISO(date), "MMM d, yyyy");
 }

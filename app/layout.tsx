@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { Geist } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import { BrandingBootstrapScript } from "@/components/branding/branding-bootstrap-script";
 import { AppProviders } from "@/components/providers/app-providers";
 import { isStaffBrandedRoute } from "@/lib/branding-scope";
-import { BRANDING_STYLE_ID } from "@/lib/tenant-branding";
+import { BRANDING_STYLE_ID, STAFF_WORKSPACE_SURFACE } from "@/lib/tenant-branding";
 import { getServerBrandingStyleContent } from "@/lib/tenant-branding-server";
 import "./globals.css";
 
@@ -60,10 +62,23 @@ export default async function RootLayout({
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: brandingCss ?? "" }}
         />
+        {isStaffBrandedRoute(pathname) && (
+          <style
+            suppressHydrationWarning
+            dangerouslySetInnerHTML={{
+              __html: `:root{--background:${STAFF_WORKSPACE_SURFACE};--brand-surface:${STAFF_WORKSPACE_SURFACE};}html,body{background-color:${STAFF_WORKSPACE_SURFACE};}`,
+            }}
+          />
+        )}
       </head>
-      <body className="min-h-full h-full flex flex-col antialiased">
+      <body
+        className="min-h-full h-full flex flex-col antialiased bg-background"
+        suppressHydrationWarning
+      >
         <BrandingBootstrapScript />
         <AppProviders>{children}</AppProviders>
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

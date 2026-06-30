@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -34,6 +34,7 @@ import {
   getUnavailableRegionsPx,
   isMachineOpenOnDay,
   rescheduleBlockOnTimeline,
+  resizeBlockOnTimeline,
   snapTopPx,
   TIMELINE_ROW_HEIGHT_PX,
   TIMELINE_SLOT_MINUTES,
@@ -120,6 +121,7 @@ function TimelineDraggableBlock({
   onViewOrder,
   onMoveToMachine,
   onRemove,
+  onResize,
 }: {
   block: ScheduleBlock;
   machine: Machine;
@@ -134,6 +136,7 @@ function TimelineDraggableBlock({
   onViewOrder?: () => void;
   onMoveToMachine?: (machineId: string) => boolean;
   onRemove?: () => void;
+  onResize?: (newHeightPx: number) => void;
 }) {
   const styles = machineColorStyles[machine.color];
   const hasConflict = blockHasSchedulingConflict(hasOverlap, outsideHours);
@@ -148,13 +151,48 @@ function TimelineDraggableBlock({
     },
   });
 
+  const [resizeHeightPx, setResizeHeightPx] = useState<number | null>(null);
+  const resizingRef = useRef(false);
+
   const blockHeight = Math.max(heightPx, TIMELINE_ROW_HEIGHT_PX * 2);
+  const displayHeight =
+    resizeHeightPx != null
+      ? Math.max(TIMELINE_ROW_HEIGHT_PX, resizeHeightPx)
+      : blockHeight;
   const horizontal = getTimelineBlockHorizontalStyle(lane);
   const blockPosition: CSSProperties = {
     top: topPx,
-    height: blockHeight,
+    height: displayHeight,
     left: horizontal.left,
     width: horizontal.width,
+  };
+
+  const handleResizeStart = (e: React.PointerEvent) => {
+    if (!onResize) return;
+    e.preventDefault();
+    e.stopPropagation();
+    resizingRef.current = true;
+    const startY = e.clientY;
+    const base = heightPx;
+    setResizeHeightPx(Math.max(TIMELINE_ROW_HEIGHT_PX, base));
+
+    const onMove = (ev: PointerEvent) => {
+      const dy = ev.clientY - startY;
+      setResizeHeightPx(Math.max(TIMELINE_ROW_HEIGHT_PX, base + dy));
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      const dy = ev.clientY - startY;
+      const finalHeight = Math.max(TIMELINE_ROW_HEIGHT_PX, base + dy);
+      setResizeHeightPx(null);
+      onResize(finalHeight);
+      window.setTimeout(() => {
+        resizingRef.current = false;
+      }, 0);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   };
 
   const blockButton = (
@@ -164,7 +202,7 @@ function TimelineDraggableBlock({
       {...listeners}
       {...attributes}
       onClick={(e) => {
-        if (isDragging) {
+        if (isDragging || resizingRef.current) {
           e.preventDefault();
           return;
         }
@@ -174,7 +212,7 @@ function TimelineDraggableBlock({
       className={cn(
         "group/block touch-none overflow-hidden rounded-md border px-1.5 py-1 text-left min-w-0 box-border",
         !enableBlockActions && "absolute z-10",
-        enableBlockActions && "h-full w-full",
+        enableBlockActions && "relative h-full w-full",
         hasConflict
           ? overlapBlockStyles
           : muted
@@ -197,6 +235,17 @@ function TimelineDraggableBlock({
         hasOverlap={hasOverlap}
         outsideHours={outsideHours}
       />
+      {onResize && (
+        <span
+          onPointerDown={handleResizeStart}
+          onClick={(e) => e.stopPropagation()}
+          className="absolute inset-x-0 bottom-0 z-20 flex h-2.5 cursor-ns-resize touch-none items-end justify-center opacity-0 transition-opacity group-hover/block:opacity-100"
+          title="Drag to change duration"
+          aria-hidden
+        >
+          <span className="mb-[3px] h-1 w-7 rounded-full bg-black/25" />
+        </span>
+      )}
     </button>
   );
 
@@ -268,6 +317,7 @@ function TimelineDayColumn({
   onViewOrderBlock,
   onMoveBlockToMachine,
   onRemoveBlock,
+  onResizeBlock,
 }: {
   day: Date;
   machine: Machine;
@@ -287,6 +337,7 @@ function TimelineDayColumn({
     machineId: string
   ) => boolean;
   onRemoveBlock?: (block: ScheduleBlock) => void;
+  onResizeBlock?: (block: ScheduleBlock, newHeightPx: number) => void;
 }) {
   const { totalHeightPx, slotsPerHour, displayStartHour, displayEndHour } =
     getTimelineLayout(machine);
@@ -394,6 +445,11 @@ function TimelineDayColumn({
               onMoveBlockToMachine?.(block, machineId) ?? false
             }
             onRemove={() => onRemoveBlock?.(block)}
+            onResize={
+              enableBlockActions && onResizeBlock
+                ? (newHeightPx) => onResizeBlock(block, newHeightPx)
+                : undefined
+            }
           />
         );
       })}
@@ -569,6 +625,11 @@ export function MachineTimelineCalendar({
     return true;
   };
 
+  const handleResizeBlock = (block: ScheduleBlock, newHeightPx: number) => {
+    const updated = resizeBlockOnTimeline(block, newHeightPx, machine);
+    if (updated) updateScheduleBlock(block.id, updated);
+  };
+
   const handleRemoveBlock = (block: ScheduleBlock) => {
     if (
       confirm(
@@ -682,6 +743,7 @@ export function MachineTimelineCalendar({
                 onViewOrderBlock={onViewOrderBlock}
                 onMoveBlockToMachine={handleMoveBlockToMachine}
                 onRemoveBlock={handleRemoveBlock}
+                onResizeBlock={handleResizeBlock}
               />
             );
             })}

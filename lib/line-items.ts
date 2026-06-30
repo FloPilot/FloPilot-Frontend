@@ -81,10 +81,50 @@ export function buildLineItemFromCatalog(
   };
 }
 
+export function lineItemsMatch(a: LineItem, b: LineItem): boolean {
+  if (a.productKey && b.productKey && a.colorKey && b.colorKey) {
+    return a.productKey === b.productKey && a.colorKey === b.colorKey;
+  }
+
+  return a.productName === b.productName && a.color === b.color;
+}
+
+export function serializeLineItemForApi(lineItem: LineItem): LineItem {
+  return {
+    id: lineItem.id,
+    productName: lineItem.productName,
+    brand: lineItem.brand,
+    color: lineItem.color,
+    productKey: lineItem.productKey,
+    colorKey: lineItem.colorKey,
+    unitCost: lineItem.unitCost,
+    sizes: lineItem.sizes.filter((row) => row.quantity > 0),
+  };
+}
+
+export function verifyLineItemWasApplied(
+  previous: LineItem[],
+  next: LineItem[],
+  payload: LineItem
+): boolean {
+  const match = next.find((item) => lineItemsMatch(item, payload));
+  if (!match || match.sizes.length === 0) return false;
+
+  const previousMatch = previous.find((item) => lineItemsMatch(item, payload));
+  const previousRecord = sizesToRecord(previousMatch?.sizes ?? []);
+  const nextRecord = sizesToRecord(match.sizes);
+
+  return payload.sizes.every((row) => {
+    const size = row.size as (typeof NEW_ORDER_SIZES)[number];
+    const expected = (previousRecord[size] || 0) + row.quantity;
+    return nextRecord[size] === expected;
+  });
+}
+
 export function createDefaultLineItem(): LineItem {
   return buildLineItemFromCatalog("g64000", "heather", {
     S: 0,
-    M: 0,
+    M: 12,
     L: 0,
     XL: 0,
   });

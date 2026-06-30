@@ -16,6 +16,7 @@ import {
   type OrderFilterField,
 } from "@/lib/order-advanced-filters";
 import type { Customer, Order, OrderStatus } from "@/types";
+import { dashboardPrimaryButtonClass } from "@/lib/dashboard-styles";
 import { cn } from "@/lib/utils";
 
 type PanelStep = "pick" | OrderFilterField;
@@ -538,7 +539,7 @@ function ApplyButton({
     <Button
       type="button"
       size="sm"
-      className="w-full rounded-lg h-8 text-xs"
+      className={cn(dashboardPrimaryButtonClass, "h-8 w-full text-xs")}
       disabled={disabled}
       onClick={onClick}
     >

@@ -1,29 +1,32 @@
 import { formatCurrency, formatDate } from "@/lib/format";
-import type { OrderListScope } from "@/lib/order-list-filters";
+import { getOrderDecorationSummary } from "@/lib/order-decoration-summary";
+import type { OrderJobTypeFilter, OrderListScope } from "@/lib/order-list-filters";
 import {
-  documentTypeLabel,
   orderStatusLabel,
   reportTimestamp,
 } from "@/lib/reports/format";
 import type { ReportResult } from "@/lib/reports/types";
-import type { DocumentType, Order } from "@/types";
+import type { Order } from "@/types";
+import type { resolveOrderFinancials } from "@/lib/order-estimate";
 
 export function buildOrdersListExport(
   orders: Order[],
   {
     scope,
-    documentType,
+    jobType,
     hasAdvancedFilters,
+    orderFinancials,
   }: {
     scope: OrderListScope;
-    documentType: DocumentType | "all";
+    jobType: OrderJobTypeFilter;
     hasAdvancedFilters: boolean;
+    orderFinancials?: Map<string, ReturnType<typeof resolveOrderFinancials>>;
   }
 ): ReportResult {
   const filenameParts = [
     "orders",
     scope,
-    documentType === "all" ? null : documentType,
+    jobType === "all" ? null : jobType,
     hasAdvancedFilters ? "filtered" : null,
     reportTimestamp(),
   ].filter(Boolean);
@@ -36,7 +39,7 @@ export function buildOrdersListExport(
       { key: "orderNumber", label: "Order #" },
       { key: "company", label: "Company" },
       { key: "contact", label: "Contact" },
-      { key: "type", label: "Type" },
+      { key: "jobTypes", label: "Job types" },
       { key: "status", label: "Status" },
       { key: "inHandsDate", label: "In-hands date" },
       { key: "createdAt", label: "Created" },
@@ -45,19 +48,25 @@ export function buildOrdersListExport(
       { key: "balance", label: "Balance", align: "right" },
       { key: "rush", label: "Rush" },
     ],
-    rows: orders.map((order) => ({
+    rows: orders.map((order) => {
+      const financials = orderFinancials?.get(order.id);
+      return {
       orderNumber: order.number,
       company: order.company,
       contact: order.customerName,
-      type: documentTypeLabel(order.type),
+      jobTypes: getOrderDecorationSummary(order).label,
       status: orderStatusLabel(order.status),
       inHandsDate: formatDate(order.inHandsDate),
       createdAt: formatDate(order.createdAt),
-      total: formatCurrency(order.total),
+      total: formatCurrency(financials?.total ?? order.total),
       paid: formatCurrency(order.paid),
-      balance: order.balance > 0 ? formatCurrency(order.balance) : "—",
+      balance:
+        (financials?.balance ?? order.balance) > 0
+          ? formatCurrency(financials?.balance ?? order.balance)
+          : "—",
       rush: order.rush ? "Yes" : "No",
-    })),
+    };
+    }),
     filename: `${filenameParts.join("-")}.csv`,
   };
 }

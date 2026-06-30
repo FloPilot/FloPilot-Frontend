@@ -3,6 +3,7 @@
 import { Loader2, Zap } from "lucide-react";
 import { useState } from "react";
 import { RushBadge } from "@/components/status-badges";
+import { dashboardControlClass } from "@/lib/dashboard-styles";
 import { cn } from "@/lib/utils";
 
 export function OrderPriorityToggle({
@@ -38,18 +39,12 @@ export function OrderPriorityToggle({
 
   return (
     <div className={cn(!compact && "space-y-1.5")}>
-      <div
-        className={cn(
-          "flex items-center gap-2",
-          fullWidth && "w-full"
-        )}
-      >
+      <div className={cn("flex items-center gap-2", fullWidth && "w-full")}>
         <div
           className={cn(
-            "border border-border/70 bg-muted/30 p-0.5",
-            fullWidth
-              ? "grid w-full grid-cols-2 gap-0.5 rounded-xl"
-              : "inline-flex rounded-full",
+            dashboardControlClass,
+            "grid gap-0.5 bg-[#fafafa] p-0.5",
+            fullWidth ? "w-full grid-cols-2" : "inline-grid grid-cols-2",
             (disabled || pending) && "opacity-60"
           )}
         >
@@ -58,13 +53,10 @@ export function OrderPriorityToggle({
             disabled={disabled || pending}
             onClick={() => void setPriority(false)}
             className={cn(
-              "text-xs font-medium transition-colors",
-              fullWidth
-                ? "flex h-8 items-center justify-center rounded-[10px] px-2"
-                : "rounded-full px-3 py-1",
+              "flex h-8 items-center justify-center rounded-md px-2 text-[12px] font-medium transition-colors",
               !rush
-                ? "bg-white text-brand-ink shadow-sm"
-                : "text-brand-muted hover:text-brand-ink"
+                ? "bg-white text-[#303030] shadow-sm"
+                : "text-[#8a8a8a] hover:text-[#303030]"
             )}
           >
             Standard
@@ -74,13 +66,10 @@ export function OrderPriorityToggle({
             disabled={disabled || pending}
             onClick={() => void setPriority(true)}
             className={cn(
-              "text-xs font-medium transition-colors",
-              fullWidth
-                ? "flex h-8 items-center justify-center gap-1 rounded-[10px] px-2"
-                : "inline-flex items-center gap-1 rounded-full px-3 py-1",
+              "flex h-8 items-center justify-center gap-1 rounded-md px-2 text-[12px] font-medium transition-colors",
               rush
-                ? "bg-orange-500 text-white shadow-sm"
-                : "text-brand-muted hover:text-brand-ink"
+                ? "bg-[#e67700] text-white shadow-sm"
+                : "text-[#8a8a8a] hover:text-[#303030]"
             )}
           >
             <Zap className="size-3 shrink-0" />
@@ -88,13 +77,13 @@ export function OrderPriorityToggle({
           </button>
         </div>
         {pending && !fullWidth && (
-          <Loader2 className="size-3.5 animate-spin text-brand-muted" />
+          <Loader2 className="size-3.5 animate-spin text-[#8a8a8a]" />
         )}
       </div>
       {!compact && (
-        <p className="text-xs text-brand-muted">
+        <p className="text-[12px] text-[#8a8a8a]">
           {rush
-            ? "Rush orders sort to the top of scheduling queues and show urgent styling."
+            ? "Rush orders sort to the top of scheduling queues."
             : "Standard priority — use Rush for tight in-hands dates."}
         </p>
       )}

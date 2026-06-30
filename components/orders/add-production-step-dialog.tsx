@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { decorationLabel } from "@/lib/format";
+import { dashboardPrimaryButtonClass } from "@/lib/dashboard-styles";
 import {
   IMPRINT_LOCATION_LABELS,
   imprintLocationLabel,
@@ -242,7 +243,7 @@ export function AddProductionStepDialog({
               <Button
                 type="submit"
                 disabled={!customName.trim()}
-                className="w-full rounded-full h-11"
+                className={cn(dashboardPrimaryButtonClass, "h-11 w-full rounded-full")}
               >
                 Add {eventLabel.toLowerCase()}
               </Button>

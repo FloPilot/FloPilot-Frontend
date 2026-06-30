@@ -1,9 +1,11 @@
 import type { ArtworkFile, DecorationType, Order } from "@/types";
 import { buildOrderFileList } from "@/lib/order-files";
+import { isArchivedOrder } from "@/lib/order-archive";
 
 export type ArtworkQueueEntry = {
   orderId: string;
   orderNumber: string;
+  customerId: string;
   customerName: string;
   company: string;
   inHandsDate: string;
@@ -13,9 +15,12 @@ export type ArtworkQueueEntry = {
   imprintLabel: string;
   decoration: DecorationType;
   artwork: ArtworkFile;
+  archived: boolean;
 };
 
 export type ArtworkQueueFilter = "all" | "pending" | "revision_requested" | "approved";
+
+export type ArtworkQueueScope = "active" | "archived" | "all";
 
 export const ARTWORK_QUEUE_FILTERS: {
   value: ArtworkQueueFilter;
@@ -36,6 +41,7 @@ export function collectArtworkQueue(orders: Order[]): ArtworkQueueEntry[] {
   const entries: ArtworkQueueEntry[] = [];
 
   for (const order of orders) {
+    const archived = isArchivedOrder(order);
     for (const job of order.jobs) {
       for (const imprint of job.imprints) {
         if (!isTrackableArtwork(order, job.kind, imprint.artwork.name)) continue;
@@ -43,6 +49,7 @@ export function collectArtworkQueue(orders: Order[]): ArtworkQueueEntry[] {
         entries.push({
           orderId: order.id,
           orderNumber: order.number,
+          customerId: order.customerId,
           customerName: order.customerName,
           company: order.company,
           inHandsDate: order.inHandsDate,
@@ -52,12 +59,14 @@ export function collectArtworkQueue(orders: Order[]): ArtworkQueueEntry[] {
           imprintLabel: imprint.label,
           decoration: imprint.decoration,
           artwork: imprint.artwork,
+          archived,
         });
       }
     }
   }
 
   return entries.sort((a, b) => {
+    if (a.archived !== b.archived) return a.archived ? 1 : -1;
     const statusRank = (status: ArtworkFile["status"]) => {
       if (status === "revision_requested") return 0;
       if (status === "pending") return 1;
@@ -68,6 +77,25 @@ export function collectArtworkQueue(orders: Order[]): ArtworkQueueEntry[] {
     if (rankDiff !== 0) return rankDiff;
     return a.orderNumber.localeCompare(b.orderNumber);
   });
+}
+
+export function filterArtworkQueueByScope(
+  entries: ArtworkQueueEntry[],
+  scope: ArtworkQueueScope
+): ArtworkQueueEntry[] {
+  if (scope === "all") return entries;
+  if (scope === "archived") return entries.filter((entry) => entry.archived);
+  return entries.filter((entry) => !entry.archived);
+}
+
+export function countArtworkScopes(entries: ArtworkQueueEntry[]) {
+  let active = 0;
+  let archived = 0;
+  for (const entry of entries) {
+    if (entry.archived) archived += 1;
+    else active += 1;
+  }
+  return { active, archived, all: entries.length };
 }
 
 export function filterArtworkQueue(

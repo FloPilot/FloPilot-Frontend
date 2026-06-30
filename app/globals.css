@@ -8,7 +8,7 @@
   /* Plus One Mailers brand palette (shared design language) */
   --brand-primary: #2762ff;
   --brand-primary-hover: #1e4fd6;
-  --brand-surface: #dfe8f5;
+  --brand-surface: #f6f6f7;
   --brand-ink: #121a2e;
   --brand-muted: #5a6478;
   --brand-blue: #4d7fff;
@@ -32,16 +32,16 @@
   --border: color-mix(in srgb, var(--brand-primary) 14%, transparent);
   --input: color-mix(in srgb, var(--brand-primary) 18%, transparent);
   --ring: color-mix(in srgb, var(--brand-primary) 35%, transparent);
-  --radius: 0.75rem;
+  --radius: 0.5rem;
 
-  --sidebar: #ffffff;
-  --sidebar-foreground: var(--brand-ink);
-  --sidebar-primary: var(--brand-primary);
+  --sidebar: #ebebeb;
+  --sidebar-foreground: #303030;
+  --sidebar-primary: #2762ff;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: color-mix(in srgb, var(--brand-primary) 8%, transparent);
-  --sidebar-accent-foreground: var(--brand-ink);
-  --sidebar-border: color-mix(in srgb, var(--brand-primary) 12%, transparent);
-  --sidebar-ring: color-mix(in srgb, var(--brand-primary) 35%, transparent);
+  --sidebar-accent: #ffffff;
+  --sidebar-accent-foreground: #303030;
+  --sidebar-border: #e3e3e3;
+  --sidebar-ring: rgba(48, 48, 48, 0.12);
   --selection-bg: color-mix(in srgb, var(--brand-primary) 22%, transparent);
 
   --chart-1: var(--brand-primary);

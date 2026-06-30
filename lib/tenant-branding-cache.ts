@@ -3,6 +3,7 @@ import {
   BRANDING_CSS_VAR_KEYS,
   BRANDING_STYLE_ID,
   getBrandingCssVars,
+  STAFF_WORKSPACE_SURFACE,
   type TenantBranding,
 } from "@/lib/tenant-branding";
 
@@ -78,4 +79,4 @@ export function restoreTenantBrandingFromCache(): boolean {
 const LEGACY_INLINE_KEYS = BRANDING_CSS_VAR_KEYS.map((k) => `"${k}"`).join(",");
 
 /** Client fallback on /app and /station only — runs before React hydrates. */
-export const TENANT_BRANDING_BOOTSTRAP = `(function(){try{var p=location.pathname;if(p.indexOf("/app")!==0&&p.indexOf("/station")!==0)return;var root=document.documentElement;var legacy=[${LEGACY_INLINE_KEYS}];for(var i=0;i<legacy.length;i++)root.style.removeProperty(legacy[i]);var raw=localStorage.getItem("${STORAGE_KEY}");if(!raw)return;var data=JSON.parse(raw);if(!data||!data.vars)return;var css=":root{";for(var k in data.vars){if(Object.prototype.hasOwnProperty.call(data.vars,k))css+=k+":"+data.vars[k]+";"}css+="}";var el=document.getElementById("${BRANDING_STYLE_ID}");if(!el){el=document.createElement("style");el.id="${BRANDING_STYLE_ID}";document.head.appendChild(el);}el.textContent=css;var cookieVal=encodeURIComponent(JSON.stringify(data.vars));document.cookie="${BRANDING_COOKIE_NAME}="+cookieVal+";path=/;max-age=${COOKIE_MAX_AGE};SameSite=Lax";}catch(e){}})();`;
+export const TENANT_BRANDING_BOOTSTRAP = `(function(){try{var p=location.pathname;if(p.indexOf("/app")!==0&&p.indexOf("/station")!==0)return;var ws="${STAFF_WORKSPACE_SURFACE}";var legacy=[${LEGACY_INLINE_KEYS}];for(var i=0;i<legacy.length;i++)document.documentElement.style.removeProperty(legacy[i]);var raw=localStorage.getItem("${STORAGE_KEY}");var vars=null;if(raw){var data=JSON.parse(raw);if(data&&data.vars)vars=data.vars;}if(!vars)vars={};vars["--background"]=ws;vars["--brand-surface"]=ws;vars["--chart-5"]=ws;vars["--gradient-soft"]="linear-gradient(180deg, "+ws+" 0%, #ffffff 100%)";var css=":root{";for(var k in vars){if(Object.prototype.hasOwnProperty.call(vars,k))css+=k+":"+vars[k]+";"}css+="}html,body{background-color:"+ws+";}";var el=document.getElementById("${BRANDING_STYLE_ID}");if(!el){el=document.createElement("style");el.id="${BRANDING_STYLE_ID}";document.head.appendChild(el);}el.textContent=css;if(raw){var cookieVal=encodeURIComponent(JSON.stringify(vars));document.cookie="${BRANDING_COOKIE_NAME}="+cookieVal+";path=/;max-age=${COOKIE_MAX_AGE};SameSite=Lax";}}catch(e){}})();`;

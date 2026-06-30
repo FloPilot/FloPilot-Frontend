@@ -25,11 +25,11 @@ export const SUPPORT_TICKET_PRIORITIES = [
 ] as const;
 
 export const SUPPORT_TICKET_STATUSES = [
-  { value: "open", label: "Open", color: "bg-sky-100 text-sky-800" },
-  { value: "in_review", label: "In review", color: "bg-amber-100 text-amber-900" },
-  { value: "planned", label: "Planned", color: "bg-violet-100 text-violet-900" },
-  { value: "done", label: "Done", color: "bg-emerald-100 text-emerald-900" },
-  { value: "closed", label: "Closed", color: "bg-slate-100 text-slate-700" },
+  { value: "open", label: "Open", color: "bg-sky-50 text-sky-700 border-sky-100" },
+  { value: "in_review", label: "In review", color: "bg-amber-50 text-amber-700 border-amber-100" },
+  { value: "planned", label: "Planned", color: "bg-violet-50 text-violet-700 border-violet-100" },
+  { value: "done", label: "Done", color: "bg-emerald-50 text-emerald-700 border-emerald-100" },
+  { value: "closed", label: "Closed", color: "bg-slate-50 text-slate-600 border-slate-200" },
 ] as const;
 
 export type SupportTicketCategory =
@@ -135,7 +135,7 @@ export function supportTicketStatusMeta(status: SupportTicketStatus) {
     SUPPORT_TICKET_STATUSES.find((item) => item.value === status) ?? {
       value: status,
       label: status,
-      color: "bg-slate-100 text-slate-700",
+      color: "bg-slate-50 text-slate-600 border-slate-200",
     }
   );
 }

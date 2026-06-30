@@ -18,7 +18,7 @@ import {
   type User,
 } from "firebase/auth";
 import { getFirebaseAuth, isFirebaseConfigured } from "@/lib/firebase";
-import { fetchMe, type MeResponse } from "@/lib/api";
+import { fetchMe, listUserTenants, switchTenant as apiSwitchTenant, type MeResponse } from "@/lib/api";
 import { normalizeShopSettings } from "@/lib/shop-settings";
 import { resetTenantBrandingOnDocument } from "@/lib/tenant-branding";
 import {
@@ -31,11 +31,13 @@ type AuthContextValue = {
   profile: MeResponse | null;
   loading: boolean;
   configured: boolean;
+  switchingShop: boolean;
   getIdToken: (forceRefresh?: boolean) => Promise<string | null>;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: (forceTokenRefresh?: boolean) => Promise<MeResponse | null>;
+  switchShop: (tenantId: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -51,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [switchingShop, setSwitchingShop] = useState(false);
   const configured = isFirebaseConfigured();
   /** Bumped when refreshProfile runs so stale onAuthStateChanged handlers cannot overwrite. */
   const profileFetchGeneration = useRef(0);
@@ -67,6 +70,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     persistStaffBranding(me);
   }, []);
+
+  const resolveStaffSession = useCallback(
+    async (token: string, generation: number) => {
+      let me = await fetchMe(token);
+      if (me.type === "none" && !me.needsRegistration) {
+        const { tenants } = await listUserTenants(token);
+        if (tenants.length > 0) {
+          await apiSwitchTenant(token, tenants[0].tenantId);
+          const activeUser = user ?? getFirebaseAuth().currentUser;
+          const refreshedToken = await activeUser?.getIdToken(true);
+          if (refreshedToken) {
+            me = await fetchMe(refreshedToken);
+          }
+        }
+      }
+      applyProfile(me, generation);
+      return me;
+    },
+    [user, applyProfile]
+  );
 
   const getIdToken = useCallback(
     async (forceRefresh = false) => {
@@ -92,9 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const token = await activeUser.getIdToken(forceTokenRefresh);
         if (!token) return null;
-        const me = await fetchMe(token);
-        applyProfile(me, generation);
-        return me;
+        return await resolveStaffSession(token, generation);
       } catch {
         if (generation === profileFetchGeneration.current) {
           setProfile(null);
@@ -106,7 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     },
-    [user, applyProfile]
+    [user, resolveStaffSession]
   );
 
   useEffect(() => {
@@ -131,8 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const token = await nextUser.getIdToken(true);
         if (token) {
-          const me = await fetchMe(token);
-          applyProfile(me, generation);
+          await resolveStaffSession(token, generation);
         }
       } catch {
         if (generation === profileFetchGeneration.current) {
@@ -144,7 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     });
-  }, [configured, applyProfile]);
+  }, [configured, applyProfile, resolveStaffSession]);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const auth = getFirebaseAuth();
@@ -164,28 +184,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     resetTenantBrandingOnDocument();
   }, []);
 
+  const switchShop = useCallback(
+    async (tenantId: string) => {
+      if (profile?.type === "staff" && profile.tenant.id === tenantId) {
+        return;
+      }
+
+      setSwitchingShop(true);
+      try {
+        const token = await getIdToken();
+        if (!token) throw new Error("Not signed in");
+
+        await apiSwitchTenant(token, tenantId);
+        clearTenantBrandingCache();
+        resetTenantBrandingOnDocument();
+        await refreshProfile(true);
+      } finally {
+        setSwitchingShop(false);
+      }
+    },
+    [profile, getIdToken, refreshProfile]
+  );
+
   const value = useMemo(
     () => ({
       user,
       profile,
       loading,
       configured,
+      switchingShop,
       getIdToken,
       signIn,
       signUp,
       signOut,
       refreshProfile,
+      switchShop,
     }),
     [
       user,
       profile,
       loading,
       configured,
+      switchingShop,
       getIdToken,
       signIn,
       signUp,
       signOut,
       refreshProfile,
+      switchShop,
     ]
   );
 
