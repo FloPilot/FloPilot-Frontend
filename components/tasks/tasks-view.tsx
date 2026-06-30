@@ -38,8 +38,8 @@ export function TasksView() {
   }, [searchParams]);
   const { isModuleEnabled } = useShopSettings();
   const {
-    orders,
-    scheduleBlocks,
+    orders: activeOrders,
+    scheduleBlocks: activeScheduleBlocks,
     jobRuns,
     machines,
     productionTasks,
@@ -51,16 +51,16 @@ export function TasksView() {
   const insights = useMemo(
     () =>
       computeDashboardInsights({
-        orders,
-        scheduleBlocks,
+        orders: activeOrders,
+        scheduleBlocks: activeScheduleBlocks,
         jobRuns,
         machines,
         productionTasks,
         apiStats: dashboardStats,
       }),
     [
-      orders,
-      scheduleBlocks,
+      activeOrders,
+      activeScheduleBlocks,
       jobRuns,
       machines,
       productionTasks,
@@ -91,8 +91,8 @@ export function TasksView() {
       overdueOrders: insights.overdueOrders,
       readyToShipOrders: insights.readyToShipOrders,
       lowStockItems: insights.stats.lowStockItems,
-      orders,
-      scheduleBlocks,
+      orders: activeOrders,
+      scheduleBlocks: activeScheduleBlocks,
       jobRuns,
       includeCompleted: true,
     });
@@ -107,8 +107,8 @@ export function TasksView() {
     insights.overdueOrders,
     insights.readyToShipOrders,
     insights.stats.lowStockItems,
-    orders,
-    scheduleBlocks,
+    activeOrders,
+    activeScheduleBlocks,
     jobRuns,
   ]);
 
@@ -205,8 +205,8 @@ export function TasksView() {
           rushOrdersList={insights.rushOrdersList}
           overdueOrders={insights.overdueOrders}
           readyToShipOrders={insights.readyToShipOrders}
-          orders={orders}
-          scheduleBlocks={scheduleBlocks}
+          orders={activeOrders}
+          scheduleBlocks={activeScheduleBlocks}
           jobRuns={jobRuns}
           stats={insights.stats}
           filter={filter}

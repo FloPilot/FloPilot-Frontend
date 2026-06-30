@@ -86,7 +86,8 @@ export function MachinesOverview({
   machineFilter?: string[] | null;
   canManage?: boolean;
 }) {
-  const { machines, scheduleBlocks, jobRuns, shopDataLoading } = useSchedule();
+  const { machines, activeScheduleBlocks, jobRuns, shopDataLoading } =
+    useSchedule();
   const [filter, setFilter] = useState<StatFilter>("all");
 
   // Re-render periodically so live "elapsed" timers stay current.
@@ -110,10 +111,10 @@ export function MachinesOverview({
       .map((machine) => {
         const activeRun = getActiveRunForMachine(jobRuns, machine.id);
         const activeBlock = activeRun
-          ? scheduleBlocks.find((b) => b.id === activeRun.scheduleBlockId)
+          ? activeScheduleBlocks.find((b) => b.id === activeRun.scheduleBlockId)
           : undefined;
         const upcoming = getUpcomingRunsForMachine(
-          scheduleBlocks,
+          activeScheduleBlocks,
           jobRuns,
           machine.id
         );
@@ -133,7 +134,7 @@ export function MachinesOverview({
           needsAttention: !machine.active && Boolean(machine.statusMessage),
         };
       });
-  }, [machines, machineFilter, scheduleBlocks, jobRuns]);
+  }, [machines, machineFilter, activeScheduleBlocks, jobRuns]);
 
   const stats = useMemo(
     () => ({

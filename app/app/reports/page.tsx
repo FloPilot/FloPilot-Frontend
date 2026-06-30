@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { ReportDialog } from "@/components/reports/report-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { ModuleGate } from "@/components/settings/module-gate";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,6 +33,7 @@ import {
   dashboardValueClass,
 } from "@/lib/dashboard-styles";
 import { cn } from "@/lib/utils";
+import { sumActiveOrdersOpenBalance } from "@/lib/customer-list-summary";
 
 type CategoryTone = "blue" | "amber" | "green" | "violet" | "neutral";
 
@@ -87,22 +89,32 @@ export default function ReportsPage() {
 }
 
 function ReportsPageContent() {
-  const { customers, orders, shopDataLoading, shopDataError } = useSchedule();
+  const { customers, activeOrders, shopDataLoading, shopDataError } =
+    useSchedule();
+  const { settings } = useShopSettings();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(
     "complete-customer-export"
   );
 
+  const financials = useMemo(
+    () => ({
+      taxRate: settings.taxRate,
+      pricingMatrix: settings.pricingMatrix,
+    }),
+    [settings.taxRate, settings.pricingMatrix]
+  );
+
   const reportData: CustomersListReportData = useMemo(
-    () => ({ customers, orders }),
-    [customers, orders]
+    () => ({ customers, orders: activeOrders, financials }),
+    [customers, activeOrders, financials]
   );
 
   const reports = useMemo(() => getReportsForContext("reports_hub"), []);
 
   const openBalance = useMemo(
-    () => orders.reduce((sum, order) => sum + (order.balance ?? 0), 0),
-    [orders]
+    () => sumActiveOrdersOpenBalance(activeOrders, financials),
+    [activeOrders, financials]
   );
 
   const openReport = (reportId: string | null) => {
@@ -159,8 +171,8 @@ function ReportsPageContent() {
           />
           <StatTile
             label="Orders"
-            value={orders.length.toLocaleString()}
-            hint="Across all customers"
+            value={activeOrders.length.toLocaleString()}
+            hint="Active orders across customers"
             icon={FileSpreadsheet}
           />
           <StatTile

@@ -244,7 +244,14 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
               <ReportsLauncher
                 context="customer_detail"
                 contextLabel={customer.company}
-                data={{ customer, orders: allOrders }}
+                data={{
+                  customer,
+                  orders: allOrders,
+                  financials: {
+                    taxRate: settings.taxRate,
+                    pricingMatrix: settings.pricingMatrix,
+                  },
+                }}
               />
               <button
                 type="button"

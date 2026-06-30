@@ -11,6 +11,7 @@ import {
 import type { NavItem } from "@/components/layout/nav-config";
 import { formatCustomerFullName } from "@/lib/customers";
 import type { Customer, Machine, Order, ScheduleBlock, Task } from "@/types";
+import { excludeArchivedOrders } from "@/lib/order-archive";
 import { orderStatusLabel } from "@/lib/order-status";
 import { documentTypeLabel } from "@/lib/reports/format";
 import { formatCurrency } from "@/lib/format";
@@ -160,7 +161,7 @@ const QUICK_ACTIONS: StaffSearchResult[] = [
 ];
 
 function searchOrders(orders: Order[], query: string, limit = 20): StaffSearchResult[] {
-  return [...orders]
+  return [...excludeArchivedOrders(orders)]
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .filter((order) => {
       const haystack = [
@@ -312,7 +313,7 @@ function searchScheduleBlocks(
 function buildAttentionResults(orders: Order[]): StaffSearchResult[] {
   const attention: StaffSearchResult[] = [];
 
-  for (const order of orders) {
+  for (const order of excludeArchivedOrders(orders)) {
     if (order.status === "awaiting_approval") {
       attention.push({
         id: `attention-approval-${order.id}`,

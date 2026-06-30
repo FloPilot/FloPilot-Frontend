@@ -7,6 +7,7 @@ import {
 } from "date-fns";
 import { countTasksByStatus } from "@/lib/production-board";
 import { buildProductionBoardTasks } from "@/lib/production-events-board";
+import { getArchivedOrderIds, isArchivedOrder } from "@/lib/order-archive";
 import type { Order, OrderStatus, ScheduleBlock, StationJobRun, Task, TaskStatus } from "@/types";
 
 export type ActiveProductionOrder = {
@@ -31,14 +32,17 @@ export function getActiveProductionOrderIds(
 ): Set<string> {
   const todayMs = startOfDay(now).getTime();
   const activeOrderIds = new Set<string>();
+  const archivedOrderIds = getArchivedOrderIds(orders);
 
   for (const order of orders) {
+    if (isArchivedOrder(order)) continue;
     if (["in_production", "ready_to_ship"].includes(order.status)) {
       activeOrderIds.add(order.id);
     }
   }
 
   for (const block of scheduleBlocks) {
+    if (archivedOrderIds.has(block.orderId)) continue;
     try {
       const end = startOfDay(parseISO(block.endAt));
       if (end.getTime() >= todayMs) {
@@ -179,6 +183,7 @@ export function computeProductionDashboardMetrics({
   const today = startOfDay(now);
   const monthStart = startOfMonth(today);
   const todayMs = today.getTime();
+  const archivedOrderIds = getArchivedOrderIds(orders);
 
   const activeOrderIds = getActiveProductionOrderIds(
     orders,
@@ -189,6 +194,7 @@ export function computeProductionDashboardMetrics({
   let upcomingEvents = 0;
 
   for (const block of scheduleBlocks) {
+    if (archivedOrderIds.has(block.orderId)) continue;
     try {
       const end = startOfDay(parseISO(block.endAt));
       if (end.getTime() >= todayMs) {
@@ -201,8 +207,10 @@ export function computeProductionDashboardMetrics({
 
   const activeOrders = activeOrderIds.size;
 
-  const completedOrders = orders.filter((order) =>
-    ["shipped", "completed"].includes(order.status)
+  const completedOrders = orders.filter(
+    (order) =>
+      !isArchivedOrder(order) &&
+      ["shipped", "completed"].includes(order.status)
   );
 
   const completedThisMonth = completedOrders.filter((order) => {
@@ -245,9 +253,14 @@ export function computeProductionDashboardMetrics({
         )
       : null;
 
-  const runningNow = jobRuns.filter((run) => run.status === "running").length;
+  const runningNow = jobRuns.filter((run) => {
+    if (run.status !== "running") return false;
+    const block = scheduleBlocks.find((item) => item.id === run.scheduleBlockId);
+    return block ? !archivedOrderIds.has(block.orderId) : true;
+  }).length;
 
   const scheduledToday = scheduleBlocks.filter((block) => {
+    if (archivedOrderIds.has(block.orderId)) return false;
     try {
       return (
         startOfDay(parseISO(block.startAt)).getTime() === today.getTime()

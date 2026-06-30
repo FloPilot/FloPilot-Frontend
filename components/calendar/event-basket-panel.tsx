@@ -227,19 +227,19 @@ export function EventBasketPanel({
 }: {
   onScheduleEvent: (jobKey: string) => void;
 }) {
-  const { orders, scheduleBlocks } = useSchedule();
+  const { activeOrders, activeScheduleBlocks } = useSchedule();
   const [expanded, setExpanded] = useState(true);
   const [filter, setFilter] = useState<QueueFilter>("ready");
   const [sort, setSort] = useState<EventBasketSort>("urgency");
 
   const allEvents = useMemo(
-    () => getUnscheduledEvents(orders, scheduleBlocks),
-    [orders, scheduleBlocks]
+    () => getUnscheduledEvents(activeOrders, activeScheduleBlocks),
+    [activeOrders, activeScheduleBlocks]
   );
 
   const queueOrders = useMemo(
-    () => buildSchedulingQueueOrders(orders, scheduleBlocks),
-    [orders, scheduleBlocks]
+    () => buildSchedulingQueueOrders(activeOrders, activeScheduleBlocks),
+    [activeOrders, activeScheduleBlocks]
   );
 
   const visibleOrders = useMemo(() => {
@@ -256,8 +256,9 @@ export function EventBasketPanel({
 
   const readyCount = queueOrders.filter((item) => item.nextEvent).length;
   const blockedOrders = useMemo(
-    () => getOrdersBlockedFromSchedulingQueue(orders, scheduleBlocks),
-    [orders, scheduleBlocks]
+    () =>
+      getOrdersBlockedFromSchedulingQueue(activeOrders, activeScheduleBlocks),
+    [activeOrders, activeScheduleBlocks]
   );
 
   if (allEvents.length === 0) {

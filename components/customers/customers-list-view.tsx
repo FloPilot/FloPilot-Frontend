@@ -187,12 +187,21 @@ export function CustomersListView() {
   const {
     customers,
     orders,
+    activeOrders,
     addCustomer,
     shopDataLoading,
     shopDataError,
     refreshShopData,
   } = useSchedule();
   const { settings } = useShopSettings();
+
+  const reportFinancials = useMemo(
+    () => ({
+      taxRate: settings.taxRate,
+      pricingMatrix: settings.pricingMatrix,
+    }),
+    [settings.taxRate, settings.pricingMatrix]
+  );
 
   const [search, setSearch] = useState("");
   const [quickFilter, setQuickFilter] = useState<CustomerQuickFilter>("all");
@@ -268,7 +277,11 @@ export function CustomersListView() {
     );
     if (!report) return;
     downloadReportCsv(
-      runReport(report, { customers: filteredCustomers, orders })
+      runReport(report, {
+        customers: filteredCustomers,
+        orders: activeOrders,
+        financials: reportFinancials,
+      })
     );
   };
 
@@ -315,7 +328,7 @@ export function CustomersListView() {
           <div className="flex flex-wrap items-center gap-2">
             <ReportsLauncher
               context="customers_list"
-              data={{ customers, orders }}
+              data={{ customers, orders: activeOrders, financials: reportFinancials }}
             />
             <Button
               type="button"

@@ -85,6 +85,11 @@ import {
   type DashboardStatsResponse,
 } from "@/lib/api";
 import type { NewOrderFormInput } from "@/lib/create-order";
+import {
+  excludeArchivedOrders,
+  excludeScheduleBlocksForArchivedOrders,
+  getArchivedOrderIds,
+} from "@/lib/order-archive";
 import { useAuth } from "@/components/providers/auth-provider";
 import type { DashboardStats } from "@/types";
 import {
@@ -107,6 +112,8 @@ type ScheduleContextValue = {
   createOrderFromForm: (form: NewOrderFormInput) => Promise<Order>;
   addOrder: (order: Order) => Order;
   orders: Order[];
+  /** Non-archived orders for operational dashboards, calendar, and reports. */
+  activeOrders: Order[];
   dashboardStats: DashboardStats | null;
   recentOrders: Order[];
   shopDataLoading: boolean;
@@ -123,6 +130,8 @@ type ScheduleContextValue = {
   removeProductionJob: (orderId: string, jobId: string) => void;
   machines: Machine[];
   scheduleBlocks: ScheduleBlock[];
+  /** Schedule blocks excluding archived orders — use on shop floor views. */
+  activeScheduleBlocks: ScheduleBlock[];
   addMachine: (machine: Omit<Machine, "id">) => void;
   updateMachine: (id: string, machine: Omit<Machine, "id">) => void;
   deleteMachine: (id: string) => void;
@@ -307,6 +316,16 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   const [shopDataLoading, setShopDataLoading] = useState(true);
   const [shopDataError, setShopDataError] = useState<string | null>(null);
   const [productionTasks, setProductionTasks] = useState<Task[]>([]);
+
+  const activeOrders = useMemo(() => excludeArchivedOrders(orders), [orders]);
+  const activeScheduleBlocks = useMemo(
+    () =>
+      excludeScheduleBlocksForArchivedOrders(
+        scheduleBlocks,
+        getArchivedOrderIds(orders)
+      ),
+    [scheduleBlocks, orders]
+  );
 
   const refreshShopData = useCallback(async () => {
     if (profile?.type !== "staff") return;
@@ -1288,12 +1307,12 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   const productionBoardTasks = useMemo(
     () =>
       buildProductionBoardTasks({
-        orders,
-        scheduleBlocks,
+        orders: activeOrders,
+        scheduleBlocks: activeScheduleBlocks,
         jobRuns,
         includeCompleted: true,
       }),
-    [orders, scheduleBlocks, jobRuns]
+    [activeOrders, activeScheduleBlocks, jobRuns]
   );
 
   const getMachineById = useCallback(
@@ -1364,6 +1383,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       createOrderFromForm,
       addOrder,
       orders,
+      activeOrders,
       dashboardStats,
       recentOrders,
       shopDataLoading,
@@ -1378,6 +1398,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       removeProductionJob,
       machines,
       scheduleBlocks,
+      activeScheduleBlocks,
       addMachine,
       updateMachine,
       deleteMachine,
@@ -1434,6 +1455,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       createOrderFromForm,
       addOrder,
       orders,
+      activeOrders,
       dashboardStats,
       recentOrders,
       shopDataLoading,
@@ -1448,6 +1470,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       removeProductionJob,
       machines,
       scheduleBlocks,
+      activeScheduleBlocks,
       addMachine,
       updateMachine,
       deleteMachine,

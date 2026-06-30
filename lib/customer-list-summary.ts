@@ -22,6 +22,15 @@ function resolveOrderBalance(
   ).balance;
 }
 
+export function sumActiveOrdersOpenBalance(
+  orders: Order[],
+  financials: CustomerListFinancialContext
+): number {
+  return orders
+    .filter((order) => !isArchivedOrder(order))
+    .reduce((sum, order) => sum + resolveOrderBalance(order, financials), 0);
+}
+
 function resolveOrderTotal(
   order: Order,
   context: CustomerListFinancialContext

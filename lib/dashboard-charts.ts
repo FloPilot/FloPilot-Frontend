@@ -8,7 +8,45 @@ import {
   startOfDay,
   subDays,
 } from "date-fns";
+import { resolveOrderFinancials } from "@/lib/order-estimate";
+import {
+  excludeArchivedOrders,
+  excludeScheduleBlocksForArchivedOrders,
+  getArchivedOrderIds,
+} from "@/lib/order-archive";
+import type { PricingMatrix } from "@/lib/shop-settings";
 import type { Order, ScheduleBlock } from "@/types";
+
+export type DashboardFinancialContext = {
+  taxRate: number;
+  pricingMatrix?: PricingMatrix;
+};
+
+const DEFAULT_DASHBOARD_FINANCIALS: DashboardFinancialContext = {
+  taxRate: 0.08,
+};
+
+function resolveDashboardOrderTotal(
+  order: Order,
+  financials: DashboardFinancialContext
+): number {
+  return resolveOrderFinancials(
+    order,
+    financials.taxRate,
+    financials.pricingMatrix
+  ).total;
+}
+
+function buildOrderTotalLookup(
+  orders: Order[],
+  financials: DashboardFinancialContext
+): Map<string, number> {
+  const lookup = new Map<string, number>();
+  for (const order of orders) {
+    lookup.set(order.id, resolveDashboardOrderTotal(order, financials));
+  }
+  return lookup;
+}
 
 const APPROVAL_STATUSES = ["quote_sent", "awaiting_approval"] as const;
 
@@ -136,13 +174,16 @@ function buildApprovalPipelineTrend(orders: Order[], days = 14): number[] {
 
 export function buildDashboardTrends(
   orders: Order[],
-  days = 14
+  days = 14,
+  financials: DashboardFinancialContext = DEFAULT_DASHBOARD_FINANCIALS
 ): DashboardTrendPoint[] {
+  const operationalOrders = excludeArchivedOrders(orders);
+  const orderTotals = buildOrderTotalLookup(operationalOrders, financials);
   const end = startOfDay(new Date());
   const start = subDays(end, days - 1);
 
   return eachDayOfInterval({ start, end }).map((day) => {
-    const dayOrders = orders.filter((order) => {
+    const dayOrders = operationalOrders.filter((order) => {
       try {
         return startOfDay(parseISO(order.createdAt)).getTime() === day.getTime();
       } catch {
@@ -154,9 +195,30 @@ export function buildDashboardTrends(
       date: day,
       label: format(day, "MMM d"),
       orders: dayOrders.length,
-      revenue: dayOrders.reduce((sum, order) => sum + (order.total || 0), 0),
+      revenue: dayOrders.reduce(
+        (sum, order) => sum + (orderTotals.get(order.id) ?? 0),
+        0
+      ),
     };
   });
+}
+
+export function buildDashboardOrderFinancials(
+  orders: Order[],
+  financials: DashboardFinancialContext = DEFAULT_DASHBOARD_FINANCIALS
+) {
+  const map = new Map<string, ReturnType<typeof resolveOrderFinancials>>();
+  for (const order of orders) {
+    map.set(
+      order.id,
+      resolveOrderFinancials(
+        order,
+        financials.taxRate,
+        financials.pricingMatrix
+      )
+    );
+  }
+  return map;
 }
 
 export function buildDashboardKpiSnapshot(
@@ -164,22 +226,29 @@ export function buildDashboardKpiSnapshot(
   activeOrders: number,
   dueThisWeek: number,
   scheduleBlocks: ScheduleBlock[] = [],
-  trendDays = 14
+  trendDays = 14,
+  financials: DashboardFinancialContext = DEFAULT_DASHBOARD_FINANCIALS
 ): DashboardKpiSnapshot {
+  const operationalOrders = excludeArchivedOrders(orders);
+  const activeScheduleBlocks = excludeScheduleBlocksForArchivedOrders(
+    scheduleBlocks,
+    getArchivedOrderIds(orders)
+  );
+  const orderTotals = buildOrderTotalLookup(operationalOrders, financials);
   const now = new Date();
   const today = startOfDay(now);
   const periodStart = subDays(today, trendDays - 1);
 
-  const openOrders = orders.filter(
+  const openOrders = operationalOrders.filter(
     (order) => !["shipped", "completed"].includes(order.status)
   );
 
   const pipelineValue = openOrders.reduce(
-    (sum, order) => sum + (order.total || 0),
+    (sum, order) => sum + (orderTotals.get(order.id) ?? 0),
     0
   );
 
-  const revenueInPeriod = orders
+  const revenueInPeriod = operationalOrders
     .filter((order) => {
       try {
         const created = startOfDay(parseISO(order.createdAt));
@@ -188,9 +257,9 @@ export function buildDashboardKpiSnapshot(
         return false;
       }
     })
-    .reduce((sum, order) => sum + (order.total || 0), 0);
+    .reduce((sum, order) => sum + (orderTotals.get(order.id) ?? 0), 0);
 
-  const periodOrders = orders.filter((order) => {
+  const periodOrders = operationalOrders.filter((order) => {
     try {
       const created = startOfDay(parseISO(order.createdAt));
       return created >= periodStart && created <= today;
@@ -206,20 +275,20 @@ export function buildDashboardKpiSnapshot(
     periodOrders.map((order) => order.customerId)
   ).size;
 
-  const orderTrend = buildDashboardTrends(orders, trendDays);
+  const orderTrend = buildDashboardTrends(operationalOrders, trendDays, financials);
   const ordersTrend = orderTrend.map((point) => point.orders);
   const revenueTrend = orderTrend.map((point) => point.revenue);
-  const dueTrend = buildDueWorkloadTrend(orders, trendDays);
-  const floorTrend = buildFloorActivityTrend(scheduleBlocks, trendDays);
-  const approvalTrend = buildApprovalPipelineTrend(orders, trendDays);
-  const readyToShipTrend = buildReadyToShipTrend(orders, trendDays);
+  const dueTrend = buildDueWorkloadTrend(operationalOrders, trendDays);
+  const floorTrend = buildFloorActivityTrend(activeScheduleBlocks, trendDays);
+  const approvalTrend = buildApprovalPipelineTrend(operationalOrders, trendDays);
+  const readyToShipTrend = buildReadyToShipTrend(operationalOrders, trendDays);
   const avgOrderValueTrend = orderTrend.map((point) =>
     point.orders > 0 ? point.revenue / point.orders : 0
   );
 
   const pipelineTrend = orderTrend.map((point) => {
     const dayEnd = point.date;
-    return orders
+    return operationalOrders
       .filter((order) => {
         try {
           const created = startOfDay(parseISO(order.createdAt));
@@ -231,7 +300,7 @@ export function buildDashboardKpiSnapshot(
           return false;
         }
       })
-      .reduce((sum, order) => sum + (order.total || 0), 0);
+      .reduce((sum, order) => sum + (orderTotals.get(order.id) ?? 0), 0);
   });
 
   const midpoint = Math.max(Math.floor(orderTrend.length / 2), 1);

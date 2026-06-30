@@ -1,4 +1,5 @@
 import type { Customer, Machine, Order, ScheduleBlock, StationJobRun } from "@/types";
+import { excludeArchivedOrders } from "@/lib/order-archive";
 
 export type DashboardDateRangeKey =
   | "7d"
@@ -105,7 +106,7 @@ export function applyDashboardFilters({
     : jobRuns;
 
   return {
-    orders: filteredOrders,
+    orders: excludeArchivedOrders(filteredOrders),
     scheduleBlocks: filteredBlocks,
     jobRuns: filteredJobRuns,
   };
@@ -116,7 +117,7 @@ export function buildDashboardCustomerOptions(
   customers: Customer[]
 ) {
   const counts = new Map<string, number>();
-  for (const order of orders) {
+  for (const order of excludeArchivedOrders(orders)) {
     counts.set(order.customerId, (counts.get(order.customerId) ?? 0) + 1);
   }
 

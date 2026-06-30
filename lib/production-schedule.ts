@@ -1,4 +1,5 @@
 import type { Order, OrderStatus, SchedulableJobOption } from "@/types";
+import { isArchivedOrder } from "@/lib/order-archive";
 import { approvalSummary } from "@/lib/order-approval";
 import { getArtworkApprovalSummary } from "@/lib/order-health";
 import { allMaterialsReceived } from "@/lib/order-materials";
@@ -19,6 +20,7 @@ export function orderHasProductionEvents(order: Order): boolean {
 }
 
 export function isOrderEligibleForSchedulingQueue(order: Order): boolean {
+  if (isArchivedOrder(order)) return false;
   if (order.type !== "sales_order") return false;
   if (order.status === "shipped" || order.status === "completed") return false;
   if (!orderHasProductionEvents(order)) return false;
@@ -33,6 +35,7 @@ export function isOrderEligibleForSchedulingQueue(order: Order): boolean {
 
 /** Dashboard queue — any open sales order with production events, regardless of artwork */
 export function isOrderOnDashboardSchedulingQueue(order: Order): boolean {
+  if (isArchivedOrder(order)) return false;
   if (order.type !== "sales_order") return false;
   if (order.status === "shipped" || order.status === "completed") return false;
   return orderHasProductionEvents(order);
@@ -78,6 +81,7 @@ export function getOrdersWithUnscheduledEvents(
   scheduleBlocks: import("@/types").ScheduleBlock[]
 ): Order[] {
   return orders.filter((order) => {
+    if (isArchivedOrder(order)) return false;
     if (!orderHasProductionEvents(order)) return false;
     const steps = getOrderProductionSteps(order);
     return steps.some(
@@ -99,6 +103,12 @@ export function getSchedulableJobs(
   const optionsList: SchedulableJobOption[] = [];
 
   for (const order of sourceOrders) {
+    if (
+      isArchivedOrder(order) &&
+      order.id !== options?.includeOrderId
+    ) {
+      continue;
+    }
     if (order.type !== "sales_order") continue;
 
     const isFocusedOrder =

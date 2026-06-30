@@ -488,8 +488,12 @@ export function MachineTimelineCalendar({
   onRemoveBlock?: (block: ScheduleBlock) => void;
 }) {
   const handleEditBlock = onEditBlock ?? onSelectBlock;
-  const { machines, scheduleBlocks, updateScheduleBlock, removeScheduleBlock } =
-    useSchedule();
+  const {
+    machines,
+    activeScheduleBlocks: scheduleBlocks,
+    updateScheduleBlock,
+    removeScheduleBlock,
+  } = useSchedule();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOriginTop, setDragOriginTop] = useState(0);
 

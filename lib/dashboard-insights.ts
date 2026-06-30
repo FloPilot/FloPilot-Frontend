@@ -17,6 +17,11 @@ import type {
 } from "@/types";
 import { collectArtworkQueue, countArtworkQueue } from "@/lib/artwork-queue";
 import {
+  excludeArchivedOrders,
+  excludeScheduleBlocksForArchivedOrders,
+  getArchivedOrderIds,
+} from "@/lib/order-archive";
+import {
   buildSchedulingQueueOrders,
   getUnscheduledEvents,
 } from "@/lib/event-basket";
@@ -97,11 +102,25 @@ export function computeDashboardInsights({
   productionTasks: Task[];
   apiStats: DashboardStats | null;
 }) {
+  const archivedOrderIds = getArchivedOrderIds(orders);
+  const operationalOrders = excludeArchivedOrders(orders);
+  const activeScheduleBlocks = excludeScheduleBlocksForArchivedOrders(
+    scheduleBlocks,
+    archivedOrderIds
+  );
+  const activeProductionTasks = productionTasks.filter(
+    (task) => !archivedOrderIds.has(task.orderId)
+  );
+  const activeJobRuns = jobRuns.filter((run) => {
+    const block = scheduleBlocks.find((item) => item.id === run.scheduleBlockId);
+    return block ? !archivedOrderIds.has(block.orderId) : true;
+  });
+
   const now = new Date();
   const today = startOfDay(now);
   const weekEnd = addDays(today, 7);
 
-  const openOrders = orders.filter(
+  const openOrders = operationalOrders.filter(
     (order) => !["shipped", "completed"].includes(order.status)
   );
 
@@ -188,19 +207,28 @@ export function computeDashboardInsights({
         new Date(a.inHandsDate).getTime() - new Date(b.inHandsDate).getTime()
     );
 
-  const artworkCounts = countArtworkQueue(collectArtworkQueue(orders));
-  const artworkPendingEntries = collectArtworkQueue(orders).filter((entry) =>
-    ["pending", "revision_requested"].includes(entry.artwork.status)
+  const artworkCounts = countArtworkQueue(collectArtworkQueue(operationalOrders));
+  const artworkPendingEntries = collectArtworkQueue(operationalOrders).filter(
+    (entry) =>
+      ["pending", "revision_requested"].includes(entry.artwork.status)
   );
   const artworkPending =
     artworkCounts.pending + artworkCounts.revision_requested;
 
-  const schedulingQueue = buildSchedulingQueueOrders(orders, scheduleBlocks, {
-    ignoreArtworkApproval: true,
-  });
-  const unscheduledEvents = getUnscheduledEvents(orders, scheduleBlocks, {
-    ignoreArtworkApproval: true,
-  });
+  const schedulingQueue = buildSchedulingQueueOrders(
+    operationalOrders,
+    activeScheduleBlocks,
+    {
+      ignoreArtworkApproval: true,
+    }
+  );
+  const unscheduledEvents = getUnscheduledEvents(
+    operationalOrders,
+    activeScheduleBlocks,
+    {
+      ignoreArtworkApproval: true,
+    }
+  );
   const toSchedule = unscheduledEvents.length;
   const toScheduleOrders = schedulingQueue.length;
 
@@ -215,17 +243,19 @@ export function computeDashboardInsights({
     (order) => order.status === "ready_to_ship"
   );
 
-  const blocksToday = scheduleBlocks
+  const blocksToday = activeScheduleBlocks
     .filter((block) => isSameDay(parseISO(block.startAt), now))
     .sort(
       (a, b) =>
         parseISO(a.startAt).getTime() - parseISO(b.startAt).getTime()
     );
 
-  const runningRuns = jobRuns.filter((run) => run.status === "running");
+  const runningRuns = activeJobRuns.filter((run) => run.status === "running");
 
   const machineById = new Map(machines.map((machine) => [machine.id, machine]));
-  const blockById = new Map(scheduleBlocks.map((block) => [block.id, block]));
+  const blockById = new Map(
+    activeScheduleBlocks.map((block) => [block.id, block])
+  );
 
   const runningFloor: TodayFloorItem[] = runningRuns.map((run) => {
     const block = blockById.get(run.scheduleBlockId);
@@ -288,7 +318,7 @@ export function computeDashboardInsights({
 
   const todayFloor: TodayFloorItem[] = [...runningFloor, ...scheduledFloor];
 
-  const blocksTomorrow = scheduleBlocks
+  const blocksTomorrow = activeScheduleBlocks
     .filter((block) => isSameDay(parseISO(block.startAt), addDays(now, 1)))
     .sort(
       (a, b) =>
@@ -320,14 +350,14 @@ export function computeDashboardInsights({
     };
   });
 
-  const recentOrders = [...orders]
+  const recentOrders = [...operationalOrders]
     .sort(
       (a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     )
     .slice(0, 6);
 
-  const openTasks = productionTasks
+  const openTasks = activeProductionTasks
     .filter((task) => task.status !== "done")
     .sort((a, b) => {
       const rank = (status: Task["status"]) =>

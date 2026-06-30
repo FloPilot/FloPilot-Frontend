@@ -94,8 +94,8 @@ export function ScheduleJobDialog({
 }: ScheduleJobDialogProps) {
   const {
     machines,
-    orders,
-    scheduleBlocks,
+    activeOrders: orders,
+    activeScheduleBlocks: scheduleBlocks,
     addScheduleBlock,
     updateScheduleBlock,
     removeScheduleBlock,

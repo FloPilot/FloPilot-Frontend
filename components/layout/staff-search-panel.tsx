@@ -97,12 +97,12 @@ export function StaffSearchPanel({
   const { settings } = useShopSettings();
   const { role, access, filterMachines } = useStaffAccess();
   const {
-    orders,
+    activeOrders,
     customers,
     machines,
     recentOrders,
     productionTasks,
-    scheduleBlocks,
+    activeScheduleBlocks,
     shopDataLoading,
   } = useSchedule();
 
@@ -138,24 +138,24 @@ export function StaffSearchPanel({
       buildStaffSearchResults({
         query,
         category: searchCategory,
-        orders,
+        orders: activeOrders,
         customers,
         machines: visibleMachines,
         navPages,
         recentOrders,
         productionTasks,
-        scheduleBlocks,
+        scheduleBlocks: activeScheduleBlocks,
       }),
     [
       query,
       searchCategory,
-      orders,
+      activeOrders,
       customers,
       visibleMachines,
       navPages,
       recentOrders,
       productionTasks,
-      scheduleBlocks,
+      activeScheduleBlocks,
     ]
   );
 

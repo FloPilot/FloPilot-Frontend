@@ -13,7 +13,7 @@ import { useSchedule } from "@/components/providers/schedule-provider";
 import { OrderStatusBadge, RushBadge } from "@/components/status-badges";
 import { Button } from "@/components/ui/button";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
-import { buildDashboardKpiSnapshot } from "@/lib/dashboard-charts";
+import { buildDashboardKpiSnapshot, buildDashboardOrderFinancials } from "@/lib/dashboard-charts";
 import {
   applyDashboardFilters,
   buildDashboardCustomerOptions,
@@ -64,8 +64,8 @@ function Panel({
 
 export function ShopDashboard() {
   const {
-    orders,
-    scheduleBlocks,
+    activeOrders,
+    activeScheduleBlocks,
     jobRuns,
     machines,
     customers,
@@ -75,7 +75,7 @@ export function ShopDashboard() {
     shopDataError,
     refreshShopData,
   } = useSchedule();
-  const { isModuleEnabled } = useShopSettings();
+  const { settings, isModuleEnabled } = useShopSettings();
   const [filters, setFilters] = useState<DashboardFilters>(
     DEFAULT_DASHBOARD_FILTERS
   );
@@ -85,12 +85,12 @@ export function ShopDashboard() {
   const filteredData = useMemo(
     () =>
       applyDashboardFilters({
-        orders,
-        scheduleBlocks,
+        orders: activeOrders,
+        scheduleBlocks: activeScheduleBlocks,
         jobRuns,
         filters,
       }),
-    [orders, scheduleBlocks, jobRuns, filters]
+    [activeOrders, activeScheduleBlocks, jobRuns, filters]
   );
 
   const machineOptions = useMemo(
@@ -99,8 +99,8 @@ export function ShopDashboard() {
   );
 
   const customerOptions = useMemo(
-    () => buildDashboardCustomerOptions(orders, customers),
-    [orders, customers]
+    () => buildDashboardCustomerOptions(activeOrders, customers),
+    [activeOrders, customers]
   );
 
   const insights = useMemo(
@@ -137,6 +137,14 @@ export function ShopDashboard() {
     readyToShipOrders,
   } = insights;
 
+  const dashboardFinancials = useMemo(
+    () => ({
+      taxRate: settings.taxRate,
+      pricingMatrix: settings.pricingMatrix,
+    }),
+    [settings.taxRate, settings.pricingMatrix]
+  );
+
   const financialSnapshot = useMemo(
     () =>
       buildDashboardKpiSnapshot(
@@ -144,7 +152,8 @@ export function ShopDashboard() {
         stats.activeOrders,
         stats.dueThisWeek,
         filteredData.scheduleBlocks,
-        dateRange.trendDays
+        dateRange.trendDays,
+        dashboardFinancials
       ),
     [
       filteredData.orders,
@@ -152,7 +161,13 @@ export function ShopDashboard() {
       stats.activeOrders,
       stats.dueThisWeek,
       dateRange.trendDays,
+      dashboardFinancials,
     ]
+  );
+
+  const recentOrderFinancials = useMemo(
+    () => buildDashboardOrderFinancials(recentOrders, dashboardFinancials),
+    [recentOrders, dashboardFinancials]
   );
 
   const filteredAttention = useMemo(
@@ -191,7 +206,7 @@ export function ShopDashboard() {
         )}
 
         {shopDataLoading ||
-        (!shopDataError && orders.length === 0 && !dashboardStats) ? (
+        (!shopDataError && activeOrders.length === 0 && !dashboardStats) ? (
           <AppLoadingScreen label="Loading shop data…" />
         ) : (
           <>
@@ -365,7 +380,9 @@ export function ShopDashboard() {
                             {formatDate(order.inHandsDate)}
                           </td>
                           <td className="px-3 py-2.5 text-right font-medium tabular-nums text-[#303030]">
-                            {formatCurrency(order.total)}
+                            {formatCurrency(
+                              recentOrderFinancials.get(order.id)?.total ?? 0
+                            )}
                           </td>
                         </tr>
                       ))}
