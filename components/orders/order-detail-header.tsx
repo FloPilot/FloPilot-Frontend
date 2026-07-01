@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { RushBadge } from "@/components/status-badges";
 import {
   dashboardControlClass,
@@ -50,16 +50,23 @@ export function OrderDetailHeader({
   return (
     <header className="space-y-4">
       <div className="min-w-0 space-y-2">
-        <Link
-          href="/app/orders"
-          className={cn(
-            dashboardControlClass,
-            "inline-flex h-8 gap-1.5 px-2.5 text-[12px] text-[#616161] hover:text-[#303030]"
-          )}
+        <nav
+          aria-label="Breadcrumb"
+          className="flex flex-wrap items-center gap-1.5 text-[13px]"
         >
-          <ArrowLeft className="size-3.5" />
-          Orders
-        </Link>
+          <Link
+            href="/app/orders"
+            className="rounded-md px-1 py-0.5 text-[#616161] transition-colors hover:bg-[#f6f6f7] hover:text-[#303030]"
+          >
+            Orders
+          </Link>
+          <span className="text-[#c9c9c9]" aria-hidden>
+            /
+          </span>
+          <span className="px-1 font-medium text-[#303030]">
+            Order {order.number}
+          </span>
+        </nav>
 
         <div className="flex flex-wrap items-center gap-2">
           <h1 className={dashboardSectionTitleClass}>Order {order.number}</h1>

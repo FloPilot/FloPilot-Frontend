@@ -54,7 +54,7 @@ function sortMachines(list: Machine[]) {
 }
 
 export function ShopTimelineCalendar() {
-  const { machines, scheduleBlocks } = useSchedule();
+  const { machines, activeScheduleBlocks } = useSchedule();
   const [weekStart, setWeekStart] = useState(() =>
     startOfWeek(new Date(), { weekStartsOn: 1 })
   );
@@ -100,15 +100,15 @@ export function ShopTimelineCalendar() {
   );
 
   const shopKpis = useMemo(
-    () => computeShopWeekKpis(machines, scheduleBlocks, weekStart),
-    [machines, scheduleBlocks, weekStart]
+    () => computeShopWeekKpis(machines, activeScheduleBlocks, weekStart),
+    [machines, activeScheduleBlocks, weekStart]
   );
 
   const singleMachineKpis =
     visibleMachines.length === 1
       ? computeMachineWeekKpis(
           visibleMachines[0],
-          scheduleBlocks,
+          activeScheduleBlocks,
           weekStart
         )
       : null;

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Archive,
   CheckCircle2,
@@ -96,12 +96,36 @@ export function ArtworkDetailDialog({
     );
   };
 
-  const handleSendProof = () => {
-    sendProofToCustomer(
-      liveEntry.orderId,
-      liveEntry.jobId,
-      liveEntry.imprintId
-    );
+  const [sendingProof, setSendingProof] = useState(false);
+  const [proofFeedback, setProofFeedback] = useState<{
+    message: string;
+    type: "success" | "error";
+  } | null>(null);
+
+  const handleSendProof = async () => {
+    setSendingProof(true);
+    setProofFeedback(null);
+    try {
+      const email = await sendProofToCustomer(
+        liveEntry.orderId,
+        liveEntry.jobId,
+        liveEntry.imprintId
+      );
+      setProofFeedback({
+        message: `Proof emailed to ${email.to}.`,
+        type: "success",
+      });
+    } catch (err) {
+      setProofFeedback({
+        message:
+          err instanceof Error
+            ? err.message
+            : "Could not send the email. Please try again.",
+        type: "error",
+      });
+    } finally {
+      setSendingProof(false);
+    }
   };
 
   return (
@@ -216,14 +240,15 @@ export function ArtworkDetailDialog({
                   <Button
                     type="button"
                     className={cn(dashboardPrimaryButtonClass, "h-9")}
-                    onClick={handleSendProof}
+                    onClick={() => void handleSendProof()}
                     disabled={
                       liveEntry.archived ||
-                      liveEntry.artwork.status === "approved"
+                      liveEntry.artwork.status === "approved" ||
+                      sendingProof
                     }
                   >
                     <Send className="size-3.5" />
-                    Send proof
+                    {sendingProof ? "Sending…" : "Send proof"}
                   </Button>
                   <Button
                     type="button"
@@ -250,6 +275,18 @@ export function ArtworkDetailDialog({
                     Request revision
                   </Button>
                 </div>
+                {proofFeedback ? (
+                  <p
+                    className={cn(
+                      "mt-3 rounded-lg border px-3 py-2 text-[13px] font-medium",
+                      proofFeedback.type === "error"
+                        ? "border-[#e7b4b4] bg-[#fdf2f2] text-[#b42318]"
+                        : "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]"
+                    )}
+                  >
+                    {proofFeedback.message}
+                  </p>
+                ) : null}
               </section>
 
               {hasSpecs && (

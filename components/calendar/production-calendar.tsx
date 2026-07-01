@@ -35,6 +35,16 @@ import {
   parseCalendarCellDropId,
   rescheduleBlockToCell,
 } from "@/lib/schedule-reschedule";
+import {
+  getScheduleBlockEventClasses,
+  resolveScheduleBlockCustomer,
+  type ScheduleBlockCustomerPresentation,
+} from "@/lib/schedule-block-customer";
+import {
+  resolveScheduleBlockProductionStatus,
+  SCHEDULE_CHIP_BOX_PADDING,
+  type ScheduleBlockProductionStatus,
+} from "@/lib/schedule-block-display";
 import { machineColorStyles, RESOURCE_TYPE_LABELS } from "@/lib/machine-styles";
 import { cn } from "@/lib/utils";
 
@@ -77,7 +87,8 @@ function MachineRowLabel({
 
 function ScheduleChip({
   block,
-  machine,
+  blockCustomer,
+  productionStatus,
   onEdit,
   onView,
   readOnly,
@@ -85,22 +96,22 @@ function ScheduleChip({
   contextOnly,
 }: {
   block: ScheduleBlock;
-  machine: Machine;
+  blockCustomer: ScheduleBlockCustomerPresentation;
+  productionStatus?: ScheduleBlockProductionStatus;
   onEdit?: () => void;
   onView?: (block: ScheduleBlock) => void;
   readOnly?: boolean;
   highlighted?: boolean;
   contextOnly?: boolean;
 }) {
-  const styles = machineColorStyles[machine.color];
-  const start = parseISO(block.startAt);
-  const end = parseISO(block.endAt);
-
   const className = cn(
-    "w-full text-left rounded-lg border px-2.5 py-2",
-    contextOnly
-      ? "border-border/70 bg-muted/40 text-brand-muted opacity-80"
-      : [styles.bg, styles.border, styles.text],
+    "w-full text-left rounded-lg border flex flex-col items-start justify-start",
+    SCHEDULE_CHIP_BOX_PADDING,
+    getScheduleBlockEventClasses(blockCustomer, {
+      muted: contextOnly,
+      productionStatus,
+    }),
+    contextOnly && "opacity-80",
     highlighted && !contextOnly && "ring-2 ring-brand-primary/45 shadow-sm",
     !contextOnly &&
       (onView || !readOnly) &&
@@ -108,13 +119,11 @@ function ScheduleChip({
   );
 
   const content = (
-    <>
-      <p className="text-xs font-semibold truncate">{block.orderNumber}</p>
-      <p className="text-[11px] truncate opacity-90">{block.imprintLabel}</p>
-      <p className="text-[10px] mt-1 opacity-75">
-        {format(start, "h:mm a")} – {format(end, "h:mm a")}
-      </p>
-    </>
+    <ScheduleChipContent
+      block={block}
+      blockCustomer={blockCustomer}
+      productionStatus={productionStatus}
+    />
   );
 
   if (contextOnly) {
@@ -187,6 +196,9 @@ export function ProductionCalendar({
   const {
     machines,
     activeScheduleBlocks: scheduleBlocks,
+    activeOrders,
+    jobRuns,
+    getCustomerById,
     updateScheduleBlock,
   } = useSchedule();
   const [internalWeekStart, setInternalWeekStart] = useState(() =>
@@ -228,12 +240,28 @@ export function ProductionCalendar({
     [visibleBlocks, draggingBlockId]
   );
 
-  const draggingMachine = useMemo(
+  const draggingBlockCustomer = useMemo(
     () =>
       draggingBlock
-        ? machines.find((m) => m.id === draggingBlock.machineId)
+        ? resolveScheduleBlockCustomer(
+            draggingBlock,
+            activeOrders,
+            getCustomerById
+          )
         : undefined,
-    [machines, draggingBlock]
+    [draggingBlock, activeOrders, getCustomerById]
+  );
+
+  const draggingProductionStatus = useMemo(
+    () =>
+      draggingBlock
+        ? resolveScheduleBlockProductionStatus(
+            draggingBlock,
+            jobRuns,
+            activeOrders
+          )
+        : undefined,
+    [draggingBlock, jobRuns, activeOrders]
   );
 
   const weekDays = useMemo(
@@ -528,12 +556,24 @@ export function ProductionCalendar({
                             highlightOrderId &&
                             block.orderId === highlightOrderId;
                           const contextOnly = showShopContext && !isThisOrder;
+                          const blockCustomer = resolveScheduleBlockCustomer(
+                            block,
+                            activeOrders,
+                            getCustomerById
+                          );
+                          const productionStatus =
+                            resolveScheduleBlockProductionStatus(
+                              block,
+                              jobRuns,
+                              activeOrders
+                            );
 
                           return readOnly || contextOnly ? (
                             <ScheduleChip
                               key={block.id}
                               block={block}
-                              machine={machine}
+                              blockCustomer={blockCustomer}
+                              productionStatus={productionStatus}
                               readOnly={readOnly || contextOnly}
                               contextOnly={contextOnly}
                               highlighted={Boolean(isThisOrder)}
@@ -550,7 +590,8 @@ export function ProductionCalendar({
                             <DraggableScheduleChip
                               key={block.id}
                               block={block}
-                              machine={machine}
+                              blockCustomer={blockCustomer}
+                              productionStatus={productionStatus}
                               highlighted={Boolean(isThisOrder)}
                               onEdit={() => openEdit(block)}
                             />
@@ -640,18 +681,20 @@ export function ProductionCalendar({
         >
           {calendarGrid}
           <DragOverlay dropAnimation={{ duration: 200, easing: "ease-out" }}>
-            {draggingBlock && draggingMachine ? (
+            {draggingBlock && draggingBlockCustomer ? (
               <div
                 className={cn(
-                  "w-[148px] cursor-grabbing rounded-lg border px-2.5 py-2 shadow-lg ring-2 ring-brand-primary/30",
-                  machineColorStyles[draggingMachine.color].bg,
-                  machineColorStyles[draggingMachine.color].border,
-                  machineColorStyles[draggingMachine.color].text
+                  "flex w-[148px] cursor-grabbing flex-col items-start justify-start rounded-lg border shadow-lg ring-2 ring-brand-primary/30",
+                  SCHEDULE_CHIP_BOX_PADDING,
+                  getScheduleBlockEventClasses(draggingBlockCustomer, {
+                    productionStatus: draggingProductionStatus,
+                  })
                 )}
               >
                 <ScheduleChipContent
                   block={draggingBlock}
-                  machine={draggingMachine}
+                  blockCustomer={draggingBlockCustomer}
+                  productionStatus={draggingProductionStatus}
                 />
               </div>
             ) : null}

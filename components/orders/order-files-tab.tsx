@@ -71,9 +71,26 @@ export function OrderFilesTab({
     [order, allFileItems]
   );
 
-  const [category, setCategory] = useState<FileCategoryFilter>(() =>
-    categoryFromFocus(focusImprint)
-  );
+  const [sendingProof, setSendingProof] = useState(false);
+  const [proofFeedback, setProofFeedback] = useState<string | null>(null);
+
+  const handleSendProof = async (jobId: string, imprintId: string) => {
+    setSendingProof(true);
+    setProofFeedback(null);
+    try {
+      const email = await sendProofToCustomer(order.id, jobId, imprintId);
+      setProofFeedback(`Proof emailed to ${email.to}.`);
+      window.setTimeout(() => setProofFeedback(null), 5000);
+    } catch (err) {
+      setProofFeedback(
+        err instanceof Error
+          ? err.message
+          : "Could not send the email. Please try again."
+      );
+    } finally {
+      setSendingProof(false);
+    }
+  };
 
   const { pinned, others } = collectOrderMockups(order, focusImprint ?? undefined);
   const allEntries = useMemo(() => {
@@ -93,6 +110,9 @@ export function OrderFilesTab({
       ? imprintKey(allEntries[0].job.id, allEntries[0].imprint.id)
       : null;
   });
+  const [category, setCategory] = useState<FileCategoryFilter>(() =>
+    categoryFromFocus(focusImprint) ?? "mockups"
+  );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const orderFileInputRef = useRef<HTMLInputElement>(null);
@@ -427,16 +447,16 @@ export function OrderFilesTab({
                       </Button>
                       <Button
                         className={cn(dashboardControlClass, "h-8 text-[12px]")}
+                        disabled={sendingProof}
                         onClick={() =>
-                          sendProofToCustomer(
-                            order.id,
+                          void handleSendProof(
                             selectedEntry.job.id,
                             selectedEntry.imprint.id
                           )
                         }
                       >
                         <Send className="size-3.5" />
-                        Send proof
+                        {sendingProof ? "Sending…" : "Send proof"}
                       </Button>
                       <Button
                         className={cn(dashboardControlClass, "h-8 text-[12px]")}
@@ -452,6 +472,12 @@ export function OrderFilesTab({
                         New version
                       </Button>
                     </div>
+
+                    {proofFeedback ? (
+                      <p className="text-[13px] font-medium text-[#616161]">
+                        {proofFeedback}
+                      </p>
+                    ) : null}
 
                     {(selectedEntry.imprint.artwork.history?.length ?? 0) >
                       0 && (

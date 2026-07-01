@@ -67,6 +67,10 @@ import {
   guessProductKey,
   sizesToRecord,
 } from "@/lib/line-items";
+import {
+  isSupplierLineItem,
+  rebuildSupplierLineItemQuantity,
+} from "@/lib/supplier-line-items";
 import type {
   BlankSource,
   ImprintInkColor,
@@ -140,6 +144,10 @@ function rebuildLineItemQuantity(
 ): LineItem | null {
   const item = order.lineItems.find((entry) => entry.id === lineItemId);
   if (!item || !size) return null;
+
+  if (isSupplierLineItem(item)) {
+    return rebuildSupplierLineItemQuantity(item, size, quantity);
+  }
 
   const productKey = guessProductKey(item);
   const colorKey = guessColorKey(item);
@@ -1002,8 +1010,21 @@ export function OrderMaterialsPanel({
                             {line.productName ?? line.label}
                           </p>
                           {line.brand ? (
-                            <p className="mt-0.5 text-[12px] text-[#8a8a8a]">
-                              {line.brand}
+                            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-[#8a8a8a]">
+                              <span>{line.brand}</span>
+                              {(() => {
+                                const item = order.lineItems.find(
+                                  (entry) => entry.id === line.lineItemId
+                                );
+                                if (item?.supplier === "ssActivewear") {
+                                  return (
+                                    <span className="rounded bg-[#eef1ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">
+                                      S&amp;S
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </p>
                           ) : null}
                         </td>

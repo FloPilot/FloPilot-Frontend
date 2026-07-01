@@ -77,8 +77,8 @@ export const WORKSPACE_AREA_OPTIONS: {
   },
   {
     key: "inventory",
-    label: "Inventory",
-    description: "Stock levels and materials",
+    label: "Warehouse",
+    description: "Stock, receiving, and purchase orders",
     moduleKey: "inventory",
   },
   {

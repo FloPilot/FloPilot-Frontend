@@ -15,6 +15,7 @@ import {
   Package,
   SlidersHorizontal,
   Users,
+  Warehouse,
   Wrench,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -50,6 +51,7 @@ export const MACHINES_BASE = "/app/machines";
 export const MACHINES_SETTINGS = "/app/machines/settings";
 export const PRODUCTION_BASE = "/app/production";
 export const ARTWORK_BASE = "/app/artwork";
+export const DESIGNS_BASE = "/app/designs";
 export const FILES_BASE = "/app/files";
 export const FILES_ARTWORK = "/app/files/artwork";
 export const FILES_SCREENS = "/app/files/screens";
@@ -60,6 +62,15 @@ export function isMachinesSection(pathname: string): boolean {
 
 export function isFilesSection(pathname: string): boolean {
   return pathname === FILES_BASE || pathname.startsWith(`${FILES_BASE}/`);
+}
+
+export function isArtworkSection(pathname: string): boolean {
+  return (
+    pathname === ARTWORK_BASE ||
+    pathname.startsWith(`${ARTWORK_BASE}/`) ||
+    pathname === DESIGNS_BASE ||
+    pathname.startsWith(`${DESIGNS_BASE}/`)
+  );
 }
 
 export function shouldExpandNavChildren(
@@ -104,6 +115,7 @@ export const navItems: NavItem[] = [
     icon: FileImage,
     moduleKey: "artwork",
     workspaceArea: "artwork",
+    isActive: isArtworkSection,
   },
   {
     href: FILES_BASE,
@@ -161,7 +173,7 @@ export const navItems: NavItem[] = [
       },
     ],
   },
-  { href: "/app/inventory", label: "Inventory", icon: Package, moduleKey: "inventory", workspaceArea: "inventory" },
+  { href: "/app/inventory", label: "Warehouse", icon: Warehouse, moduleKey: "inventory", workspaceArea: "inventory" },
   { href: "/app/reports", label: "Reports", icon: BarChart3, moduleKey: "reports", workspaceArea: "reports" },
 ];
 

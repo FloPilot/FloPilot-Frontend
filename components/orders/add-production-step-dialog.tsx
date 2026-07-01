@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Loader2 } from "lucide-react";
 import type {
   DecorationType,
   ImprintLocationKey,
@@ -44,9 +45,10 @@ export function AddProductionStepDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onAdd: (job: Job) => void;
+  onAdd: (job: Job) => void | Promise<void>;
 }) {
   const [mode, setMode] = useState<"quick" | "custom">("quick");
+  const [saving, setSaving] = useState(false);
   const [customName, setCustomName] = useState("");
   const [locationKey, setLocationKey] =
     useState<ImprintLocationKey>("front_chest");
@@ -61,16 +63,25 @@ export function AddProductionStepDialog({
     setKind("decoration");
   };
 
+  const submitJob = async (job: Job) => {
+    setSaving(true);
+    try {
+      await onAdd(job);
+      onOpenChange(false);
+      reset();
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleTemplate = (template: ProductionStepTemplate) => {
-    onAdd(buildJobFromTemplate(template));
-    onOpenChange(false);
-    reset();
+    void submitJob(buildJobFromTemplate(template));
   };
 
   const handleCustom = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customName.trim()) return;
-    onAdd(
+    if (!customName.trim() || saving) return;
+    void submitJob(
       buildCustomProductionJob({
         name: customName,
         locationKey,
@@ -78,8 +89,6 @@ export function AddProductionStepDialog({
         kind,
       })
     );
-    onOpenChange(false);
-    reset();
   };
 
   return (
@@ -135,8 +144,9 @@ export function AddProductionStepDialog({
                 <button
                   key={template.id}
                   type="button"
+                  disabled={saving}
                   onClick={() => handleTemplate(template)}
-                  className="rounded-xl border border-border bg-white p-4 text-left hover:border-primary/40 hover:bg-primary/5 transition-colors"
+                  className="rounded-xl border border-border bg-white p-4 text-left hover:border-primary/40 hover:bg-primary/5 transition-colors disabled:opacity-60"
                 >
                   <p className="font-medium text-sm">{template.name}</p>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -242,10 +252,17 @@ export function AddProductionStepDialog({
 
               <Button
                 type="submit"
-                disabled={!customName.trim()}
+                disabled={!customName.trim() || saving}
                 className={cn(dashboardPrimaryButtonClass, "h-11 w-full rounded-full")}
               >
-                Add {eventLabel.toLowerCase()}
+                {saving ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Adding…
+                  </>
+                ) : (
+                  <>Add {eventLabel.toLowerCase()}</>
+                )}
               </Button>
             </form>
           )}

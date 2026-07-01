@@ -98,6 +98,9 @@ export function serializeLineItemForApi(lineItem: LineItem): LineItem {
     productKey: lineItem.productKey,
     colorKey: lineItem.colorKey,
     unitCost: lineItem.unitCost,
+    supplier: lineItem.supplier,
+    supplierPartNumber: lineItem.supplierPartNumber,
+    supplierStyleId: lineItem.supplierStyleId,
     sizes: lineItem.sizes.filter((row) => row.quantity > 0),
   };
 }
@@ -111,13 +114,14 @@ export function verifyLineItemWasApplied(
   if (!match || match.sizes.length === 0) return false;
 
   const previousMatch = previous.find((item) => lineItemsMatch(item, payload));
-  const previousRecord = sizesToRecord(previousMatch?.sizes ?? []);
-  const nextRecord = sizesToRecord(match.sizes);
+  const previousBySize = new Map(
+    (previousMatch?.sizes ?? []).map((row) => [row.size, row.quantity])
+  );
+  const nextBySize = new Map(match.sizes.map((row) => [row.size, row.quantity]));
 
   return payload.sizes.every((row) => {
-    const size = row.size as (typeof NEW_ORDER_SIZES)[number];
-    const expected = (previousRecord[size] || 0) + row.quantity;
-    return nextRecord[size] === expected;
+    const expected = (previousBySize.get(row.size) || 0) + row.quantity;
+    return nextBySize.get(row.size) === expected;
   });
 }
 

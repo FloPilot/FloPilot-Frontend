@@ -124,6 +124,8 @@ export function buildGarmentReceivingLines(
         status: computeMaterialLineStatus(expectedQty, receivedQty),
         notes: existing?.notes,
         updatedAt: existing?.updatedAt,
+        receivedBy: existing?.receivedBy,
+        receivedAt: existing?.receivedAt,
       });
     }
   }
@@ -386,3 +388,67 @@ export function orderHasScreenPrintEvents(order: Order): boolean {
     ({ imprint }) => imprint.decoration === "screen_print"
   );
 }
+
+export function applyGarmentLineReceive(
+  materials: OrderMaterials,
+  lineId: string,
+  receivedQty: number,
+  receivedBy: string
+): OrderMaterials {
+  const now = new Date().toISOString();
+  return {
+    ...materials,
+    updatedAt: now,
+    lines: materials.lines.map((line) => {
+      if (line.id !== lineId || line.kind !== "garments") return line;
+      const qty = Math.min(Math.max(0, receivedQty), line.expectedQty);
+      const status = computeMaterialLineStatus(line.expectedQty, qty);
+      return {
+        ...line,
+        receivedQty: qty,
+        status,
+        receivedBy: qty > 0 ? receivedBy : undefined,
+        receivedAt: qty > 0 ? now : undefined,
+        updatedAt: now,
+      };
+    }),
+  };
+}
+
+export function receiveAllGarmentLines(
+  materials: OrderMaterials,
+  receivedBy: string
+): OrderMaterials {
+  let next = materials;
+  for (const line of getGarmentReceivingLines(materials)) {
+    if (line.status === "received") continue;
+    next = applyGarmentLineReceive(
+      next,
+      line.id,
+      line.expectedQty,
+      receivedBy
+    );
+  }
+  return next;
+}
+
+export const GARMENT_RECEIVE_STATUS_STYLES: Record<
+  MaterialReceiveStatus,
+  { label: string; badge: string; row: string }
+> = {
+  waiting: {
+    label: "Missing",
+    badge: "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f]",
+    row: "bg-[#fff8f8]",
+  },
+  partial: {
+    label: "Partial",
+    badge: "border-[#f0d9a8] bg-[#fff8eb] text-[#8a6116]",
+    row: "bg-[#fffdf5]",
+  },
+  received: {
+    label: "Received",
+    badge: "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]",
+    row: "bg-white",
+  },
+};

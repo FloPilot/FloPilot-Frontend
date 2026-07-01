@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format, parseISO } from "date-fns";
-import { CalendarCheck2, ChevronRight } from "lucide-react";
+import { CalendarCheck2, ChevronRight, Loader2 } from "lucide-react";
 import type { Machine, ScheduleBlock } from "@/types";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { OrderStatusBadge } from "@/components/status-badges";
@@ -50,9 +50,15 @@ import {
   analyzeOrderProductionFlow,
   canScheduleFlowStep,
 } from "@/lib/production-flow";
-import { machineColorStyles } from "@/lib/machine-styles";
+import { applyCalendarEventProductionStatus } from "@/lib/calendar-event-status";
+import {
+  CALENDAR_EVENT_STATUS_OPTIONS,
+  resolveScheduleBlockProductionStatus,
+  type ScheduleBlockProductionStatus,
+} from "@/lib/schedule-block-display";
 import { formatDate } from "@/lib/format";
 import { formatEventXOfY } from "@/lib/terminology";
+import { machineColorStyles } from "@/lib/machine-styles";
 import { cn } from "@/lib/utils";
 
 type ScheduleForm = {
@@ -62,6 +68,7 @@ type ScheduleForm = {
   startTime: string;
   durationHours: number;
   notes: string;
+  customLabel: string;
 };
 
 const defaultForm: ScheduleForm = {
@@ -71,6 +78,7 @@ const defaultForm: ScheduleForm = {
   startTime: "08:00",
   durationHours: 4,
   notes: "",
+  customLabel: "",
 };
 
 interface ScheduleJobDialogProps {
@@ -96,9 +104,15 @@ export function ScheduleJobDialog({
     machines,
     activeOrders: orders,
     activeScheduleBlocks: scheduleBlocks,
+    jobRuns,
     addScheduleBlock,
     updateScheduleBlock,
     removeScheduleBlock,
+    getJobRun,
+    updateProductionEventWorkflow,
+    startJobRun,
+    resumeJobRun,
+    finishJobRun,
   } = useSchedule();
   const router = useRouter();
   const orderScopeId = editingBlock?.orderId ?? filterOrderId;
@@ -158,6 +172,10 @@ export function ScheduleJobDialog({
 
   const [form, setForm] = useState<ScheduleForm>(defaultForm);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [productionStatus, setProductionStatus] =
+    useState<ScheduleBlockProductionStatus>("scheduled");
 
   useEffect(() => {
     if (!open) return;
@@ -178,7 +196,11 @@ export function ScheduleJobDialog({
         startTime: format(start, "HH:mm"),
         durationHours: Math.max(1, Math.round(durationMs / (1000 * 60 * 60))),
         notes: editingBlock.notes ?? "",
+        customLabel: editingBlock.customLabel ?? "",
       });
+      setProductionStatus(
+        resolveScheduleBlockProductionStatus(editingBlock, jobRuns, orders)
+      );
       return;
     }
 
@@ -195,6 +217,8 @@ export function ScheduleJobDialog({
     prefillDate,
     singleScopedJobKey,
     firstActiveMachineId,
+    jobRuns,
+    orders,
   ]);
 
   const selectedJob = schedulableJobOptions.find(
@@ -233,6 +257,13 @@ export function ScheduleJobDialog({
       scheduleBlocks
     );
   }, [selectedOrder, selectedJob, scheduleBlocks, editingBlock]);
+
+  useEffect(() => {
+    if (!open || !editingBlock) return;
+    setProductionStatus(
+      resolveScheduleBlockProductionStatus(editingBlock, jobRuns, orders)
+    );
+  }, [open, editingBlock, jobRuns, orders]);
 
   useEffect(() => {
     if (!open || !selectedMachine) return;
@@ -280,10 +311,11 @@ export function ScheduleJobDialog({
       endAt: clamped.endAt,
       pieceCount: selectedJob.pieceCount,
       notes: form.notes || undefined,
+      customLabel: form.customLabel.trim() || undefined,
     };
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setScheduleError(null);
     const block = buildBlock();
@@ -309,19 +341,70 @@ export function ScheduleJobDialog({
       }
     }
 
-    if (editingBlock) {
-      updateScheduleBlock(editingBlock.id, block);
-    } else {
-      addScheduleBlock(block);
+    setSubmitting(true);
+    try {
+      if (editingBlock) {
+        await updateScheduleBlock(editingBlock.id, block);
+      } else {
+        await addScheduleBlock(block);
+      }
+      onOpenChange(false);
+    } catch (err) {
+      setScheduleError(
+        err instanceof Error ? err.message : "Could not save this schedule."
+      );
+    } finally {
+      setSubmitting(false);
     }
-    onOpenChange(false);
   };
 
-  const handleDelete = () => {
-    if (editingBlock) {
-      removeScheduleBlock(editingBlock.id);
+  const handleDelete = async () => {
+    if (!editingBlock) return;
+
+    setSubmitting(true);
+    try {
+      await removeScheduleBlock(editingBlock.id);
       onOpenChange(false);
+    } catch (err) {
+      setScheduleError(
+        err instanceof Error ? err.message : "Could not remove this schedule."
+      );
+    } finally {
+      setSubmitting(false);
     }
+  };
+
+  const handleProductionStatusChange = async (
+    status: ScheduleBlockProductionStatus
+  ) => {
+    if (!editingBlock || status === productionStatus) return;
+
+    setStatusSaving(true);
+    setScheduleError(null);
+    try {
+      await applyCalendarEventProductionStatus({
+        block: editingBlock,
+        status,
+        getJobRun,
+        updateProductionEventWorkflow,
+        startJobRun,
+        resumeJobRun,
+        finishJobRun,
+      });
+      setProductionStatus(status);
+    } catch (err) {
+      setScheduleError(
+        err instanceof Error ? err.message : "Could not update event status."
+      );
+    } finally {
+      setStatusSaving(false);
+    }
+  };
+
+  const statusBadgeClass: Record<ScheduleBlockProductionStatus, string> = {
+    scheduled: "bg-[#ebf4ff] text-[#2c6ecb]",
+    in_progress: "bg-[#fff5ea] text-[#b98900]",
+    completed: "bg-[#e3f1df] text-[#108043]",
   };
 
   const accent = selectedJob
@@ -356,12 +439,30 @@ export function ScheduleJobDialog({
       >
         <form onSubmit={handleSubmit}>
           <DialogHeader className="border-b border-[#ebebeb] bg-[#fafafa] px-5 py-4">
-            <DialogTitle className={dashboardTaskTitleClass}>
-              {editingBlock ? "Edit schedule" : "Schedule on calendar"}
-            </DialogTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <DialogTitle className={dashboardTaskTitleClass}>
+                {editingBlock ? "Event details" : "Schedule on calendar"}
+              </DialogTitle>
+              {editingBlock ? (
+                <span
+                  className={cn(
+                    "rounded-sm px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                    statusBadgeClass[productionStatus]
+                  )}
+                >
+                  {CALENDAR_EVENT_STATUS_OPTIONS.find(
+                    (option) => option.value === productionStatus
+                  )?.label ?? productionStatus}
+                </span>
+              ) : null}
+              {statusSaving ? (
+                <Loader2 className="size-4 animate-spin text-[#616161]" />
+              ) : null}
+            </div>
             <DialogDescription className={dashboardTaskDetailClass}>
-              Pick a machine and time for this production event. You can schedule
-              events in any order.
+              {editingBlock
+                ? "Update the event name, production status, machine, and time."
+                : "Pick a machine and time for this production event. You can schedule events in any order."}
             </DialogDescription>
           </DialogHeader>
 
@@ -470,6 +571,62 @@ export function ScheduleJobDialog({
             {!flowGate.ok && (
               <div className="rounded-lg border border-[#f0d9a8] bg-[#fff8eb] px-4 py-3 text-[13px] text-[#8a6116]">
                 {flowGate.reason}
+              </div>
+            )}
+
+            {(editingBlock || selectedJob) && (
+              <div className="space-y-1.5">
+                <Label htmlFor="sched-custom-label" className={labelClass}>
+                  Custom event name
+                </Label>
+                <Input
+                  id="sched-custom-label"
+                  value={form.customLabel}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, customLabel: e.target.value }))
+                  }
+                  placeholder='e.g. LEGENDS SPIRIT OF DRIVING FLC'
+                  className="h-10 rounded-lg border-[#e3e3e3] text-[13px]"
+                />
+                <p className="text-[12px] text-[#616161]">
+                  Shows on the calendar as{" "}
+                  <span className="font-medium text-[#303030]">
+                    {selectedJob?.orderNumber ?? editingBlock?.orderNumber}
+                    {form.customLabel.trim()
+                      ? ` — ${form.customLabel.trim()}`
+                      : ""}
+                  </span>
+                </p>
+              </div>
+            )}
+
+            {editingBlock && (
+              <div className={cn(dashboardInsetSurfaceClass, "overflow-hidden")}>
+                <div className="border-b border-[#ebebeb] bg-[#fafafa] px-4 py-2.5">
+                  <p className={labelClass}>Production status</p>
+                </div>
+                <div className="grid gap-2 p-3 sm:grid-cols-3">
+                  {CALENDAR_EVENT_STATUS_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      disabled={statusSaving || submitting}
+                      onClick={() => void handleProductionStatusChange(option.value)}
+                      className={cn(
+                        "rounded-lg border border-[#e3e3e3] bg-white px-3 py-2.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60",
+                        productionStatus === option.value &&
+                          "border-[#2c6ecb] bg-[#f0f5ff]"
+                      )}
+                    >
+                      <p className="text-[13px] font-semibold text-[#303030]">
+                        {option.label}
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-snug text-[#616161]">
+                        {option.hint}
+                      </p>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -706,8 +863,9 @@ export function ScheduleJobDialog({
             {editingBlock ? (
               <button
                 type="button"
-                className="inline-flex h-9 items-center rounded-lg border border-[#f5b5b5] bg-white px-4 text-[13px] font-medium text-[#8f1f1f] transition-colors hover:bg-[#fff1f1]"
-                onClick={handleDelete}
+                className="inline-flex h-9 items-center rounded-lg border border-[#f5b5b5] bg-white px-4 text-[13px] font-medium text-[#8f1f1f] transition-colors hover:bg-[#fff1f1] disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => void handleDelete()}
+                disabled={submitting}
               >
                 Remove
               </button>
@@ -719,18 +877,27 @@ export function ScheduleJobDialog({
                 type="button"
                 className={dashboardControlClass}
                 onClick={() => onOpenChange(false)}
+                disabled={submitting}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={!form.jobKey || !form.machineId || !flowGate.ok}
+                disabled={
+                  submitting || !form.jobKey || !form.machineId || !flowGate.ok
+                }
                 className={cn(
                   dashboardPrimaryButtonClass,
                   "disabled:cursor-not-allowed disabled:opacity-50"
                 )}
               >
-                {editingBlock ? "Update" : "Schedule"}
+                {submitting
+                  ? editingBlock
+                    ? "Updating…"
+                    : "Scheduling…"
+                  : editingBlock
+                    ? "Update"
+                    : "Schedule"}
               </button>
             </div>
           </div>

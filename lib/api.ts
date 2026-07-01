@@ -1,3 +1,4 @@
+import { supplierStyleRef } from "@/lib/supplier-integrations";
 import type { PlatformTeamMember } from "@/lib/platform-team";
 import type { NewCustomerInput } from "@/lib/customers";
 import type { NewOrderFormInput } from "@/lib/create-order";
@@ -152,7 +153,104 @@ export async function updateTenantSettings(
     method: "PATCH",
     body: patch,
     token,
-  }  );
+  });
+}
+
+// ─── Supplier integrations ───────────────────────────────────────────────────
+
+export async function fetchSupplierIntegrations(token: string) {
+  return callApi<{ integrations: import("@/lib/supplier-integrations").SupplierIntegration[] }>(
+    "getSupplierIntegrations",
+    { token }
+  );
+}
+
+export async function connectSsActivewearIntegration(
+  token: string,
+  payload: { accountNumber: string; apiKey: string }
+) {
+  return callApi<{ integration: import("@/lib/supplier-integrations").SupplierIntegration }>(
+    "connectSsActivewearIntegration",
+    {
+      method: "POST",
+      body: payload,
+      token,
+    }
+  );
+}
+
+export async function disconnectSupplierIntegration(
+  token: string,
+  provider: import("@/lib/supplier-integrations").SupplierProviderId
+) {
+  return callApi<{ integration: import("@/lib/supplier-integrations").SupplierIntegration }>(
+    "disconnectSupplierIntegration",
+    {
+      method: "POST",
+      body: { provider },
+      token,
+    }
+  );
+}
+
+export async function searchSupplierCatalog(
+  token: string,
+  query: string,
+  options: {
+    provider?: import("@/lib/supplier-integrations").SupplierProviderId;
+    brand?: string;
+    limit?: number;
+  } = {}
+) {
+  const provider = options.provider ?? "ssActivewear";
+  return callApi<{
+    provider: string;
+    query: string;
+    brand: string | null;
+    results: import("@/lib/supplier-integrations").SupplierStyleSummary[];
+  }>("searchSupplierCatalog", {
+    token,
+    query: {
+      provider,
+      q: query,
+      brand: options.brand || undefined,
+      limit: options.limit != null ? String(options.limit) : undefined,
+    },
+  });
+}
+
+export async function fetchSupplierBrands(
+  token: string,
+  provider: import("@/lib/supplier-integrations").SupplierProviderId = "ssActivewear"
+) {
+  return callApi<{
+    provider: string;
+    brands: import("@/lib/supplier-integrations").SupplierBrand[];
+  }>("listSupplierBrands", {
+    token,
+    query: { provider },
+  });
+}
+
+export async function fetchSupplierStyleDetail(
+  token: string,
+  style: import("@/lib/supplier-integrations").SupplierStyleSummary,
+  provider: import("@/lib/supplier-integrations").SupplierProviderId = "ssActivewear"
+) {
+  return callApi<{
+    provider: string;
+    style: import("@/lib/supplier-integrations").SupplierStyleDetail;
+  }>("getSupplierStyleDetail", {
+    token,
+    query: {
+      provider,
+      styleRef: supplierStyleRef(style),
+      styleId: style.styleId != null ? String(style.styleId) : undefined,
+      brandName: style.brandName || undefined,
+      styleName: style.styleName || undefined,
+      partNumber: style.partNumber || undefined,
+    },
+  });
 }
 
 // ─── Team ───────────────────────────────────────────────────────────────────
@@ -398,6 +496,7 @@ export type CustomerUpdate = Partial<NewCustomerInput> & {
   logoUrl?: string | null;
   /** Production accent color key; null clears to auto */
   accentColorKey?: string | null;
+  shippingLocations?: import("@/types").CustomerShippingLocation[];
 };
 
 export async function updateCustomer(
@@ -625,6 +724,9 @@ export async function addOrderLineItem(
             productKey: lineItem.productKey,
             colorKey: lineItem.colorKey,
             unitCost: lineItem.unitCost,
+            supplier: lineItem.supplier,
+            supplierPartNumber: lineItem.supplierPartNumber,
+            supplierStyleId: lineItem.supplierStyleId,
             sizes: lineItem.sizes.filter((row) => row.quantity > 0),
           },
         }
@@ -744,6 +846,32 @@ export async function listDesigns(
   });
 }
 
+export async function getDesign(token: string, designId: string) {
+  return callApi<{ design: import("@/types").SavedDesign }>("getDesign", {
+    token,
+    query: { designId },
+  });
+}
+
+export async function restoreDesignVersion(
+  token: string,
+  body: { designId: string; versionId: string; author?: string }
+) {
+  return callApi<{ design: import("@/types").SavedDesign }>(
+    "restoreDesignVersion",
+    { method: "POST", body, token }
+  );
+}
+
+export async function backfillDesignLibrary(token: string) {
+  return callApi<{
+    result: { designsSynced: number; ordersTouched: number };
+  }>("backfillDesignLibrary", {
+    method: "POST",
+    token,
+  });
+}
+
 export async function createDesignFromImprint(
   token: string,
   body: {
@@ -815,11 +943,14 @@ export async function sendProofToCustomer(
   jobId: string,
   imprintId: string
 ) {
-  return callApi<{ order: Order }>("sendProofToCustomer", {
-    method: "POST",
-    body: { orderId, jobId, imprintId },
-    token,
-  });
+  return callApi<{ order: Order; email: { sent: boolean; to: string } }>(
+    "sendProofToCustomer",
+    {
+      method: "POST",
+      body: { orderId, jobId, imprintId },
+      token,
+    }
+  );
 }
 
 export async function sendProofsAndEstimate(token: string, orderId: string) {
@@ -831,6 +962,22 @@ export async function sendProofsAndEstimate(token: string, orderId: string) {
       token,
     }
   );
+}
+
+export async function getOrderCustomerPortalLink(
+  token: string,
+  orderId: string
+) {
+  return callApi<{
+    portalToken: string;
+    portalHomeUrl: string;
+    portalOrderUrl: string;
+    customer: { name: string; email: string | null };
+  }>("getOrderCustomerPortalLink", {
+    method: "POST",
+    token,
+    body: { orderId },
+  });
 }
 
 export type OrderDocumentScope = "all" | "estimate" | "proofs";
@@ -1134,6 +1281,14 @@ export async function deletePurchaseOrder(
 export type ManualTaskStatus = "todo" | "in_progress" | "blocked" | "done";
 export type ManualTaskPriority = "low" | "normal" | "high" | "urgent";
 
+export type ManualTaskComment = {
+  id: string;
+  body: string;
+  authorId: string | null;
+  authorName: string;
+  createdAt: string;
+};
+
 export type ManualTask = {
   id: string;
   title: string;
@@ -1143,6 +1298,7 @@ export type ManualTask = {
   assigneeId: string | null;
   assigneeName: string;
   dueDate: string | null;
+  comments: ManualTaskComment[];
   createdAt: string;
   updatedAt: string;
   createdById: string | null;
@@ -1187,6 +1343,18 @@ export async function updateTask(
   return callApi<{ task: ManualTask }>("updateTask", {
     method: "PATCH",
     body: { taskId, ...updates },
+    token,
+  });
+}
+
+export async function addTaskComment(
+  token: string,
+  taskId: string,
+  body: string
+) {
+  return callApi<{ task: ManualTask }>("addTaskComment", {
+    method: "POST",
+    body: { taskId, body },
     token,
   });
 }

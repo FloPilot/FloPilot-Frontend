@@ -196,7 +196,7 @@ const KIND_LABEL: Record<
   rush: "Rush",
   overdue: "Overdue",
   ready_to_ship: "Ship",
-  inventory: "Inventory",
+  inventory: "Warehouse",
   production: "Floor",
   production_event: "Event",
 };

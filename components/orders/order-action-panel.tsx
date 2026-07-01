@@ -40,7 +40,7 @@ import type { Order } from "@/types";
 import { cn } from "@/lib/utils";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { DecorationTypePill } from "@/components/orders/decoration-type-pill";
-import { CustomerPreviewTrigger } from "@/components/orders/customer-review-preview-modal";
+import { CustomerPortalActions } from "@/components/orders/customer-review-preview-modal";
 
 export function OrderActionPanel({
   order,
@@ -124,18 +124,22 @@ export function OrderActionPanel({
 
         <div className="border-b border-[#ebebeb] px-4 py-4">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-            Customer preview
+            Customer portal
           </p>
           <p className={cn("mt-1.5", dashboardTaskDetailClass)}>
-            See the estimate and proof review experience before you email the
-            customer.
+            Preview the customer portal in a new tab, or copy the link to send
+            manually.
           </p>
-          <CustomerPreviewTrigger
+          <CustomerPortalActions
             orderId={order.id}
-            orderNumber={order.number}
-            className={cn(
+            className="mt-3"
+            previewClassName={cn(
               dashboardElevatedShadow,
-              "mt-3 inline-flex h-10 w-full items-center justify-start gap-2 rounded-lg border-0 bg-brand-primary px-3 text-[13px] font-semibold text-white transition-colors hover:bg-brand-primary/90"
+              "inline-flex h-10 w-full items-center justify-start gap-2 rounded-lg border-0 bg-brand-primary px-3 text-[13px] font-semibold text-white transition-colors hover:bg-brand-primary/90 disabled:opacity-60"
+            )}
+            copyClassName={cn(
+              dashboardControlClass,
+              "inline-flex h-10 w-full items-center justify-start gap-2 px-3 text-[13px] font-medium text-[#303030] hover:border-brand-ink/20 hover:bg-brand-ink/[0.03] disabled:opacity-60"
             )}
           />
         </div>

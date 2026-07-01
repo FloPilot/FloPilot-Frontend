@@ -79,8 +79,18 @@ export function OrderArtworkApprovalPanel({
     imprintId: string,
     label: string
   ) => {
-    await sendProofToCustomer(order.id, jobId, imprintId);
-    showToast(`Proof logged for ${label}.`);
+    try {
+      const email = await sendProofToCustomer(order.id, jobId, imprintId);
+      showToast(`Proof emailed to ${email.to} (${label}).`);
+    } catch (err) {
+      showToast(
+        err instanceof Error
+          ? err.message
+          : "Could not send the email. Please try again.",
+        "error"
+      );
+      throw err;
+    }
   };
 
   // Emails the customer the combined proofs + estimate PDF with approve links.
@@ -271,10 +281,10 @@ export function OrderArtworkApprovalPanel({
 
           {summary.needsCustomerReview && !summary.allApproved ? (
             <div className="rounded-lg border border-[#c4d7f2] bg-[#f4f7fd] px-3.5 py-3 text-[13px] text-[#303030]">
-              Send proofs + estimate to email {order.customerName.split(" ")[0]}{" "}
-              a branded PDF with approve buttons for the estimate and each
-              design. They can approve right from the email or reply with
-              changes.
+              Use <strong>Send proof</strong> on each location to email one
+              proof at a time, or <strong>Send proofs + estimate</strong> for
+              the full review package. Customers open their customer portal from
+              either email.
             </div>
           ) : null}
 

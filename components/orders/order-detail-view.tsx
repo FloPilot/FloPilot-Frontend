@@ -9,6 +9,7 @@ import { OrderDesignTab } from "@/components/orders/order-design-tab";
 import { OrderArtworkApprovalPanel } from "@/components/orders/order-artwork-approval-panel";
 import { OrderFilesTab } from "@/components/orders/order-files-tab";
 import { OrderEstimateTab } from "@/components/orders/order-estimate-tab";
+import { OrderShippingTab } from "@/components/orders/order-shipping-tab";
 import { OrderActivityFeed } from "@/components/orders/order-activity-feed";
 import { OrderActionPanel } from "@/components/orders/order-action-panel";
 import {
@@ -46,7 +47,7 @@ import type { OrderActionId } from "@/lib/order-detail-actions";
 import { defaultReceivingTab } from "@/lib/order-detail-tabs";
 import { getArtworkApprovalSummary } from "@/lib/order-health";
 import { getOrderProductionSteps, type ProductionStep } from "@/lib/order-production";
-import type { ScheduleBlock } from "@/types";
+import type { ScheduleBlock, Job } from "@/types";
 import { cn } from "@/lib/utils";
 
 type CustomerSection = "messages" | "payment" | "notes";
@@ -243,6 +244,18 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
   const openFiles = (jobId: string, imprintId: string) => {
     setFilesFocus({ jobId, imprintId });
     setActiveTab("files");
+  };
+
+  const handleAddProductionJob = async (job: Job) => {
+    try {
+      await addProductionJob(orderId, job);
+      setActiveTab("events");
+    } catch (err) {
+      showActionToast(
+        err instanceof Error ? err.message : "Could not add event. Please try again.",
+        "error"
+      );
+    }
   };
 
   const handlePanelAction = async (actionId: OrderActionId) => {
@@ -492,6 +505,8 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
             </div>
           ) : null}
 
+          {activeTab === "shipping" ? <OrderShippingTab order={order} /> : null}
+
           {activeTab === "activity" ? (
             <section className={dashboardCardClass}>
               <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
@@ -524,7 +539,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       <AddProductionStepDialog
         open={addStepOpen}
         onOpenChange={setAddStepOpen}
-        onAdd={(job) => addProductionJob(orderId, job)}
+        onAdd={handleAddProductionJob}
       />
 
       <ScheduleJobDialog

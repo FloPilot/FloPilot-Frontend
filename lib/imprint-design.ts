@@ -129,6 +129,53 @@ export function countPrintColors(inkColors?: ImprintInkColor[]): number {
   );
 }
 
+export function parsePrintDimensions(dimensions?: string): {
+  width?: number;
+  height?: number;
+} {
+  const trimmed = dimensions?.trim();
+  if (!trimmed) return {};
+
+  const match =
+    trimmed.match(
+      /(\d+(?:\.\d+)?)\s*(?:["']|in(?:ch(?:es)?)?)?\s*(?:w|wide)?\s*[x×]\s*(\d+(?:\.\d+)?)/i
+    ) ?? trimmed.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
+
+  if (!match) return {};
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return {};
+  }
+
+  return { width, height };
+}
+
+export function formatPrintDimensions(
+  width?: number,
+  height?: number
+): string | undefined {
+  if (width == null || height == null) return undefined;
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return undefined;
+  }
+
+  const roundedWidth = Math.round(width * 10) / 10;
+  const roundedHeight = Math.round(height * 10) / 10;
+  return `${roundedWidth} × ${roundedHeight}`;
+}
+
 export function normalizeInkColorsForSave(
   inkColors: ImprintInkColor[],
   decoration: DecorationType = "screen_print"

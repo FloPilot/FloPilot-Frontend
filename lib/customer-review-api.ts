@@ -73,6 +73,8 @@ export type CustomerReviewSession = {
   };
   proofs?: ReviewProof[];
   messages?: ReviewMessage[];
+  portalHomeUrl?: string;
+  portalOrderUrl?: string;
 };
 
 async function reviewFetch<T>(

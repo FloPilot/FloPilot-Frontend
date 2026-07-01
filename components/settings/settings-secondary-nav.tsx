@@ -101,7 +101,7 @@ const GROUPS: SettingsNavGroup[] = [
         href: "/app/settings/integrations",
         label: "Suppliers",
         icon: Plug,
-        badge: "Soon",
+        badge: "Partial",
       },
     ],
   },

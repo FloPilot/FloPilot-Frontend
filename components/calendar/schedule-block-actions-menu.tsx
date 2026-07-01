@@ -80,7 +80,7 @@ export function ScheduleBlockActionsMenu({
   return (
     <>
       <div
-        className={cn("min-w-0 overflow-hidden", className)}
+        className={cn("flex h-full min-h-0 min-w-0 flex-col overflow-hidden", className)}
         style={style}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -92,7 +92,7 @@ export function ScheduleBlockActionsMenu({
         <button
           type="button"
           aria-label="Event actions"
-          className="absolute top-0.5 right-0.5 z-30 flex size-5 items-center justify-center rounded bg-white/95 text-brand-muted shadow-sm border border-border/60 opacity-80 hover:opacity-100 sm:opacity-0 sm:group-hover/block:opacity-100 hover:text-brand-ink hover:bg-white transition-opacity"
+          className="absolute top-1.5 right-1 z-30 flex size-5 items-center justify-center rounded bg-white/95 text-brand-muted shadow-sm border border-border/60 opacity-80 hover:opacity-100 sm:opacity-0 sm:group-hover/block:opacity-100 hover:text-brand-ink hover:bg-white transition-opacity"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.preventDefault();

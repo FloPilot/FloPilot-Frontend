@@ -13,6 +13,7 @@ import {
   FileImage,
   Globe,
   Package,
+  Warehouse,
   Wrench,
 } from "lucide-react";
 
@@ -255,10 +256,10 @@ export type ShopModuleDefinition = {
 export const SHOP_MODULE_DEFINITIONS: ShopModuleDefinition[] = [
   {
     key: "inventory",
-    label: "Inventory",
+    label: "Warehouse",
     description:
-      "Track blanks, consumables, and low-stock alerts on the dashboard.",
-    icon: Package,
+      "Stock levels, blank receiving, and purchase orders for the shop.",
+    icon: Warehouse,
     href: "/app/inventory",
     group: "operations",
   },

@@ -1,7 +1,9 @@
 import { addDays, format } from "date-fns";
+import { computeEstimateTotals } from "@/lib/order-estimate";
 import { IMPRINT_LOCATION_LABELS } from "@/lib/job-imprints";
 import { buildCustomProductionJob } from "@/lib/order-production";
 import { buildLineItemFromCatalog, createLineItemId } from "@/lib/line-items";
+import type { PricingMatrix } from "@/lib/shop-settings";
 import type {
   BlankSource,
   Customer,
@@ -64,11 +66,12 @@ export function createEmptyNewOrderLineItem(): NewOrderLineItemInput {
 
 export const NEW_ORDER_STEPS = [
   { id: 1, title: "Customer" },
-  { id: 2, title: "Blanks" },
+  { id: 2, title: "Blanks/garments" },
   { id: 3, title: "Events" },
   { id: 4, title: "Mockups" },
-  { id: 5, title: "Shipping" },
 ] as const;
+
+export const NEW_ORDER_STEP_COUNT = NEW_ORDER_STEPS.length;
 
 export const NEW_ORDER_PRODUCTS = [
   {
@@ -201,11 +204,17 @@ export function validateNewOrderStep(
     }
     case 4:
       return null;
-    case 5:
-      return form.inHandsDate ? null : "Choose an in-hands date.";
     default:
       return null;
   }
+}
+
+export function validateNewOrderForm(form: NewOrderFormInput): string | null {
+  for (let step = 1; step <= NEW_ORDER_STEP_COUNT; step += 1) {
+    const error = validateNewOrderStep(step, form);
+    if (error) return error;
+  }
+  return null;
 }
 
 export function generateOrderNumber(existingNumbers: string[]): string {
@@ -236,8 +245,126 @@ export function estimateOrderTotals(pieceCount: number) {
   };
 }
 
-export function previewOrderTotals(form: NewOrderFormInput) {
-  return estimateOrderTotals(countOrderFormPieces(form));
+function buildOrderLineItemsAndJobs(
+  form: NewOrderFormInput,
+  orderNumber: string,
+  suffix: string
+) {
+  const pieceCount = countOrderFormPieces(form);
+  const hasProducts = pieceCount > 0;
+
+  const draftToFinalId = new Map(
+    form.lineItems.map((item) => [item.id, resolveLineItemId(item, suffix)])
+  );
+
+  const lineItems = activeLineItems(form).map((item) => {
+    const built = buildLineItemFromCatalog(
+      item.productKey,
+      item.colorKey,
+      item.sizes,
+      resolveLineItemId(item, suffix)
+    );
+    return {
+      ...built,
+      unitCost: item.unitCost,
+    };
+  });
+
+  const lineItemIdSet = new Set(lineItems.map((item) => item.id));
+  const jobNames = formatAutoEventNameList(orderNumber, form.jobs);
+  const now = new Date().toISOString();
+
+  const jobs = form.jobs.map((jobInput, index) => {
+    const eventName =
+      jobNames[index] ?? formatAutoEventName(orderNumber, jobInput.locationKey);
+    const built = buildCustomProductionJob({
+      name: eventName,
+      locationKey: jobInput.locationKey,
+      decoration:
+        jobInput.kind === "finishing" ? "finishing" : jobInput.decorationType,
+      kind: jobInput.kind,
+    });
+
+    if (jobInput.kind !== "finishing" && hasProducts) {
+      const linkedIds = (jobInput.lineItemIds ?? [])
+        .map((id) => draftToFinalId.get(id) ?? id)
+        .filter((id) => lineItemIdSet.has(id));
+      built.lineItemIds =
+        linkedIds.length > 0 ? linkedIds : lineItems.map((item) => item.id);
+    }
+
+    if (built.imprints[0] && jobInput.kind !== "finishing") {
+      if (jobInput.mockupFile) {
+        built.imprints[0].artwork = {
+          id: `art-${suffix}-${index}`,
+          name: eventName,
+          version: 1,
+          status: "pending",
+          uploadedAt: now,
+          uploadedBy: "Shop",
+          kind: "mockup",
+          previewUrl: jobInput.mockupFile.previewUrl,
+        };
+      } else {
+        built.imprints[0].artwork = {
+          id: `art-${suffix}-${index}`,
+          name: "No mockup attached",
+          version: 1,
+          status: "pending",
+          uploadedAt: now,
+          uploadedBy: "Shop",
+          kind: "mockup",
+        };
+      }
+    }
+
+    return built;
+  });
+
+  return { lineItems, jobs, pieceCount, hasProducts, jobNames, draftToFinalId };
+}
+
+export function previewOrderTotals(
+  form: NewOrderFormInput,
+  options: {
+    previewOrderNumber: string;
+    taxRate: number;
+    pricingMatrix?: PricingMatrix;
+  }
+) {
+  const { lineItems, jobs } = buildOrderLineItemsAndJobs(
+    form,
+    options.previewOrderNumber,
+    "preview"
+  );
+
+  const previewOrder: Order = {
+    id: "preview",
+    number: options.previewOrderNumber,
+    type: "sales_order",
+    status: "draft",
+    customerId: form.customerId,
+    customerName: "",
+    company: "",
+    createdAt: new Date().toISOString(),
+    inHandsDate: form.inHandsDate,
+    subtotal: 0,
+    tax: 0,
+    total: 0,
+    paid: 0,
+    balance: 0,
+    rush: form.rush,
+    lineItems,
+    jobs,
+    shipments: [],
+    messages: [],
+  };
+
+  return computeEstimateTotals(
+    previewOrder,
+    options.taxRate,
+    options.pricingMatrix
+  );
 }
 
 export function compactOrderNumberForLabel(orderNumber: string): string {
@@ -294,84 +421,48 @@ function resolveLineItemId(item: NewOrderLineItemInput, suffix: string): string 
 export function buildOrderFromForm(
   form: NewOrderFormInput,
   customer: Customer,
-  existingNumbers: string[]
+  existingNumbers: string[],
+  options?: {
+    taxRate?: number;
+    pricingMatrix?: PricingMatrix;
+  }
 ): Order {
   const shipping =
     SHIPPING_METHODS.find((item) => item.key === form.shippingMethod) ??
     SHIPPING_METHODS[0];
 
   const suffix = String(Date.now());
-  const pieceCount = countOrderFormPieces(form);
-  const hasProducts = pieceCount > 0;
-  const { subtotal, tax, total } = estimateOrderTotals(pieceCount);
-  const now = new Date().toISOString();
   const number = generateOrderNumber(existingNumbers);
+  const { lineItems, jobs, pieceCount, hasProducts, jobNames, draftToFinalId } =
+    buildOrderLineItemsAndJobs(form, number, suffix);
+  const now = new Date().toISOString();
 
-  const draftToFinalId = new Map(
-    form.lineItems.map((item) => [item.id, resolveLineItemId(item, suffix)])
+  const financials = computeEstimateTotals(
+    {
+      id: `ord-${suffix}`,
+      number,
+      type: "sales_order",
+      status: "draft",
+      customerId: customer.id,
+      customerName: customer.name,
+      company: customer.company,
+      createdAt: now,
+      inHandsDate: form.inHandsDate,
+      subtotal: 0,
+      tax: 0,
+      total: 0,
+      paid: 0,
+      balance: 0,
+      rush: form.rush,
+      lineItems,
+      jobs,
+      shipments: [],
+      messages: [],
+    },
+    options?.taxRate ?? 0.08,
+    options?.pricingMatrix
   );
-
-  const lineItems = activeLineItems(form).map((item) => {
-    const built = buildLineItemFromCatalog(
-      item.productKey,
-      item.colorKey,
-      item.sizes,
-      resolveLineItemId(item, suffix)
-    );
-    return {
-      ...built,
-      unitCost: item.unitCost,
-    };
-  });
-
-  const lineItemIdSet = new Set(lineItems.map((item) => item.id));
-  const jobNames = formatAutoEventNameList(number, form.jobs);
-
-  const jobs = form.jobs.map((jobInput, index) => {
-    const eventName = jobNames[index] ?? formatAutoEventName(number, jobInput.locationKey);
-    const built = buildCustomProductionJob({
-      name: eventName,
-      locationKey: jobInput.locationKey,
-      decoration:
-        jobInput.kind === "finishing" ? "finishing" : jobInput.decorationType,
-      kind: jobInput.kind,
-    });
-
-    if (jobInput.kind !== "finishing" && hasProducts) {
-      const linkedIds = (jobInput.lineItemIds ?? [])
-        .map((id) => draftToFinalId.get(id) ?? id)
-        .filter((id) => lineItemIdSet.has(id));
-      built.lineItemIds =
-        linkedIds.length > 0 ? linkedIds : lineItems.map((item) => item.id);
-    }
-
-    if (built.imprints[0] && jobInput.kind !== "finishing") {
-      if (jobInput.mockupFile) {
-        built.imprints[0].artwork = {
-          id: `art-${suffix}-${index}`,
-          name: eventName,
-          version: 1,
-          status: "pending",
-          uploadedAt: now,
-          uploadedBy: "Shop",
-          kind: "mockup",
-          previewUrl: jobInput.mockupFile.previewUrl,
-        };
-      } else {
-        built.imprints[0].artwork = {
-          id: `art-${suffix}-${index}`,
-          name: "No mockup attached",
-          version: 1,
-          status: "pending",
-          uploadedAt: now,
-          uploadedBy: "Shop",
-          kind: "mockup",
-        };
-      }
-    }
-
-    return built;
-  });
+  const { subtotal, tax, total } = financials;
 
   const internalNotes = [];
   form.jobs.forEach((jobInput, index) => {

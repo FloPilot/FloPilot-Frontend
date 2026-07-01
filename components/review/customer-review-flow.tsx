@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   CheckCircle2,
@@ -10,6 +11,7 @@ import {
   MessageSquare,
   RefreshCw,
 } from "lucide-react";
+import Link from "next/link";
 import {
   fetchCustomerReview,
   reactivateReviewUrl,
@@ -17,6 +19,11 @@ import {
   type CustomerReviewSession,
   type ReviewProof,
 } from "@/lib/customer-review-api";
+import {
+  fetchCustomerPortalOrder,
+  reactivatePortalUrl,
+  submitCustomerPortalAction,
+} from "@/lib/customer-portal-api";
 import { decorationLabel } from "@/lib/format";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -44,20 +51,32 @@ function stepStatus(step: Step, session: CustomerReviewSession): "approved" | "r
 
 export function CustomerReviewFlow({
   token,
+  portalToken,
+  orderId,
   initialSession = null,
   mode = "customer",
   embedded = false,
+  hideHeader = false,
+  onSessionChange,
 }: {
   token?: string;
+  portalToken?: string;
+  orderId?: string;
   initialSession?: CustomerReviewSession | null;
   mode?: "customer" | "preview";
   embedded?: boolean;
+  hideHeader?: boolean;
+  onSessionChange?: (session: CustomerReviewSession) => void;
 }) {
   const isPreview = mode === "preview";
+  const isPortal = Boolean(portalToken && orderId);
+  const searchParams = useSearchParams();
   const [session, setSession] = useState<CustomerReviewSession | null>(
     initialSession
   );
-  const [loading, setLoading] = useState(!initialSession && !!token);
+  const [loading, setLoading] = useState(
+    !initialSession && Boolean(token || (portalToken && orderId))
+  );
   const [error, setError] = useState<string | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [messageDraft, setMessageDraft] = useState("");
@@ -67,6 +86,22 @@ export function CustomerReviewFlow({
   const [actionToast, setActionToast] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (isPortal && portalToken && orderId) {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await fetchCustomerPortalOrder(portalToken, orderId);
+        setSession(data);
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Could not load your review."
+        );
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (!token) return;
     setLoading(true);
     setError(null);
@@ -80,7 +115,7 @@ export function CustomerReviewFlow({
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [isPortal, portalToken, orderId, token]);
 
   useEffect(() => {
     if (initialSession) {
@@ -96,6 +131,23 @@ export function CustomerReviewFlow({
     [session]
   );
 
+  useEffect(() => {
+    if (!session || session.expired) return;
+    const focus = searchParams.get("focus");
+    if (!focus) return;
+
+    const [jobId, imprintId] = focus.split(":");
+    if (!jobId || !imprintId) return;
+
+    const idx = buildSteps(session).findIndex(
+      (step) =>
+        step.kind === "proof" &&
+        step.proof.jobId === jobId &&
+        step.proof.imprintId === imprintId
+    );
+    if (idx >= 0) setStepIndex(idx);
+  }, [session, searchParams]);
+
   const currentStep = steps[stepIndex];
   const accent = session?.shop?.primaryColor || "#2c6ecb";
 
@@ -109,12 +161,37 @@ export function CustomerReviewFlow({
     setMessageDraft("");
     setRevisionDraft("");
     setShowRevision(false);
+    onSessionChange?.(next);
   };
 
   const runAction = async (
     body: Parameters<typeof submitCustomerReviewAction>[1]
   ) => {
-    if (isPreview || !token) return;
+    if (isPreview) return;
+    if (isPortal && portalToken && orderId) {
+      setActing(true);
+      try {
+        const { order } = await submitCustomerPortalAction(
+          portalToken,
+          orderId,
+          body
+        );
+        applySession(order);
+        showToast("Saved — thank you!");
+        if (stepIndex < steps.length - 1 && body.action.startsWith("approve")) {
+          setStepIndex((i) => i + 1);
+        }
+      } catch (err) {
+        showToast(
+          err instanceof Error ? err.message : "Something went wrong. Try again."
+        );
+      } finally {
+        setActing(false);
+      }
+      return;
+    }
+
+    if (!token) return;
     setActing(true);
     try {
       const { order } = await submitCustomerReviewAction(token, body);
@@ -176,7 +253,11 @@ export function CustomerReviewFlow({
         <a
           href={
             session.reactivateUrl ||
-            (token ? reactivateReviewUrl(token) : "#")
+            (isPortal && portalToken
+              ? reactivatePortalUrl(portalToken)
+              : token
+                ? reactivateReviewUrl(token)
+                : "#")
           }
           className="mt-6 inline-flex h-11 items-center justify-center rounded-lg px-6 text-[14px] font-semibold text-white"
           style={{ backgroundColor: accent }}
@@ -209,6 +290,7 @@ export function CustomerReviewFlow({
         </div>
       ) : null}
 
+      {!hideHeader ? (
       <header className="border-b border-[#ebebeb] bg-white">
         <div
           className={cn(
@@ -288,6 +370,7 @@ export function CustomerReviewFlow({
           </div>
         </div>
       </header>
+      ) : null}
 
       <main
         className={cn(
@@ -295,6 +378,50 @@ export function CustomerReviewFlow({
           embedded ? "max-w-full sm:px-5 sm:py-4" : "max-w-3xl sm:px-6"
         )}
       >
+        {hideHeader ? (
+          <div className="mb-4 flex items-center justify-center gap-2">
+            {steps.map((step, idx) => {
+              const status = stepStatus(step, session);
+              const active = idx === stepIndex;
+              return (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => setStepIndex(idx)}
+                  className={cn(
+                    "flex flex-col items-center gap-1.5 rounded-lg px-2 py-1 transition-colors",
+                    active && "bg-[#f4f7fd]"
+                  )}
+                  aria-label={
+                    step.kind === "estimate"
+                      ? "Estimate"
+                      : step.proof.artwork.name
+                  }
+                >
+                  <span
+                    className={cn(
+                      "size-2.5 rounded-full transition-colors",
+                      status === "approved" && "bg-[var(--review-accent)]",
+                      status === "revision" && "bg-[#d97706]",
+                      status === "pending" && "bg-[#d4d4d4]",
+                      active && status === "pending" && "ring-2 ring-[var(--review-accent)]/30"
+                    )}
+                  />
+                  <span
+                    className={cn(
+                      "max-w-[72px] truncate text-[10px] font-medium",
+                      active ? "text-[var(--review-accent)]" : "text-[#8a8a8a]"
+                    )}
+                  >
+                    {step.kind === "estimate"
+                      ? "Estimate"
+                      : step.proof.label.split(" ")[0]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         {actionToast ? (
           <div className="mb-4 flex items-center gap-2 rounded-lg border border-[#cdeccd] bg-[#f1faf1] px-3 py-2.5 text-[13px] text-[#0f7a3d]">
             <CheckCircle2 className="size-4 shrink-0" />
@@ -465,7 +592,19 @@ export function CustomerReviewFlow({
           </button>
         </div>
 
-        {session.order.reviewExpiresAt && !isPreview && token ? (
+        {session.portalHomeUrl && !isPreview && !isPortal ? (
+          <p className="mt-6 text-center text-[12px] text-[#616161]">
+            <Link
+              href={session.portalHomeUrl}
+              className="font-semibold underline"
+              style={{ color: accent }}
+            >
+              View all your orders in the customer portal
+            </Link>
+          </p>
+        ) : null}
+
+        {session.order.reviewExpiresAt && !isPreview && token && !isPortal ? (
           <p className="mt-6 text-center text-[11px] text-[#8a8a8a]">
             Review link valid until{" "}
             {new Date(session.order.reviewExpiresAt).toLocaleDateString(

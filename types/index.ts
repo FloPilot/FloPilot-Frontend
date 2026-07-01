@@ -48,12 +48,32 @@ export interface Customer {
   archived?: boolean;
   archivedAt?: string;
   archivedBy?: string;
+  /** Saved ship-to addresses for split shipments */
+  shippingLocations?: CustomerShippingLocation[];
+}
+
+export interface ShippingAddress {
+  label?: string;
+  attention?: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country?: string;
+}
+
+export interface CustomerShippingLocation extends ShippingAddress {
+  id: string;
+  isDefault?: boolean;
 }
 
 export interface SizeBreakdown {
   size: string;
   quantity: number;
 }
+
+export type LineItemSupplier = "ssActivewear";
 
 export interface LineItem {
   id: string;
@@ -65,6 +85,10 @@ export interface LineItem {
   /** Catalog keys for editing blank garments on the order */
   productKey?: string;
   colorKey?: string;
+  /** Supplier catalog when blank was added from an integration */
+  supplier?: LineItemSupplier;
+  supplierPartNumber?: string;
+  supplierStyleId?: number | null;
 }
 
 export type ImprintLocationKey =
@@ -154,6 +178,10 @@ export interface OrderMaterialLine {
   jobId?: string;
   imprintId?: string;
   updatedAt?: string;
+  /** Staff member who last received qty for this line */
+  receivedBy?: string;
+  /** When qty was last received or updated on the floor */
+  receivedAt?: string;
 }
 
 export type BlankSource = "shop_orders" | "customer_supplies";
@@ -204,6 +232,7 @@ export type OrderActivityType =
   | "artwork_uploaded"
   | "artwork_approved"
   | "artwork_revision"
+  | "estimate_approved"
   | "scheduled"
   | "message"
   | "payment"
@@ -335,12 +364,33 @@ export interface Job {
   kind?: "decoration" | "finishing";
 }
 
+export interface ShipmentAllocation {
+  lineItemId: string;
+  sizes: SizeBreakdown[];
+}
+
 export interface Shipment {
   id: string;
+  label?: string;
   method: string;
+  methodKey?: string;
   trackingNumber?: string;
   status: "pending" | "labeled" | "in_transit" | "delivered";
+  /** Display label — kept for legacy rows and quick lists */
   destination: string;
+  address?: ShippingAddress;
+  /** Customer profile location used for this shipment */
+  customerLocationId?: string;
+  handlingNotes?: string;
+  handlingCost?: number;
+  /** Which blanks/garments ship in this package */
+  allocations?: ShipmentAllocation[];
+}
+
+export interface OrderShippingSettings {
+  instructions?: string;
+  defaultMethodKey?: string;
+  updatedAt?: string;
 }
 
 export interface Message {
@@ -383,6 +433,8 @@ export interface Order {
   lineItems: LineItem[];
   jobs: Job[];
   shipments: Shipment[];
+  /** Order-level shipping notes and defaults */
+  shipping?: OrderShippingSettings;
   messages: Message[];
   /** Order-level files not tied to a specific imprint */
   files?: OrderFile[];
@@ -418,6 +470,42 @@ export interface SavedDesign {
   createdAt: string;
   updatedAt?: string;
   lastUsedAt?: string;
+  activity?: DesignActivityEvent[];
+  versions?: DesignVersionSnapshot[];
+}
+
+export type DesignActivityType =
+  | "ink_updated"
+  | "specs_updated"
+  | "artwork_uploaded"
+  | "version_restored"
+  | "note";
+
+export interface DesignActivityEvent {
+  id: string;
+  type: DesignActivityType;
+  title: string;
+  detail?: string;
+  timestamp: string;
+  author?: string;
+  source?: "library" | "order" | "system";
+  versionId?: string;
+}
+
+export interface DesignVersionSnapshot {
+  id: string;
+  version: number;
+  createdAt: string;
+  createdBy?: string;
+  label?: string;
+  snapshot: {
+    name?: string;
+    tags?: string[];
+    artwork?: ArtworkFile;
+    inkColors?: ImprintInkColor[];
+    notes?: ImprintProductionNotes;
+    pmsCodes?: string[];
+  };
 }
 
 export interface DashboardStats {
@@ -495,6 +583,8 @@ export interface ScheduleBlock {
   endAt: string;
   pieceCount?: number;
   notes?: string;
+  /** Optional shop label shown after order number on the calendar, e.g. "LEGENDS SPIRIT OF DRIVING FLC" */
+  customLabel?: string;
 }
 
 /** Floor execution state for a scheduled slot on one machine */
@@ -543,6 +633,7 @@ export type StaffNotificationType =
   | "payment"
   | "machine_issue"
   | "support_ticket"
+  | "task_assigned"
   | "general";
 
 export interface StaffNotification {

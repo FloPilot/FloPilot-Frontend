@@ -10,12 +10,10 @@ import {
   Palette,
   Plus,
   Trash2,
-  Truck,
   Upload,
   User,
   X,
 } from "lucide-react";
-import { OrderPriorityToggle } from "@/components/orders/order-priority-toggle";
 import { NewOrderBlanksStep } from "@/components/orders/new-order-blanks-step";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
@@ -35,22 +33,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { readImagePreviewDataUrl } from "@/lib/artwork-preview";
 import {
   activeLineItems,
   applyAutoEventNames,
   compactOrderNumberForLabel,
-  countOrderFormPieces,
   createEmptyNewOrderForm,
   createEmptyNewOrderJob,
   createMockupDraftId,
   formatLineItemInputLabel,
   generateOrderNumber,
   NEW_ORDER_STEPS,
-  previewOrderTotals,
-  SHIPPING_METHODS,
+  NEW_ORDER_STEP_COUNT,
+  validateNewOrderForm,
   validateNewOrderStep,
   type NewOrderFormInput,
   type NewOrderJobInput,
@@ -61,14 +57,14 @@ import {
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
-import { decorationLabel, formatCurrency } from "@/lib/format";
+import { decorationLabel } from "@/lib/format";
 import { IMPRINT_LOCATION_LABELS } from "@/lib/job-imprints";
 import { PRODUCTION_STEP_TEMPLATES } from "@/lib/order-production";
 import { eventLabel, eventsLabel } from "@/lib/terminology";
 import type { DecorationType, ImprintLocationKey, Order } from "@/types";
 import { cn } from "@/lib/utils";
 
-const stepIcons = [User, Package, Palette, FileImage, Truck] as const;
+const stepIcons = [User, Package, Palette, FileImage] as const;
 
 export function NewOrderDialog({
   open,
@@ -117,10 +113,11 @@ export function NewOrderDialog({
   const syncJobNames = (jobs: NewOrderJobInput[]) =>
     applyAutoEventNames(previewOrderNumber, jobs);
 
-  const totals = useMemo(() => previewOrderTotals(form), [form]);
-  const pieceCount = useMemo(() => countOrderFormPieces(form), [form]);
   const blanks = useMemo(() => activeLineItems(form), [form]);
-  const hasProducts = pieceCount > 0;
+  const blankSourceMissing =
+    blanks.length > 0 && form.blankSource === undefined;
+  const highlightBlankSource =
+    step === 2 && blankSourceMissing && Boolean(error);
   const decorationJobs = useMemo(
     () => form.jobs.filter((job) => job.kind !== "finishing"),
     [form.jobs]
@@ -202,7 +199,7 @@ export function NewOrderDialog({
       setError(validationError);
       return;
     }
-    setStep((current) => Math.min(5, current + 1));
+    setStep((current) => Math.min(NEW_ORDER_STEP_COUNT, current + 1));
     setError(null);
   };
 
@@ -212,9 +209,19 @@ export function NewOrderDialog({
   };
 
   const handleCreate = async () => {
-    const validationError = validateNewOrderStep(5, form);
+    const validationError = validateNewOrderForm(form);
     if (validationError) {
       setError(validationError);
+      if (validationError.includes("blank garments")) {
+        setStep(2);
+      } else if (validationError.includes("customer")) {
+        setStep(1);
+      } else if (
+        validationError.includes("event") ||
+        validationError.includes("blanks apply")
+      ) {
+        setStep(3);
+      }
       return;
     }
     const customer = getCustomerById(form.customerId);
@@ -240,10 +247,9 @@ export function NewOrderDialog({
   const stepMeta = NEW_ORDER_STEPS[step - 1];
   const stepDescriptions: Record<number, string> = {
     1: "Choose the account this quote or sales order belongs to.",
-    2: "Add catalog blanks and choose who is ordering the garments.",
-    3: `Create decoration events and attach blanks. Names use your order number and placement (e.g. ${compactOrderNumberForLabel(previewOrderNumber)} - FRONT CHEST).`,
-    4: "Upload a mockup for each decoration event, or skip and add proofs later.",
-    5: "Set shipping details and review totals.",
+    2: "Add blanks/garments now, or skip and add them from the order page later.",
+    3: `Create decoration events and attach blanks/garments. Names use your order number and placement (e.g. ${compactOrderNumberForLabel(previewOrderNumber)} - FRONT CHEST).`,
+    4: "Upload mockups if you have them, then create the order. Shipping, dates, and pricing live on the order detail page.",
   };
 
   return (
@@ -254,13 +260,13 @@ export function NewOrderDialog({
             New sales order
           </DialogTitle>
           <DialogDescription className={dashboardTaskDetailClass}>
-            Create a quote or sales order in a few steps without leaving your
-            current screen.
+            Start with customer, blanks/garments, events, and mockups — finish
+            shipping and details on the order page.
           </DialogDescription>
         </DialogHeader>
 
         <div className="shrink-0 border-b border-[#ebebeb] px-5 py-3">
-          <nav className="grid grid-cols-5 gap-1.5">
+          <nav className="grid grid-cols-4 gap-1.5">
             {NEW_ORDER_STEPS.map((item, index) => {
               const Icon = stepIcons[index];
               const isActive = step === item.id;
@@ -369,7 +375,12 @@ export function NewOrderDialog({
           )}
 
           {step === 2 && (
-            <NewOrderBlanksStep form={form} onChange={patchForm} />
+            <NewOrderBlanksStep
+              form={form}
+              onChange={patchForm}
+              highlightBlankSource={highlightBlankSource}
+              showBlankSourcePrompt={blankSourceMissing}
+            />
           )}
 
           {step === 3 && (
@@ -467,121 +478,6 @@ export function NewOrderDialog({
             </div>
           )}
 
-          {step === 5 && (
-            <div className="space-y-4">
-              <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                <Field label="Shipping method">
-                  <Select
-                    value={form.shippingMethod}
-                    onValueChange={(value) =>
-                      patchForm({
-                        shippingMethod: (value ??
-                          "ups_ground") as NewOrderFormInput["shippingMethod"],
-                      })
-                    }
-                  >
-                    <SelectTrigger
-                      className={cn(dashboardControlClass, "h-10 w-full")}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SHIPPING_METHODS.map((method) => (
-                        <SelectItem key={method.key} value={method.key}>
-                          {method.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Field label="In-hands date" htmlFor="new-order-in-hands">
-                  <Input
-                    id="new-order-in-hands"
-                    type="date"
-                    value={form.inHandsDate}
-                    onChange={(event) =>
-                      patchForm({ inHandsDate: event.target.value })
-                    }
-                    className={cn(dashboardControlClass, "h-10")}
-                  />
-                </Field>
-              </div>
-
-              <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] p-4">
-                <p className="mb-3 text-[13px] font-medium text-[#303030]">
-                  Priority
-                </p>
-                <OrderPriorityToggle
-                  rush={form.rush}
-                  onChange={(rush) => patchForm({ rush })}
-                />
-              </div>
-
-              <div className="space-y-2 rounded-lg border border-[#ebebeb] bg-white p-4 text-sm">
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#616161]">Customer</span>
-                  <span className="text-right font-medium">
-                    {selectedCustomer?.company ?? "—"}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#616161]">Blanks</span>
-                  <span className="text-right font-medium">
-                    {hasProducts
-                      ? `${pieceCount} piece${pieceCount !== 1 ? "s" : ""}`
-                      : "None — add later"}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#616161]">{eventsLabel}</span>
-                  <span className="text-right font-medium">
-                    {form.jobs.length === 0
-                      ? "None — add later"
-                      : `${form.jobs.length} ${form.jobs.length !== 1 ? eventsLabel.toLowerCase() : eventLabel.toLowerCase()}`}
-                  </span>
-                </div>
-                {form.jobs.length > 0 && (
-                  <ul className="space-y-1 text-xs text-[#616161]">
-                    {form.jobs.map((job) => (
-                      <li key={job.id} className="flex justify-between gap-3">
-                        <span className="truncate">
-                          {job.name || `Untitled ${eventLabel.toLowerCase()}`}
-                          {job.mockupFile ? (
-                            <span> · {job.mockupFile.name}</span>
-                          ) : job.kind !== "finishing" ? (
-                            <span className="text-[#8a8a8a]">
-                              {" "}
-                              · No mockup
-                            </span>
-                          ) : null}
-                        </span>
-                        <span className="shrink-0">
-                          {job.kind === "finishing"
-                            ? "Finishing"
-                            : decorationLabel(job.decorationType)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <Separator />
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#616161]">Subtotal</span>
-                  <span>{formatCurrency(totals.subtotal)}</span>
-                </div>
-                <div className="flex justify-between gap-4">
-                  <span className="text-[#616161]">Tax (8%)</span>
-                  <span>{formatCurrency(totals.tax)}</span>
-                </div>
-                <Separator />
-                <div className="flex justify-between gap-4 text-base font-semibold">
-                  <span>Total</span>
-                  <span>{formatCurrency(totals.total)}</span>
-                </div>
-              </div>
-            </div>
-          )}
-
           {error && (
             <p className="mt-4 rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2.5 text-[13px] text-[#8f1f1f]">
               {error}
@@ -610,7 +506,7 @@ export function NewOrderDialog({
             >
               Cancel
             </Button>
-            {step < 5 ? (
+            {step < NEW_ORDER_STEP_COUNT ? (
               <Button
                 type="button"
                 className={cn(dashboardPrimaryButtonClass, "rounded-lg")}
@@ -765,10 +661,10 @@ function JobStepCard({
       {!isFinishing && blanks.length > 0 && (
         <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] p-3">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-            Blanks for this event
+            Blanks/garments for this event
           </p>
           <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-            Select which garments this decoration runs on.
+            Select which blanks/garments this decoration runs on.
           </p>
           <div className="mt-3 space-y-2">
             {blanks.map((item) => {
