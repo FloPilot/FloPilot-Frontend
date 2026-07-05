@@ -35,7 +35,11 @@ import {
 } from "@/components/ui/table";
 import type { OrderAdvancedFilter } from "@/lib/order-advanced-filters";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { resolveOrderFinancials } from "@/lib/order-estimate";
+import {
+  buildOrderFinancialsMap,
+  resolveOrderFinancialsInContext,
+  type OrderFinancials,
+} from "@/lib/order-financial-context";
 import { getOrderDecorationSummary } from "@/lib/order-decoration-summary";
 import {
   filterOrdersList,
@@ -151,7 +155,7 @@ const KPI_CONFIG: {
 export function OrdersListView() {
   const searchParams = useSearchParams();
   const { settings } = useShopSettings();
-  const { orders, customers, scheduleBlocks, jobRuns, shopDataLoading } =
+  const { orders, customers, scheduleBlocks, jobRuns, shopDataLoading, getCustomerById } =
     useSchedule();
   const initialScope = searchParams.get("scope");
   const [scope, setScope] = useState<OrderListScope>(() => {
@@ -207,23 +211,19 @@ export function OrdersListView() {
 
   const hasExtraFilters = advancedFilters.length > 0 || jobType !== "all";
 
-  const orderFinancials = useMemo(() => {
-    const map = new Map<
-      string,
-      ReturnType<typeof resolveOrderFinancials>
-    >();
-    for (const order of filteredOrders) {
-      map.set(
-        order.id,
-        resolveOrderFinancials(
-          order,
-          settings.taxRate,
-          settings.pricingMatrix
-        )
-      );
-    }
-    return map;
-  }, [filteredOrders, settings.taxRate, settings.pricingMatrix]);
+  const orderFinancialContext = useMemo(
+    () => ({
+      taxRate: settings.taxRate,
+      pricingMatrix: settings.pricingMatrix,
+      getCustomer: getCustomerById,
+    }),
+    [settings.taxRate, settings.pricingMatrix, getCustomerById]
+  );
+
+  const orderFinancials = useMemo(
+    () => buildOrderFinancialsMap(filteredOrders, orderFinancialContext),
+    [filteredOrders, orderFinancialContext]
+  );
 
   const handleExport = () => {
     downloadReportCsv(
@@ -515,7 +515,7 @@ function OrdersTable({
 }: {
   items: Order[];
   summaries: Map<string, OrderListSummary>;
-  orderFinancials: Map<string, ReturnType<typeof resolveOrderFinancials>>;
+  orderFinancials: Map<string, OrderFinancials>;
   scope: OrderListScope;
   emptyMessage: string;
 }) {
@@ -590,7 +590,7 @@ function OrdersTable({
             const checkpoints = summary?.checkpoints ?? [];
             const financials =
               orderFinancials.get(order.id) ??
-              resolveOrderFinancials(order, 0.08, undefined);
+              resolveOrderFinancialsInContext(order, { taxRate: 0.08 });
 
             return (
               <TableRow

@@ -89,7 +89,7 @@ export default function ReportsPage() {
 }
 
 function ReportsPageContent() {
-  const { customers, activeOrders, shopDataLoading, shopDataError } =
+  const { customers, activeOrders, shopDataLoading, shopDataError, getCustomerById } =
     useSchedule();
   const { settings } = useShopSettings();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -101,8 +101,9 @@ function ReportsPageContent() {
     () => ({
       taxRate: settings.taxRate,
       pricingMatrix: settings.pricingMatrix,
+      getCustomer: getCustomerById,
     }),
-    [settings.taxRate, settings.pricingMatrix]
+    [settings.taxRate, settings.pricingMatrix, getCustomerById]
   );
 
   const reportData: CustomersListReportData = useMemo(

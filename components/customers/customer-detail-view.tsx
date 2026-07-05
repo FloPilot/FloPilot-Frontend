@@ -60,8 +60,7 @@ import {
 } from "@/lib/dashboard-styles";
 import { isArchivedOrder } from "@/lib/order-archive";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
-import { resolveOrderFinancials } from "@/lib/order-estimate";
+import { resolveOrderFinancialsInContext, buildOrderFinancialsMap, type OrderFinancials } from "@/lib/order-financial-context";
 import type { Order, OrderStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -129,24 +128,19 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
 
   const { settings } = useShopSettings();
 
-  const effectivePricingMatrix = useMemo(
-    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer),
-    [settings.pricingMatrix, customer]
+  const orderFinancialContext = useMemo(
+    () => ({
+      taxRate: settings.taxRate,
+      pricingMatrix: settings.pricingMatrix,
+      getCustomer: () => customer,
+    }),
+    [settings.taxRate, settings.pricingMatrix, customer]
   );
 
-  const orderFinancials = useMemo(() => {
-    const map = new Map<
-      string,
-      ReturnType<typeof resolveOrderFinancials>
-    >();
-    for (const order of allOrders) {
-      map.set(
-        order.id,
-        resolveOrderFinancials(order, settings.taxRate, effectivePricingMatrix)
-      );
-    }
-    return map;
-  }, [allOrders, settings.taxRate, effectivePricingMatrix]);
+  const orderFinancials = useMemo(
+    () => buildOrderFinancialsMap(allOrders, orderFinancialContext),
+    [allOrders, orderFinancialContext]
+  );
 
   const stats = useMemo(() => {
     const base = computeCustomerOrderStats(allOrders);
@@ -261,6 +255,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                   financials: {
                     taxRate: settings.taxRate,
                     pricingMatrix: settings.pricingMatrix,
+                    getCustomer: () => customer,
                   },
                 }}
               />
@@ -759,7 +754,7 @@ function OrderHistoryRow({
   onClick,
 }: {
   order: Order;
-  financials?: ReturnType<typeof resolveOrderFinancials>;
+  financials?: OrderFinancials;
   onClick: () => void;
 }) {
   const jobSummary =

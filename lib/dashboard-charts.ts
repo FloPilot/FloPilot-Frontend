@@ -8,19 +8,19 @@ import {
   startOfDay,
   subDays,
 } from "date-fns";
-import { resolveOrderFinancials } from "@/lib/order-estimate";
+import {
+  buildOrderFinancialsMap,
+  resolveOrderFinancialsInContext,
+  type OrderFinancialContext,
+} from "@/lib/order-financial-context";
 import {
   excludeArchivedOrders,
   excludeScheduleBlocksForArchivedOrders,
   getArchivedOrderIds,
 } from "@/lib/order-archive";
-import type { PricingMatrix } from "@/lib/shop-settings";
 import type { Order, ScheduleBlock } from "@/types";
 
-export type DashboardFinancialContext = {
-  taxRate: number;
-  pricingMatrix?: PricingMatrix;
-};
+export type DashboardFinancialContext = OrderFinancialContext;
 
 const DEFAULT_DASHBOARD_FINANCIALS: DashboardFinancialContext = {
   taxRate: 0.08,
@@ -30,11 +30,7 @@ function resolveDashboardOrderTotal(
   order: Order,
   financials: DashboardFinancialContext
 ): number {
-  return resolveOrderFinancials(
-    order,
-    financials.taxRate,
-    financials.pricingMatrix
-  ).total;
+  return resolveOrderFinancialsInContext(order, financials).total;
 }
 
 function buildOrderTotalLookup(
@@ -207,18 +203,7 @@ export function buildDashboardOrderFinancials(
   orders: Order[],
   financials: DashboardFinancialContext = DEFAULT_DASHBOARD_FINANCIALS
 ) {
-  const map = new Map<string, ReturnType<typeof resolveOrderFinancials>>();
-  for (const order of orders) {
-    map.set(
-      order.id,
-      resolveOrderFinancials(
-        order,
-        financials.taxRate,
-        financials.pricingMatrix
-      )
-    );
-  }
-  return map;
+  return buildOrderFinancialsMap(orders, financials);
 }
 
 export function buildDashboardKpiSnapshot(

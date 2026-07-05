@@ -16,7 +16,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { resolveOrderFinancials } from "@/lib/order-estimate";
+import { resolveOrderFinancialsInContext } from "@/lib/order-financial-context";
 import { formatOrderBalanceLabel } from "@/lib/order-payment";
 import { countScheduledSteps } from "@/lib/order-production";
 import { cn } from "@/lib/utils";
@@ -32,20 +32,20 @@ export function CustomerOrderDialog({
   onOpenChange: (open: boolean) => void;
   onReorder: (sourceOrderId: string) => void;
 }) {
-  const { getOrderById, scheduleBlocks } = useSchedule();
+  const { getOrderById, scheduleBlocks, getCustomerById } = useSchedule();
   const order = orderId ? getOrderById(orderId) : undefined;
 
   const { settings } = useShopSettings();
   const financials = useMemo(
     () =>
       order
-        ? resolveOrderFinancials(
-            order,
-            settings.taxRate,
-            settings.pricingMatrix
-          )
+        ? resolveOrderFinancialsInContext(order, {
+            taxRate: settings.taxRate,
+            pricingMatrix: settings.pricingMatrix,
+            getCustomer: getCustomerById,
+          })
         : null,
-    [order, settings.taxRate, settings.pricingMatrix]
+    [order, settings.taxRate, settings.pricingMatrix, getCustomerById]
   );
   const paymentOrder = useMemo(
     () => (order && financials ? { ...order, ...financials } : order),
