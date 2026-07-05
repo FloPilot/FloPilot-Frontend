@@ -21,6 +21,7 @@ export const metadata: Metadata = {
     "Run your decorated apparel or print shop from quote to delivery. Orders, production scheduling, machine stations, customer portal, and team permissions in one platform.",
   icons: {
     icon: [
+      { url: "/favicon.ico", sizes: "any" },
       { url: "/favicon.png", type: "image/png", sizes: "32x32" },
       { url: "/favicon-48.png", type: "image/png", sizes: "48x48" },
     ],

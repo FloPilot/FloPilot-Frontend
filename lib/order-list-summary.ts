@@ -223,7 +223,7 @@ function deriveNextStep({
   if (
     isInProductionPhase(order) &&
     isOrderFulfillmentReady(order) &&
-    (order.status === "in_production" || order.status === "ready_to_ship")
+    order.status === "in_production"
   ) {
     return "All goods fulfilled — ready to invoice";
   }
