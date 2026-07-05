@@ -4,6 +4,7 @@ import {
   Bell,
   CreditCard,
   ImageIcon,
+  ListChecks,
   MessageSquare,
   Ticket,
   Wrench,
@@ -29,6 +30,8 @@ function NotificationIcon({ type }: { type: StaffNotificationType }) {
       return <Wrench className={className} strokeWidth={1.75} />;
     case "support_ticket":
       return <Ticket className={className} strokeWidth={1.75} />;
+    case "task_assigned":
+      return <ListChecks className={className} strokeWidth={1.75} />;
     default:
       return <Bell className={className} strokeWidth={1.75} />;
   }

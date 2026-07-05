@@ -23,10 +23,14 @@ function materialLinesToStatus(
 ): CheckpointRollupStatus {
   if (lines.length === 0) return "not_applicable";
   if (lines.every((line) => line.status === "received")) return "done";
-  if (lines.some((line) => line.status === "partial" || line.status === "received")) {
-    return "in_progress";
-  }
-  return "pending";
+  if (lines.every((line) => line.status === "waiting")) return "blocked";
+  return "in_progress";
+}
+
+export function garmentLinesToCheckpointStatus(
+  lines: { status: MaterialReceiveStatus }[]
+): CheckpointRollupStatus {
+  return materialLinesToStatus(lines);
 }
 
 function imprintInkConfigured(imprint: JobImprint): boolean {

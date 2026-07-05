@@ -39,6 +39,7 @@ import {
   BLANK_SOURCE_LABELS,
   computeMaterialLineStatus,
   countExpectedGarmentPieces,
+  GARMENT_RECEIVE_STATUS_STYLES,
   getDtfReceivingLines,
   getGarmentReceivingLines,
   getInkPrepLines,
@@ -53,6 +54,14 @@ import {
 import { lineItemPieceCount } from "@/lib/order-estimate";
 import { blanksTabLabel } from "@/lib/order-detail-tabs";
 import { blankSourceLabel } from "@/lib/order-receiving-checkpoints";
+import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import {
+  normalizeMarkupPercent,
+  orderCustomerGarmentSubtotal,
+  resolveLineItemCustomerUnitPrice,
+  resolveLineItemMarkupPercent,
+  shouldShowBlankPricing,
+} from "@/lib/blank-pricing";
 import { canEditOrderBlanks, orderBlanksEditHint } from "@/lib/order-blanks";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import {
@@ -65,8 +74,13 @@ import {
   buildLineItemFromCatalog,
   guessColorKey,
   guessProductKey,
+  serializeLineItemForApi,
   sizesToRecord,
 } from "@/lib/line-items";
+import {
+  isSupplierLineItem,
+  rebuildSupplierLineItemQuantity,
+} from "@/lib/supplier-line-items";
 import type {
   BlankSource,
   ImprintInkColor,
@@ -121,15 +135,102 @@ function QtyOrderedInput({
   );
 }
 
+function MarkupPercentInput({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: number;
+  disabled?: boolean;
+  onSave: (markupPercent: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value || ""));
+
+  useEffect(() => {
+    setDraft(String(value || ""));
+  }, [value]);
+
+  const commit = () => {
+    const parsed = normalizeMarkupPercent(Number(draft) || 0);
+    setDraft(String(parsed));
+    if (parsed !== value) {
+      onSave(parsed);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-end gap-1">
+      <Input
+        type="number"
+        min={0}
+        step="0.1"
+        value={draft}
+        disabled={disabled}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+        className="h-8 w-[72px] rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums"
+      />
+      <span className="text-[12px] text-[#8a8a8a]">%</span>
+    </div>
+  );
+}
+
+function CustomerUnitPriceInput({
+  value,
+  disabled,
+  onSave,
+}: {
+  value: number;
+  disabled?: boolean;
+  onSave: (customerUnitPrice: number) => void;
+}) {
+  const [draft, setDraft] = useState(value > 0 ? value.toFixed(2) : "");
+
+  useEffect(() => {
+    setDraft(value > 0 ? value.toFixed(2) : "");
+  }, [value]);
+
+  const commit = () => {
+    const parsed = Math.max(0, Number(draft) || 0);
+    setDraft(parsed > 0 ? parsed.toFixed(2) : "");
+    if (parsed !== value) {
+      onSave(parsed);
+    }
+  };
+
+  return (
+    <div className="relative">
+      <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-[#8a8a8a]">
+        $
+      </span>
+      <Input
+        type="number"
+        min={0}
+        step="0.01"
+        value={draft}
+        disabled={disabled}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+        className="h-8 w-[88px] rounded-lg border-[#e3e3e3] pl-5 text-right text-sm tabular-nums"
+      />
+    </div>
+  );
+}
+
 function splitFileName(name: string): { base: string; ext: string } {
   const dot = name.lastIndexOf(".");
   if (dot <= 0) return { base: name, ext: "" };
   return { base: name.slice(0, dot), ext: name.slice(dot) };
-}
-
-function lineItemUnitCost(order: Order, lineItemId?: string): number {
-  if (!lineItemId) return 0;
-  return order.lineItems.find((item) => item.id === lineItemId)?.unitCost ?? 0;
 }
 
 function rebuildLineItemQuantity(
@@ -141,20 +242,32 @@ function rebuildLineItemQuantity(
   const item = order.lineItems.find((entry) => entry.id === lineItemId);
   if (!item || !size) return null;
 
+  if (isSupplierLineItem(item)) {
+    return rebuildSupplierLineItemQuantity(item, size, quantity);
+  }
+
   const productKey = guessProductKey(item);
   const colorKey = guessColorKey(item);
   const sizeRecord = sizesToRecord(item.sizes);
   const sizeKey = size as (typeof NEW_ORDER_SIZES)[number];
 
-  return buildLineItemFromCatalog(
-    productKey as (typeof NEW_ORDER_PRODUCTS)[number]["key"],
-    colorKey as (typeof NEW_ORDER_COLORS)[number]["key"],
-    {
-      ...sizeRecord,
-      ...(sizeKey in sizeRecord ? { [sizeKey]: quantity } : {}),
-    },
-    item.id
-  );
+  return {
+    ...buildLineItemFromCatalog(
+      productKey as (typeof NEW_ORDER_PRODUCTS)[number]["key"],
+      colorKey as (typeof NEW_ORDER_COLORS)[number]["key"],
+      {
+        ...sizeRecord,
+        ...(sizeKey in sizeRecord ? { [sizeKey]: quantity } : {}),
+      },
+      item.id
+    ),
+    unitCost: item.unitCost,
+    markupPercent: item.markupPercent,
+    customerUnitPrice: item.customerUnitPrice,
+    supplier: item.supplier,
+    supplierPartNumber: item.supplierPartNumber,
+    supplierStyleId: item.supplierStyleId,
+  };
 }
 
 function ReceivingStatusPill({ status }: { status: OrderMaterialLine["status"] }) {
@@ -162,8 +275,8 @@ function ReceivingStatusPill({ status }: { status: OrderMaterialLine["status"] }
     status === "received"
       ? "bg-[#e8f5ee] text-[#0d5c2e]"
       : status === "partial"
-        ? "bg-[#fff1d6] text-[#8a6116]"
-        : "bg-[#ffef9d] text-[#4a3800]";
+        ? "bg-[#fde2e2] text-[#8f1f1f]"
+        : "bg-[#fde2e2] text-[#8f1f1f]";
 
   return (
     <span
@@ -237,6 +350,15 @@ function QtyReceivedInput({
   );
 }
 
+function findImprint(
+  order: Order,
+  jobId: string,
+  imprintId: string
+): JobImprint | undefined {
+  const job = order.jobs.find((entry) => entry.id === jobId);
+  return job?.imprints.find((entry) => entry.id === imprintId);
+}
+
 function ScreenSetupRow({
   line,
   saving,
@@ -302,15 +424,6 @@ function ScreenSetupRow({
       )}
     </button>
   );
-}
-
-function findImprint(
-  order: Order,
-  jobId: string,
-  imprintId: string
-): JobImprint | undefined {
-  const job = order.jobs.find((entry) => entry.id === jobId);
-  return job?.imprints.find((entry) => entry.id === imprintId);
 }
 
 function ScreenFilesSection({
@@ -736,6 +849,9 @@ export function OrderMaterialsPanel({
     deleteOrderFile,
     updateImprintInkColors,
   } = useSchedule();
+  const { settings } = useShopSettings();
+  const shopDefaultMarkup = settings.pricingMatrix.blankMarkupPercent ?? 0;
+  const showBlankPricing = shouldShowBlankPricing(order);
   const [saving, setSaving] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<OrderMaterialLine | null>(null);
@@ -762,11 +878,10 @@ export function OrderMaterialsPanel({
   const pieceCount = countExpectedGarmentPieces(order);
   const garmentSubtotal = useMemo(
     () =>
-      order.lineItems.reduce(
-        (sum, item) => sum + (item.unitCost || 0) * lineItemPieceCount(item),
-        0
-      ),
-    [order.lineItems]
+      showBlankPricing
+        ? orderCustomerGarmentSubtotal(order, shopDefaultMarkup)
+        : 0,
+    [order, shopDefaultMarkup, showBlankPricing]
   );
   const screenFiles = useMemo(
     () => (order.files ?? []).filter((file) => file.kind === "separation"),
@@ -876,6 +991,38 @@ export function OrderMaterialsPanel({
     }
   };
 
+  const updateLineItemPricing = async (
+    lineItemId: string,
+    patch: { markupPercent?: number; customerUnitPrice?: number }
+  ) => {
+    const item = order.lineItems.find((entry) => entry.id === lineItemId);
+    if (!item) return;
+
+    const nextItem: LineItem = { ...item };
+
+    if (patch.markupPercent !== undefined) {
+      nextItem.markupPercent = normalizeMarkupPercent(patch.markupPercent);
+      delete nextItem.customerUnitPrice;
+    }
+
+    if (patch.customerUnitPrice !== undefined) {
+      nextItem.customerUnitPrice =
+        Math.round(Math.max(0, patch.customerUnitPrice) * 100) / 100;
+      delete nextItem.markupPercent;
+    }
+
+    setSaving(true);
+    try {
+      await updateOrderLineItem(
+        order.id,
+        lineItemId,
+        serializeLineItemForApi(nextItem)
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const removeGarmentRow = async (line: OrderMaterialLine) => {
     if (!line.lineItemId || !line.size) return;
 
@@ -918,6 +1065,9 @@ export function OrderMaterialsPanel({
         </div>
         <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
           {orderBlanksEditHint(order)}
+          {showBlankPricing ? (
+            <> Blank pricing is staff only — not shown in the customer portal.</>
+          ) : null}
         </p>
       </div>
       {canEditBlanks ? (
@@ -937,7 +1087,12 @@ export function OrderMaterialsPanel({
   const blanksTable = (
     <div className={cn(dashboardInsetSurfaceClass, "overflow-hidden")}>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[880px] text-[13px]">
+        <table
+          className={cn(
+            "w-full text-[13px]",
+            showBlankPricing ? "min-w-[1120px]" : "min-w-[880px]"
+          )}
+        >
           <thead>
             <tr className="border-b border-[#ebebeb] bg-[#fafafa]">
               <th className="min-w-[180px] px-4 py-2.5 text-left font-medium text-[#616161]">
@@ -955,9 +1110,19 @@ export function OrderMaterialsPanel({
               <th className="w-40 px-3 py-2.5 text-right font-medium text-[#616161]">
                 Received
               </th>
-              <th className="w-28 px-3 py-2.5 text-right font-medium text-[#616161]">
-                Garment cost
-              </th>
+              {showBlankPricing ? (
+                <>
+                  <th className="w-28 px-3 py-2.5 text-right font-medium text-[#616161]">
+                    Blank cost
+                  </th>
+                  <th className="w-28 px-3 py-2.5 text-right font-medium text-[#616161]">
+                    Markup %
+                  </th>
+                  <th className="w-32 px-3 py-2.5 text-right font-medium text-[#616161]">
+                    Customer cost
+                  </th>
+                </>
+              ) : null}
               <th className="w-24 px-3 py-2.5 text-right font-medium text-[#616161]">
                 Status
               </th>
@@ -972,7 +1137,11 @@ export function OrderMaterialsPanel({
             {garmentLines.length === 0 ? (
               <tr>
                 <td
-                  colSpan={canEditBlanks ? 8 : 7}
+                  colSpan={
+                    (canEditBlanks ? 1 : 0) +
+                    6 +
+                    (showBlankPricing ? 3 : 0)
+                  }
                   className="px-4 py-8 text-center text-[13px] text-[#616161]"
                 >
                   No line items yet — click Add item to start this order.
@@ -980,17 +1149,34 @@ export function OrderMaterialsPanel({
               </tr>
             ) : (
               garmentLines.map((line) => {
-                const unitCost = lineItemUnitCost(order, line.lineItemId);
-                const lineTotal = unitCost * line.expectedQty;
+                const lineItem = order.lineItems.find(
+                  (entry) => entry.id === line.lineItemId
+                );
+                const shopUnitCost = lineItem?.unitCost ?? 0;
+                const shopLineTotal = shopUnitCost * line.expectedQty;
+                const customerUnitPrice = lineItem
+                  ? resolveLineItemCustomerUnitPrice(lineItem, shopDefaultMarkup)
+                  : 0;
+                const customerLineTotal = customerUnitPrice * line.expectedQty;
+                const markupPercent = lineItem
+                  ? resolveLineItemMarkupPercent(lineItem, shopDefaultMarkup)
+                  : shopDefaultMarkup;
                 const isFirstInGroup = garmentRowGroups.isFirstRow.get(line.id) ?? true;
                 const rowSpan = garmentRowGroups.rowSpanByLineId.get(line.id);
                 const isRemoving = removingRowId === line.id;
                 const removeBlocked = removeBlockedReason(line);
+                const rowStyles =
+                  line.status === "received"
+                    ? undefined
+                    : GARMENT_RECEIVE_STATUS_STYLES[line.status];
 
                 return (
                   <tr
                     key={line.id}
-                    className="border-b border-[#ebebeb] last:border-0"
+                    className={cn(
+                      "border-b border-[#ebebeb] last:border-0",
+                      rowStyles?.row
+                    )}
                   >
                     {isFirstInGroup ? (
                       <>
@@ -1002,8 +1188,13 @@ export function OrderMaterialsPanel({
                             {line.productName ?? line.label}
                           </p>
                           {line.brand ? (
-                            <p className="mt-0.5 text-[12px] text-[#8a8a8a]">
-                              {line.brand}
+                            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-[#8a8a8a]">
+                              <span>{line.brand}</span>
+                              {lineItem?.supplier === "ssActivewear" ? (
+                                <span className="rounded bg-[#eef1ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">
+                                  S&amp;S
+                                </span>
+                              ) : null}
                             </p>
                           ) : null}
                         </td>
@@ -1038,16 +1229,70 @@ export function OrderMaterialsPanel({
                         onSave={(qty) => updateLine(line.id, qty)}
                       />
                     </td>
-                    <td className="px-3 py-3 text-right">
-                      <p className="font-medium tabular-nums text-[#303030]">
-                        {formatCurrency(lineTotal)}
-                      </p>
-                      {unitCost > 0 ? (
-                        <p className="mt-0.5 text-[11px] tabular-nums text-[#8a8a8a]">
-                          {formatCurrency(unitCost)}/ea
-                        </p>
-                      ) : null}
-                    </td>
+                    {showBlankPricing ? (
+                      <>
+                        <td className="px-3 py-3 text-right">
+                          <p className="font-medium tabular-nums text-[#303030]">
+                            {formatCurrency(shopLineTotal)}
+                          </p>
+                          {shopUnitCost > 0 ? (
+                            <p className="mt-0.5 text-[11px] tabular-nums text-[#8a8a8a]">
+                              {formatCurrency(shopUnitCost)}/ea
+                            </p>
+                          ) : null}
+                        </td>
+                        {isFirstInGroup && line.lineItemId ? (
+                          <td
+                            rowSpan={rowSpan}
+                            className="border-l border-[#f0f0f0] px-3 py-3 align-top"
+                          >
+                            {canEditBlanks ? (
+                              <MarkupPercentInput
+                                value={markupPercent}
+                                disabled={saving || isRemoving}
+                                onSave={(nextMarkup) =>
+                                  updateLineItemPricing(line.lineItemId!, {
+                                    markupPercent: nextMarkup,
+                                  })
+                                }
+                              />
+                            ) : (
+                              <div className="text-right tabular-nums text-[#303030]">
+                                {markupPercent}%
+                              </div>
+                            )}
+                          </td>
+                        ) : null}
+                        <td className="px-3 py-3 text-right">
+                          <p className="font-medium tabular-nums text-[#303030]">
+                            {formatCurrency(customerLineTotal)}
+                          </p>
+                          {isFirstInGroup && line.lineItemId ? (
+                            canEditBlanks ? (
+                              <div className="mt-2 flex justify-end">
+                                <CustomerUnitPriceInput
+                                  value={customerUnitPrice}
+                                  disabled={saving || isRemoving}
+                                  onSave={(nextPrice) =>
+                                    updateLineItemPricing(line.lineItemId!, {
+                                      customerUnitPrice: nextPrice,
+                                    })
+                                  }
+                                />
+                              </div>
+                            ) : (
+                              <p className="mt-0.5 text-[11px] tabular-nums text-[#8a8a8a]">
+                                {formatCurrency(customerUnitPrice)}/ea
+                              </p>
+                            )
+                          ) : !isFirstInGroup ? (
+                            <p className="mt-0.5 text-[11px] tabular-nums text-[#8a8a8a]">
+                              {formatCurrency(customerUnitPrice)}/ea
+                            </p>
+                          ) : null}
+                        </td>
+                      </>
+                    ) : null}
                     <td className="px-3 py-3 text-right">
                       <ReceivingStatusPill status={line.status} />
                     </td>
@@ -1080,15 +1325,17 @@ export function OrderMaterialsPanel({
               })
             )}
           </tbody>
-          {garmentLines.length > 0 ? (
+          {garmentLines.length > 0 && showBlankPricing ? (
             <tfoot>
               <tr className="border-t border-[#ebebeb] bg-[#fafafa]">
                 <td
                   colSpan={5}
                   className="px-4 py-2.5 text-right text-[12px] font-semibold text-[#616161]"
                 >
-                  Garment subtotal
+                  Customer garment subtotal
                 </td>
+                <td className="px-3 py-2.5" />
+                <td className="px-3 py-2.5" />
                 <td className="px-3 py-2.5 text-right text-[13px] font-semibold tabular-nums text-[#303030]">
                   {formatCurrency(garmentSubtotal)}
                 </td>

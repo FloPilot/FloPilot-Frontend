@@ -20,6 +20,7 @@ export type OrderDetailTab =
   | "estimate"
   | "files"
   | "customer"
+  | "shipping"
   | "activity";
 
 export type OrderDetailTabConfig = {
@@ -52,6 +53,7 @@ export function buildOrderDetailTabs(order: Order): OrderDetailTabConfig[] {
   tabs.push(
     { id: "files", label: "Files" },
     { id: "customer", label: "Customer" },
+    { id: "shipping", label: "Shipping / Handling" },
     { id: "activity", label: "Activity" }
   );
 
@@ -94,6 +96,7 @@ export function parseOrderDetailTab(tab: string | null): OrderDetailTab {
     return "estimate";
   }
   if (tab === "files") return "files";
+  if (tab === "shipping" || tab === "handling") return "shipping";
   if (tab === "activity") return "activity";
   if (tab === "customer" || tab === "messages" || tab === "payments") {
     return "customer";

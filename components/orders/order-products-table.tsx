@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
+import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
 import { formatCurrency } from "@/lib/format";
 import { computeEstimateTotals } from "@/lib/order-estimate";
 import {
@@ -114,14 +116,15 @@ export function OrderProductsTable({ order }: { order: Order }) {
 
 export function OrderFinancialSummary({ order }: { order: Order }) {
   const { settings } = useShopSettings();
+  const { getCustomerById } = useSchedule();
+  const customer = getCustomerById(order.customerId);
+  const pricingMatrix = useMemo(
+    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer, order),
+    [settings.pricingMatrix, customer, order]
+  );
   const totals = useMemo(
-    () =>
-      computeEstimateTotals(
-        order,
-        settings.taxRate,
-        settings.pricingMatrix
-      ),
-    [order, settings.taxRate, settings.pricingMatrix]
+    () => computeEstimateTotals(order, settings.taxRate, pricingMatrix, customer),
+    [order, settings.taxRate, pricingMatrix, customer]
   );
 
   const taxLabel = `Tax (${(totals.taxRate * 100).toFixed(
@@ -131,7 +134,7 @@ export function OrderFinancialSummary({ order }: { order: Order }) {
   return (
     <div className={cn(dashboardInsetSurfaceClass, "px-4 py-4")}>
       <div className="space-y-2 text-[13px]">
-        {totals.decorationSubtotal > 0 ? (
+        {totals.decorationSubtotal > 0 || totals.feesSubtotal > 0 ? (
           <>
             <div className="flex justify-between">
               <span className="text-[#616161]">Garments</span>
@@ -139,12 +142,22 @@ export function OrderFinancialSummary({ order }: { order: Order }) {
                 {formatCurrency(totals.garmentSubtotal)}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-[#616161]">Decoration</span>
-              <span className="tabular-nums text-[#303030]">
-                {formatCurrency(totals.decorationSubtotal)}
-              </span>
-            </div>
+            {totals.decorationSubtotal > 0 ? (
+              <div className="flex justify-between">
+                <span className="text-[#616161]">Decoration</span>
+                <span className="tabular-nums text-[#303030]">
+                  {formatCurrency(totals.decorationSubtotal)}
+                </span>
+              </div>
+            ) : null}
+            {totals.feesSubtotal > 0 ? (
+              <div className="flex justify-between">
+                <span className="text-[#616161]">Fees</span>
+                <span className="tabular-nums text-[#303030]">
+                  {formatCurrency(totals.feesSubtotal)}
+                </span>
+              </div>
+            ) : null}
           </>
         ) : null}
         <div className="flex justify-between">

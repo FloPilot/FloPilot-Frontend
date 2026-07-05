@@ -26,12 +26,13 @@ export type ReviewProof = {
 };
 
 export type ReviewEstimateRow = {
-  kind: "garment" | "decoration";
+  kind: "garment" | "decoration" | "fee";
   description: string;
   detail: string;
   qty: number;
   unitCost: number;
   lineTotal: number;
+  feeCategory?: "setup" | "decoration" | "finishing" | "other";
 };
 
 export type CustomerReviewSession = {
@@ -64,15 +65,21 @@ export type CustomerReviewSession = {
     rows: ReviewEstimateRow[];
     garmentSubtotal: number;
     decorationSubtotal: number;
+    feesSubtotal?: number;
     subtotal: number;
     tax: number;
     taxRate: number;
     total: number;
     paid: number;
     balance: number;
+    rateSheetName?: string | null;
+    usingShopPricing?: boolean;
+    hasNegotiatedPricing?: boolean;
   };
   proofs?: ReviewProof[];
   messages?: ReviewMessage[];
+  portalHomeUrl?: string;
+  portalOrderUrl?: string;
 };
 
 async function reviewFetch<T>(

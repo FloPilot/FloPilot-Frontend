@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   Archive,
   ArchiveRestore,
-  ArrowLeft,
   Calendar,
   ChevronRight,
   Loader2,
@@ -18,7 +17,10 @@ import {
 } from "lucide-react";
 import { CustomerOrderDialog } from "@/components/customers/customer-order-dialog";
 import { CustomerBrandMarkFromRecord } from "@/components/customers/customer-brand-mark";
+import { CustomerShippingLocationsSection } from "@/components/customers/customer-shipping-locations-section";
+import { CustomerNegotiatedPricingSection } from "@/components/customers/customer-negotiated-pricing-section";
 import { EditCustomerDialog } from "@/components/customers/edit-customer-dialog";
+import { CustomerActivityLauncher } from "@/components/customers/customer-activity-launcher";
 import { ReportsLauncher } from "@/components/reports/reports-launcher";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -58,6 +60,7 @@ import {
 } from "@/lib/dashboard-styles";
 import { isArchivedOrder } from "@/lib/order-archive";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
 import { resolveOrderFinancials } from "@/lib/order-estimate";
 import type { Order, OrderStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -126,6 +129,11 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
 
   const { settings } = useShopSettings();
 
+  const effectivePricingMatrix = useMemo(
+    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer),
+    [settings.pricingMatrix, customer]
+  );
+
   const orderFinancials = useMemo(() => {
     const map = new Map<
       string,
@@ -134,15 +142,11 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
     for (const order of allOrders) {
       map.set(
         order.id,
-        resolveOrderFinancials(
-          order,
-          settings.taxRate,
-          settings.pricingMatrix
-        )
+        resolveOrderFinancials(order, settings.taxRate, effectivePricingMatrix)
       );
     }
     return map;
-  }, [allOrders, settings.taxRate, settings.pricingMatrix]);
+  }, [allOrders, settings.taxRate, effectivePricingMatrix]);
 
   const stats = useMemo(() => {
     const base = computeCustomerOrderStats(allOrders);
@@ -205,16 +209,23 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
         <header className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 space-y-3">
-              <Link
-                href="/app/customers"
-                className={cn(
-                  dashboardControlClass,
-                  "inline-flex h-8 gap-1.5 px-2.5 text-[12px] text-[#616161] hover:text-[#303030]"
-                )}
+              <nav
+                aria-label="Breadcrumb"
+                className="flex flex-wrap items-center gap-1.5 text-[13px]"
               >
-                <ArrowLeft className="size-3.5" />
-                Customers
-              </Link>
+                <Link
+                  href="/app/customers"
+                  className="rounded-md px-1 py-0.5 text-[#616161] transition-colors hover:bg-[#f6f6f7] hover:text-[#303030]"
+                >
+                  Customers
+                </Link>
+                <span className="text-[#c9c9c9]" aria-hidden>
+                  /
+                </span>
+                <span className="px-1 font-medium text-[#303030]">
+                  {customer.company}
+                </span>
+              </nav>
 
               <div className="flex items-start gap-3">
                 <CustomerBrandMarkFromRecord customer={customer} size="lg" />
@@ -253,6 +264,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                   },
                 }}
               />
+              <CustomerActivityLauncher customer={customer} />
               <button
                 type="button"
                 className={cn(dashboardControlClass, "h-9")}
@@ -444,6 +456,20 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                 </div>
               </div>
             </section>
+
+            <CustomerShippingLocationsSection
+              customer={customer}
+              onSave={async (shippingLocations) => {
+                await updateCustomer(customer.id, { shippingLocations });
+              }}
+            />
+
+            <CustomerNegotiatedPricingSection
+              customer={customer}
+              onSave={async (negotiatedPricing) => {
+                await updateCustomer(customer.id, { negotiatedPricing });
+              }}
+            />
 
             {customer.notes ? (
               <section className={dashboardCardClass}>

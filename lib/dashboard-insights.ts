@@ -449,7 +449,7 @@ export function computeDashboardInsights({
       id: "inventory",
       kind: "inventory",
       label: `${lowStock} low stock item${lowStock !== 1 ? "s" : ""}`,
-      detail: "Review inventory before upcoming runs",
+      detail: "Review warehouse stock before upcoming runs",
       href: "/app/inventory",
       tone: "warning",
     });

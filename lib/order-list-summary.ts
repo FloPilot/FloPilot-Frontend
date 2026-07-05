@@ -17,11 +17,14 @@ import {
 import {
   pendingMaterialLines,
   MATERIAL_KIND_LABELS,
+  describePendingGarmentReceiving,
+  orderHasPendingGarmentReceiving,
 } from "@/lib/order-materials";
+import { isOrderFulfillmentReady } from "@/lib/order-shipping";
 import { getOrderProductionSteps } from "@/lib/order-production";
 import { isHistoricalOrder } from "@/lib/order-list-filters";
 import { resolveProductionEvent } from "@/lib/production-event-status";
-import { computeReceivingCheckpoints } from "@/lib/order-receiving-checkpoints";
+import { computeReceivingCheckpoints, blanksColumnLabel } from "@/lib/order-receiving-checkpoints";
 
 export type CheckpointRollupStatus =
   | "done"
@@ -188,6 +191,7 @@ function deriveNextStep({
   prepStatuses,
   prepTotal,
   prepLabel,
+  hasPendingGarments,
   scheduleProgress,
   runningCount,
   completedCount,
@@ -202,6 +206,7 @@ function deriveNextStep({
   prepStatuses: PrepCheckpointStatus[];
   prepTotal: number;
   prepLabel: string;
+  hasPendingGarments: boolean;
   scheduleProgress: { scheduled: number; total: number };
   runningCount: number;
   completedCount: number;
@@ -213,6 +218,14 @@ function deriveNextStep({
 
   if (order.status === "ready_to_ship") {
     return "Ready to ship — production is done";
+  }
+
+  if (
+    isInProductionPhase(order) &&
+    isOrderFulfillmentReady(order) &&
+    order.status === "in_production"
+  ) {
+    return "All goods fulfilled — ready to invoice";
   }
 
   if (eventCount === 0) {
@@ -232,6 +245,12 @@ function deriveNextStep({
         ? "Waiting for customer to approve the proof"
         : `Proofs ${approval.artworkApprovedCount}/${approval.artworkTotal} approved`;
     }
+    if (hasPendingGarments) {
+      return (
+        describePendingGarmentReceiving(order, blanksColumnLabel(order).toLowerCase()) ??
+        `Still waiting on ${blanksColumnLabel(order).toLowerCase()}`
+      );
+    }
     return "Estimate and proofs approved — moving to production";
   }
 
@@ -246,6 +265,13 @@ function deriveNextStep({
     return artPending === 1
       ? "Art not approved yet — check proofs"
       : `Art not approved on ${artPending} decorations`;
+  }
+
+  if (hasPendingGarments && isQuoteApproved(order)) {
+    return (
+      describePendingGarmentReceiving(order, blanksColumnLabel(order).toLowerCase()) ??
+      `Still waiting on ${blanksColumnLabel(order).toLowerCase()}`
+    );
   }
 
   const materialsPending = materialsStatuses.filter(
@@ -302,6 +328,7 @@ function deriveAttention({
   artworkStatuses,
   scheduleProgress,
   dueDays,
+  hasPendingGarments,
 }: {
   order: Order;
   blockedCount: number;
@@ -311,6 +338,7 @@ function deriveAttention({
   artworkStatuses: PrepCheckpointStatus[];
   scheduleProgress: { scheduled: number; total: number };
   dueDays: number | null;
+  hasPendingGarments: boolean;
 }): OrderAttentionLevel {
   if (isHistoricalOrder(order) || order.status === "ready_to_ship") {
     return "neutral";
@@ -321,6 +349,10 @@ function deriveAttention({
   }
 
   if (order.rush || (dueDays !== null && dueDays <= 2)) {
+    return "warning";
+  }
+
+  if (hasPendingGarments && isQuoteApproved(order)) {
     return "warning";
   }
 
@@ -349,13 +381,22 @@ export function computeOrderListSummary(
   const dueDays = computeDueDays(order);
 
   if (eventCount === 0) {
+    const hasPendingGarments = orderHasPendingGarmentReceiving(order);
+    const garmentMessage =
+      hasPendingGarments && isQuoteApproved(order)
+        ? describePendingGarmentReceiving(
+            order,
+            blanksColumnLabel(order).toLowerCase()
+          )
+        : null;
+
     return {
       eventCount: 0,
       completedCount: 0,
       runningCount: 0,
       blockedCount: 0,
       checkpoints: [],
-      nextStep: orderStatusNextStep(order),
+      nextStep: garmentMessage ?? orderStatusNextStep(order),
       attention: deriveAttention({
         order,
         blockedCount: 0,
@@ -365,6 +406,7 @@ export function computeOrderListSummary(
         artworkStatuses: [],
         scheduleProgress: { scheduled: 0, total: 0 },
         dueDays,
+        hasPendingGarments,
       }),
       dueDays,
       needsArt: false,
@@ -411,8 +453,8 @@ export function computeOrderListSummary(
 
   const scheduleProgress = countOrderScheduleProgress(order, scheduleBlocks);
   const prepLabels = prepLabelsForDecorations(decorations);
-
   const prepDone = prepStatuses.filter((status) => status === "done").length;
+  const hasPendingGarments = orderHasPendingGarmentReceiving(order);
   const approval = approvalSummary(order);
 
   const artworkCheckpoint = buildArtworkCheckpoint(order, approval);
@@ -503,6 +545,7 @@ export function computeOrderListSummary(
       prepStatuses,
       prepTotal: prepStatuses.length,
       prepLabel: prepLabels.label,
+      hasPendingGarments,
       scheduleProgress,
       runningCount,
       completedCount,
@@ -517,6 +560,7 @@ export function computeOrderListSummary(
       artworkStatuses,
       scheduleProgress,
       dueDays,
+      hasPendingGarments,
     }),
     dueDays,
     needsArt,

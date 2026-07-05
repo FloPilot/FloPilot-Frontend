@@ -12,6 +12,7 @@ const ACTIVITY_ICONS: Record<OrderActivityEvent["type"], string> = {
   artwork_uploaded: "upload",
   artwork_approved: "check",
   artwork_revision: "refresh",
+  estimate_approved: "check",
   scheduled: "calendar",
   message: "message",
   payment: "payment",
@@ -136,6 +137,7 @@ export function inferActivityActorKind(
   if (author === "System") return "system";
   if (author === order.customerName) return "customer";
   if (event.title.toLowerCase().includes("customer")) return "customer";
+  if (event.type === "estimate_approved") return "customer";
   if (event.type === "payment" && author !== "Shop") return "customer";
   return "shop";
 }

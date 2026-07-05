@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type CSSProperties } from "react";
+import { useMemo, useRef, useState, useCallback, type CSSProperties } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -24,6 +24,16 @@ import { useSchedule } from "@/components/providers/schedule-provider";
 import { ScheduleBlockActionsMenu } from "@/components/calendar/schedule-block-actions-menu";
 import { ScheduleChipContent } from "@/components/calendar/calendar-dnd";
 import type { Machine, ScheduleBlock } from "@/types";
+import {
+  getScheduleBlockEventClasses,
+  resolveScheduleBlockCustomer,
+  type ScheduleBlockCustomerPresentation,
+} from "@/lib/schedule-block-customer";
+import {
+  resolveScheduleBlockProductionStatus,
+  SCHEDULE_CHIP_BOX_PADDING,
+  type ScheduleBlockProductionStatus,
+} from "@/lib/schedule-block-display";
 import { getBlocksForMachine } from "@/lib/station-utils";
 import {
   blockTimelinePosition,
@@ -47,7 +57,6 @@ import {
   parseCalendarCellDropId,
   scheduleBlocksOverlap,
 } from "@/lib/schedule-reschedule";
-import { machineColorStyles } from "@/lib/machine-styles";
 import { cn } from "@/lib/utils";
 
 const TIMELINE_BLOCK_INSET_PX = 6;
@@ -109,6 +118,8 @@ function blockHasSchedulingConflict(
 
 function TimelineDraggableBlock({
   block,
+  blockCustomer,
+  productionStatus,
   machine,
   machines,
   lane,
@@ -124,6 +135,8 @@ function TimelineDraggableBlock({
   onResize,
 }: {
   block: ScheduleBlock;
+  blockCustomer: ScheduleBlockCustomerPresentation;
+  productionStatus: ScheduleBlockProductionStatus;
   machine: Machine;
   machines?: Machine[];
   lane: BlockLane;
@@ -138,8 +151,12 @@ function TimelineDraggableBlock({
   onRemove?: () => void;
   onResize?: (newHeightPx: number) => void;
 }) {
-  const styles = machineColorStyles[machine.color];
   const hasConflict = blockHasSchedulingConflict(hasOverlap, outsideHours);
+  const eventClasses = getScheduleBlockEventClasses(blockCustomer, {
+    muted,
+    hasConflict,
+    productionStatus,
+  });
   const { topPx, heightPx } = blockTimelinePosition(block, machine);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: block.id,
@@ -195,6 +212,9 @@ function TimelineDraggableBlock({
     window.addEventListener("pointerup", onUp);
   };
 
+  const showDragHintOnBlock =
+    lane.total === 1 && !hasConflict && !isDragging;
+
   const blockButton = (
     <button
       ref={setNodeRef}
@@ -210,14 +230,14 @@ function TimelineDraggableBlock({
       }}
       style={enableBlockActions ? { height: "100%", width: "100%" } : blockPosition}
       className={cn(
-        "group/block touch-none overflow-hidden rounded-md border px-1.5 py-1 text-left min-w-0 box-border",
+        "group/block touch-none overflow-x-hidden overflow-y-auto rounded-md border text-left min-w-0 box-border",
+        SCHEDULE_CHIP_BOX_PADDING,
+        "flex flex-col items-start justify-start",
         !enableBlockActions && "absolute z-10",
         enableBlockActions && "relative h-full w-full",
         hasConflict
           ? overlapBlockStyles
-          : muted
-            ? "bg-muted/45 border-border/70 text-brand-muted"
-            : [styles.bg, styles.border, styles.text],
+          : eventClasses,
         highlighted &&
           !hasConflict &&
           !muted &&
@@ -230,11 +250,17 @@ function TimelineDraggableBlock({
     >
       <ScheduleChipContent
         block={block}
-        machine={machine}
-        showDragHint={lane.total === 1}
+        blockCustomer={blockCustomer}
+        productionStatus={productionStatus}
+        showDragHint={false}
         hasOverlap={hasOverlap}
         outsideHours={outsideHours}
       />
+      {showDragHintOnBlock && (
+        <p className="mt-auto w-full pt-1 text-[10px] font-medium leading-none opacity-50">
+          Drag to move
+        </p>
+      )}
       {onResize && (
         <span
           onPointerDown={handleResizeStart}
@@ -272,10 +298,14 @@ function TimelineDraggableBlock({
 
 function TimelineContextBlock({
   block,
+  blockCustomer,
+  productionStatus,
   machine,
   lane,
 }: {
   block: ScheduleBlock;
+  blockCustomer: ScheduleBlockCustomerPresentation;
+  productionStatus: ScheduleBlockProductionStatus;
   machine: Machine;
   lane: BlockLane;
 }) {
@@ -290,15 +320,19 @@ function TimelineContextBlock({
         left: horizontal.left,
         width: horizontal.width,
       }}
-      className="absolute z-[5] overflow-hidden rounded-md border border-border/70 bg-muted/45 px-1.5 py-1 text-left opacity-75 pointer-events-none min-w-0 box-border"
+      className={cn(
+        "absolute z-[5] overflow-x-hidden overflow-y-auto rounded-md border text-left opacity-75 pointer-events-none min-w-0 box-border",
+        SCHEDULE_CHIP_BOX_PADDING,
+        "flex flex-col items-start justify-start",
+        getScheduleBlockEventClasses(blockCustomer, { muted: true })
+      )}
       title={`${block.orderNumber} · other order`}
     >
-      <p className="text-xs font-semibold truncate text-brand-muted">
-        {block.orderNumber}
-      </p>
-      <p className="text-[11px] truncate text-brand-muted/90">
-        {block.imprintLabel}
-      </p>
+      <ScheduleChipContent
+        block={block}
+        blockCustomer={blockCustomer}
+        productionStatus={productionStatus}
+      />
     </div>
   );
 }
@@ -318,6 +352,8 @@ function TimelineDayColumn({
   onMoveBlockToMachine,
   onRemoveBlock,
   onResizeBlock,
+  resolveBlockCustomer,
+  resolveBlockProductionStatus,
 }: {
   day: Date;
   machine: Machine;
@@ -338,6 +374,12 @@ function TimelineDayColumn({
   ) => boolean;
   onRemoveBlock?: (block: ScheduleBlock) => void;
   onResizeBlock?: (block: ScheduleBlock, newHeightPx: number) => void;
+  resolveBlockCustomer: (
+    block: ScheduleBlock
+  ) => ScheduleBlockCustomerPresentation;
+  resolveBlockProductionStatus: (
+    block: ScheduleBlock
+  ) => ScheduleBlockProductionStatus;
 }) {
   const { totalHeightPx, slotsPerHour, displayStartHour, displayEndHour } =
     getTimelineLayout(machine);
@@ -411,12 +453,16 @@ function TimelineDayColumn({
           highlightOrderId && block.orderId === highlightOrderId;
         const contextOnly = showShopContext && !isThisOrder;
         const lane = blockLanes.get(block.id) ?? { index: 0, total: 1 };
+        const blockCustomer = resolveBlockCustomer(block);
+        const productionStatus = resolveBlockProductionStatus(block);
 
         if (contextOnly && !enableBlockActions) {
           return (
             <TimelineContextBlock
               key={block.id}
               block={block}
+              blockCustomer={blockCustomer}
+              productionStatus={productionStatus}
               machine={machine}
               lane={lane}
             />
@@ -427,6 +473,8 @@ function TimelineDayColumn({
           <TimelineDraggableBlock
             key={block.id}
             block={block}
+            blockCustomer={blockCustomer}
+            productionStatus={productionStatus}
             machine={machine}
             machines={machines}
             lane={lane}
@@ -491,6 +539,9 @@ export function MachineTimelineCalendar({
   const {
     machines,
     activeScheduleBlocks: scheduleBlocks,
+    activeOrders,
+    jobRuns,
+    getCustomerById,
     updateScheduleBlock,
     removeScheduleBlock,
   } = useSchedule();
@@ -563,7 +614,25 @@ export function MachineTimelineCalendar({
     return { allMap, displayMap };
   }, [allWeekBlocks, weekBlocks, weekDays]);
 
+  const resolveBlockCustomer = useCallback(
+    (block: ScheduleBlock) =>
+      resolveScheduleBlockCustomer(block, activeOrders, getCustomerById),
+    [activeOrders, getCustomerById]
+  );
+
+  const resolveBlockProductionStatus = useCallback(
+    (block: ScheduleBlock) =>
+      resolveScheduleBlockProductionStatus(block, jobRuns, activeOrders),
+    [jobRuns, activeOrders]
+  );
+
   const draggingBlock = draggableBlocks.find((b) => b.id === draggingId);
+  const draggingBlockCustomer = draggingBlock
+    ? resolveBlockCustomer(draggingBlock)
+    : undefined;
+  const draggingProductionStatus = draggingBlock
+    ? resolveBlockProductionStatus(draggingBlock)
+    : undefined;
 
   const draggingHasOverlap = useMemo(() => {
     if (!draggingBlock) return false;
@@ -748,6 +817,8 @@ export function MachineTimelineCalendar({
                 onMoveBlockToMachine={handleMoveBlockToMachine}
                 onRemoveBlock={handleRemoveBlock}
                 onResizeBlock={handleResizeBlock}
+                resolveBlockCustomer={resolveBlockCustomer}
+                resolveBlockProductionStatus={resolveBlockProductionStatus}
               />
             );
             })}
@@ -756,16 +827,17 @@ export function MachineTimelineCalendar({
       </div>
 
       <DragOverlay dropAnimation={{ duration: 180, easing: "ease-out" }}>
-        {draggingBlock ? (
+        {draggingBlock && draggingBlockCustomer ? (
           <div
             className={cn(
-              "w-[120px] rounded-lg border px-2 py-1.5 shadow-lg",
+              "flex w-[120px] flex-col items-start justify-start rounded-lg border shadow-lg",
+              SCHEDULE_CHIP_BOX_PADDING,
               draggingHasConflict
                 ? overlapBlockStyles
                 : [
-                    machineColorStyles[machine.color].bg,
-                    machineColorStyles[machine.color].border,
-                    machineColorStyles[machine.color].text,
+                    ...getScheduleBlockEventClasses(draggingBlockCustomer, {
+                      productionStatus: draggingProductionStatus,
+                    }),
                     "ring-2 ring-inset ring-brand-primary/30",
                   ]
             )}
@@ -778,7 +850,8 @@ export function MachineTimelineCalendar({
           >
             <ScheduleChipContent
               block={draggingBlock}
-              machine={machine}
+              blockCustomer={draggingBlockCustomer}
+              productionStatus={draggingProductionStatus}
               hasOverlap={draggingHasOverlap}
               outsideHours={draggingOutsideHours}
             />

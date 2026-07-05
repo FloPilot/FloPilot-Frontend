@@ -9,6 +9,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<StaffNotificationType, string> = {
   payment: "Payment",
   machine_issue: "Machine issue",
   support_ticket: "Support ticket",
+  task_assigned: "Task assigned",
   general: "General",
 };
 

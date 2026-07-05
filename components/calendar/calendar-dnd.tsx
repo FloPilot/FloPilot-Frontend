@@ -3,20 +3,64 @@
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { format, parseISO } from "date-fns";
-import type { Machine, ScheduleBlock } from "@/types";
+import { CustomerBrandMark } from "@/components/customers/customer-brand-mark";
+import type { ScheduleBlock } from "@/types";
 import { getCalendarCellDropId } from "@/lib/schedule-reschedule";
-import { machineColorStyles } from "@/lib/machine-styles";
+import {
+  PRODUCTION_STATUS_FLAG,
+  SCHEDULE_CHIP_BOX_PADDING,
+  type ScheduleBlockProductionStatus,
+} from "@/lib/schedule-block-display";
+import {
+  getScheduleBlockEventClasses,
+  type ScheduleBlockCustomerPresentation,
+} from "@/lib/schedule-block-customer";
 import { cn } from "@/lib/utils";
+
+function ScheduleBlockOrderTitle({ block }: { block: ScheduleBlock }) {
+  const customLabel = block.customLabel?.trim();
+
+  return (
+    <p className="text-xs font-semibold leading-snug break-words [overflow-wrap:anywhere]">
+      {block.orderNumber}
+      {customLabel ? <> — {customLabel}</> : null}
+    </p>
+  );
+}
+
+export function ScheduleBlockStatusFlag({
+  status,
+  className,
+}: {
+  status: ScheduleBlockProductionStatus;
+  className?: string;
+}) {
+  const config = PRODUCTION_STATUS_FLAG[status];
+  return (
+    <span
+      className={cn(
+        "inline-flex max-w-full items-center rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide leading-none",
+        config.className,
+        className
+      )}
+      title={config.label}
+    >
+      {config.label}
+    </span>
+  );
+}
 
 export function ScheduleChipContent({
   block,
-  machine,
+  blockCustomer,
+  productionStatus,
   showDragHint,
   hasOverlap,
   outsideHours,
 }: {
   block: ScheduleBlock;
-  machine: Machine;
+  blockCustomer: ScheduleBlockCustomerPresentation;
+  productionStatus?: ScheduleBlockProductionStatus;
   showDragHint?: boolean;
   hasOverlap?: boolean;
   outsideHours?: boolean;
@@ -26,52 +70,76 @@ export function ScheduleChipContent({
   const hasConflict = Boolean(hasOverlap || outsideHours);
 
   return (
-    <>
-      <p className="text-xs font-semibold truncate">{block.orderNumber}</p>
-      <p className="text-[11px] truncate opacity-90">{block.imprintLabel}</p>
-      <p className="text-[10px] mt-1 opacity-75">
-        {format(start, "h:mm a")} – {format(end, "h:mm a")}
-      </p>
-      {hasOverlap && outsideHours && (
-        <p className="mt-1.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
-          Overlap · Outside hours
+    <div className="flex w-full min-w-0 items-start gap-1.5">
+      <CustomerBrandMark
+        company={blockCustomer.company}
+        logoUrl={blockCustomer.logoUrl}
+        accentColorKey={blockCustomer.accentColorKey}
+        customerId={blockCustomer.customerId}
+        fallbackKey={block.orderId}
+        size="xs"
+        className="shrink-0"
+      />
+      <div className="min-w-0 flex-1">
+        <ScheduleBlockOrderTitle block={block} />
+        {productionStatus ? (
+          <div className="mt-1">
+            <ScheduleBlockStatusFlag status={productionStatus} />
+          </div>
+        ) : null}
+        <p className="mt-1 text-[11px] truncate opacity-90 leading-tight">
+          {block.imprintLabel}
         </p>
-      )}
-      {hasOverlap && !outsideHours && (
-        <p className="mt-1.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
-          Overlap
+        <p className="text-[10px] mt-1 opacity-75">
+          {format(start, "h:mm a")} – {format(end, "h:mm a")}
         </p>
-      )}
-      {outsideHours && !hasOverlap && (
-        <p className="mt-1.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
-          Outside hours
-        </p>
-      )}
-      {showDragHint && !hasConflict && (
-        <p className="mt-1.5 text-[10px] font-medium opacity-50">Drag to move</p>
-      )}
-    </>
+        {hasOverlap && outsideHours && (
+          <p className="mt-1.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
+            Overlap · Outside hours
+          </p>
+        )}
+        {hasOverlap && !outsideHours && (
+          <p className="mt-1.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
+            Overlap
+          </p>
+        )}
+        {outsideHours && !hasOverlap && (
+          <p className="mt-1.5 text-[10px] font-bold uppercase tracking-wide text-red-700">
+            Outside hours
+          </p>
+        )}
+        {showDragHint && !hasConflict && (
+          <p className="mt-1.5 text-[10px] font-medium opacity-50">
+            Drag to move
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
 export function DraggableScheduleChip({
   block,
-  machine,
+  blockCustomer,
+  productionStatus,
   onEdit,
   isDragOverlay,
   highlighted,
 }: {
   block: ScheduleBlock;
-  machine: Machine;
+  blockCustomer: ScheduleBlockCustomerPresentation;
+  productionStatus?: ScheduleBlockProductionStatus;
   onEdit: () => void;
   isDragOverlay?: boolean;
   highlighted?: boolean;
 }) {
-  const styles = machineColorStyles[machine.color];
+  const eventClasses = getScheduleBlockEventClasses(blockCustomer, {
+    productionStatus,
+  });
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({
       id: block.id,
-      data: { block, machineId: machine.id },
+      data: { block, machineId: block.machineId },
     });
 
   const style = transform
@@ -95,10 +163,9 @@ export function DraggableScheduleChip({
         onEdit();
       }}
       className={cn(
-        "w-full touch-none text-left rounded-lg border px-2.5 py-2",
-        styles.bg,
-        styles.border,
-        styles.text,
+        "w-full touch-none text-left rounded-lg border flex flex-col items-start justify-start",
+        SCHEDULE_CHIP_BOX_PADDING,
+        eventClasses,
         highlighted && "ring-2 ring-brand-primary/45 shadow-sm z-[1] relative",
         "cursor-grab active:cursor-grabbing transition-shadow hover:shadow-md",
         isDragging && !isDragOverlay && "opacity-40 shadow-none",
@@ -107,7 +174,8 @@ export function DraggableScheduleChip({
     >
       <ScheduleChipContent
         block={block}
-        machine={machine}
+        blockCustomer={blockCustomer}
+        productionStatus={productionStatus}
         showDragHint={!isDragOverlay}
       />
     </button>

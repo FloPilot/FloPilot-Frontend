@@ -3,6 +3,7 @@ import { computeEventCheckpoints } from "@/lib/order-list-summary";
 import {
   blankSourceLabel,
   blanksColumnLabel,
+  garmentLinesToCheckpointStatus,
 } from "@/lib/order-receiving-checkpoints";
 import {
   getDtfReceivingLines,
@@ -156,7 +157,7 @@ function buildEventBlanksCheckpoint(order: Order): OrderCheckpoint {
     key: "blanks",
     label,
     shortLabel: label,
-    status: linesToRollup(garmentLines),
+    status: garmentLinesToCheckpointStatus(garmentLines),
     detail: `${done}/${garmentLines.length}`,
     title:
       done === garmentLines.length

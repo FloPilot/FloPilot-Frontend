@@ -9,6 +9,7 @@ import {
   MessageSquarePlus,
   Package,
   Palette,
+  Percent,
   Plug,
   Printer,
   ScanLine,
@@ -91,7 +92,17 @@ const GROUPS: SettingsNavGroup[] = [
   {
     label: "Pricing",
     items: [
-      { href: "/app/settings/pricing", label: "Pricing matrix", icon: DollarSign },
+      {
+        href: "/app/settings/pricing",
+        label: "Pricing matrix",
+        icon: DollarSign,
+        exact: true,
+      },
+      {
+        href: "/app/settings/pricing/default-markup",
+        label: "Default markup",
+        icon: Percent,
+      },
     ],
   },
   {
@@ -101,7 +112,7 @@ const GROUPS: SettingsNavGroup[] = [
         href: "/app/settings/integrations",
         label: "Suppliers",
         icon: Plug,
-        badge: "Soon",
+        badge: "Partial",
       },
     ],
   },

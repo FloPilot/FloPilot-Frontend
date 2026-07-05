@@ -48,12 +48,142 @@ export interface Customer {
   archived?: boolean;
   archivedAt?: string;
   archivedBy?: string;
+  /** Saved ship-to addresses for split shipments */
+  shippingLocations?: CustomerShippingLocation[];
+  /** Account-specific pricing shared with the customer in their portal */
+  negotiatedPricing?: CustomerNegotiatedPricing;
+  /** Staff-visible audit trail for profile, pricing, and location changes */
+  activity?: CustomerActivityEvent[];
+}
+
+export type CustomerActivityType =
+  | "created"
+  | "updated"
+  | "archived"
+  | "restored"
+  | "note"
+  | "branding_updated"
+  | "portal_updated"
+  | "shipping_location_added"
+  | "shipping_location_updated"
+  | "shipping_location_removed"
+  | "pricing_note_updated"
+  | "pricing_sheet_added"
+  | "pricing_sheet_updated"
+  | "pricing_sheet_removed";
+
+export interface CustomerActivityEvent {
+  id: string;
+  type: CustomerActivityType;
+  title: string;
+  detail?: string;
+  timestamp: string;
+  author?: string;
+}
+
+export type CustomerNegotiatedPricingItem = {
+  id: string;
+  label: string;
+  decoration?: string;
+  detail?: string;
+  unitPrice?: number;
+  minQty?: number;
+};
+
+export type CustomerContractFeeKind =
+  | "setup"
+  | "additional_location"
+  | "custom";
+
+export type CustomerContractFeeChargeMode =
+  | "per_order"
+  | "per_location"
+  | "per_piece";
+
+export type CustomerContractFeeTier = {
+  minQty: number;
+  amount: number;
+};
+
+/** Contract fee on a customer rate sheet — setup, extra locations, etc. */
+export type CustomerContractFee = {
+  id: string;
+  kind: CustomerContractFeeKind;
+  label: string;
+  amount: number;
+  chargeMode: CustomerContractFeeChargeMode;
+  /** Locations bundled in decoration base rate (additional_location only) */
+  includedLocations?: number;
+  /** Tiered unit price by order piece count (additional_location only) */
+  quantityTiers?: CustomerContractFeeTier[];
+  enabled: boolean;
+  notes?: string;
+};
+
+/** One negotiated pricing matrix for a customer account */
+export type CustomerNegotiatedRateSheet = {
+  id: string;
+  name: string;
+  notes?: string;
+  isDefault?: boolean;
+  enabled: boolean;
+  methods: import("@/lib/shop-settings").PricingMethod[];
+  /** Setup, additional location, and other contract fees for this sheet */
+  contractFees?: CustomerContractFee[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+/** Categorized fee line on an order estimate */
+export type OrderEstimateFeeCategory =
+  | "setup"
+  | "decoration"
+  | "finishing"
+  | "other";
+
+/** Manual or auto-applied fee line on an order estimate */
+export type OrderEstimateAdjustment = {
+  id: string;
+  label: string;
+  detail?: string;
+  qty: number;
+  unitPrice: number;
+  source: "auto" | "manual";
+  category: OrderEstimateFeeCategory;
+  contractFeeId?: string;
+};
+
+export type CustomerNegotiatedPricing = {
+  summary?: string;
+  updatedAt?: string;
+  /** Full pricing matrices negotiated for this account */
+  rateSheets?: CustomerNegotiatedRateSheet[];
+  /** Legacy flat-rate items (portal fallback) */
+  items?: CustomerNegotiatedPricingItem[];
+};
+
+export interface ShippingAddress {
+  label?: string;
+  attention?: string;
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country?: string;
+}
+
+export interface CustomerShippingLocation extends ShippingAddress {
+  id: string;
+  isDefault?: boolean;
 }
 
 export interface SizeBreakdown {
   size: string;
   quantity: number;
 }
+
+export type LineItemSupplier = "ssActivewear";
 
 export interface LineItem {
   id: string;
@@ -62,9 +192,17 @@ export interface LineItem {
   color: string;
   sizes: SizeBreakdown[];
   unitCost: number;
+  /** Markup % over shop blank cost — defaults from shop settings when unset */
+  markupPercent?: number;
+  /** Customer-facing unit price; overrides markup-derived price when set */
+  customerUnitPrice?: number;
   /** Catalog keys for editing blank garments on the order */
   productKey?: string;
   colorKey?: string;
+  /** Supplier catalog when blank was added from an integration */
+  supplier?: LineItemSupplier;
+  supplierPartNumber?: string;
+  supplierStyleId?: number | null;
 }
 
 export type ImprintLocationKey =
@@ -154,6 +292,10 @@ export interface OrderMaterialLine {
   jobId?: string;
   imprintId?: string;
   updatedAt?: string;
+  /** Staff member who last received qty for this line */
+  receivedBy?: string;
+  /** When qty was last received or updated on the floor */
+  receivedAt?: string;
 }
 
 export type BlankSource = "shop_orders" | "customer_supplies";
@@ -204,6 +346,7 @@ export type OrderActivityType =
   | "artwork_uploaded"
   | "artwork_approved"
   | "artwork_revision"
+  | "estimate_approved"
   | "scheduled"
   | "message"
   | "payment"
@@ -335,12 +478,38 @@ export interface Job {
   kind?: "decoration" | "finishing";
 }
 
+export interface ShipmentAllocation {
+  lineItemId: string;
+  sizes: SizeBreakdown[];
+}
+
 export interface Shipment {
   id: string;
+  label?: string;
   method: string;
+  methodKey?: string;
   trackingNumber?: string;
-  status: "pending" | "labeled" | "in_transit" | "delivered";
+  status:
+    | "pending"
+    | "labeled"
+    | "in_transit"
+    | "delivered"
+    | "picked_up";
+  /** Display label — kept for legacy rows and quick lists */
   destination: string;
+  address?: ShippingAddress;
+  /** Customer profile location used for this shipment */
+  customerLocationId?: string;
+  handlingNotes?: string;
+  handlingCost?: number;
+  /** Which blanks/garments ship in this package */
+  allocations?: ShipmentAllocation[];
+}
+
+export interface OrderShippingSettings {
+  instructions?: string;
+  defaultMethodKey?: string;
+  updatedAt?: string;
 }
 
 export interface Message {
@@ -383,6 +552,8 @@ export interface Order {
   lineItems: LineItem[];
   jobs: Job[];
   shipments: Shipment[];
+  /** Order-level shipping notes and defaults */
+  shipping?: OrderShippingSettings;
   messages: Message[];
   /** Order-level files not tied to a specific imprint */
   files?: OrderFile[];
@@ -394,6 +565,12 @@ export interface Order {
   archived?: boolean;
   archivedAt?: string;
   archivedBy?: string;
+  /** Rate sheet for this order — `"shop"` uses shop matrix; omit = customer default */
+  selectedRateSheetId?: string | null;
+  /** One-off or auto contract fee lines on the estimate */
+  estimateAdjustments?: OrderEstimateAdjustment[];
+  /** Contract fee ids excluded from auto-apply on this order */
+  excludedContractFeeIds?: string[];
 }
 
 /** Reusable decoration spec saved from an order imprint */
@@ -418,6 +595,42 @@ export interface SavedDesign {
   createdAt: string;
   updatedAt?: string;
   lastUsedAt?: string;
+  activity?: DesignActivityEvent[];
+  versions?: DesignVersionSnapshot[];
+}
+
+export type DesignActivityType =
+  | "ink_updated"
+  | "specs_updated"
+  | "artwork_uploaded"
+  | "version_restored"
+  | "note";
+
+export interface DesignActivityEvent {
+  id: string;
+  type: DesignActivityType;
+  title: string;
+  detail?: string;
+  timestamp: string;
+  author?: string;
+  source?: "library" | "order" | "system";
+  versionId?: string;
+}
+
+export interface DesignVersionSnapshot {
+  id: string;
+  version: number;
+  createdAt: string;
+  createdBy?: string;
+  label?: string;
+  snapshot: {
+    name?: string;
+    tags?: string[];
+    artwork?: ArtworkFile;
+    inkColors?: ImprintInkColor[];
+    notes?: ImprintProductionNotes;
+    pmsCodes?: string[];
+  };
 }
 
 export interface DashboardStats {
@@ -495,6 +708,8 @@ export interface ScheduleBlock {
   endAt: string;
   pieceCount?: number;
   notes?: string;
+  /** Optional shop label shown after order number on the calendar, e.g. "LEGENDS SPIRIT OF DRIVING FLC" */
+  customLabel?: string;
 }
 
 /** Floor execution state for a scheduled slot on one machine */
@@ -543,6 +758,7 @@ export type StaffNotificationType =
   | "payment"
   | "machine_issue"
   | "support_ticket"
+  | "task_assigned"
   | "general";
 
 export interface StaffNotification {

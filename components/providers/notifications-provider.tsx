@@ -12,13 +12,16 @@ import {
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   listNotifications,
+  listTasks,
   markAllNotificationsRead,
   markNotificationRead,
+  type ManualTask,
 } from "@/lib/api";
 import type { StaffNotification } from "@/types";
 
 type NotificationsContextValue = {
   notifications: StaffNotification[];
+  assignedTasks: ManualTask[];
   unreadCount: number;
   loading: boolean;
   refresh: () => Promise<void>;
@@ -33,15 +36,18 @@ const NotificationsContext = createContext<NotificationsContextValue | null>(
 export function NotificationsProvider({ children }: { children: ReactNode }) {
   const { profile, getIdToken } = useAuth();
   const [notifications, setNotifications] = useState<StaffNotification[]>([]);
+  const [assignedTasks, setAssignedTasks] = useState<ManualTask[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
 
   const isStaff = profile?.type === "staff";
   const tenantId = profile?.type === "staff" ? profile.tenant.id : null;
+  const userId = profile?.type === "staff" ? profile.user.id : null;
 
   const refresh = useCallback(async () => {
     if (!isStaff) {
       setNotifications([]);
+      setAssignedTasks([]);
       setUnreadCount(0);
       return;
     }
@@ -50,15 +56,27 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     try {
       const token = await getIdToken();
       if (!token) return;
-      const res = await listNotifications(token, 100);
-      setNotifications(res.notifications);
-      setUnreadCount(res.unreadCount);
+
+      const [notifRes, taskRes] = await Promise.all([
+        listNotifications(token, 100),
+        listTasks(token).catch(() => ({ tasks: [] as ManualTask[] })),
+      ]);
+
+      setNotifications(notifRes.notifications);
+      setUnreadCount(notifRes.unreadCount);
+
+      const openAssigned = taskRes.tasks.filter(
+        (task) =>
+          task.assigneeId === userId &&
+          task.status !== "done"
+      );
+      setAssignedTasks(openAssigned);
     } catch {
       // Keep last known notifications on transient errors.
     } finally {
       setLoading(false);
     }
-  }, [getIdToken, isStaff, tenantId]);
+  }, [getIdToken, isStaff, tenantId, userId]);
 
   const markRead = useCallback(
     async (notificationId: string) => {
@@ -128,13 +146,14 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       notifications,
+      assignedTasks,
       unreadCount,
       loading,
       refresh,
       markRead,
       markAllRead,
     }),
-    [notifications, unreadCount, loading, refresh, markRead, markAllRead]
+    [notifications, assignedTasks, unreadCount, loading, refresh, markRead, markAllRead]
   );
 
   return (

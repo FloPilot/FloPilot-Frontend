@@ -1,10 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   CalendarClock,
   Check,
+  LayoutGrid,
+  List,
   ListChecks,
   Pencil,
   Plus,
@@ -13,7 +16,10 @@ import {
   User as UserIcon,
   X,
 } from "lucide-react";
+import { ManualTasksPipelineBoard } from "@/components/tasks/manual-tasks-pipeline-board";
+import { TaskDetailDialog } from "@/components/tasks/task-detail-dialog";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useNotifications } from "@/components/providers/notifications-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,68 +63,17 @@ import {
   dashboardCardClass,
   dashboardControlClass,
   dashboardPrimaryButtonClass,
+  dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { formatDate } from "@/lib/format";
+import {
+  MANUAL_TASK_PRIORITY_META,
+  MANUAL_TASK_PRIORITY_ORDER,
+  MANUAL_TASK_STATUS_META,
+  MANUAL_TASK_STATUS_ORDER,
+  isManualTaskOverdue,
+} from "@/lib/manual-tasks-board";
 import { cn } from "@/lib/utils";
-
-const STATUS_META: Record<
-  ManualTaskStatus,
-  { label: string; badge: string; dot: string }
-> = {
-  todo: {
-    label: "To do",
-    badge: "border-[#e3e3e3] bg-[#f6f6f7] text-[#616161]",
-    dot: "bg-[#8a8a8a]",
-  },
-  in_progress: {
-    label: "In progress",
-    badge: "border-[#c4d7f2] bg-[#f4f7fd] text-[#2c6ecb]",
-    dot: "bg-[#2c6ecb]",
-  },
-  blocked: {
-    label: "Blocked",
-    badge: "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f]",
-    dot: "bg-[#d72c2c]",
-  },
-  done: {
-    label: "Done",
-    badge: "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]",
-    dot: "bg-[#0d8a45]",
-  },
-};
-
-const STATUS_ORDER: ManualTaskStatus[] = [
-  "todo",
-  "in_progress",
-  "blocked",
-  "done",
-];
-
-const PRIORITY_META: Record<
-  ManualTaskPriority,
-  { label: string; badge: string }
-> = {
-  low: { label: "Low", badge: "border-[#e3e3e3] bg-[#f6f6f7] text-[#8a8a8a]" },
-  normal: {
-    label: "Normal",
-    badge: "border-[#e3e3e3] bg-white text-[#616161]",
-  },
-  high: {
-    label: "High",
-    badge: "border-[#f0d9a8] bg-[#fff8eb] text-[#8a6116]",
-  },
-  urgent: {
-    label: "Urgent",
-    badge: "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f]",
-  },
-};
-
-const PRIORITY_ORDER: ManualTaskPriority[] = [
-  "urgent",
-  "high",
-  "normal",
-  "low",
-];
 
 const ASSIGNEE_COLORS = [
   "bg-[#e8f0fb] text-[#2c6ecb]",
@@ -151,15 +106,6 @@ function toDateInput(value: string | null): string {
   return date.toISOString().slice(0, 10);
 }
 
-function isOverdue(task: ManualTask): boolean {
-  if (!task.dueDate || task.status === "done") return false;
-  const due = new Date(task.dueDate);
-  if (Number.isNaN(due.getTime())) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return due < today;
-}
-
 function Avatar({ name }: { name: string | null }) {
   if (!name) {
     return (
@@ -182,8 +128,51 @@ function Avatar({ name }: { name: string | null }) {
 
 type AssigneeFilter = "all" | "me" | "unassigned" | string;
 
+const UNASSIGNED_VALUE = "__unassigned__";
+
+function assigneeFilterLabel(
+  filter: AssigneeFilter,
+  members: AssignableStaffMember[],
+  myId: string | null
+): string {
+  if (filter === "all") return "All tasks";
+  if (filter === "me") return "Assigned to me";
+  if (filter === "unassigned") return "Unassigned";
+  const member = members.find((entry) => entry.id === filter);
+  if (member) {
+    return member.id === myId ? `${member.name} (me)` : member.name;
+  }
+  return "All tasks";
+}
+
+function assigneeOptionLabel(
+  assigneeId: string,
+  members: AssignableStaffMember[],
+  currentUser: { id: string; name: string } | null,
+  fallbackName?: string
+): string {
+  if (assigneeId === UNASSIGNED_VALUE) return "Unassigned";
+  const member = members.find((entry) => entry.id === assigneeId);
+  if (member) {
+    return currentUser?.id === member.id ? `${member.name} (me)` : member.name;
+  }
+  if (currentUser?.id === assigneeId) return `${currentUser.name} (me)`;
+  return fallbackName || "Unassigned";
+}
+
+function taskAssigneeName(
+  task: ManualTask,
+  memberById: Map<string, AssignableStaffMember>
+): string {
+  if (task.assigneeName?.trim()) return task.assigneeName.trim();
+  const member = task.assigneeId ? memberById.get(task.assigneeId) : undefined;
+  return member?.name || "";
+}
+
 export function ManualTasksBoard() {
+  const searchParams = useSearchParams();
   const { getIdToken, profile } = useAuth();
+  const { refresh: refreshNotifications } = useNotifications();
   const currentUser = profile?.type === "staff" ? profile.user : null;
   const myId = currentUser?.id ?? null;
 
@@ -198,8 +187,17 @@ export function ManualTasksBoard() {
   );
   const [search, setSearch] = useState("");
 
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [view, setView] = useState<"board" | "list">("board");
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ManualTask | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  const memberById = useMemo(
+    () => new Map(members.map((member) => [member.id, member])),
+    [members]
+  );
 
   const load = useCallback(async () => {
     const token = await getIdToken();
@@ -227,6 +225,31 @@ export function ManualTasksBoard() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    const assignee = searchParams.get("assignee");
+    if (assignee === "me" && myId) {
+      setAssigneeFilter("me");
+    }
+  }, [searchParams, myId]);
+
+  const selectedTask = useMemo(
+    () =>
+      selectedTaskId
+        ? tasks.find((task) => task.id === selectedTaskId) ?? null
+        : null,
+    [tasks, selectedTaskId]
+  );
+
+  useEffect(() => {
+    const taskId = searchParams.get("task");
+    if (!taskId || loading) return;
+    const match = tasks.find((task) => task.id === taskId);
+    if (match) {
+      setSelectedTaskId(match.id);
+      setDetailOpen(true);
+    }
+  }, [searchParams, tasks, loading]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<ManualTaskStatus | "all", number> = {
@@ -271,7 +294,8 @@ export function ManualTasksBoard() {
       const bDue = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
       if (aDue !== bDue) return aDue - bDue;
       return (
-        PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority)
+        MANUAL_TASK_PRIORITY_ORDER.indexOf(a.priority) -
+        MANUAL_TASK_PRIORITY_ORDER.indexOf(b.priority)
       );
     });
   }, [tasks, assigneeFilter, statusFilter, search, myId]);
@@ -322,13 +346,35 @@ export function ManualTasksBoard() {
 
   const openCreate = () => {
     setEditing(null);
-    setDialogOpen(true);
+    setCreateDialogOpen(true);
+  };
+
+  const openDetail = (task: ManualTask) => {
+    setSelectedTaskId(task.id);
+    setDetailOpen(true);
   };
 
   const openEdit = (task: ManualTask) => {
     setEditing(task);
-    setDialogOpen(true);
+    setEditDialogOpen(true);
   };
+
+  const handleBoardStatusChange = useCallback(
+    async (taskId: string, status: ManualTaskStatus) => {
+      const task = tasks.find((entry) => entry.id === taskId);
+      if (!task || task.status === status) return;
+      const token = await getIdToken();
+      if (!token) return;
+      applyTask({ ...task, status });
+      try {
+        const { task: saved } = await apiUpdateTask(token, taskId, { status });
+        applyTask(saved);
+      } catch {
+        applyTask(task);
+      }
+    },
+    [tasks, getIdToken, applyTask]
+  );
 
   const hasFilters =
     assigneeFilter !== "all" || statusFilter !== "all" || search.trim() !== "";
@@ -344,9 +390,11 @@ export function ManualTasksBoard() {
             <SelectTrigger
               className={cn(dashboardControlClass, "h-9 w-[200px] px-3 text-[13px]")}
             >
-              <SelectValue placeholder="All tasks" />
+              <SelectValue placeholder="All tasks">
+                {assigneeFilterLabel(assigneeFilter, members, myId)}
+              </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent alignItemWithTrigger={false}>
               <SelectItem value="all">All tasks</SelectItem>
               {myId ? <SelectItem value="me">Assigned to me</SelectItem> : null}
               <SelectItem value="unassigned">Unassigned</SelectItem>
@@ -373,14 +421,44 @@ export function ManualTasksBoard() {
           </div>
         </div>
 
-        <Button
-          type="button"
-          className={cn(dashboardPrimaryButtonClass, "h-9")}
-          onClick={openCreate}
-        >
-          <Plus className="size-4" strokeWidth={2} />
-          New task
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setView("board")}
+              className={cn(
+                dashboardControlClass,
+                "h-9 gap-1.5 px-2.5 text-xs font-semibold",
+                view === "board" &&
+                  "border-[#2c6ecb] bg-[#f0f5ff] text-[#2c6ecb]"
+              )}
+            >
+              <LayoutGrid className="size-3.5" />
+              Board
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("list")}
+              className={cn(
+                dashboardControlClass,
+                "h-9 gap-1.5 px-2.5 text-xs font-semibold",
+                view === "list" &&
+                  "border-[#2c6ecb] bg-[#f0f5ff] text-[#2c6ecb]"
+              )}
+            >
+              <List className="size-3.5" />
+              List
+            </button>
+          </div>
+          <Button
+            type="button"
+            className={cn(dashboardPrimaryButtonClass, "h-9")}
+            onClick={openCreate}
+          >
+            <Plus className="size-4" strokeWidth={2} />
+            New task
+          </Button>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5">
@@ -390,14 +468,14 @@ export function ManualTasksBoard() {
           label="All"
           count={statusCounts.all}
         />
-        {STATUS_ORDER.map((status) => (
+        {MANUAL_TASK_STATUS_ORDER.map((status) => (
           <StatusChip
             key={status}
             active={statusFilter === status}
             onClick={() => setStatusFilter(status)}
-            label={STATUS_META[status].label}
+            label={MANUAL_TASK_STATUS_META[status].label}
             count={statusCounts[status]}
-            dot={STATUS_META[status].dot}
+            dot={MANUAL_TASK_STATUS_META[status].dot}
           />
         ))}
       </div>
@@ -410,12 +488,37 @@ export function ManualTasksBoard() {
       ) : null}
 
       <section className={dashboardCardClass}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebebeb] px-4 py-3 sm:px-5">
+          <div>
+            <p className="text-[15px] font-semibold text-[#303030]">
+              {view === "board" ? "Task board" : "Task list"}
+            </p>
+            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+              {filtered.length} task{filtered.length !== 1 ? "s" : ""}
+              {statusFilter !== "all"
+                ? ` · ${MANUAL_TASK_STATUS_META[statusFilter].label}`
+                : ""}
+            </p>
+          </div>
+        </div>
+
         {loading ? (
           <div className="px-6 py-16 text-center text-[13px] text-[#616161]">
             Loading tasks…
           </div>
         ) : filtered.length === 0 ? (
           <EmptyState hasFilters={hasFilters} onCreate={openCreate} />
+        ) : view === "board" ? (
+          <div className="p-4 sm:p-5">
+            <ManualTasksPipelineBoard
+              tasks={filtered}
+              members={members}
+              onOpenTask={openDetail}
+              onStatusChange={(taskId, status) =>
+                void handleBoardStatusChange(taskId, status)
+              }
+            />
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <Table className="min-w-[760px]">
@@ -442,12 +545,12 @@ export function ManualTasksBoard() {
               </TableHeader>
               <TableBody>
                 {filtered.map((task) => {
-                  const overdue = isOverdue(task);
+                  const overdue = isManualTaskOverdue(task);
                   return (
                     <TableRow
                       key={task.id}
                       className="group cursor-pointer border-[#ebebeb] transition-colors hover:bg-[#f6f6f7]"
-                      onClick={() => openEdit(task)}
+                      onClick={() => openDetail(task)}
                     >
                       <TableCell className="py-2.5 pl-4 sm:pl-5">
                         <button
@@ -489,9 +592,9 @@ export function ManualTasksBoard() {
                       </TableCell>
                       <TableCell className="py-2.5">
                         <div className="flex items-center gap-2">
-                          <Avatar name={task.assigneeName || null} />
+                          <Avatar name={taskAssigneeName(task, memberById) || null} />
                           <span className="truncate text-[13px] text-[#303030]">
-                            {task.assigneeName || (
+                            {taskAssigneeName(task, memberById) || (
                               <span className="text-[#8a8a8a]">Unassigned</span>
                             )}
                           </span>
@@ -520,26 +623,26 @@ export function ManualTasksBoard() {
                         <span
                           className={cn(
                             "inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium",
-                            PRIORITY_META[task.priority].badge
+                            MANUAL_TASK_PRIORITY_META[task.priority].badge
                           )}
                         >
-                          {PRIORITY_META[task.priority].label}
+                          {MANUAL_TASK_PRIORITY_META[task.priority].label}
                         </span>
                       </TableCell>
                       <TableCell className="py-2.5">
                         <span
                           className={cn(
                             "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium",
-                            STATUS_META[task.status].badge
+                            MANUAL_TASK_STATUS_META[task.status].badge
                           )}
                         >
                           <span
                             className={cn(
                               "size-1.5 rounded-full",
-                              STATUS_META[task.status].dot
+                              MANUAL_TASK_STATUS_META[task.status].dot
                             )}
                           />
-                          {STATUS_META[task.status].label}
+                          {MANUAL_TASK_STATUS_META[task.status].label}
                         </span>
                       </TableCell>
                       <TableCell className="py-2.5 pr-4 text-right sm:pr-5">
@@ -577,16 +680,58 @@ export function ManualTasksBoard() {
         )}
       </section>
 
+      <TaskDetailDialog
+        task={selectedTask}
+        members={members}
+        open={detailOpen}
+        onOpenChange={(open) => {
+          setDetailOpen(open);
+          if (!open) setSelectedTaskId(null);
+        }}
+        onUpdated={(task) => {
+          applyTask(task);
+          void refreshNotifications();
+        }}
+        onDeleted={(taskId) => {
+          setTasks((current) => current.filter((entry) => entry.id !== taskId));
+          setSelectedTaskId(null);
+          void refreshNotifications();
+        }}
+        onEdit={(task) => {
+          setDetailOpen(false);
+          openEdit(task);
+        }}
+      />
+
       <TaskDialog
-        key={editing?.id ?? "new"}
-        open={dialogOpen}
+        key={`create-${createDialogOpen}`}
+        open={createDialogOpen}
+        task={null}
+        members={members}
+        currentUser={currentUser}
+        onOpenChange={setCreateDialogOpen}
+        onSaved={(task) => {
+          applyTask(task);
+          setCreateDialogOpen(false);
+          void refreshNotifications();
+        }}
+      />
+
+      <TaskDialog
+        key={editing?.id ?? "edit"}
+        open={editDialogOpen}
         task={editing}
         members={members}
         currentUser={currentUser}
-        onOpenChange={setDialogOpen}
+        onOpenChange={setEditDialogOpen}
         onSaved={(task) => {
           applyTask(task);
-          setDialogOpen(false);
+          setEditDialogOpen(false);
+          setEditing(null);
+          if (selectedTaskId === task.id) {
+            setSelectedTaskId(task.id);
+          }
+          void refreshNotifications();
         }}
       />
     </div>
@@ -656,8 +801,6 @@ function EmptyState({
     </div>
   );
 }
-
-const UNASSIGNED_VALUE = "__unassigned__";
 
 function TaskDialog({
   open,
@@ -809,9 +952,16 @@ function TaskDialog({
                 }
               >
                 <SelectTrigger className={cn(dashboardControlClass, "h-9 px-3")}>
-                  <SelectValue placeholder="Unassigned" />
+                  <SelectValue placeholder="Unassigned">
+                    {assigneeOptionLabel(
+                      assigneeId,
+                      members,
+                      currentUser,
+                      task?.assigneeName
+                    )}
+                  </SelectValue>
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent alignItemWithTrigger={false}>
                   <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
                   {members.map((member) => (
                     <SelectItem key={member.id} value={member.id}>
@@ -846,12 +996,12 @@ function TaskDialog({
                 }
               >
                 <SelectTrigger className={cn(dashboardControlClass, "h-9 px-3")}>
-                  <SelectValue />
+                  <SelectValue>{MANUAL_TASK_PRIORITY_META[priority].label}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {PRIORITY_ORDER.map((value) => (
+                  {MANUAL_TASK_PRIORITY_ORDER.map((value) => (
                     <SelectItem key={value} value={value}>
-                      {PRIORITY_META[value].label}
+                      {MANUAL_TASK_PRIORITY_META[value].label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -867,12 +1017,12 @@ function TaskDialog({
                 onValueChange={(value) => setStatus(value as ManualTaskStatus)}
               >
                 <SelectTrigger className={cn(dashboardControlClass, "h-9 px-3")}>
-                  <SelectValue />
+                  <SelectValue>{MANUAL_TASK_STATUS_META[status].label}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {STATUS_ORDER.map((value) => (
+                  {MANUAL_TASK_STATUS_ORDER.map((value) => (
                     <SelectItem key={value} value={value}>
-                      {STATUS_META[value].label}
+                      {MANUAL_TASK_STATUS_META[value].label}
                     </SelectItem>
                   ))}
                 </SelectContent>

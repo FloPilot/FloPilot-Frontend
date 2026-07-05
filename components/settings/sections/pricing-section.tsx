@@ -20,6 +20,8 @@ import {
   type PricingMatrix,
   type PricingMethod,
 } from "@/lib/shop-settings";
+import { CustomerContractFeesEditor } from "@/components/pricing/customer-contract-fees-editor";
+import type { CustomerNegotiatedRateSheet } from "@/types";
 import { cn } from "@/lib/utils";
 
 function newId() {
@@ -54,7 +56,13 @@ export function PricingSection() {
     setError(null);
     setSaved(false);
     try {
-      await updateSettings({ pricingMatrix: draft });
+      await updateSettings({
+        pricingMatrix: {
+          ...draft,
+          blankMarkupPercent:
+            settings.pricingMatrix.blankMarkupPercent ?? draft.blankMarkupPercent ?? 0,
+        },
+      });
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2500);
     } catch (err) {
@@ -554,6 +562,30 @@ export function PricingSection() {
               Add decoration method
             </Button>
           </div>
+
+          <SettingsPanel
+            title="Order fee presets"
+            description="Saved setup, finishing, and other fees staff can pick when building an estimate."
+          >
+            <CustomerContractFeesEditor
+              sheet={
+                {
+                  id: "shop",
+                  name: "Shop standard",
+                  enabled: true,
+                  methods: [],
+                  contractFees: draft.contractFees ?? [],
+                } satisfies CustomerNegotiatedRateSheet
+              }
+              onChange={(sheet) =>
+                setDraft((current) => ({
+                  ...current,
+                  contractFees: sheet.contractFees ?? [],
+                }))
+              }
+              currency={currency}
+            />
+          </SettingsPanel>
         </div>
       )}
     </SettingsMain>

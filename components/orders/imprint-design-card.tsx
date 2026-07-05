@@ -33,7 +33,13 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { readImagePreviewDataUrl } from "@/lib/artwork-preview";
 import { ARTWORK_ATTACHABLE_KINDS } from "@/lib/create-order";
-import { EMPTY_INK_COLORS, EMPTY_NOTES, productionNotesEqual } from "@/lib/imprint-design";
+import {
+  EMPTY_INK_COLORS,
+  EMPTY_NOTES,
+  formatPrintDimensions,
+  parsePrintDimensions,
+  productionNotesEqual,
+} from "@/lib/imprint-design";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -44,7 +50,6 @@ import {
   findDtfImprintArea,
   getDtfImprintAreaOptions,
   getInkTypeOptions,
-  getScreenSizeOptions,
 } from "@/lib/shop-settings";
 import { useDebouncedCallback } from "@/lib/use-debounced-callback";
 import type {
@@ -60,6 +65,101 @@ const fieldClassName = cn(
   dashboardControlClass,
   "h-9 w-full justify-start px-3 text-[13px] shadow-none"
 );
+
+function PrintSizeFields({
+  dimensions,
+  readOnly,
+  onChange,
+}: {
+  dimensions?: string;
+  readOnly?: boolean;
+  onChange: (next: string | undefined) => void;
+}) {
+  const parsed = parsePrintDimensions(dimensions);
+  const display =
+    formatPrintDimensions(parsed.width, parsed.height) ||
+    dimensions?.trim() ||
+    "—";
+
+  const [widthInput, setWidthInput] = useState("");
+  const [heightInput, setHeightInput] = useState("");
+
+  useEffect(() => {
+    const next = parsePrintDimensions(dimensions);
+    setWidthInput(next.width != null ? String(next.width) : "");
+    setHeightInput(next.height != null ? String(next.height) : "");
+  }, [dimensions]);
+
+  const commitDimensions = (widthStr: string, heightStr: string) => {
+    const widthTrim = widthStr.trim();
+    const heightTrim = heightStr.trim();
+
+    if (!widthTrim && !heightTrim) {
+      onChange(undefined);
+      return;
+    }
+
+    const width = widthTrim ? Number(widthTrim) : NaN;
+    const height = heightTrim ? Number(heightTrim) : NaN;
+
+    if (
+      Number.isFinite(width) &&
+      Number.isFinite(height) &&
+      width > 0 &&
+      height > 0
+    ) {
+      onChange(formatPrintDimensions(width, height));
+    }
+  };
+
+  if (readOnly) {
+    return <p className="text-sm font-medium text-[#303030]">{display}</p>;
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="min-w-0 flex-1">
+        <Input
+          type="number"
+          min={0}
+          step={0.1}
+          inputMode="decimal"
+          value={widthInput}
+          onChange={(event) => {
+            const nextWidth = event.target.value;
+            setWidthInput(nextWidth);
+            commitDimensions(nextWidth, heightInput);
+          }}
+          onBlur={() => commitDimensions(widthInput, heightInput)}
+          placeholder="Width"
+          className={fieldClassName}
+          aria-label="Print width in inches"
+        />
+      </div>
+      <span className="shrink-0 text-[12px] text-[#8a8a8a]">in</span>
+      <span className="shrink-0 text-[12px] text-[#8a8a8a]">×</span>
+      <div className="min-w-0 flex-1">
+        <Input
+          type="number"
+          min={0}
+          step={0.1}
+          inputMode="decimal"
+          value={heightInput}
+          onChange={(event) => {
+            const nextHeight = event.target.value;
+            setHeightInput(nextHeight);
+            commitDimensions(widthInput, nextHeight);
+          }}
+          onBlur={() => commitDimensions(widthInput, heightInput)}
+          placeholder="Height"
+          className={fieldClassName}
+          aria-label="Print height in inches"
+        />
+      </div>
+      <span className="shrink-0 text-[12px] text-[#8a8a8a]">in</span>
+    </div>
+  );
+}
 
 function isDtfDecoration(decoration: DecorationType): boolean {
   return decoration === "dtf";
@@ -137,50 +237,14 @@ function MockupFilePicker({
   );
 }
 
-export function SaveDesignButton({
-  order,
-  jobId,
-  imprintId,
-  imprintLabel,
-}: {
-  order: Order;
-  jobId: string;
-  imprintId: string;
-  imprintLabel: string;
-}) {
-  const { createDesignFromImprint } = useSchedule();
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      const design = await createDesignFromImprint(
-        order.id,
-        jobId,
-        imprintId,
-        `${imprintLabel} — ${order.company}`
-      );
-      if (design) setSaved(true);
-    } finally {
-      setSaving(false);
-    }
-  };
+function LibrarySyncBadge({ designId }: { designId?: string }) {
+  if (!designId) return null;
 
   return (
-    <Button
-      type="button"
-      className={cn(dashboardControlClass, "h-8 text-[12px]")}
-      disabled={saving || saved}
-      onClick={handleSave}
-    >
-      {saving ? (
-        <Loader2 className="size-3.5 animate-spin" />
-      ) : (
-        <BookMarked className="size-3.5" />
-      )}
-      {saved ? "Saved" : "Save to library"}
-    </Button>
+    <span className="inline-flex items-center gap-1 rounded-md bg-[#e8f5ee] px-2 py-0.5 text-[11px] font-medium text-[#0d5c2e]">
+      <BookMarked className="size-3" />
+      In library
+    </span>
   );
 }
 
@@ -212,7 +276,6 @@ export function ImprintDesignCard({
   const [uploading, setUploading] = useState(false);
   const [uploadHint, setUploadHint] = useState<string | null>(null);
   const [addingCustomInkType, setAddingCustomInkType] = useState(false);
-  const [addingCustomScreenSize, setAddingCustomScreenSize] = useState(false);
   const [addingCustomDtfImprintArea, setAddingCustomDtfImprintArea] =
     useState(false);
 
@@ -288,20 +351,6 @@ export function ImprintDesignCard({
     return match?.value ?? notes.inkType;
   }, [notes.inkType, inkTypeOptions]);
 
-  const screenSizeOptions = useMemo(() => {
-    const options = getScreenSizeOptions(settings.productionDefaults);
-    if (
-      notes.screenSizeId &&
-      !options.some((option) => option.value === notes.screenSizeId)
-    ) {
-      return [
-        ...options,
-        { value: notes.screenSizeId, label: notes.screenSizeId },
-      ];
-    }
-    return options;
-  }, [settings.productionDefaults, notes.screenSizeId]);
-
   const dtfImprintAreaOptions = useMemo(() => {
     const options = getDtfImprintAreaOptions(settings.productionDefaults);
     if (
@@ -355,55 +404,6 @@ export function ImprintDesignCard({
     [isAdmin, settings.productionDefaults, updateSettings]
   );
 
-  const handleAddCustomScreenSize = useCallback(
-    async (label: string) => {
-      if (!isAdmin) return null;
-      const trimmed = label.trim();
-      if (!trimmed) return null;
-
-      const match = trimmed.match(/(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i);
-      if (!match) return null;
-
-      const widthIn = Number(match[1]);
-      const heightIn = Number(match[2]);
-      if (!Number.isFinite(widthIn) || !Number.isFinite(heightIn)) return null;
-      if (widthIn <= 0 || heightIn <= 0) return null;
-
-      const roundedWidth = Math.round(widthIn * 10) / 10;
-      const roundedHeight = Math.round(heightIn * 10) / 10;
-      const displayLabel = `${roundedWidth} × ${roundedHeight}`;
-      const id = `screen-${String(roundedWidth).replace(".", "-")}x${String(roundedHeight).replace(".", "-")}`;
-
-      const existing = getScreenSizeOptions(settings.productionDefaults);
-      const found = existing.find(
-        (option) => option.value === id || option.label === displayLabel
-      );
-      if (found) return found.value;
-
-      const nextSizes = [
-        ...(settings.productionDefaults.screenSizes ?? []),
-        {
-          id,
-          label: displayLabel,
-          widthIn: roundedWidth,
-          heightIn: roundedHeight,
-          notes: "",
-        },
-      ];
-
-      setAddingCustomScreenSize(true);
-      try {
-        await updateSettings({
-          productionDefaults: { screenSizes: nextSizes },
-        });
-        return id;
-      } finally {
-        setAddingCustomScreenSize(false);
-      }
-    },
-    [isAdmin, settings.productionDefaults, updateSettings]
-  );
-
   const handleAddCustomDtfImprintArea = useCallback(
     async (label: string) => {
       if (!isAdmin) return null;
@@ -452,14 +452,6 @@ export function ImprintDesignCard({
     },
     [isAdmin, settings.productionDefaults, updateSettings]
   );
-
-  const screenSizeLabel = useMemo(() => {
-    if (!notes.screenSizeId) return "—";
-    return (
-      screenSizeOptions.find((option) => option.value === notes.screenSizeId)
-        ?.label ?? "—"
-    );
-  }, [notes.screenSizeId, screenSizeOptions]);
 
   const dtfImprintAreaLabel = useMemo(() => {
     if (!notes.dtfImprintAreaId) {
@@ -534,12 +526,7 @@ export function ImprintDesignCard({
         </div>
         <div className="flex items-center gap-2">
           {!isFinishing ? (
-            <SaveDesignButton
-              order={order}
-              jobId={job.id}
-              imprintId={imprint.id}
-              imprintLabel={imprint.label}
-            />
+            <LibrarySyncBadge designId={imprint.libraryDesignId} />
           ) : null}
           {highlighted ? (
             <span className="rounded-md bg-[#2c6ecb] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
@@ -692,24 +679,15 @@ export function ImprintDesignCard({
           {!isFinishing && (
             <div className="grid gap-3 sm:grid-cols-2">
               {!isDtf ? (
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 sm:col-span-2">
                   <Label className="text-[11px] font-medium text-[#8a8a8a]">
                     Print size
                   </Label>
-                  {readOnly ? (
-                    <p className="text-sm font-medium text-[#303030]">
-                      {notes.dimensions || "—"}
-                    </p>
-                  ) : (
-                    <Input
-                      value={notes.dimensions ?? ""}
-                      onChange={(event) =>
-                        saveNotes({ dimensions: event.target.value })
-                      }
-                      placeholder={'3" W × 2.7" T'}
-                      className={fieldClassName}
-                    />
-                  )}
+                  <PrintSizeFields
+                    dimensions={notes.dimensions}
+                    readOnly={readOnly}
+                    onChange={(value) => saveNotes({ dimensions: value })}
+                  />
                 </div>
               ) : null}
               <div className="space-y-1.5">
@@ -770,118 +748,63 @@ export function ImprintDesignCard({
                   </div>
                 </>
               ) : isScreenPrint ? (
-                <>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-[11px] font-medium text-[#8a8a8a]">
-                        Ink type
-                      </Label>
-                      {readOnly ? (
-                        <p className="text-sm font-medium text-[#303030]">
-                          {inkTypeOptions.find(
-                            (option) => option.value === notes.inkType
-                          )?.label ??
-                            notes.inkType ??
-                            "—"}
-                        </p>
-                      ) : (
-                        <ShopPresetSelect
-                          value={inkTypeValue}
-                          options={inkTypeOptions}
-                          onChange={(value) =>
-                            saveNotes({ inkType: value || undefined })
-                          }
-                          className={fieldClassName}
-                          placeholder="Select ink"
-                          canAddCustom={isAdmin}
-                          onAddCustom={handleAddCustomInkType}
-                          addingCustom={addingCustomInkType}
-                          addLabel="Add ink type"
-                          addPlaceholder="e.g. High-opacity plastisol"
-                        />
-                      )}
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-[11px] font-medium text-[#8a8a8a]">
-                        Screen size
-                      </Label>
-                      {readOnly ? (
-                        <p className="text-sm font-medium text-[#303030]">
-                          {screenSizeLabel}
-                        </p>
-                      ) : (
-                        <ShopPresetSelect
-                          value={notes.screenSizeId ?? ""}
-                          options={screenSizeOptions}
-                          onChange={(value) =>
-                            saveNotes({ screenSizeId: value || undefined })
-                          }
-                          className={fieldClassName}
-                          placeholder="Select screen size"
-                          canAddCustom={isAdmin}
-                          onAddCustom={handleAddCustomScreenSize}
-                          addingCustom={addingCustomScreenSize}
-                          addLabel="Add screen size"
-                          addPlaceholder="e.g. 23 × 31"
-                        />
-                      )}
-                    </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-medium text-[#8a8a8a]">
+                      Ink type
+                    </Label>
+                    {readOnly ? (
+                      <p className="text-sm font-medium text-[#303030]">
+                        {inkTypeOptions.find(
+                          (option) => option.value === notes.inkType
+                        )?.label ??
+                          notes.inkType ??
+                          "—"}
+                      </p>
+                    ) : (
+                      <ShopPresetSelect
+                        value={inkTypeValue}
+                        options={inkTypeOptions}
+                        onChange={(value) =>
+                          saveNotes({ inkType: value || undefined })
+                        }
+                        className={fieldClassName}
+                        placeholder="Select ink"
+                        canAddCustom={isAdmin}
+                        onAddCustom={handleAddCustomInkType}
+                        addingCustom={addingCustomInkType}
+                        addLabel="Add ink type"
+                        addPlaceholder="e.g. High-opacity plastisol"
+                      />
+                    )}
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-[11px] font-medium text-[#8a8a8a]">
-                        Colors
-                      </Label>
-                      {readOnly ? (
-                        <p className="text-sm font-medium text-[#303030]">
-                          {(notes.colorCount ??
-                            inkColors.filter((row) => !row.isFlash).length) ||
-                            "—"}
-                        </p>
-                      ) : (
-                        <Input
-                          type="number"
-                          min={0}
-                          value={notes.colorCount ?? ""}
-                          onChange={(event) =>
-                            saveNotes({
-                              colorCount: event.target.value
-                                ? Number(event.target.value)
-                                : undefined,
-                            })
-                          }
-                          className={fieldClassName}
-                        />
-                      )}
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-[11px] font-medium text-[#8a8a8a]">
-                        Flashes
-                      </Label>
-                      {readOnly ? (
-                        <p className="text-sm font-medium text-[#303030]">
-                          {(notes.flashCount ??
-                            inkColors.filter((row) => row.isFlash).length) ||
-                            "—"}
-                        </p>
-                      ) : (
-                        <Input
-                          type="number"
-                          min={0}
-                          value={notes.flashCount ?? ""}
-                          onChange={(event) =>
-                            saveNotes({
-                              flashCount: event.target.value
-                                ? Number(event.target.value)
-                                : undefined,
-                            })
-                          }
-                          className={fieldClassName}
-                        />
-                      )}
-                    </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-medium text-[#8a8a8a]">
+                      Flashes
+                    </Label>
+                    {readOnly ? (
+                      <p className="text-sm font-medium text-[#303030]">
+                        {(notes.flashCount ??
+                          inkColors.filter((row) => row.isFlash).length) ||
+                          "—"}
+                      </p>
+                    ) : (
+                      <Input
+                        type="number"
+                        min={0}
+                        value={notes.flashCount ?? ""}
+                        onChange={(event) =>
+                          saveNotes({
+                            flashCount: event.target.value
+                              ? Number(event.target.value)
+                              : undefined,
+                          })
+                        }
+                        className={fieldClassName}
+                      />
+                    )}
                   </div>
-                </>
+                </div>
               ) : null}
 
               <div className="space-y-1.5 sm:col-span-2">

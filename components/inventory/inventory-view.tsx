@@ -15,9 +15,11 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 import { PurchaseOrderDialog } from "@/components/inventory/purchase-order-dialog";
+import { ReceivingView } from "@/components/inventory/receiving-view";
 import {
   Table,
   TableBody,
@@ -37,6 +39,10 @@ import {
 } from "@/lib/api";
 import { getWarehouseNames } from "@/lib/shop-settings";
 import {
+  buildReceivingQueue,
+  receivingQueueStats,
+} from "@/lib/receiving-queue";
+import {
   dashboardCardClass,
   dashboardControlClass,
   dashboardGhostButtonClass,
@@ -53,7 +59,7 @@ import { cn } from "@/lib/utils";
 
 type StockStatus = "healthy" | "low" | "out";
 type StatusFilter = "all" | StockStatus;
-type Tab = "stock" | "orders";
+type Tab = "stock" | "orders" | "receiving";
 
 function getStockStatus(item: InventoryItem): StockStatus {
   if (item.onHand <= 0) return "out";
@@ -113,13 +119,14 @@ const PO_STATUS_META: Record<
 
 export function InventoryView() {
   const { getIdToken, profile } = useAuth();
+  const { activeOrders } = useSchedule();
   const { settings } = useShopSettings();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [tab, setTab] = useState<Tab>("stock");
+  const [tab, setTab] = useState<Tab>("receiving");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [warehouse, setWarehouse] = useState<string>("all");
@@ -222,6 +229,11 @@ export function InventoryView() {
     statusFilter !== "all" || warehouse !== "all" || search.trim() !== "";
 
   const attention = kpis.low + kpis.out;
+
+  const receivingStats = useMemo(() => {
+    const queue = buildReceivingQueue(activeOrders);
+    return receivingQueueStats(queue);
+  }, [activeOrders]);
 
   const openCreateDialog = (prefill?: InventoryItem[]) => {
     setPrefillItems(prefill);
@@ -353,13 +365,18 @@ export function InventoryView() {
     <main className="flex w-full flex-1 flex-col gap-4 p-4 sm:gap-5 sm:p-6 lg:p-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className={dashboardSectionTitleClass}>Inventory</h1>
+          <h1 className={dashboardSectionTitleClass}>Warehouse</h1>
           <p className={cn("mt-1 max-w-2xl", dashboardTaskDetailClass)}>
-            {attention > 0
-              ? `${attention} item${attention !== 1 ? "s" : ""} need attention — restock before you run out`
-              : "Track stock levels, reorder points, and purchasing in one place"}
+            {tab === "receiving"
+              ? "Receive blank garments for production orders. Qty received updates the order, jobs, and missing-blank alerts."
+              : tab === "orders"
+                ? "Create and track purchase orders for shop supplies and stock."
+                : attention > 0
+                  ? `${attention} item${attention !== 1 ? "s" : ""} need attention — restock before you run out`
+                  : "Stock levels, blank receiving, and purchase orders in one place"}
           </p>
         </div>
+        {tab !== "receiving" ? (
         <div className="flex flex-wrap items-center gap-2">
           {attention > 0 ? (
             <button
@@ -380,11 +397,13 @@ export function InventoryView() {
             Create purchase order
           </button>
         </div>
+        ) : null}
       </div>
 
-      <div className="flex w-fit rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5">
+      <div className="flex w-fit max-w-full overflow-x-auto rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5">
         {(
           [
+            { value: "receiving", label: "Receiving" },
             { value: "stock", label: "Stock levels" },
             { value: "orders", label: "Purchase orders" },
           ] as { value: Tab; label: string }[]
@@ -406,6 +425,12 @@ export function InventoryView() {
                 {openOrders}
               </span>
             ) : null}
+            {option.value === "receiving" &&
+            receivingStats.openOrders > 0 ? (
+              <span className="ml-1.5 rounded-full bg-[#fde2e2] px-1.5 py-0.5 text-[11px] font-semibold text-[#8f1f1f]">
+                {receivingStats.openOrders}
+              </span>
+            ) : null}
           </button>
         ))}
       </div>
@@ -416,8 +441,10 @@ export function InventoryView() {
         </p>
       )}
 
-      {loading ? (
-        <AppLoadingScreen label="Loading inventory…" />
+      {loading && tab !== "receiving" ? (
+        <AppLoadingScreen label="Loading warehouse…" />
+      ) : tab === "receiving" ? (
+        <ReceivingView />
       ) : tab === "stock" ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

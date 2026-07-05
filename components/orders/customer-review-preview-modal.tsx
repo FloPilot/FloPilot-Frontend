@@ -1,138 +1,170 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Eye, Loader2 } from "lucide-react";
-import { CustomerReviewFlow } from "@/components/review/customer-review-flow";
+import { useCallback, useState } from "react";
+import { Check, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  dashboardTaskDetailClass,
-  dashboardTaskTitleClass,
-} from "@/lib/dashboard-styles";
-import {
-  fetchCustomerReviewPreview,
-  type CustomerReviewSession,
-} from "@/lib/customer-review-api";
+import { getOrderCustomerPortalLink } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-export function CustomerReviewPreviewModal({
+/** Use localhost when previewing/copying from a local dev server. */
+function portalUrlForCurrentHost(url: string): string {
+  if (typeof window === "undefined") return url;
+  const { hostname } = window.location;
+  if (hostname !== "localhost" && hostname !== "127.0.0.1") return url;
+
+  try {
+    const parsed = new URL(url);
+    parsed.protocol = window.location.protocol;
+    parsed.host = window.location.host;
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+export function CustomerPortalActions({
   orderId,
-  orderNumber,
-  open,
-  onOpenChange,
+  className,
+  previewClassName,
+  copyClassName,
 }: {
   orderId: string;
-  orderNumber: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  className?: string;
+  previewClassName?: string;
+  copyClassName?: string;
 }) {
   const { getIdToken } = useAuth();
-  const [session, setSession] = useState<CustomerReviewSession | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [loadingCopy, setLoadingCopy] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await getIdToken();
-      if (!token) throw new Error("You need to be signed in to preview.");
-      const data = await fetchCustomerReviewPreview(token, orderId);
-      setSession(data);
-    } catch (err) {
-      setSession(null);
-      setError(
-        err instanceof Error ? err.message : "Could not load the preview."
-      );
-    } finally {
-      setLoading(false);
-    }
+  const fetchPortalLink = useCallback(async () => {
+    const token = await getIdToken();
+    if (!token) throw new Error("You need to be signed in.");
+    const result = await getOrderCustomerPortalLink(token, orderId);
+    return {
+      ...result,
+      portalOrderUrl: portalUrlForCurrentHost(result.portalOrderUrl),
+      portalHomeUrl: portalUrlForCurrentHost(result.portalHomeUrl),
+    };
   }, [getIdToken, orderId]);
 
-  useEffect(() => {
-    if (!open) {
-      setSession(null);
-      setError(null);
-      return;
+  const handlePreview = async () => {
+    setLoadingPreview(true);
+    setError(null);
+    setCopied(false);
+    try {
+      const { portalOrderUrl } = await fetchPortalLink();
+      const opened = window.open(portalOrderUrl, "_blank", "noopener,noreferrer");
+      if (!opened) {
+        throw new Error(
+          "Your browser blocked the new tab. Allow pop-ups for this site and try again."
+        );
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not open the portal."
+      );
+    } finally {
+      setLoadingPreview(false);
     }
-    void load();
-  }, [open, load]);
+  };
+
+  const handleCopyLink = async () => {
+    setLoadingCopy(true);
+    setError(null);
+    try {
+      const { portalOrderUrl } = await fetchPortalLink();
+      await navigator.clipboard.writeText(portalOrderUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not copy the portal link."
+      );
+    } finally {
+      setLoadingCopy(false);
+    }
+  };
+
+  const busy = loadingPreview || loadingCopy;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton
-        className="flex h-[min(94vh,920px)] w-[calc(100vw-1.5rem)] max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl"
+    <div className={cn("space-y-2", className)}>
+      <button
+        type="button"
+        onClick={() => void handlePreview()}
+        disabled={busy}
+        aria-busy={loadingPreview}
+        className={cn(
+          previewClassName,
+          busy && !loadingPreview && "opacity-60"
+        )}
       >
-        <DialogHeader className="shrink-0 border-b border-[#ebebeb] px-5 py-4 pr-12">
-          <DialogTitle className={dashboardTaskTitleClass}>
-            Customer preview
-          </DialogTitle>
-          <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-            Order {orderNumber} — estimate and proofs as your customer will see
-            them.
-          </p>
-        </DialogHeader>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="flex min-h-[360px] flex-col items-center justify-center gap-2 text-[#616161]">
-              <Loader2 className="size-6 animate-spin text-[#2c6ecb]" />
-              <p className="text-[13px]">Building preview…</p>
-            </div>
-          ) : error ? (
-            <div className="flex min-h-[280px] flex-col items-center justify-center gap-2 px-6 text-center">
-              <AlertCircle className="size-7 text-[#d72c0d]" />
-              <p className="text-[14px] font-medium text-[#303030]">
-                Preview unavailable
-              </p>
-              <p className="text-[13px] text-[#616161]">{error}</p>
-            </div>
-          ) : session ? (
-            <CustomerReviewFlow
-              initialSession={session}
-              mode="preview"
-              embedded
-            />
-          ) : null}
-        </div>
-      </DialogContent>
-    </Dialog>
+        {loadingPreview ? (
+          <>
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-white" />
+            Opening preview…
+          </>
+        ) : (
+          <>
+            <ExternalLink className="size-3.5 shrink-0" />
+            Preview customer portal
+          </>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => void handleCopyLink()}
+        disabled={busy}
+        aria-busy={loadingCopy}
+        className={cn(copyClassName, busy && !loadingCopy && "opacity-60")}
+      >
+        {loadingCopy ? (
+          <>
+            <Loader2 className="size-3.5 shrink-0 animate-spin text-[#616161]" />
+            Copying link…
+          </>
+        ) : copied ? (
+          <>
+            <Check className="size-3.5 shrink-0 text-[#0d5c2e]" />
+            Portal link copied
+          </>
+        ) : (
+          <>
+            <Copy className="size-3.5 shrink-0" />
+            Copy portal link
+          </>
+        )}
+      </button>
+      {error ? (
+        <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[12px] leading-snug text-[#8f1f1f]">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
+/** @deprecated Use CustomerPortalActions */
 export function CustomerPreviewTrigger({
   orderId,
-  orderNumber,
+  orderNumber: _orderNumber,
   className,
 }: {
   orderId: string;
   orderNumber: string;
   className?: string;
 }) {
-  const [open, setOpen] = useState(false);
-
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={className}
-      >
-        <Eye className="size-3.5 shrink-0" />
-        Preview customer view
-      </button>
-      <CustomerReviewPreviewModal
-        orderId={orderId}
-        orderNumber={orderNumber}
-        open={open}
-        onOpenChange={setOpen}
-      />
-    </>
+    <CustomerPortalActions
+      orderId={orderId}
+      previewClassName={className}
+      copyClassName={cn(
+        className,
+        "mt-0 border-[#e3e3e3] bg-white text-[#303030] hover:bg-[#fafafa]"
+      )}
+    />
   );
 }

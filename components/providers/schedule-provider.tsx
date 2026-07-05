@@ -23,6 +23,7 @@ import type {
   Order,
   OrderFile,
   OrderFileKind,
+  OrderEstimateAdjustment,
   ProductionEventWorkflow,
   ScheduleBlock,
   StationJobRun,
@@ -77,6 +78,7 @@ import {
   updateOrder as apiUpdateOrder,
   updateOrderGarments as apiUpdateOrderGarments,
   updateOrderMaterials as apiUpdateOrderMaterials,
+  backfillDesignLibrary as apiBackfillDesignLibrary,
   createDesignFromImprint as apiCreateDesignFromImprint,
   applyDesignToOrder as apiApplyDesignToOrder,
   updateOrderLineItem as apiUpdateOrderLineItem,
@@ -102,6 +104,32 @@ import {
   parseProductionEventTaskId,
 } from "@/lib/production-events-board";
 
+/** Prefer the copy with at least as many production jobs - avoids stale list refreshes wiping a just-added event. */
+function mergeOrdersFromServer(current: Order[], incoming: Order[]): Order[] {
+  if (incoming.length === 0) return current;
+
+  const incomingById = new Map(incoming.map((order) => [order.id, order]));
+  const merged = current.map((existing) => {
+    const fresh = incomingById.get(existing.id);
+    if (!fresh) return existing;
+
+    const existingJobCount = existing.jobs?.length ?? 0;
+    const freshJobCount = fresh.jobs?.length ?? 0;
+    if (freshJobCount < existingJobCount) return existing;
+
+    incomingById.delete(existing.id);
+    return fresh;
+  });
+
+  for (const order of incomingById.values()) {
+    merged.push(order);
+  }
+
+  return merged.sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+}
+
 type ScheduleContextValue = {
   customers: Customer[];
   getCustomerById: (id: string) => Customer | undefined;
@@ -119,6 +147,8 @@ type ScheduleContextValue = {
   shopDataLoading: boolean;
   shopDataError: string | null;
   refreshShopData: () => Promise<void>;
+  /** Refreshes calendar queue + timelines without the global shop loading state. */
+  refreshCalendarData: () => Promise<void>;
   getOrderById: (id: string) => Order | undefined;
   getOrdersByCustomerId: (customerId: string) => Order[];
   createReorderFromOrder: (
@@ -126,18 +156,21 @@ type ScheduleContextValue = {
   ) => Promise<{ id: string; number: string } | null>;
   archiveOrder: (orderId: string) => Promise<void>;
   restoreOrder: (orderId: string) => Promise<void>;
-  addProductionJob: (orderId: string, job: Job) => void;
+  addProductionJob: (orderId: string, job: Job) => Promise<void>;
   removeProductionJob: (orderId: string, jobId: string) => void;
   machines: Machine[];
   scheduleBlocks: ScheduleBlock[];
-  /** Schedule blocks excluding archived orders — use on shop floor views. */
+  /** Schedule blocks excluding archived orders - use on shop floor views. */
   activeScheduleBlocks: ScheduleBlock[];
   addMachine: (machine: Omit<Machine, "id">) => void;
   updateMachine: (id: string, machine: Omit<Machine, "id">) => void;
   deleteMachine: (id: string) => void;
-  addScheduleBlock: (block: Omit<ScheduleBlock, "id">) => void;
-  updateScheduleBlock: (id: string, block: Omit<ScheduleBlock, "id">) => void;
-  removeScheduleBlock: (id: string) => void;
+  addScheduleBlock: (block: Omit<ScheduleBlock, "id">) => Promise<void>;
+  updateScheduleBlock: (
+    id: string,
+    block: Omit<ScheduleBlock, "id">
+  ) => Promise<void>;
+  removeScheduleBlock: (id: string) => Promise<void>;
   getMachineById: (id: string) => Machine | undefined;
   issueReports: MachineIssueReport[];
   reportMachineIssue: (params: {
@@ -156,8 +189,9 @@ type ScheduleContextValue = {
     { ok: true; run: StationJobRun } | { ok: false; error: string }
   >;
   pauseJobRun: (runId: string) => void;
-  resumeJobRun: (runId: string) => void;
-  finishJobRun: (runId: string) => void;
+  startJobRun: (runId: string) => Promise<void>;
+  resumeJobRun: (runId: string) => Promise<void>;
+  finishJobRun: (runId: string) => Promise<void>;
   cancelJobRun: (runId: string) => void;
   addJobRunNote: (runId: string, content: string, author?: string) => void;
   getOrderMessages: (orderId: string) => Message[];
@@ -226,7 +260,7 @@ type ScheduleContextValue = {
     orderId: string,
     jobId: string,
     imprintId: string
-  ) => void;
+  ) => Promise<{ sent: boolean; to: string }>;
   sendProofsAndEstimate: (
     orderId: string
   ) => Promise<{ sent: boolean; to: string }>;
@@ -239,6 +273,19 @@ type ScheduleContextValue = {
     status: import("@/types").OrderStatus
   ) => Promise<void>;
   setOrderRush: (orderId: string, rush: boolean) => Promise<void>;
+  updateOrderEstimatePricing: (
+    orderId: string,
+    updates: {
+      selectedRateSheetId?: string | null;
+      estimateAdjustments?: OrderEstimateAdjustment[];
+      excludedContractFeeIds?: string[];
+    }
+  ) => Promise<Order>;
+  updateOrderShipments: (
+    orderId: string,
+    shipments: import("@/types").Shipment[],
+    shipping?: import("@/types").OrderShippingSettings
+  ) => Promise<import("@/types").Order | void>;
   updateOrderLineItem: (
     orderId: string,
     lineItemId: string,
@@ -268,7 +315,7 @@ type ScheduleContextValue = {
     fileId: string | null
   ) => void;
   productionTasks: Task[];
-  /** Production events as kanban cards — synced with Tasks screen workflow */
+  /** Production events as kanban cards - synced with Tasks screen workflow */
   productionBoardTasks: Task[];
   updateProductionTaskStatus: (taskId: string, status: TaskStatus) => void;
   updateProductionEventWorkflow: (
@@ -327,6 +374,41 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [scheduleBlocks, orders]
   );
 
+  const refreshCalendarData = useCallback(async () => {
+    if (profile?.type !== "staff") return;
+
+    const token = await getIdToken();
+    if (!token) return;
+
+    try {
+      const [blocksRes, runsRes, ordersRes] = await Promise.all([
+        apiListScheduleBlocks(token),
+        apiListJobRuns(token),
+        apiListOrders(token, { archived: "include" }),
+      ]);
+
+      setScheduleBlocks(blocksRes.blocks);
+      setJobRuns(
+        runsRes.runs.length > 0
+          ? runsRes.runs
+          : buildInitialJobRuns(blocksRes.blocks)
+      );
+      setOrders((prev) => {
+        const next = mergeOrdersFromServer(prev, ordersRes.orders);
+        setProductionTasks(deriveProductionTasks(next));
+        return next;
+      });
+      setRecentOrders((prev) =>
+        excludeArchivedOrders(mergeOrdersFromServer(prev, ordersRes.orders)).slice(
+          0,
+          6
+        )
+      );
+    } catch {
+      // Keep the last known calendar state on transient errors.
+    }
+  }, [profile, getIdToken]);
+
   const refreshShopData = useCallback(async () => {
     if (profile?.type !== "staff") return;
 
@@ -376,6 +458,32 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       setRecentOrders(
         ordersRes.orders.filter((order) => !order.archived).slice(0, 6)
       );
+
+      const tenantId =
+        profile?.type === "staff" ? profile.tenant.id : null;
+      const backfillKey = tenantId
+        ? `design-library-sync:v1:${tenantId}`
+        : null;
+      if (
+        backfillKey &&
+        typeof window !== "undefined" &&
+        !window.localStorage.getItem(backfillKey)
+      ) {
+        try {
+          const { result } = await apiBackfillDesignLibrary(token);
+          window.localStorage.setItem(backfillKey, "1");
+          if (result.ordersTouched > 0) {
+            const refreshed = await apiListOrders(token, { archived: "include" });
+            setOrders(refreshed.orders);
+            setProductionTasks(deriveProductionTasks(refreshed.orders));
+            setRecentOrders(
+              refreshed.orders.filter((order) => !order.archived).slice(0, 6)
+            );
+          }
+        } catch (backfillErr) {
+          console.error("Design library backfill failed:", backfillErr);
+        }
+      }
     } catch (err) {
       setShopDataError(
         err instanceof Error ? err.message : "Failed to load shop data"
@@ -479,7 +587,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       setCustomers((prev) =>
         prev.map((existing) => (existing.id === id ? customer : existing))
       );
-      // The cascade touched orders — reload so archived state is consistent.
+      // The cascade touched orders - reload so archived state is consistent.
       if (archivedOrders > 0) await refreshShopData();
       return archivedOrders;
     },
@@ -618,8 +726,9 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       if (order) {
         applyOrderUpdate(order);
       }
+      await refreshCalendarData();
     },
-    [getIdToken, applyOrderUpdate]
+    [getIdToken, applyOrderUpdate, refreshCalendarData]
   );
 
   const updateScheduleBlock = useCallback(
@@ -638,8 +747,9 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
             : run
         )
       );
+      await refreshCalendarData();
     },
-    [getIdToken]
+    [getIdToken, refreshCalendarData]
   );
 
   const removeScheduleBlock = useCallback(
@@ -650,8 +760,9 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       await apiDeleteScheduleBlock(token, id);
       setScheduleBlocks((prev) => prev.filter((block) => block.id !== id));
       setJobRuns((prev) => prev.filter((run) => run.scheduleBlockId !== id));
+      await refreshCalendarData();
     },
-    [getIdToken]
+    [getIdToken, refreshCalendarData]
   );
 
   const getJobRun = useCallback(
@@ -693,6 +804,16 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const token = await getIdToken();
       if (!token) return;
       const { run } = await apiUpdateJobRunStatus(token, runId, "paused");
+      updateJobRun(run);
+    },
+    [getIdToken, updateJobRun]
+  );
+
+  const startJobRun = useCallback(
+    async (runId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+      const { run } = await apiUpdateJobRunStatus(token, runId, "running");
       updateJobRun(run);
     },
     [getIdToken, updateJobRun]
@@ -802,11 +923,46 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const token = await getIdToken();
       if (!token) throw new Error("Not signed in");
 
-      await apiAddProductionJob(token, orderId, job);
-      // Re-read the authoritative order so the new event shows immediately
-      // without a manual page refresh.
-      const { order } = await apiGetOrder(token, orderId);
-      applyOrderUpdate(order);
+      setOrders((prev) => {
+        const existing = prev.find((entry) => entry.id === orderId);
+        if (!existing) return prev;
+
+        const optimistic: Order = {
+          ...existing,
+          jobs: [...(existing.jobs ?? []), job],
+        };
+        const next = prev.map((entry) =>
+          entry.id === orderId ? optimistic : entry
+        );
+        setProductionTasks(deriveProductionTasks(next));
+        return next;
+      });
+
+      try {
+        const { order } = await apiAddProductionJob(token, orderId, job);
+        applyOrderUpdate(order);
+      } catch (err) {
+        try {
+          const { order } = await apiGetOrder(token, orderId);
+          applyOrderUpdate(order);
+        } catch {
+          setOrders((prev) => {
+            const existing = prev.find((entry) => entry.id === orderId);
+            if (!existing) return prev;
+
+            const reverted: Order = {
+              ...existing,
+              jobs: (existing.jobs ?? []).filter((entry) => entry.id !== job.id),
+            };
+            const next = prev.map((entry) =>
+              entry.id === orderId ? reverted : entry
+            );
+            setProductionTasks(deriveProductionTasks(next));
+            return next;
+          });
+        }
+        throw err;
+      }
     },
     [getIdToken, applyOrderUpdate]
   );
@@ -1049,15 +1205,16 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   const sendProofToCustomer = useCallback(
     async (orderId: string, jobId: string, imprintId: string) => {
       const token = await getIdToken();
-      if (!token) return;
+      if (!token) throw new Error("You need to be signed in to send proofs.");
 
-      const { order } = await apiSendProofToCustomer(
+      const { order, email } = await apiSendProofToCustomer(
         token,
         orderId,
         jobId,
         imprintId
       );
       applyOrderUpdate(order);
+      return email;
     },
     [getIdToken, applyOrderUpdate]
   );
@@ -1102,6 +1259,46 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
       const { order } = await apiUpdateOrder(token, orderId, { rush });
       applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderEstimatePricing = useCallback(
+    async (
+      orderId: string,
+      updates: {
+        selectedRateSheetId?: string | null;
+        estimateAdjustments?: OrderEstimateAdjustment[];
+        excludedContractFeeIds?: string[];
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update pricing.");
+      }
+
+      const { order } = await apiUpdateOrder(token, orderId, updates);
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderShipments = useCallback(
+    async (
+      orderId: string,
+      shipments: import("@/types").Shipment[],
+      shipping?: import("@/types").OrderShippingSettings
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateOrder(token, orderId, {
+        shipments,
+        shipping,
+      });
+      applyOrderUpdate(order);
+      return order;
     },
     [getIdToken, applyOrderUpdate]
   );
@@ -1389,6 +1586,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       shopDataLoading,
       shopDataError,
       refreshShopData,
+      refreshCalendarData,
       getOrderById,
       getOrdersByCustomerId,
       createReorderFromOrder,
@@ -1413,6 +1611,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getJobRun,
       scanAndStartJob,
       pauseJobRun,
+      startJobRun,
       resumeJobRun,
       finishJobRun,
       cancelJobRun,
@@ -1434,6 +1633,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       previewOrderDocument,
       updateOrderStatus,
       setOrderRush,
+      updateOrderEstimatePricing,
+      updateOrderShipments,
       updateOrderLineItem,
       addOrderLineItem,
       removeOrderLineItem,
@@ -1461,6 +1662,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       shopDataLoading,
       shopDataError,
       refreshShopData,
+      refreshCalendarData,
       getOrderById,
       getOrdersByCustomerId,
       createReorderFromOrder,
@@ -1485,6 +1687,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getJobRun,
       scanAndStartJob,
       pauseJobRun,
+      startJobRun,
       resumeJobRun,
       finishJobRun,
       cancelJobRun,
@@ -1506,6 +1709,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       previewOrderDocument,
       updateOrderStatus,
       setOrderRush,
+      updateOrderEstimatePricing,
+      updateOrderShipments,
       updateOrderLineItem,
       addOrderLineItem,
       removeOrderLineItem,

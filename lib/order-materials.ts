@@ -12,7 +12,8 @@ import { getOrderProductionSteps } from "@/lib/order-production";
 export function countExpectedGarmentPieces(order: Order): number {
   return order.lineItems.reduce(
     (sum, item) =>
-      sum + item.sizes.reduce((sizeSum, size) => sizeSum + size.quantity, 0),
+      sum +
+      (item.sizes ?? []).reduce((sizeSum, size) => sizeSum + size.quantity, 0),
     0
   );
 }
@@ -54,6 +55,56 @@ export function computeMaterialLineStatus(
   if (receivedQty >= expectedQty) return "received";
   if (receivedQty > 0) return "partial";
   return "waiting";
+}
+
+export function isGarmentLineOpen(line: OrderMaterialLine): boolean {
+  return line.kind === "garments" && line.receivedQty < line.expectedQty;
+}
+
+export function getOpenGarmentReceivingLines(
+  materials: OrderMaterials
+): OrderMaterialLine[] {
+  return getGarmentReceivingLines(materials).filter(isGarmentLineOpen);
+}
+
+export function orderHasPendingGarmentReceiving(order: Order): boolean {
+  const materials = mergeOrderMaterials(order);
+  return getOpenGarmentReceivingLines(materials).length > 0;
+}
+
+export function describePendingGarmentReceiving(
+  order: Order,
+  label = "blanks"
+): string | null {
+  const materials = mergeOrderMaterials(order);
+  const open = getOpenGarmentReceivingLines(materials);
+  if (open.length === 0) return null;
+
+  const piecesShort = open.reduce(
+    (sum, line) => sum + Math.max(0, line.expectedQty - line.receivedQty),
+    0
+  );
+  const partialCount = open.filter((line) => line.status === "partial").length;
+  const waitingCount = open.filter((line) => line.status === "waiting").length;
+
+  if (open.length === 1) {
+    const line = open[0];
+    const short = line.expectedQty - line.receivedQty;
+    if (line.status === "partial") {
+      return `Still waiting on ${label} — ${line.size} is short ${short} pc${short !== 1 ? "s" : ""}`;
+    }
+    return `Still waiting on ${label} — ${line.size} not received yet (${line.expectedQty} ordered)`;
+  }
+
+  if (partialCount > 0 && waitingCount > 0) {
+    return `Still waiting on ${label} — ${waitingCount} size${waitingCount !== 1 ? "s" : ""} missing and ${partialCount} partial (${piecesShort} pcs short)`;
+  }
+
+  if (partialCount > 0) {
+    return `Still waiting on ${label} — ${partialCount} size${partialCount !== 1 ? "s" : ""} partially received (${piecesShort} pcs short)`;
+  }
+
+  return `Still waiting on ${label} — ${waitingCount} size${waitingCount !== 1 ? "s" : ""} not received yet (${piecesShort} pcs)`;
 }
 
 function applyLegacyMaterialMigration(
@@ -102,7 +153,7 @@ export function buildGarmentReceivingLines(
   const lines: OrderMaterialLine[] = [];
 
   for (const item of order.lineItems) {
-    for (const sizeEntry of item.sizes) {
+    for (const sizeEntry of item.sizes ?? []) {
       if (sizeEntry.quantity <= 0) continue;
 
       const id = garmentReceivingLineId(item.id, sizeEntry.size);
@@ -124,6 +175,8 @@ export function buildGarmentReceivingLines(
         status: computeMaterialLineStatus(expectedQty, receivedQty),
         notes: existing?.notes,
         updatedAt: existing?.updatedAt,
+        receivedBy: existing?.receivedBy,
+        receivedAt: existing?.receivedAt,
       });
     }
   }
@@ -386,3 +439,67 @@ export function orderHasScreenPrintEvents(order: Order): boolean {
     ({ imprint }) => imprint.decoration === "screen_print"
   );
 }
+
+export function applyGarmentLineReceive(
+  materials: OrderMaterials,
+  lineId: string,
+  receivedQty: number,
+  receivedBy: string
+): OrderMaterials {
+  const now = new Date().toISOString();
+  return {
+    ...materials,
+    updatedAt: now,
+    lines: materials.lines.map((line) => {
+      if (line.id !== lineId || line.kind !== "garments") return line;
+      const qty = Math.min(Math.max(0, receivedQty), line.expectedQty);
+      const status = computeMaterialLineStatus(line.expectedQty, qty);
+      return {
+        ...line,
+        receivedQty: qty,
+        status,
+        receivedBy: qty > 0 ? receivedBy : undefined,
+        receivedAt: qty > 0 ? now : undefined,
+        updatedAt: now,
+      };
+    }),
+  };
+}
+
+export function receiveAllGarmentLines(
+  materials: OrderMaterials,
+  receivedBy: string
+): OrderMaterials {
+  let next = materials;
+  for (const line of getGarmentReceivingLines(materials)) {
+    if (line.status === "received") continue;
+    next = applyGarmentLineReceive(
+      next,
+      line.id,
+      line.expectedQty,
+      receivedBy
+    );
+  }
+  return next;
+}
+
+export const GARMENT_RECEIVE_STATUS_STYLES: Record<
+  MaterialReceiveStatus,
+  { label: string; badge: string; row: string }
+> = {
+  waiting: {
+    label: "Missing",
+    badge: "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f]",
+    row: "bg-[#fff8f8]",
+  },
+  partial: {
+    label: "Partial",
+    badge: "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f]",
+    row: "bg-[#fff8f8]",
+  },
+  received: {
+    label: "Received",
+    badge: "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]",
+    row: "bg-white",
+  },
+};

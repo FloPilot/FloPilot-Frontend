@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { Boxes } from "lucide-react";
+import { FloPilotMarkBadge } from "@/components/branding/flopilot-mark";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { getDisplayShopName } from "@/lib/tenant-branding";
@@ -102,9 +103,7 @@ export function PlatformBrandMark({
 }) {
   return (
     <div className={cn("flex items-center gap-3", className)}>
-      <div className="flex size-10 items-center justify-center rounded-xl bg-brand-primary text-white shadow-sm">
-        <Boxes className="size-5" />
-      </div>
+      <FloPilotMarkBadge size="lg" boxClassName="rounded-xl" />
       <div>
         <p className="text-lg font-semibold tracking-tight text-brand-ink">
           FloPilot.io

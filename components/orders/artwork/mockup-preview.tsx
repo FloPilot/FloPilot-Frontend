@@ -15,6 +15,7 @@ export function MockupPreview({
   compact,
   fill,
   banner,
+  embedded,
 }: {
   entry: MockupEntry;
   pinned?: boolean;
@@ -25,6 +26,8 @@ export function MockupPreview({
   fill?: boolean;
   /** Wide header-style preview for event modals */
   banner?: boolean;
+  /** Inside another card — no outer border or shadow */
+  embedded?: boolean;
 }) {
   const { job, imprint } = entry;
   const file = imprint.artwork;
@@ -38,15 +41,17 @@ export function MockupPreview({
       type={onClick ? "button" : undefined}
       onClick={onClick}
       className={cn(
-        "overflow-hidden rounded-lg border bg-white text-left w-full transition-shadow",
+        "overflow-hidden text-left w-full transition-shadow",
+        embedded ? "rounded-none border-0 bg-transparent shadow-none" : "rounded-lg border bg-white",
         fill && "flex h-full min-h-0 flex-col",
-        banner && "rounded-lg",
-        pinned
-          ? "border-2 border-[#2c6ecb]/40 ring-2 ring-[#2c6ecb]/15"
-          : selected
-            ? "border-[#2c6ecb] ring-2 ring-[#2c6ecb]/20"
-            : "border-[#e3e3e3]",
-        onClick && "hover:shadow-md cursor-pointer"
+        banner && !embedded && "rounded-lg",
+        !embedded &&
+          (pinned
+            ? "border-2 border-[#2c6ecb]/40 ring-2 ring-[#2c6ecb]/15"
+            : selected
+              ? "border-[#2c6ecb] ring-2 ring-[#2c6ecb]/20"
+              : "border-[#e3e3e3]"),
+        onClick && !embedded && "hover:shadow-md cursor-pointer"
       )}
     >
       <div

@@ -1,12 +1,15 @@
 import { addDays, format } from "date-fns";
+import { computeEstimateTotals } from "@/lib/order-estimate";
 import { IMPRINT_LOCATION_LABELS } from "@/lib/job-imprints";
 import { buildCustomProductionJob } from "@/lib/order-production";
 import { buildLineItemFromCatalog, createLineItemId } from "@/lib/line-items";
+import type { PricingMatrix } from "@/lib/shop-settings";
 import type {
   BlankSource,
   Customer,
   DecorationType,
   ImprintLocationKey,
+  LineItem,
   Order,
   OrderFile,
   OrderFileKind,
@@ -31,13 +34,70 @@ export type NewOrderMockupFile = {
   previewUrl?: string;
 };
 
-export type NewOrderLineItemInput = {
+export type NewOrderCatalogLineItemInput = {
   id: string;
   productKey: (typeof NEW_ORDER_PRODUCTS)[number]["key"];
   colorKey: (typeof NEW_ORDER_COLORS)[number]["key"];
   sizes: Record<(typeof NEW_ORDER_SIZES)[number], number>;
   unitCost: number;
+  markupPercent?: number;
+  customerUnitPrice?: number;
 };
+
+export type NewOrderSupplierLineItemInput = {
+  id: string;
+  source: "supplier";
+  item: LineItem;
+  markupPercent?: number;
+  customerUnitPrice?: number;
+};
+
+export type NewOrderLineItemInput =
+  | NewOrderCatalogLineItemInput
+  | NewOrderSupplierLineItemInput;
+
+export function isSupplierDraftLineItem(
+  item: NewOrderLineItemInput
+): item is NewOrderSupplierLineItemInput {
+  return "source" in item && item.source === "supplier";
+}
+
+export function draftLineItemToLineItem(
+  item: NewOrderLineItemInput,
+  idOverride?: string
+): LineItem {
+  if (isSupplierDraftLineItem(item)) {
+    return {
+      ...item.item,
+      id: idOverride ?? item.id,
+      markupPercent: item.markupPercent ?? item.item.markupPercent,
+      customerUnitPrice:
+        item.customerUnitPrice ?? item.item.customerUnitPrice,
+    };
+  }
+
+  const built = buildLineItemFromCatalog(
+    item.productKey,
+    item.colorKey,
+    item.sizes,
+    idOverride ?? item.id
+  );
+
+  return {
+    ...built,
+    unitCost: item.unitCost,
+    markupPercent: item.markupPercent,
+    customerUnitPrice: item.customerUnitPrice,
+  };
+}
+
+export function draftLineItemsToLineItems(
+  items: NewOrderLineItemInput[]
+): LineItem[] {
+  return items
+    .filter((item) => lineItemInputPieceCount(item) > 0)
+    .map((item) => draftLineItemToLineItem(item));
+}
 
 export function createLineItemDraftId(): string {
   return createLineItemId();
@@ -64,11 +124,12 @@ export function createEmptyNewOrderLineItem(): NewOrderLineItemInput {
 
 export const NEW_ORDER_STEPS = [
   { id: 1, title: "Customer" },
-  { id: 2, title: "Blanks" },
+  { id: 2, title: "Blanks/garments" },
   { id: 3, title: "Events" },
   { id: 4, title: "Mockups" },
-  { id: 5, title: "Shipping" },
 ] as const;
+
+export const NEW_ORDER_STEP_COUNT = NEW_ORDER_STEPS.length;
 
 export const NEW_ORDER_PRODUCTS = [
   {
@@ -158,6 +219,10 @@ export function createEmptyNewOrderForm(
 }
 
 export function lineItemInputPieceCount(item: NewOrderLineItemInput): number {
+  if (isSupplierDraftLineItem(item)) {
+    return item.item.sizes.reduce((sum, row) => sum + (row.quantity || 0), 0);
+  }
+
   return Object.values(item.sizes).reduce((sum, quantity) => sum + quantity, 0);
 }
 
@@ -201,11 +266,17 @@ export function validateNewOrderStep(
     }
     case 4:
       return null;
-    case 5:
-      return form.inHandsDate ? null : "Choose an in-hands date.";
     default:
       return null;
   }
+}
+
+export function validateNewOrderForm(form: NewOrderFormInput): string | null {
+  for (let step = 1; step <= NEW_ORDER_STEP_COUNT; step += 1) {
+    const error = validateNewOrderStep(step, form);
+    if (error) return error;
+  }
+  return null;
 }
 
 export function generateOrderNumber(existingNumbers: string[]): string {
@@ -236,99 +307,46 @@ export function estimateOrderTotals(pieceCount: number) {
   };
 }
 
-export function previewOrderTotals(form: NewOrderFormInput) {
-  return estimateOrderTotals(countOrderFormPieces(form));
-}
-
-export function compactOrderNumberForLabel(orderNumber: string): string {
-  return orderNumber.replace(/-/g, "").toUpperCase();
-}
-
-/** e.g. SO1054 - FRONT LEFT CHEST */
-export function formatAutoEventName(
-  orderNumber: string,
-  locationKey: ImprintLocationKey
-): string {
-  const prefix = compactOrderNumberForLabel(orderNumber);
-  const placement = IMPRINT_LOCATION_LABELS[locationKey].toUpperCase();
-  return `${prefix} - ${placement}`;
-}
-
-export function formatAutoEventNameList(
-  orderNumber: string,
-  jobs: Array<{ locationKey: ImprintLocationKey }>
-): string[] {
-  const seen = new Map<string, number>();
-
-  return jobs.map((job) => {
-    const base = formatAutoEventName(orderNumber, job.locationKey);
-    const count = (seen.get(base) ?? 0) + 1;
-    seen.set(base, count);
-    return count > 1 ? `${base} (${count})` : base;
-  });
-}
-
-export function applyAutoEventNames(
-  orderNumber: string,
-  jobs: NewOrderJobInput[]
-): NewOrderJobInput[] {
-  const names = formatAutoEventNameList(orderNumber, jobs);
-  return jobs.map((job, index) => ({ ...job, name: names[index] }));
-}
-
-export function formatLineItemInputLabel(item: NewOrderLineItemInput): string {
-  const product =
-    NEW_ORDER_PRODUCTS.find((entry) => entry.key === item.productKey) ??
-    NEW_ORDER_PRODUCTS[0];
-  const color =
-    NEW_ORDER_COLORS.find((entry) => entry.key === item.colorKey) ??
-    NEW_ORDER_COLORS[0];
-  const pieces = lineItemInputPieceCount(item);
-  return `${product.brand} ${product.name} · ${color.label} · ${pieces} pcs`;
-}
-
-function resolveLineItemId(item: NewOrderLineItemInput, suffix: string): string {
-  return item.id.startsWith("li-") ? item.id : `li-${suffix}-${item.id}`;
-}
-
-export function buildOrderFromForm(
+function buildOrderLineItemsAndJobs(
   form: NewOrderFormInput,
-  customer: Customer,
-  existingNumbers: string[]
-): Order {
-  const shipping =
-    SHIPPING_METHODS.find((item) => item.key === form.shippingMethod) ??
-    SHIPPING_METHODS[0];
-
-  const suffix = String(Date.now());
+  orderNumber: string,
+  suffix: string
+) {
   const pieceCount = countOrderFormPieces(form);
   const hasProducts = pieceCount > 0;
-  const { subtotal, tax, total } = estimateOrderTotals(pieceCount);
-  const now = new Date().toISOString();
-  const number = generateOrderNumber(existingNumbers);
 
   const draftToFinalId = new Map(
     form.lineItems.map((item) => [item.id, resolveLineItemId(item, suffix)])
   );
 
   const lineItems = activeLineItems(form).map((item) => {
+    const id = resolveLineItemId(item, suffix);
+
+    if (isSupplierDraftLineItem(item)) {
+      return draftLineItemToLineItem(item, id);
+    }
+
     const built = buildLineItemFromCatalog(
       item.productKey,
       item.colorKey,
       item.sizes,
-      resolveLineItemId(item, suffix)
+      id
     );
     return {
       ...built,
       unitCost: item.unitCost,
+      markupPercent: item.markupPercent,
+      customerUnitPrice: item.customerUnitPrice,
     };
   });
 
   const lineItemIdSet = new Set(lineItems.map((item) => item.id));
-  const jobNames = formatAutoEventNameList(number, form.jobs);
+  const jobNames = formatAutoEventNameList(orderNumber, form.jobs);
+  const now = new Date().toISOString();
 
   const jobs = form.jobs.map((jobInput, index) => {
-    const eventName = jobNames[index] ?? formatAutoEventName(number, jobInput.locationKey);
+    const eventName =
+      jobNames[index] ?? formatAutoEventName(orderNumber, jobInput.locationKey);
     const built = buildCustomProductionJob({
       name: eventName,
       locationKey: jobInput.locationKey,
@@ -372,6 +390,161 @@ export function buildOrderFromForm(
 
     return built;
   });
+
+  return { lineItems, jobs, pieceCount, hasProducts, jobNames, draftToFinalId };
+}
+
+export function previewOrderTotals(
+  form: NewOrderFormInput,
+  options: {
+    previewOrderNumber: string;
+    taxRate: number;
+    pricingMatrix?: PricingMatrix;
+  }
+) {
+  const { lineItems, jobs } = buildOrderLineItemsAndJobs(
+    form,
+    options.previewOrderNumber,
+    "preview"
+  );
+
+  const previewOrder: Order = {
+    id: "preview",
+    number: options.previewOrderNumber,
+    type: "sales_order",
+    status: "draft",
+    customerId: form.customerId,
+    customerName: "",
+    company: "",
+    createdAt: new Date().toISOString(),
+    inHandsDate: form.inHandsDate,
+    subtotal: 0,
+    tax: 0,
+    total: 0,
+    paid: 0,
+    balance: 0,
+    rush: form.rush,
+    lineItems,
+    jobs,
+    shipments: [],
+    messages: [],
+    materials: form.blankSource
+      ? { lines: [], blankSource: form.blankSource }
+      : undefined,
+  };
+
+  return computeEstimateTotals(
+    previewOrder,
+    options.taxRate,
+    options.pricingMatrix
+  );
+}
+
+export function compactOrderNumberForLabel(orderNumber: string): string {
+  return orderNumber.replace(/-/g, "").toUpperCase();
+}
+
+/** e.g. SO1054 - FRONT LEFT CHEST */
+export function formatAutoEventName(
+  orderNumber: string,
+  locationKey: ImprintLocationKey
+): string {
+  const prefix = compactOrderNumberForLabel(orderNumber);
+  const placement = IMPRINT_LOCATION_LABELS[locationKey].toUpperCase();
+  return `${prefix} - ${placement}`;
+}
+
+export function formatAutoEventNameList(
+  orderNumber: string,
+  jobs: Array<{ locationKey: ImprintLocationKey }>
+): string[] {
+  const seen = new Map<string, number>();
+
+  return jobs.map((job) => {
+    const base = formatAutoEventName(orderNumber, job.locationKey);
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return count > 1 ? `${base} (${count})` : base;
+  });
+}
+
+export function applyAutoEventNames(
+  orderNumber: string,
+  jobs: NewOrderJobInput[]
+): NewOrderJobInput[] {
+  const names = formatAutoEventNameList(orderNumber, jobs);
+  return jobs.map((job, index) => ({ ...job, name: names[index] }));
+}
+
+export function formatLineItemInputLabel(item: NewOrderLineItemInput): string {
+  const pieces = lineItemInputPieceCount(item);
+
+  if (isSupplierDraftLineItem(item)) {
+    const label = `${item.item.brand} ${item.item.productName}`.trim();
+    return `${label} · ${item.item.color} · ${pieces} pcs`;
+  }
+
+  const product =
+    NEW_ORDER_PRODUCTS.find((entry) => entry.key === item.productKey) ??
+    NEW_ORDER_PRODUCTS[0];
+  const color =
+    NEW_ORDER_COLORS.find((entry) => entry.key === item.colorKey) ??
+    NEW_ORDER_COLORS[0];
+  return `${product.brand} ${product.name} · ${color.label} · ${pieces} pcs`;
+}
+
+function resolveLineItemId(item: NewOrderLineItemInput, suffix: string): string {
+  return item.id.startsWith("li-") ? item.id : `li-${suffix}-${item.id}`;
+}
+
+export function buildOrderFromForm(
+  form: NewOrderFormInput,
+  customer: Customer,
+  existingNumbers: string[],
+  options?: {
+    taxRate?: number;
+    pricingMatrix?: PricingMatrix;
+  }
+): Order {
+  const shipping =
+    SHIPPING_METHODS.find((item) => item.key === form.shippingMethod) ??
+    SHIPPING_METHODS[0];
+
+  const suffix = String(Date.now());
+  const number = generateOrderNumber(existingNumbers);
+  const { lineItems, jobs, pieceCount, hasProducts, jobNames, draftToFinalId } =
+    buildOrderLineItemsAndJobs(form, number, suffix);
+  const now = new Date().toISOString();
+
+  const financials = computeEstimateTotals(
+    {
+      id: `ord-${suffix}`,
+      number,
+      type: "sales_order",
+      status: "draft",
+      customerId: customer.id,
+      customerName: customer.name,
+      company: customer.company,
+      createdAt: now,
+      inHandsDate: form.inHandsDate,
+      subtotal: 0,
+      tax: 0,
+      total: 0,
+      paid: 0,
+      balance: 0,
+      rush: form.rush,
+      lineItems,
+      jobs,
+      shipments: [],
+      messages: [],
+      materials: form.blankSource
+        ? { lines: [], blankSource: form.blankSource }
+        : undefined,
+    },
+    options?.taxRate ?? 0.08,
+    options?.pricingMatrix
+  );
+  const { subtotal, tax, total } = financials;
 
   const internalNotes = [];
   form.jobs.forEach((jobInput, index) => {
