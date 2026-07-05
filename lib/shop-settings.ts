@@ -70,6 +70,10 @@ export type PricingMethod = {
 export type PricingMatrix = {
   enabled: boolean;
   methods: PricingMethod[];
+  /** Shop-wide setup, finishing, and other order fee presets */
+  contractFees?: import("@/types").CustomerContractFee[];
+  /** Default markup % applied to blank/garment shop cost on quotes and orders */
+  blankMarkupPercent?: number;
 };
 
 export type SqueegeeOption = {
@@ -202,6 +206,7 @@ export const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
 export const DEFAULT_PRICING_MATRIX: PricingMatrix = {
   enabled: false,
   methods: [],
+  blankMarkupPercent: 0,
 };
 
 export const DEFAULT_PRODUCTION_DEFAULTS: ShopProductionDefaults = {
@@ -228,7 +233,7 @@ export const DEFAULT_SHOP_SETTINGS: ShopSettings = {
     ...DEFAULT_COMPANY_PROFILE,
     address: { ...DEFAULT_COMPANY_ADDRESS },
   },
-  pricingMatrix: { enabled: false, methods: [] },
+  pricingMatrix: { enabled: false, methods: [], blankMarkupPercent: 0 },
   productionDefaults: { ...DEFAULT_PRODUCTION_DEFAULTS },
   warehouses: [],
   onboarding: { ...DEFAULT_SHOP_ONBOARDING },
@@ -457,7 +462,37 @@ export function normalizePricingMatrix(
         };
       })
     : [];
-  return { enabled: input.enabled === true, methods };
+  const contractFees = Array.isArray(
+    (input as { contractFees?: unknown }).contractFees
+  )
+    ? (
+        (input as { contractFees: import("@/types").CustomerContractFee[] })
+          .contractFees ?? []
+      )
+        .slice(0, 12)
+        .map((fee) => ({
+          ...fee,
+          id: cleanStr(fee.id, 64) || `fee-${Date.now()}`,
+          label: cleanStr(fee.label, 120) || "Fee",
+          amount: toPrice(fee.amount),
+          enabled: fee.enabled !== false,
+        }))
+    : [];
+
+  return {
+    enabled: input.enabled === true,
+    methods,
+    blankMarkupPercent: normalizeMarkupPercent(
+      (input as { blankMarkupPercent?: unknown }).blankMarkupPercent
+    ),
+    ...(contractFees.length ? { contractFees } : {}),
+  };
+}
+
+function normalizeMarkupPercent(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(500, Math.max(0, Math.round(parsed * 100) / 100));
 }
 
 function slugifySqueegeeValue(label: string): string {

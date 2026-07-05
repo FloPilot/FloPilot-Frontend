@@ -23,6 +23,7 @@ import type {
   Order,
   OrderFile,
   OrderFileKind,
+  OrderEstimateAdjustment,
   ProductionEventWorkflow,
   ScheduleBlock,
   StationJobRun,
@@ -272,6 +273,14 @@ type ScheduleContextValue = {
     status: import("@/types").OrderStatus
   ) => Promise<void>;
   setOrderRush: (orderId: string, rush: boolean) => Promise<void>;
+  updateOrderEstimatePricing: (
+    orderId: string,
+    updates: {
+      selectedRateSheetId?: string | null;
+      estimateAdjustments?: OrderEstimateAdjustment[];
+      excludedContractFeeIds?: string[];
+    }
+  ) => Promise<Order>;
   updateOrderShipments: (
     orderId: string,
     shipments: import("@/types").Shipment[],
@@ -1254,6 +1263,27 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateOrderEstimatePricing = useCallback(
+    async (
+      orderId: string,
+      updates: {
+        selectedRateSheetId?: string | null;
+        estimateAdjustments?: OrderEstimateAdjustment[];
+        excludedContractFeeIds?: string[];
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update pricing.");
+      }
+
+      const { order } = await apiUpdateOrder(token, orderId, updates);
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const updateOrderShipments = useCallback(
     async (
       orderId: string,
@@ -1603,6 +1633,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       previewOrderDocument,
       updateOrderStatus,
       setOrderRush,
+      updateOrderEstimatePricing,
       updateOrderShipments,
       updateOrderLineItem,
       addOrderLineItem,
@@ -1678,6 +1709,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       previewOrderDocument,
       updateOrderStatus,
       setOrderRush,
+      updateOrderEstimatePricing,
       updateOrderShipments,
       updateOrderLineItem,
       addOrderLineItem,

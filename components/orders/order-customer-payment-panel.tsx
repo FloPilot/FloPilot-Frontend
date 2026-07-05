@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
+import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
 import {
   dashboardInsetSurfaceClass,
   dashboardTaskDetailClass,
@@ -208,14 +210,15 @@ function TotalsLine({
 
 export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
   const { settings } = useShopSettings();
+  const { getCustomerById } = useSchedule();
+  const customer = getCustomerById(order.customerId);
+  const pricingMatrix = useMemo(
+    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer, order),
+    [settings.pricingMatrix, customer, order]
+  );
   const totals = useMemo(
-    () =>
-      computeEstimateTotals(
-        order,
-        settings.taxRate,
-        settings.pricingMatrix
-      ),
-    [order, settings.taxRate, settings.pricingMatrix]
+    () => computeEstimateTotals(order, settings.taxRate, pricingMatrix, customer),
+    [order, settings.taxRate, pricingMatrix, customer]
   );
 
   const paymentDisplay = useMemo(() => {

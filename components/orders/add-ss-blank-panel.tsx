@@ -36,7 +36,7 @@ import type {
   SupplierStyleDetail,
   SupplierStyleSummary,
 } from "@/lib/supplier-integrations";
-import type { LineItem, Order } from "@/types";
+import type { LineItem } from "@/types";
 import { cn } from "@/lib/utils";
 
 type View = "search" | "detail";
@@ -136,11 +136,11 @@ function StyleResultRow({
 }
 
 export function AddSsBlankPanel({
-  order,
+  lineItems,
   onAdd,
   saving,
 }: {
-  order: Order;
+  lineItems: LineItem[];
   onAdd: (item: LineItem) => Promise<void>;
   saving: boolean;
 }) {
@@ -270,11 +270,11 @@ export function AddSsBlankPanel({
   const existingOnOrder = useMemo(() => {
     if (!styleDetail || !selectedColor) return {};
     return existingSsSizesOnOrder(
-      order.lineItems,
+      lineItems,
       styleDetail.partNumber,
       selectedColor.colorCode
     );
-  }, [order.lineItems, selectedColor, styleDetail]);
+  }, [lineItems, selectedColor, styleDetail]);
 
   const loadStyle = useCallback(
     async (style: SupplierStyleSummary) => {

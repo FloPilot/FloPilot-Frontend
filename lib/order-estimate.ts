@@ -1,8 +1,16 @@
-import type { LineItem, Order, SizeBreakdown } from "@/types";
+import type { Customer, LineItem, Order, SizeBreakdown } from "@/types";
 import type { PricingMatrix } from "@/lib/shop-settings";
-import { resolveOrderPricingHighlights, formatPricingHighlightDetail } from "@/lib/pricing-matrix-lookup";
+import {
+  resolveOrderPricingHighlights,
+  formatPricingHighlightDetail,
+} from "@/lib/pricing-matrix-lookup";
+import { buildFeeEstimateRows } from "@/lib/order-contract-fees";
+import {
+  resolveLineItemCustomerUnitPrice,
+  shouldShowBlankPricing,
+} from "@/lib/blank-pricing";
 
-export type EstimateRowKind = "garment" | "decoration";
+export type EstimateRowKind = "garment" | "decoration" | "fee";
 
 export type EstimateRow = {
   id: string;
@@ -18,12 +26,16 @@ export type EstimateRow = {
   pricingStepIndex?: number;
   /** Short decoration label for matrix-matched rows */
   decorationType?: string;
+  source?: "auto" | "manual";
+  contractFeeId?: string;
+  feeCategory?: import("@/types").OrderEstimateFeeCategory;
 };
 
 export type EstimateTotals = {
   rows: EstimateRow[];
   garmentSubtotal: number;
   decorationSubtotal: number;
+  feesSubtotal: number;
   subtotal: number;
   taxRate: number;
   tax: number;
@@ -64,12 +76,18 @@ function sortSizeBreakdowns(sizes: SizeBreakdown[]): SizeBreakdown[] {
   });
 }
 
-function buildGarmentRows(order: Order): EstimateRow[] {
+function buildGarmentRows(
+  order: Order,
+  pricingMatrix?: PricingMatrix
+): EstimateRow[] {
+  if (!shouldShowBlankPricing(order)) return [];
+
+  const shopMarkup = pricingMatrix?.blankMarkupPercent ?? 0;
   const rows: EstimateRow[] = [];
 
   for (const lineItem of order.lineItems || []) {
     const description = lineItemDescription(lineItem) || "Custom item";
-    const unitCost = lineItem.unitCost || 0;
+    const unitCost = resolveLineItemCustomerUnitPrice(lineItem, shopMarkup);
     const sizes = sortSizeBreakdowns(lineItem.sizes || []).filter(
       (row) => (row.quantity || 0) > 0
     );
@@ -127,20 +145,37 @@ function buildDecorationRows(
   }));
 }
 
+function buildFeeRows(order: Order, customer?: Customer | null): EstimateRow[] {
+  return buildFeeEstimateRows(order, customer).map((entry) => ({
+    id: entry.id,
+    kind: "fee" as const,
+    description: entry.label,
+    detail: entry.detail || (entry.source === "auto" ? "Contract fee" : ""),
+    qty: entry.qty,
+    unitCost: entry.unitPrice,
+    lineTotal: round2(entry.qty * entry.unitPrice),
+    source: entry.source,
+    contractFeeId: entry.contractFeeId,
+    feeCategory: entry.category,
+  }));
+}
+
 /**
  * Mirrors the backend estimate math: garment costs plus decoration pricing from
- * the shop matrix when enabled.
+ * the shop matrix when enabled, plus contract and manual fees.
  */
 export function computeEstimateTotals(
   order: Order,
   taxRate: number,
-  pricingMatrix?: PricingMatrix
+  pricingMatrix?: PricingMatrix,
+  customer?: Customer | null
 ): EstimateTotals {
   const rate = typeof taxRate === "number" && taxRate >= 0 ? taxRate : 0.08;
 
-  const garmentRows = buildGarmentRows(order);
+  const garmentRows = buildGarmentRows(order, pricingMatrix);
   const decorationRows = buildDecorationRows(order, pricingMatrix);
-  const rows = [...garmentRows, ...decorationRows];
+  const feeRows = buildFeeRows(order, customer);
+  const rows = [...garmentRows, ...decorationRows, ...feeRows];
 
   let garmentSubtotal = round2(
     garmentRows.reduce((sum, row) => sum + row.lineTotal, 0)
@@ -148,12 +183,16 @@ export function computeEstimateTotals(
   let decorationSubtotal = round2(
     decorationRows.reduce((sum, row) => sum + row.lineTotal, 0)
   );
+  let feesSubtotal = round2(
+    feeRows.reduce((sum, row) => sum + row.lineTotal, 0)
+  );
 
-  let subtotal = round2(garmentSubtotal + decorationSubtotal);
+  let subtotal = round2(garmentSubtotal + decorationSubtotal + feesSubtotal);
   if (subtotal <= 0) {
     subtotal = round2(order.subtotal || 0);
     garmentSubtotal = subtotal;
     decorationSubtotal = 0;
+    feesSubtotal = 0;
   }
 
   const tax = round2(subtotal * rate);
@@ -165,6 +204,7 @@ export function computeEstimateTotals(
     rows,
     garmentSubtotal,
     decorationSubtotal,
+    feesSubtotal,
     subtotal,
     taxRate: rate,
     tax,
@@ -178,9 +218,10 @@ export function computeEstimateTotals(
 export function resolveOrderFinancials(
   order: Order,
   taxRate: number,
-  pricingMatrix?: PricingMatrix
+  pricingMatrix?: PricingMatrix,
+  customer?: Customer | null
 ) {
-  const totals = computeEstimateTotals(order, taxRate, pricingMatrix);
+  const totals = computeEstimateTotals(order, taxRate, pricingMatrix, customer);
   return {
     subtotal: totals.subtotal,
     tax: totals.tax,

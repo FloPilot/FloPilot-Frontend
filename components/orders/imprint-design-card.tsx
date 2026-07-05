@@ -81,9 +81,35 @@ function PrintSizeFields({
     dimensions?.trim() ||
     "—";
 
-  const commit = (width?: number, height?: number) => {
-    const formatted = formatPrintDimensions(width, height);
-    onChange(formatted);
+  const [widthInput, setWidthInput] = useState("");
+  const [heightInput, setHeightInput] = useState("");
+
+  useEffect(() => {
+    const next = parsePrintDimensions(dimensions);
+    setWidthInput(next.width != null ? String(next.width) : "");
+    setHeightInput(next.height != null ? String(next.height) : "");
+  }, [dimensions]);
+
+  const commitDimensions = (widthStr: string, heightStr: string) => {
+    const widthTrim = widthStr.trim();
+    const heightTrim = heightStr.trim();
+
+    if (!widthTrim && !heightTrim) {
+      onChange(undefined);
+      return;
+    }
+
+    const width = widthTrim ? Number(widthTrim) : NaN;
+    const height = heightTrim ? Number(heightTrim) : NaN;
+
+    if (
+      Number.isFinite(width) &&
+      Number.isFinite(height) &&
+      width > 0 &&
+      height > 0
+    ) {
+      onChange(formatPrintDimensions(width, height));
+    }
   };
 
   if (readOnly) {
@@ -98,13 +124,13 @@ function PrintSizeFields({
           min={0}
           step={0.1}
           inputMode="decimal"
-          value={parsed.width ?? ""}
+          value={widthInput}
           onChange={(event) => {
-            const width = event.target.value
-              ? Number(event.target.value)
-              : undefined;
-            commit(width, parsed.height);
+            const nextWidth = event.target.value;
+            setWidthInput(nextWidth);
+            commitDimensions(nextWidth, heightInput);
           }}
+          onBlur={() => commitDimensions(widthInput, heightInput)}
           placeholder="Width"
           className={fieldClassName}
           aria-label="Print width in inches"
@@ -118,13 +144,13 @@ function PrintSizeFields({
           min={0}
           step={0.1}
           inputMode="decimal"
-          value={parsed.height ?? ""}
+          value={heightInput}
           onChange={(event) => {
-            const height = event.target.value
-              ? Number(event.target.value)
-              : undefined;
-            commit(parsed.width, height);
+            const nextHeight = event.target.value;
+            setHeightInput(nextHeight);
+            commitDimensions(widthInput, nextHeight);
           }}
+          onBlur={() => commitDimensions(widthInput, heightInput)}
           placeholder="Height"
           className={fieldClassName}
           aria-label="Print height in inches"

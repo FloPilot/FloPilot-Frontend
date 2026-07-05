@@ -2,62 +2,129 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Loader2, Package, RefreshCw } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import {
+  Building2,
+  ImageIcon,
+  LayoutDashboard,
+  Loader2,
+  RefreshCw,
+  Tag,
+} from "lucide-react";
+import { FloPilotWatermark } from "@/components/branding/flopilot-watermark";
 import { useCustomerPortal } from "@/components/portal/customer-portal-provider";
-import { portalHomePath } from "@/lib/customer-portal-api";
+import {
+  portalArtworkPath,
+  portalBusinessPath,
+  portalHomePath,
+  portalPricingPath,
+} from "@/lib/customer-portal-api";
 import { cn } from "@/lib/utils";
+
+export type PortalNavKey = "dashboard" | "pricing" | "business" | "artwork";
+
+function PortalPageFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-[#f6f6f7]">
+      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      <FloPilotWatermark />
+    </div>
+  );
+}
+
+const NAV_ITEMS: {
+  key: PortalNavKey;
+  label: string;
+  icon: LucideIcon;
+  href: (token: string) => string;
+  match: (pathname: string, homeHref: string) => boolean;
+}[] = [
+  {
+    key: "dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    href: portalHomePath,
+    match: (pathname, homeHref) =>
+      pathname === homeHref || pathname.includes("/orders/"),
+  },
+  {
+    key: "pricing",
+    label: "Pricing",
+    icon: Tag,
+    href: portalPricingPath,
+    match: (pathname) => pathname.includes("/pricing"),
+  },
+  {
+    key: "business",
+    label: "Business",
+    icon: Building2,
+    href: portalBusinessPath,
+    match: (pathname) => pathname.includes("/business"),
+  },
+  {
+    key: "artwork",
+    label: "Artwork",
+    icon: ImageIcon,
+    href: portalArtworkPath,
+    match: (pathname) => pathname.includes("/artwork"),
+  },
+];
 
 export function CustomerPortalShell({
   children,
-  activeNav = "dashboard",
+  activeNav,
 }: {
   children: React.ReactNode;
-  activeNav?: "dashboard" | "orders";
+  activeNav?: PortalNavKey;
 }) {
   const pathname = usePathname();
   const { token, dashboard, loading, error, accent } = useCustomerPortal();
   const homeHref = portalHomePath(token);
-  const onOrderPage = pathname.includes("/orders/");
 
   if (loading && !dashboard) {
     return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-[#616161]">
-        <Loader2 className="size-6 animate-spin" style={{ color: accent }} />
-        <p className="text-[14px]">Loading your portal…</p>
-      </div>
+      <PortalPageFrame>
+        <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 text-[#616161]">
+          <Loader2 className="size-6 animate-spin" style={{ color: accent }} />
+          <p className="text-[14px]">Loading your portal…</p>
+        </div>
+      </PortalPageFrame>
     );
   }
 
   if (error && !dashboard) {
     return (
-      <div className="mx-auto max-w-md rounded-2xl border border-[#ebebeb] bg-white p-8 text-center shadow-sm">
-        <p className="text-[18px] font-semibold text-[#303030]">
-          Couldn&apos;t open your portal
-        </p>
-        <p className="mt-2 text-[14px] text-[#616161]">{error}</p>
-      </div>
+      <PortalPageFrame>
+        <div className="mx-auto max-w-md rounded-2xl border border-[#ebebeb] bg-white p-8 text-center shadow-sm">
+          <p className="text-[18px] font-semibold text-[#303030]">
+            Couldn&apos;t open your portal
+          </p>
+          <p className="mt-2 text-[14px] text-[#616161]">{error}</p>
+        </div>
+      </PortalPageFrame>
     );
   }
 
   if (dashboard?.expired) {
     return (
-      <div className="mx-auto max-w-md rounded-2xl border border-[#ebebeb] bg-white p-8 text-center shadow-sm">
-        <RefreshCw className="mx-auto size-8 text-[#616161]" />
-        <h1 className="mt-4 text-[18px] font-semibold text-[#303030]">
-          Your portal link has expired
-        </h1>
-        <p className="mt-2 text-[14px] leading-relaxed text-[#616161]">
-          Request a new link and you&apos;ll get another 90 days of access to
-          your orders and proofs.
-        </p>
-        <a
-          href={dashboard.reactivateUrl || "#"}
-          className="mt-6 inline-flex h-11 items-center justify-center rounded-lg px-6 text-[14px] font-semibold text-white"
-          style={{ backgroundColor: accent }}
-        >
-          Renew portal access
-        </a>
-      </div>
+      <PortalPageFrame>
+        <div className="mx-auto max-w-md rounded-2xl border border-[#ebebeb] bg-white p-8 text-center shadow-sm">
+          <RefreshCw className="mx-auto size-8 text-[#616161]" />
+          <h1 className="mt-4 text-[18px] font-semibold text-[#303030]">
+            Your portal link has expired
+          </h1>
+          <p className="mt-2 text-[14px] leading-relaxed text-[#616161]">
+            Request a new link and you&apos;ll get another 90 days of access.
+          </p>
+          <a
+            href={dashboard.reactivateUrl || "#"}
+            className="mt-6 inline-flex h-11 items-center justify-center rounded-lg px-6 text-[14px] font-semibold text-white"
+            style={{ backgroundColor: accent }}
+          >
+            Renew portal access
+          </a>
+        </div>
+      </PortalPageFrame>
     );
   }
 
@@ -65,8 +132,8 @@ export function CustomerPortalShell({
   const customer = dashboard?.customer;
 
   return (
-    <div className="min-h-screen bg-[#f6f6f7]">
-      <header className="border-b border-[#ebebeb] bg-white">
+    <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-[#f6f6f7]">
+      <header className="shrink-0 border-b border-[#ebebeb] bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             {shop?.logoUrl ? (
@@ -92,65 +159,47 @@ export function CustomerPortalShell({
           </div>
         </div>
 
-        <div className="mx-auto max-w-6xl px-4 pb-0 sm:px-6">
-          <nav className="flex gap-1 border-b border-transparent">
-            <Link
-              href={homeHref}
-              className={cn(
-                "inline-flex items-center gap-2 border-b-2 px-3 py-2.5 text-[13px] font-medium transition-colors",
-                activeNav === "dashboard" || (!onOrderPage && pathname === homeHref)
-                  ? "border-current text-[#303030]"
-                  : "border-transparent text-[#616161] hover:text-[#303030]"
-              )}
-              style={
-                activeNav === "dashboard" || (!onOrderPage && pathname === homeHref)
-                  ? { borderColor: accent, color: accent }
-                  : undefined
-              }
-            >
-              <LayoutDashboard className="size-3.5" strokeWidth={1.75} />
-              Dashboard
-            </Link>
-            <span
-              className={cn(
-                "inline-flex items-center gap-2 border-b-2 px-3 py-2.5 text-[13px] font-medium",
-                activeNav === "orders" || onOrderPage
-                  ? "border-current"
-                  : "border-transparent text-[#616161]"
-              )}
-              style={
-                activeNav === "orders" || onOrderPage
-                  ? { borderColor: accent, color: accent }
-                  : undefined
-              }
-            >
-              <Package className="size-3.5" strokeWidth={1.75} />
-              Orders
-            </span>
+        <div className="mx-auto max-w-6xl overflow-x-auto px-4 pb-0 sm:px-6">
+          <nav className="flex min-w-max gap-1 border-b border-transparent">
+            {NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const href = item.href(token);
+              const active =
+                activeNav === item.key ||
+                (!activeNav && item.match(pathname, homeHref));
+
+              return (
+                <Link
+                  key={item.key}
+                  href={href}
+                  className={cn(
+                    "inline-flex items-center gap-2 border-b-2 px-3 py-2.5 text-[13px] font-medium transition-colors whitespace-nowrap",
+                    active
+                      ? "border-current text-[#303030]"
+                      : "border-transparent text-[#616161] hover:text-[#303030]"
+                  )}
+                  style={
+                    active ? { borderColor: accent, color: accent } : undefined
+                  }
+                >
+                  <Icon className="size-3.5" strokeWidth={1.75} />
+                  {item.label}
+                </Link>
+              );
+            })}
           </nav>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-        {children}
-      </main>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+          <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+            {children}
+          </div>
+        </main>
 
-      {shop?.email || shop?.phone ? (
-        <footer className="border-t border-[#ebebeb] bg-white py-4 text-center text-[12px] text-[#8a8a8a]">
-          Questions?{" "}
-          {shop.email ? (
-            <a
-              href={`mailto:${shop.email}`}
-              className="font-medium underline"
-              style={{ color: accent }}
-            >
-              {shop.email}
-            </a>
-          ) : null}
-          {shop.email && shop.phone ? " · " : null}
-          {shop.phone ? <span>{shop.phone}</span> : null}
-        </footer>
-      ) : null}
+        <FloPilotWatermark />
+      </div>
     </div>
   );
 }

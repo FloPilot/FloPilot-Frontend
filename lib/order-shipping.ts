@@ -12,12 +12,90 @@ import type {
   SizeBreakdown,
 } from "@/types";
 
+export const WILL_CALL_METHOD_KEY = "will_call";
+
 export const SHIPMENT_STATUS_OPTIONS = [
   { value: "pending", label: "Pending" },
   { value: "labeled", label: "Labeled" },
   { value: "in_transit", label: "In transit" },
   { value: "delivered", label: "Delivered" },
 ] as const;
+
+export const PICKUP_STATUS_OPTIONS = [
+  { value: "pending", label: "Not picked up" },
+  { value: "picked_up", label: "Picked up" },
+] as const;
+
+export function isWillCallMethod(methodKey?: string): boolean {
+  return methodKey === WILL_CALL_METHOD_KEY;
+}
+
+export function isWillCallOrder(
+  settings?: OrderShippingSettings,
+  shipments: Shipment[] = []
+): boolean {
+  if (isWillCallMethod(settings?.defaultMethodKey)) return true;
+  return (
+    shipments.length > 0 &&
+    shipments.every((entry) => isWillCallMethod(entry.methodKey))
+  );
+}
+
+export function isCarrierShipment(shipment: Shipment): boolean {
+  return !isWillCallMethod(shipment.methodKey);
+}
+
+export function statusOptionsForShipment(shipment: Shipment) {
+  return isWillCallMethod(shipment.methodKey)
+    ? PICKUP_STATUS_OPTIONS
+    : SHIPMENT_STATUS_OPTIONS;
+}
+
+export function isFulfillmentComplete(
+  shipment: Shipment
+): boolean {
+  if (isWillCallMethod(shipment.methodKey)) {
+    return shipment.status === "picked_up";
+  }
+  return shipment.status === "delivered";
+}
+
+export function fulfillmentStatusLabel(shipment: Shipment): string {
+  const options = statusOptionsForShipment(shipment);
+  return (
+    options.find((option) => option.value === shipment.status)?.label ??
+    shipment.status
+  );
+}
+
+export function allFulfillmentComplete(shipments: Shipment[]): boolean {
+  if (shipments.length === 0) return false;
+  return shipments.every(isFulfillmentComplete);
+}
+
+export function isOrderFulfillmentReady(order: Order): boolean {
+  const shipments = order.shipments ?? [];
+  if (shipments.length === 0) return false;
+  if (orderShippingPieceCount(order) === 0) return false;
+  return (
+    getUnallocatedPieceCount(order, shipments) === 0 &&
+    allFulfillmentComplete(shipments)
+  );
+}
+
+export function fulfillmentProgress(shipments: Shipment[]): {
+  total: number;
+  complete: number;
+  allComplete: boolean;
+} {
+  const total = shipments.length;
+  const complete = shipments.filter(isFulfillmentComplete).length;
+  return { total, complete, allComplete: total > 0 && complete === total };
+}
+
+export function hasCarrierShipments(shipments: Shipment[]): boolean {
+  return shipments.some(isCarrierShipment);
+}
 
 export function createShipmentId(): string {
   return `ship-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -202,8 +280,13 @@ export function createEmptyShipment(
   locations: CustomerShippingLocation[],
   settings?: OrderShippingSettings
 ): Shipment {
-  const defaultLocation = locations.find((location) => location.isDefault) ?? locations[0];
   const methodKey = settings?.defaultMethodKey ?? SHIPPING_METHODS[0].key;
+
+  if (isWillCallMethod(methodKey)) {
+    return createEmptyPickup(order, settings);
+  }
+
+  const defaultLocation = locations.find((location) => location.isDefault) ?? locations[0];
   const method = shippingMethodLabel(methodKey);
 
   return {
@@ -222,7 +305,74 @@ export function createEmptyShipment(
   };
 }
 
+export function createEmptyPickup(
+  order: Order,
+  settings?: OrderShippingSettings,
+  label?: string
+): Shipment {
+  const index = order.shipments.length + 1;
+  return {
+    id: createShipmentId(),
+    label: label ?? `Pickup ${index}`,
+    method: "Will Call",
+    methodKey: WILL_CALL_METHOD_KEY,
+    status: "pending",
+    destination: "Shop pickup",
+    allocations: [],
+  };
+}
+
+export function createPickupAll(order: Order): Shipment {
+  const pickup = createEmptyPickup(order, { defaultMethodKey: WILL_CALL_METHOD_KEY }, "Pickup — all goods");
+  return {
+    ...pickup,
+    allocations: buildAllocationsFromRemaining(order, [], pickup.id),
+  };
+}
+
+export function convertShipmentToPickup(shipment: Shipment, index: number): Shipment {
+  return {
+    ...shipment,
+    method: "Will Call",
+    methodKey: WILL_CALL_METHOD_KEY,
+    label: shipment.label?.trim() || `Pickup ${index}`,
+    destination: "Shop pickup",
+    customerLocationId: undefined,
+    address: undefined,
+    trackingNumber: undefined,
+    handlingCost: undefined,
+    status: shipment.status === "picked_up" ? "picked_up" : "pending",
+  };
+}
+
+export function convertShipmentsToPickups(shipments: Shipment[]): Shipment[] {
+  return shipments.map((shipment, index) =>
+    convertShipmentToPickup(shipment, index + 1)
+  );
+}
+
+export function normalizePickupForSave(shipment: Shipment): Shipment {
+  return {
+    ...shipment,
+    method: "Will Call",
+    methodKey: WILL_CALL_METHOD_KEY,
+    destination: "Shop pickup",
+    customerLocationId: undefined,
+    address: undefined,
+    trackingNumber: undefined,
+    handlingCost: undefined,
+    handlingNotes: shipment.handlingNotes?.trim() || undefined,
+    allocations: (shipment.allocations ?? []).filter(
+      (allocation) => allocationPieceCount(allocation) > 0
+    ),
+  };
+}
+
 export function normalizeShipmentForSave(shipment: Shipment): Shipment {
+  if (isWillCallMethod(shipment.methodKey)) {
+    return normalizePickupForSave(shipment);
+  }
+
   const methodKey = shipment.methodKey;
   const method =
     shipment.method.trim() ||

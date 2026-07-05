@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, Loader2 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { AddSsBlankPanel } from "@/components/orders/add-ss-blank-panel";
 import { Button } from "@/components/ui/button";
@@ -24,9 +25,13 @@ import {
 } from "@/components/ui/select";
 import { fetchSupplierIntegrations } from "@/lib/api";
 import {
+  createLineItemDraftId,
+  draftLineItemsToLineItems,
   NEW_ORDER_COLORS,
   NEW_ORDER_PRODUCTS,
   NEW_ORDER_SIZES,
+  type NewOrderCatalogLineItemInput,
+  type NewOrderLineItemInput,
 } from "@/lib/create-order";
 import {
   dashboardControlClass,
@@ -37,6 +42,12 @@ import {
 } from "@/lib/dashboard-styles";
 import { formatCurrency } from "@/lib/format";
 import {
+  applyDefaultBlankMarkup,
+  deriveCustomerUnitPriceFromMarkup,
+  shouldShowBlankPricing,
+  shouldShowBlankPricingForBlankSource,
+} from "@/lib/blank-pricing";
+import {
   buildLineItemFromCatalog,
   createLineItemId,
   guessColorKey,
@@ -45,7 +56,7 @@ import {
   serializeLineItemForApi,
   verifyLineItemWasApplied,
 } from "@/lib/line-items";
-import type { LineItem, Order } from "@/types";
+import type { BlankSource, LineItem, Order } from "@/types";
 import { cn } from "@/lib/utils";
 
 type SizeRecord = Record<(typeof NEW_ORDER_SIZES)[number], number>;
@@ -56,13 +67,13 @@ function emptySizes(): SizeRecord {
 }
 
 function existingSizesOnOrder(
-  order: Order,
+  lineItems: LineItem[],
   productKey: string,
   colorKey: string
 ): SizeRecord {
   const existing = emptySizes();
 
-  for (const item of order.lineItems) {
+  for (const item of lineItems) {
     if (
       guessProductKey(item) === productKey &&
       guessColorKey(item) === colorKey
@@ -128,18 +139,38 @@ function SourceTabs({
   );
 }
 
-export function AddBlankItemDialog({
-  open,
-  onOpenChange,
-  orderId,
-  order,
-}: {
+type AddBlankItemDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  orderId: string;
-  order: Order;
-}) {
+} & (
+  | {
+      mode?: "order";
+      orderId: string;
+      order: Order;
+    }
+  | {
+      mode: "draft";
+      blankSource?: BlankSource;
+      draftLineItems: NewOrderLineItemInput[];
+      onAdd: (item: NewOrderLineItemInput) => void;
+    }
+);
+
+export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
+  const { open, onOpenChange } = props;
+  const isDraft = props.mode === "draft";
+  const order = isDraft ? null : props.order;
+  const orderId = isDraft ? "" : props.orderId;
+  const contextLineItems = isDraft
+    ? draftLineItemsToLineItems(props.draftLineItems)
+    : order!.lineItems;
+  const showBlankPricing = isDraft
+    ? shouldShowBlankPricingForBlankSource(props.blankSource)
+    : shouldShowBlankPricing(order!);
+  const onAddDraft = isDraft ? props.onAdd : undefined;
   const { getIdToken } = useAuth();
+  const { settings } = useShopSettings();
+  const shopDefaultMarkup = settings.pricingMatrix.blankMarkupPercent ?? 0;
   const { addOrderLineItem } = useSchedule();
   const [source, setSource] = useState<AddSource>("manual");
   const [ssConnected, setSsConnected] = useState(false);
@@ -150,6 +181,11 @@ export function AddBlankItemDialog({
     useState<(typeof NEW_ORDER_COLORS)[number]["key"]>("heather");
   const [sizes, setSizes] = useState<SizeRecord>(emptySizes);
   const [unitCost, setUnitCost] = useState("3.85");
+  const [markupPercent, setMarkupPercent] = useState(
+    String(shopDefaultMarkup)
+  );
+  const [customerUnitPrice, setCustomerUnitPrice] = useState("");
+  const [customerPriceTouched, setCustomerPriceTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -159,8 +195,8 @@ export function AddBlankItemDialog({
   );
 
   const existingSizes = useMemo(
-    () => existingSizesOnOrder(order, productKey, colorKey),
-    [order, productKey, colorKey]
+    () => existingSizesOnOrder(contextLineItems, productKey, colorKey),
+    [contextLineItems, productKey, colorKey]
   );
 
   const hasExistingOnOrder = Object.values(existingSizes).some((qty) => qty > 0);
@@ -203,19 +239,47 @@ export function AddBlankItemDialog({
   useEffect(() => {
     if (!open || !selectedProduct) return;
     setUnitCost(selectedProduct.unitCost.toFixed(2));
-  }, [open, selectedProduct]);
+    setMarkupPercent(String(shopDefaultMarkup));
+    setCustomerPriceTouched(false);
+    setCustomerUnitPrice(
+      deriveCustomerUnitPriceFromMarkup(
+        selectedProduct.unitCost,
+        shopDefaultMarkup
+      ).toFixed(2)
+    );
+  }, [open, selectedProduct, shopDefaultMarkup]);
 
   const parsedUnitCost = Math.max(0, Number(unitCost) || 0);
+  const parsedMarkup = Math.max(0, Number(markupPercent) || 0);
+  const parsedCustomerUnitPrice = Math.max(0, Number(customerUnitPrice) || 0);
+  const effectiveCustomerUnitPrice =
+    parsedCustomerUnitPrice > 0
+      ? parsedCustomerUnitPrice
+      : deriveCustomerUnitPriceFromMarkup(parsedUnitCost, parsedMarkup);
   const pieceCount = Object.values(sizes).reduce((sum, qty) => sum + qty, 0);
-  const orderTotal = pieceCount * parsedUnitCost;
+  const orderShopTotal = pieceCount * parsedUnitCost;
+  const orderCustomerTotal = pieceCount * effectiveCustomerUnitPrice;
 
   const resetForm = () => {
     setProductKey("g64000");
     setColorKey("heather");
     setSizes(emptySizes());
     setUnitCost("3.85");
+    setMarkupPercent(String(shopDefaultMarkup));
+    setCustomerPriceTouched(false);
+    setCustomerUnitPrice(
+      deriveCustomerUnitPriceFromMarkup(3.85, shopDefaultMarkup).toFixed(2)
+    );
     setError(null);
     setSource(ssConnected ? "ss" : "manual");
+  };
+
+  const blankPricingFields = () => {
+    if (!showBlankPricing) return {};
+    if (customerPriceTouched) {
+      return { customerUnitPrice: effectiveCustomerUnitPrice };
+    }
+    return { markupPercent: parsedMarkup };
   };
 
   const handleOpenChange = (next: boolean) => {
@@ -241,6 +305,7 @@ export function AddBlankItemDialog({
     return serializeLineItemForApi({
       ...item,
       unitCost: parsedUnitCost,
+      ...blankPricingFields(),
       sizes: recordToSizes(sizes),
     });
   };
@@ -252,8 +317,28 @@ export function AddBlankItemDialog({
     setSaving(true);
     setError(null);
     try {
+      if (isDraft && onAddDraft) {
+        const draftItem: NewOrderCatalogLineItemInput = {
+          id: createLineItemDraftId(),
+          productKey,
+          colorKey,
+          sizes: { ...sizes },
+          unitCost: parsedUnitCost,
+          ...blankPricingFields(),
+        };
+        onAddDraft(draftItem);
+        handleOpenChange(false);
+        return;
+      }
+
       const updated = await addOrderLineItem(orderId, item);
-      if (!verifyLineItemWasApplied(order.lineItems, updated.lineItems, item)) {
+      if (
+        !verifyLineItemWasApplied(
+          order!.lineItems,
+          updated.lineItems,
+          item
+        )
+      ) {
         throw new Error(
           "The server did not save the blank quantities you entered. Refresh and try again."
         );
@@ -270,10 +355,32 @@ export function AddBlankItemDialog({
     setSaving(true);
     setError(null);
     try {
-      const payload = serializeLineItemForApi(item);
+      const payload = serializeLineItemForApi(
+        showBlankPricing
+          ? applyDefaultBlankMarkup(item, shopDefaultMarkup)
+          : item
+      );
+
+      if (isDraft && onAddDraft) {
+        onAddDraft({
+          id: payload.id,
+          source: "supplier",
+          item: payload,
+          ...(customerPriceTouched
+            ? { customerUnitPrice: payload.customerUnitPrice }
+            : { markupPercent: payload.markupPercent }),
+        });
+        handleOpenChange(false);
+        return;
+      }
+
       const updated = await addOrderLineItem(orderId, payload);
       if (
-        !verifyLineItemWasApplied(order.lineItems, updated.lineItems, payload)
+        !verifyLineItemWasApplied(
+          order!.lineItems,
+          updated.lineItems,
+          payload
+        )
       ) {
         throw new Error(
           "The server did not save the blank quantities you entered. Refresh and try again."
@@ -334,7 +441,7 @@ export function AddBlankItemDialog({
             ssConnected ? (
               <div className="min-h-0 flex-1">
                 <AddSsBlankPanel
-                  order={order}
+                  lineItems={contextLineItems}
                   saving={saving}
                   onAdd={submitSsItem}
                 />
@@ -433,32 +540,104 @@ export function AddBlankItemDialog({
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebebeb] bg-[#fafafa] px-4 py-3">
                   <div>
                     <p className="text-[13px] font-semibold text-[#303030]">
-                      Quantity &amp; cost
+                      Quantity{showBlankPricing ? " & pricing" : ""}
                     </p>
                     <p className="mt-0.5 text-[12px] text-[#616161]">
-                      Cost is used for markup and order totals after the item is
-                      added.
+                      {showBlankPricing
+                        ? "Set shop blank cost, markup, and customer price for this item."
+                        : "Customer supplies garments — track quantities only."}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Label className="text-[11px] font-medium text-[#616161]">
-                      Unit cost
-                    </Label>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-[#8a8a8a]">
-                        $
-                      </span>
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={unitCost}
-                        onChange={(event) => setUnitCost(event.target.value)}
-                        className="h-8 w-24 rounded-lg border-[#e3e3e3] pl-6 text-right text-[13px] tabular-nums"
-                      />
+                </div>
+
+                {showBlankPricing ? (
+                  <div className="grid gap-3 border-b border-[#ebebeb] px-4 py-3 sm:grid-cols-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-medium text-[#616161]">
+                        Shop blank cost
+                      </Label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-[#8a8a8a]">
+                          $
+                        </span>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={unitCost}
+                          onChange={(event) => {
+                            const nextCost = Math.max(
+                              0,
+                              Number(event.target.value) || 0
+                            );
+                            setUnitCost(event.target.value);
+                            if (!customerPriceTouched) {
+                              setCustomerUnitPrice(
+                                deriveCustomerUnitPriceFromMarkup(
+                                  nextCost,
+                                  parsedMarkup
+                                ).toFixed(2)
+                              );
+                            }
+                          }}
+                          className="h-8 rounded-lg border-[#e3e3e3] pl-6 text-right text-[13px] tabular-nums"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-medium text-[#616161]">
+                        Markup %
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.1"
+                          value={markupPercent}
+                          onChange={(event) => {
+                            const nextMarkup = Math.max(
+                              0,
+                              Number(event.target.value) || 0
+                            );
+                            setMarkupPercent(event.target.value);
+                            setCustomerPriceTouched(false);
+                            setCustomerUnitPrice(
+                              deriveCustomerUnitPriceFromMarkup(
+                                parsedUnitCost,
+                                nextMarkup
+                              ).toFixed(2)
+                            );
+                          }}
+                          className="h-8 rounded-lg border-[#e3e3e3] pr-7 text-right text-[13px] tabular-nums"
+                        />
+                        <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-[#8a8a8a]">
+                          %
+                        </span>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-medium text-[#616161]">
+                        Customer price
+                      </Label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-[#8a8a8a]">
+                          $
+                        </span>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={customerUnitPrice}
+                          onChange={(event) => {
+                            setCustomerPriceTouched(true);
+                            setCustomerUnitPrice(event.target.value);
+                          }}
+                          className="h-8 rounded-lg border-[#e3e3e3] pl-6 text-right text-[13px] tabular-nums"
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
+                ) : null}
 
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[600px] text-[13px]">
@@ -473,19 +652,24 @@ export function AddBlankItemDialog({
                         <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
                           Add
                         </th>
-                        <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
-                          Unit cost
-                        </th>
-                        <th className="px-4 py-2.5 text-right font-medium text-[#616161]">
-                          Line total
-                        </th>
+                        {showBlankPricing ? (
+                          <>
+                            <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
+                              Blank cost
+                            </th>
+                            <th className="px-4 py-2.5 text-right font-medium text-[#616161]">
+                              Customer cost
+                            </th>
+                          </>
+                        ) : null}
                       </tr>
                     </thead>
                     <tbody>
                       {NEW_ORDER_SIZES.map((size) => {
                         const qty = sizes[size];
                         const onOrder = existingSizes[size];
-                        const lineTotal = qty * parsedUnitCost;
+                        const shopLineTotal = qty * parsedUnitCost;
+                        const customerLineTotal = qty * effectiveCustomerUnitPrice;
 
                         return (
                           <tr
@@ -523,29 +707,51 @@ export function AddBlankItemDialog({
                                 className="ml-auto h-8 w-20 rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums"
                               />
                             </td>
-                            <td className="px-3 py-3 text-right tabular-nums text-[#616161]">
-                              {formatCurrency(parsedUnitCost)}
-                            </td>
-                            <td className="px-4 py-3 text-right font-medium tabular-nums text-[#303030]">
-                              {qty > 0 ? formatCurrency(lineTotal) : "—"}
-                            </td>
+                            {showBlankPricing ? (
+                              <>
+                                <td className="px-3 py-3 text-right tabular-nums text-[#616161]">
+                                  {qty > 0 ? formatCurrency(shopLineTotal) : "—"}
+                                </td>
+                                <td className="px-4 py-3 text-right font-medium tabular-nums text-[#303030]">
+                                  {qty > 0
+                                    ? formatCurrency(customerLineTotal)
+                                    : "—"}
+                                </td>
+                              </>
+                            ) : null}
                           </tr>
                         );
                       })}
                     </tbody>
-                    <tfoot>
-                      <tr className="bg-[#fafafa]">
-                        <td
-                          colSpan={4}
-                          className="px-4 py-3 text-right text-[12px] font-medium text-[#616161]"
-                        >
-                          {pieceCount} piece{pieceCount !== 1 ? "s" : ""} to add
-                        </td>
-                        <td className="px-4 py-3 text-right text-[13px] font-semibold tabular-nums text-[#303030]">
-                          {formatCurrency(orderTotal)}
-                        </td>
-                      </tr>
-                    </tfoot>
+                    {showBlankPricing ? (
+                      <tfoot>
+                        <tr className="bg-[#fafafa]">
+                          <td
+                            colSpan={3}
+                            className="px-4 py-3 text-right text-[12px] font-medium text-[#616161]"
+                          >
+                            {pieceCount} piece{pieceCount !== 1 ? "s" : ""} to add
+                          </td>
+                          <td className="px-3 py-3 text-right text-[13px] font-semibold tabular-nums text-[#303030]">
+                            {formatCurrency(orderShopTotal)}
+                          </td>
+                          <td className="px-4 py-3 text-right text-[13px] font-semibold tabular-nums text-[#303030]">
+                            {formatCurrency(orderCustomerTotal)}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    ) : (
+                      <tfoot>
+                        <tr className="bg-[#fafafa]">
+                          <td
+                            colSpan={3}
+                            className="px-4 py-3 text-right text-[12px] font-medium text-[#616161]"
+                          >
+                            {pieceCount} piece{pieceCount !== 1 ? "s" : ""} to add
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
                   </table>
                 </div>
               </div>

@@ -14,6 +14,7 @@ import {
   type CustomerPortalOrderSession,
 } from "@/lib/customer-portal-api";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { groupReviewEstimateSections } from "@/lib/estimate-breakdown";
 import { cn } from "@/lib/utils";
 
 export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
@@ -98,6 +99,13 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
   const status = session.order.status;
   const tone = portalStatusTone(status);
   const estimate = session.estimate;
+  const estimateSections = estimate
+    ? groupReviewEstimateSections({
+        rows: estimate.rows,
+        garmentSubtotal: estimate.garmentSubtotal,
+        decorationSubtotal: estimate.decorationSubtotal,
+      })
+    : [];
   const needsAction =
     !session.order.quoteApproved ||
     (session.proofs || []).some((proof) => proof.artwork.status !== "approved");
@@ -158,6 +166,25 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
               Order summary
             </div>
             <div className="space-y-2.5 bg-white p-4 text-[13px]">
+              {estimate?.rateSheetName && !estimate.usingShopPricing ? (
+                <p className="rounded-lg bg-[#f4f7fd] px-3 py-2 text-[12px] font-medium text-[#2c6ecb]">
+                  Pricing sheet: {estimate.rateSheetName}
+                </p>
+              ) : estimate?.usingShopPricing && estimate.hasNegotiatedPricing ? (
+                <p className="rounded-lg bg-[#fafafa] px-3 py-2 text-[12px] text-[#616161]">
+                  Shop standard pricing
+                </p>
+              ) : null}
+              {estimateSections.length > 1
+                ? estimateSections.map((section) => (
+                    <div key={section.key} className="flex justify-between gap-3">
+                      <span className="text-[#616161]">{section.label}</span>
+                      <span className="font-medium tabular-nums text-[#303030]">
+                        {formatCurrency(section.subtotal)}
+                      </span>
+                    </div>
+                  ))
+                : null}
               <div className="flex justify-between gap-3">
                 <span className="text-[#616161]">Subtotal</span>
                 <span className="font-medium tabular-nums text-[#303030]">

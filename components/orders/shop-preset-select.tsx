@@ -89,7 +89,11 @@ export const ShopPresetSelect = memo(function ShopPresetSelect({
         disabled={disabled}
       >
         <SelectTrigger size={size} className={cn(className, "w-full")}>
-          <SelectValue placeholder={placeholder ?? "Select"} />
+          <SelectValue placeholder={placeholder ?? "Select"}>
+            {options.find((option) => option.value === value)?.label ??
+              placeholder ??
+              "Select"}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent
           alignItemWithTrigger={false}

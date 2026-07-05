@@ -31,6 +31,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency } from "@/lib/format";
+import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
 import { resolveOrderFinancials } from "@/lib/order-estimate";
 import { getOrderDecorationSummary } from "@/lib/order-decoration-summary";
 import { getOrderPaymentDisplay } from "@/lib/order-payment";
@@ -38,6 +39,7 @@ import type { OrderListSummary } from "@/lib/order-list-summary";
 import { getArtworkApprovalSummary } from "@/lib/order-health";
 import type { Order } from "@/types";
 import { cn } from "@/lib/utils";
+import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { DecorationTypePill } from "@/components/orders/decoration-type-pill";
 import { CustomerPortalActions } from "@/components/orders/customer-review-preview-modal";
@@ -58,14 +60,15 @@ export function OrderActionPanel({
   onRushChange: (rush: boolean) => void;
 }) {
   const { settings } = useShopSettings();
+  const { getCustomerById } = useSchedule();
+  const customer = getCustomerById(order.customerId);
+  const pricingMatrix = useMemo(
+    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer, order),
+    [settings.pricingMatrix, customer, order]
+  );
   const financials = useMemo(
-    () =>
-      resolveOrderFinancials(
-        order,
-        settings.taxRate,
-        settings.pricingMatrix
-      ),
-    [order, settings.taxRate, settings.pricingMatrix]
+    () => resolveOrderFinancials(order, settings.taxRate, pricingMatrix, customer),
+    [order, settings.taxRate, pricingMatrix, customer]
   );
   const paymentOrder = useMemo(
     () => ({ ...order, ...financials }),

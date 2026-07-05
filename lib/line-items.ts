@@ -90,7 +90,7 @@ export function lineItemsMatch(a: LineItem, b: LineItem): boolean {
 }
 
 export function serializeLineItemForApi(lineItem: LineItem): LineItem {
-  return {
+  const serialized: LineItem = {
     id: lineItem.id,
     productName: lineItem.productName,
     brand: lineItem.brand,
@@ -103,6 +103,19 @@ export function serializeLineItemForApi(lineItem: LineItem): LineItem {
     supplierStyleId: lineItem.supplierStyleId,
     sizes: lineItem.sizes.filter((row) => row.quantity > 0),
   };
+
+  if (lineItem.markupPercent != null && Number.isFinite(lineItem.markupPercent)) {
+    serialized.markupPercent = lineItem.markupPercent;
+  }
+
+  if (
+    lineItem.customerUnitPrice != null &&
+    Number.isFinite(lineItem.customerUnitPrice)
+  ) {
+    serialized.customerUnitPrice = lineItem.customerUnitPrice;
+  }
+
+  return serialized;
 }
 
 export function verifyLineItemWasApplied(

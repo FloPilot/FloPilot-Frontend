@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2, MapPin, Pencil, Plus, Star, Trash2 } from "lucide-react";
+import { ChevronRight, Loader2, MapPin, Plus, Star, Trash2 } from "lucide-react";
+import { CustomerShippingLocationDeleteDialog } from "@/components/customers/customer-shipping-location-delete-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -94,6 +95,9 @@ export function CustomerShippingLocationsSection({
   );
   const [saving, setSaving] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] =
+    useState<CustomerShippingLocation | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const openNewLocation = () => {
     setEditingLocationId(null);
@@ -155,13 +159,24 @@ export function CustomerShippingLocationsSection({
   };
 
   const deleteLocation = async (locationId: string) => {
-    const nextLocations = savedLocations.filter(
-      (location) => location.id !== locationId
-    );
-    await persistLocations(nextLocations);
-    onLocationDeleted?.(locationId);
-    setDialogOpen(false);
-    setEditingLocationId(null);
+    setDeleting(true);
+    try {
+      const nextLocations = savedLocations.filter(
+        (location) => location.id !== locationId
+      );
+      await persistLocations(nextLocations);
+      onLocationDeleted?.(locationId);
+      setDeleteTarget(null);
+      setDialogOpen(false);
+      setEditingLocationId(null);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const openDeleteConfirm = () => {
+    const location = savedLocations.find((entry) => entry.id === editingLocationId);
+    if (location) setDeleteTarget(location);
   };
 
   const locationList = (
@@ -183,42 +198,35 @@ export function CustomerShippingLocationsSection({
         </div>
       ) : (
         savedLocations.map((location) => (
-          <div
+          <button
             key={location.id}
-            className="group rounded-lg border border-[#ebebeb] bg-white px-3.5 py-3 transition-colors hover:border-[#d4d4d4]"
+            type="button"
+            onClick={() => openEditLocation(location)}
+            className="group flex w-full items-start justify-between gap-3 rounded-lg border border-[#ebebeb] bg-white px-3.5 py-3 text-left transition-colors hover:border-[#d4d4d4] hover:bg-[#fafafa]"
           >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-[13px] font-semibold text-[#303030]">
-                    {location.label}
-                  </p>
-                  {location.isDefault ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-[#f4f7fd] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#2c6ecb]">
-                      <Star className="size-3 fill-current" />
-                      Default
-                    </span>
-                  ) : null}
-                </div>
-                {location.attention ? (
-                  <p className="mt-1 text-[12px] text-[#616161]">
-                    Attn: {location.attention}
-                  </p>
-                ) : null}
-                <p className="mt-1 text-[12px] leading-relaxed text-[#616161]">
-                  {formatShippingAddress(location)}
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-[13px] font-semibold text-[#303030]">
+                  {location.label}
                 </p>
+                {location.isDefault ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-[#f4f7fd] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#2c6ecb]">
+                    <Star className="size-3 fill-current" />
+                    Default
+                  </span>
+                ) : null}
               </div>
-              <button
-                type="button"
-                onClick={() => openEditLocation(location)}
-                className="rounded-lg p-2 text-[#8a8a8a] opacity-100 transition-colors hover:bg-[#f6f6f7] hover:text-[#303030] sm:opacity-0 sm:group-hover:opacity-100"
-                aria-label={`Edit ${location.label}`}
-              >
-                <Pencil className="size-3.5" />
-              </button>
+              {location.attention ? (
+                <p className="mt-1 text-[12px] text-[#616161]">
+                  Attn: {location.attention}
+                </p>
+              ) : null}
+              <p className="mt-1 text-[12px] leading-relaxed text-[#616161]">
+                {formatShippingAddress(location)}
+              </p>
             </div>
-          </div>
+            <ChevronRight className="mt-1 size-4 shrink-0 text-[#8a8a8a] transition-transform group-hover:translate-x-0.5 group-hover:text-[#2c6ecb]" />
+          </button>
         ))
       )}
 
@@ -460,11 +468,11 @@ export function CustomerShippingLocationsSection({
                 type="button"
                 variant="ghost"
                 className="text-[#8f1f1f] hover:bg-[#fff1f1] hover:text-[#8f1f1f]"
-                disabled={saving}
-                onClick={() => deleteLocation(editingLocationId)}
+                disabled={saving || deleting}
+                onClick={openDeleteConfirm}
               >
                 <Trash2 className="size-3.5" />
-                Delete
+                Delete location
               </Button>
             ) : (
               <span />
@@ -491,6 +499,18 @@ export function CustomerShippingLocationsSection({
           </div>
         </DialogContent>
       </Dialog>
+
+      <CustomerShippingLocationDeleteDialog
+        open={Boolean(deleteTarget)}
+        location={deleteTarget}
+        deleting={deleting}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+        onConfirm={() => {
+          if (deleteTarget) void deleteLocation(deleteTarget.id);
+        }}
+      />
     </>
   );
 }

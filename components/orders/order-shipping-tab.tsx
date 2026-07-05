@@ -3,13 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Loader2,
+  MapPin,
   Package,
   Plus,
   Save,
+  Store,
   Trash2,
   Truck,
 } from "lucide-react";
 import { CustomerShippingLocationsSection } from "@/components/customers/customer-shipping-locations-section";
+import { OrderShippingDeleteDialog } from "@/components/orders/order-shipping-delete-dialog";
+import { OrderShippingSwitchDialog } from "@/components/orders/order-shipping-switch-dialog";
+import type { ShippingModeSwitch } from "@/components/orders/order-shipping-switch-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,23 +42,31 @@ import { lineItemPieceCount } from "@/lib/line-items";
 import {
   buildAllocationsFromRemaining,
   buildShipmentDestinationLabel,
+  convertShipmentsToPickups,
   createEmptyShipment,
+  createPickupAll,
   formatLineItemLabel,
   formatLocationSelectLabel,
   formatShipmentDestination,
+  fulfillmentProgress,
+  fulfillmentStatusLabel,
   getRemainingQty,
   getShipmentAllocationRow,
   getUnallocatedPieceCount,
+  hasCarrierShipments,
+  isWillCallMethod,
+  isWillCallOrder,
   locationById,
   normalizeShipmentForSave,
   orderShippingPieceCount,
   resolveCustomerShippingLocations,
   resolveShipToSelectLabel,
-  SHIPMENT_STATUS_OPTIONS,
+  statusOptionsForShipment,
   shipmentPieceCount,
   shippingMethodLabel,
   sizesForAllocation,
   totalHandlingCost,
+  WILL_CALL_METHOD_KEY,
 } from "@/lib/order-shipping";
 import type {
   Order,
@@ -71,6 +84,50 @@ const shippingControlClass = cn(
 
 const shippingSelectClass = cn(shippingControlClass, "justify-between");
 
+function ShippingSaveBar({
+  willCallMode,
+  saving,
+  isDirty,
+  savedFlash,
+  onSave,
+  className,
+}: {
+  willCallMode: boolean;
+  saving: boolean;
+  isDirty: boolean;
+  savedFlash: boolean;
+  onSave: () => void;
+  className?: string;
+}) {
+  const label = willCallMode ? "Save pickup" : "Save shipping";
+
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center justify-end gap-2",
+        className
+      )}
+    >
+      {savedFlash ? (
+        <span className="text-[12px] font-medium text-emerald-700">Saved</span>
+      ) : null}
+      <Button
+        type="button"
+        className={cn(dashboardPrimaryButtonClass, "rounded-lg")}
+        disabled={!isDirty || saving}
+        onClick={onSave}
+      >
+        {saving ? (
+          <Loader2 className="size-3.5 animate-spin" />
+        ) : (
+          <Save className="size-3.5" />
+        )}
+        {label}
+      </Button>
+    </div>
+  );
+}
+
 export function OrderShippingTab({ order }: { order: Order }) {
   const { customers, updateOrderShipments, updateCustomer } = useSchedule();
   const customer = customers.find((entry) => entry.id === order.customerId);
@@ -85,6 +142,11 @@ export function OrderShippingTab({ order }: { order: Order }) {
   );
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [switchDialog, setSwitchDialog] = useState<ShippingModeSwitch | null>(
+    null
+  );
+  const [deleteTarget, setDeleteTarget] = useState<Shipment | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     setShipments(order.shipments ?? []);
@@ -95,6 +157,13 @@ export function OrderShippingTab({ order }: { order: Order }) {
   const unallocatedPieces = getUnallocatedPieceCount(order, shipments);
   const allocatedPieces = totalPieces - unallocatedPieces;
   const handlingTotal = totalHandlingCost(shipments);
+  const willCallMode = isWillCallOrder(settings, shipments);
+  const fulfillment = fulfillmentProgress(shipments);
+  const readyToInvoice =
+    fulfillment.allComplete &&
+    unallocatedPieces === 0 &&
+    totalPieces > 0 &&
+    shipments.length > 0;
 
   const isDirty = useMemo(() => {
     return (
@@ -126,6 +195,81 @@ export function OrderShippingTab({ order }: { order: Order }) {
     ]);
   };
 
+  const addPickupAll = () => {
+    setShipments([createPickupAll({ ...order, shipments })]);
+  };
+
+  const handleDefaultMethodChange = (value: string) => {
+    if (!value) return;
+    const current = settings.defaultMethodKey ?? SHIPPING_METHODS[0].key;
+    if (value === current) return;
+
+    if (
+      isWillCallMethod(value) &&
+      !isWillCallMethod(current) &&
+      hasCarrierShipments(shipments)
+    ) {
+      setSwitchDialog({
+        direction: "to_will_call",
+        shipmentCount: shipments.filter((entry) => isWillCallMethod(entry.methodKey) === false).length,
+      });
+      return;
+    }
+
+    if (
+      !isWillCallMethod(value) &&
+      isWillCallMethod(current) &&
+      shipments.length > 0
+    ) {
+      setSwitchDialog({
+        direction: "to_carrier",
+        pickupCount: shipments.length,
+      });
+      return;
+    }
+
+    setSettings((currentSettings) => ({
+      ...currentSettings,
+      defaultMethodKey: value,
+    }));
+  };
+
+  const confirmSwitchClear = () => {
+    if (!switchDialog) return;
+    if (switchDialog.direction === "to_will_call") {
+      setShipments([]);
+      setSettings((current) => ({
+        ...current,
+        defaultMethodKey: WILL_CALL_METHOD_KEY,
+      }));
+    } else {
+      setShipments([]);
+      setSettings((current) => ({
+        ...current,
+        defaultMethodKey: SHIPPING_METHODS[0].key,
+      }));
+    }
+    setSwitchDialog(null);
+  };
+
+  const confirmSwitchConvert = () => {
+    if (!switchDialog) return;
+    if (switchDialog.direction === "to_will_call") {
+      setShipments(convertShipmentsToPickups(shipments));
+      setSettings((current) => ({
+        ...current,
+        defaultMethodKey: WILL_CALL_METHOD_KEY,
+      }));
+    } else {
+      setShipments([]);
+      setSettings((current) => ({
+        ...current,
+        defaultMethodKey: SHIPPING_METHODS[0].key,
+      }));
+    }
+    setSwitchDialog(null);
+  };
+
   const updateShipment = (shipmentId: string, patch: Partial<Shipment>) => {
     setShipments((current) =>
       current.map((shipment) =>
@@ -135,7 +279,35 @@ export function OrderShippingTab({ order }: { order: Order }) {
   };
 
   const removeShipment = (shipmentId: string) => {
-    setShipments((current) => current.filter((entry) => entry.id !== shipmentId));
+    const target = shipments.find((entry) => entry.id === shipmentId);
+    if (target) setDeleteTarget(target);
+  };
+
+  const confirmRemoveShipment = async () => {
+    if (!deleteTarget) return;
+
+    const previousShipments = shipments;
+    const nextShipments = shipments.filter(
+      (entry) => entry.id !== deleteTarget.id
+    );
+    setDeleting(true);
+    setSavedFlash(false);
+    setShipments(nextShipments);
+
+    try {
+      const normalized = nextShipments.map(normalizeShipmentForSave);
+      await updateOrderShipments(order.id, normalized, {
+        ...settings,
+        updatedAt: new Date().toISOString(),
+      });
+      setDeleteTarget(null);
+      setSavedFlash(true);
+      window.setTimeout(() => setSavedFlash(false), 2000);
+    } catch {
+      setShipments(previousShipments);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const selectShipmentLocation = (
@@ -269,47 +441,68 @@ export function OrderShippingTab({ order }: { order: Order }) {
           <div>
             <h2 className={dashboardTaskTitleClass}>Shipping / Handling</h2>
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-              Plan one or more shipments, split blanks/garments across customer
-              locations, and track handling costs.
+              {willCallMode
+                ? "Customer will pick up from your shop — plan one or more pickups and mark goods as picked up when they leave."
+                : "Plan one or more shipments, split blanks/garments across customer locations, and track handling costs."}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {savedFlash ? (
-              <span className="text-[12px] font-medium text-emerald-700">
-                Saved
-              </span>
-            ) : null}
-            <Button
-              type="button"
-              className={cn(dashboardPrimaryButtonClass, "rounded-lg")}
-              disabled={!isDirty || saving}
-              onClick={handleSave}
-            >
-              {saving ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Save className="size-3.5" />
-              )}
-              Save shipping
-            </Button>
-          </div>
+          <ShippingSaveBar
+            willCallMode={willCallMode}
+            saving={saving}
+            isDirty={isDirty}
+            savedFlash={savedFlash}
+            onSave={handleSave}
+          />
         </div>
+
+        {shipments.length > 0 ? (
+          <div
+            className={cn(
+              "mx-4 mt-4 rounded-lg border px-4 py-3 sm:mx-5",
+              readyToInvoice
+                ? "border-[#86d4a8] bg-[#e8f5ee]"
+                : fulfillment.complete > 0
+                  ? "border-[#f0d9a8] bg-[#fffdf5]"
+                  : "border-[#ebebeb] bg-[#fafafa]"
+            )}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-[13px] font-semibold text-[#303030]">
+                  {willCallMode ? "Pickup progress" : "Shipment progress"}
+                </p>
+                <p className="mt-0.5 text-[12px] text-[#616161]">
+                  {fulfillment.complete} of {fulfillment.total}{" "}
+                  {willCallMode ? "pickup" : "shipment"}
+                  {fulfillment.total !== 1 ? "s" : ""}{" "}
+                  {willCallMode ? "picked up" : "delivered"}
+                  {unallocatedPieces > 0
+                    ? ` · ${unallocatedPieces} pieces still unassigned`
+                    : totalPieces > 0
+                      ? " · all pieces assigned"
+                      : ""}
+                </p>
+              </div>
+              {readyToInvoice ? (
+                <span className="rounded-full bg-[#0d5c2e] px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
+                  Ready to invoice
+                </span>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
 
         <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_280px]">
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                  Default carrier
+                  {willCallMode ? "Fulfillment method" : "Default carrier"}
                 </Label>
                 <Select
                   value={settings.defaultMethodKey ?? SHIPPING_METHODS[0].key}
                   onValueChange={(value) => {
-                    if (!value) return;
-                    setSettings((current) => ({
-                      ...current,
-                      defaultMethodKey: value,
-                    }));
+                    if (value) handleDefaultMethodChange(value);
                   }}
                 >
                   <SelectTrigger className={shippingSelectClass}>
@@ -371,7 +564,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
             </div>
           </div>
 
-          {customer ? (
+          {!willCallMode && customer ? (
             <CustomerShippingLocationsSection
               customer={customer}
               variant="compact"
@@ -404,27 +597,65 @@ export function OrderShippingTab({ order }: { order: Order }) {
           )}
         >
           <div className="mx-auto flex size-11 items-center justify-center rounded-xl bg-[#f4f7fd] text-[#2c6ecb]">
-            <Truck className="size-5" />
+            {willCallMode ? (
+              <Store className="size-5" />
+            ) : (
+              <Truck className="size-5" />
+            )}
           </div>
           <p className="mt-3 text-[13px] font-medium text-[#303030]">
-            No shipments planned yet
+            {willCallMode
+              ? "No pickups planned yet"
+              : "No shipments planned yet"}
           </p>
           <p className={cn("mx-auto mt-1 max-w-md", dashboardTaskDetailClass)}>
-            Add a shipment for each destination — assign specific
-            blanks/garments when the order splits across stores or offices.
+            {willCallMode
+              ? "Plan when the customer picks up — one visit for everything, or split across multiple pickups."
+              : "Add a shipment for each destination — assign specific blanks/garments when the order splits across stores or offices."}
           </p>
-          <Button
-            type="button"
-            className={cn(dashboardPrimaryButtonClass, "mt-4 rounded-lg")}
-            onClick={addShipment}
-          >
-            <Plus className="size-3.5" />
-            Add shipment
-          </Button>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            {willCallMode ? (
+              <>
+                <Button
+                  type="button"
+                  className={cn(dashboardPrimaryButtonClass, "rounded-lg")}
+                  onClick={addPickupAll}
+                  disabled={order.lineItems.length === 0}
+                >
+                  <Package className="size-3.5" />
+                  Pickup all at once
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(dashboardControlClass, "h-10 rounded-lg")}
+                  onClick={addShipment}
+                >
+                  <Plus className="size-3.5" />
+                  Add pickup
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="button"
+                className={cn(dashboardPrimaryButtonClass, "rounded-lg")}
+                onClick={addShipment}
+              >
+                <Plus className="size-3.5" />
+                Add shipment
+              </Button>
+            )}
+          </div>
         </section>
       ) : (
         <div className="space-y-4">
           {shipments.map((shipment) => {
+            const methodKey =
+              shipment.methodKey ??
+              SHIPPING_METHODS.find((method) => method.label === shipment.method)
+                ?.key ??
+              SHIPPING_METHODS[0].key;
+            const isPickup = isWillCallMethod(methodKey);
             const selectedLocationId =
               shipment.customerLocationId ??
               (shipment.address ? "custom" : undefined);
@@ -434,11 +665,12 @@ export function OrderShippingTab({ order }: { order: Order }) {
               customerLocations,
               shipment.address
             );
-            const methodKey =
-              shipment.methodKey ??
-              SHIPPING_METHODS.find((method) => method.label === shipment.method)
-                ?.key ??
-              SHIPPING_METHODS[0].key;
+            const statusOptions = statusOptionsForShipment({
+              ...shipment,
+              methodKey,
+            });
+            const isComplete =
+              shipment.status === "picked_up" || shipment.status === "delivered";
 
             return (
               <section key={shipment.id} className={dashboardCardClass}>
@@ -449,22 +681,70 @@ export function OrderShippingTab({ order }: { order: Order }) {
                       onChange={(event) =>
                         updateShipment(shipment.id, { label: event.target.value })
                       }
-                      placeholder="Shipment label"
+                      placeholder={isPickup ? "Pickup label" : "Shipment label"}
                       className="h-9 max-w-sm rounded-lg border-[#e3e3e3] text-[13px] font-semibold"
                     />
                     <p className={dashboardTaskDetailClass}>
-                      {formatShipmentDestination(shipment)}
+                      {isPickup ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Store className="size-3.5 shrink-0 text-[#616161]" />
+                          Will Call · Shop pickup
+                        </span>
+                      ) : (
+                        formatShipmentDestination(shipment)
+                      )}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-[#f4f7fd] px-2.5 py-1 text-[11px] font-semibold text-[#2c6ecb]">
                       {shipmentPieceCount(shipment)} pcs
                     </span>
+                    <span
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                        isComplete
+                          ? "bg-[#e8f5ee] text-[#0d5c2e]"
+                          : "bg-[#fff1d6] text-[#8a6116]"
+                      )}
+                    >
+                      {fulfillmentStatusLabel({ ...shipment, methodKey })}
+                    </span>
+                    {!isComplete && isPickup ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className={cn(
+                          dashboardPrimaryButtonClass,
+                          "h-8 rounded-lg px-3 text-[12px]"
+                        )}
+                        onClick={() =>
+                          updateShipment(shipment.id, { status: "picked_up" })
+                        }
+                      >
+                        Mark picked up
+                      </Button>
+                    ) : null}
+                    {!isComplete && !isPickup ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className={cn(
+                          dashboardControlClass,
+                          "h-8 rounded-lg px-3 text-[12px]"
+                        )}
+                        onClick={() =>
+                          updateShipment(shipment.id, { status: "delivered" })
+                        }
+                      >
+                        Mark delivered
+                      </Button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => removeShipment(shipment.id)}
                       className="rounded-lg p-2 text-[#8a8a8a] transition-colors hover:bg-[#fff1f1] hover:text-[#8f1f1f]"
-                      aria-label="Remove shipment"
+                      aria-label={isPickup ? "Remove pickup" : "Remove shipment"}
                     >
                       <Trash2 className="size-4" />
                     </button>
@@ -472,6 +752,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                 </div>
 
                 <div className="space-y-4 p-4 sm:p-5">
+                  {!isPickup ? (
                   <div className="grid gap-3 lg:grid-cols-2">
                     <div className="space-y-1.5">
                       <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
@@ -519,7 +800,9 @@ export function OrderShippingTab({ order }: { order: Order }) {
                           </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
-                          {SHIPPING_METHODS.map((method) => (
+                          {SHIPPING_METHODS.filter(
+                            (method) => method.key !== WILL_CALL_METHOD_KEY
+                          ).map((method) => (
                             <SelectItem key={method.key} value={method.key}>
                               {method.label}
                             </SelectItem>
@@ -528,8 +811,27 @@ export function OrderShippingTab({ order }: { order: Order }) {
                       </Select>
                     </div>
                   </div>
+                  ) : (
+                    <div
+                      className={cn(
+                        dashboardInsetSurfaceClass,
+                        "flex items-start gap-3 px-4 py-3"
+                      )}
+                    >
+                      <MapPin className="mt-0.5 size-4 shrink-0 text-[#2c6ecb]" />
+                      <div>
+                        <p className="text-[13px] font-semibold text-[#303030]">
+                          Customer pickup at shop
+                        </p>
+                        <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+                          No ship-to address needed — assign which pieces the
+                          customer takes on this visit.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
-                  {isCustom ? (
+                  {!isPickup && isCustom ? (
                     <div className="grid gap-3 rounded-lg border border-[#ebebeb] bg-[#fafafa] p-4 sm:grid-cols-2">
                       <div className="space-y-1.5 sm:col-span-2">
                         <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
@@ -629,7 +931,12 @@ export function OrderShippingTab({ order }: { order: Order }) {
                     </div>
                   ) : null}
 
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div
+                    className={cn(
+                      "grid gap-3",
+                      isPickup ? "sm:grid-cols-1" : "sm:grid-cols-3"
+                    )}
+                  >
                     <div className="space-y-1.5">
                       <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
                         Status
@@ -646,14 +953,14 @@ export function OrderShippingTab({ order }: { order: Order }) {
                         <SelectTrigger className={shippingSelectClass}>
                           <SelectValue>
                             {
-                              SHIPMENT_STATUS_OPTIONS.find(
+                              statusOptions.find(
                                 (option) => option.value === shipment.status
                               )?.label
                             }
                           </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
-                          {SHIPMENT_STATUS_OPTIONS.map((option) => (
+                          {statusOptions.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
                               {option.label}
                             </SelectItem>
@@ -661,51 +968,55 @@ export function OrderShippingTab({ order }: { order: Order }) {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                        Tracking
-                      </Label>
-                      <Input
-                        value={shipment.trackingNumber ?? ""}
-                        onChange={(event) =>
-                          updateShipment(shipment.id, {
-                            trackingNumber: event.target.value,
-                          })
-                        }
-                        placeholder="Optional"
-                        className={shippingControlClass}
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                        Handling cost
-                      </Label>
-                      <div className="relative">
-                        <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-[#8a8a8a]">
-                          $
-                        </span>
+                    {!isPickup ? (
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                          Tracking
+                        </Label>
                         <Input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={shipment.handlingCost ?? ""}
+                          value={shipment.trackingNumber ?? ""}
                           onChange={(event) =>
                             updateShipment(shipment.id, {
-                              handlingCost: Math.max(
-                                0,
-                                Number(event.target.value) || 0
-                              ),
+                              trackingNumber: event.target.value,
                             })
                           }
-                          className={cn(shippingControlClass, "pl-6")}
+                          placeholder="Optional"
+                          className={shippingControlClass}
                         />
                       </div>
-                    </div>
+                    ) : null}
+                    {!isPickup ? (
+                      <div className="space-y-1.5">
+                        <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                          Handling cost
+                        </Label>
+                        <div className="relative">
+                          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[12px] text-[#8a8a8a]">
+                            $
+                          </span>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={shipment.handlingCost ?? ""}
+                            onChange={(event) =>
+                              updateShipment(shipment.id, {
+                                handlingCost: Math.max(
+                                  0,
+                                  Number(event.target.value) || 0
+                                ),
+                              })
+                            }
+                            className={cn(shippingControlClass, "pl-6")}
+                          />
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className="space-y-1.5">
                     <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                      Handling notes
+                      {isPickup ? "Pickup notes" : "Handling notes"}
                     </Label>
                     <Textarea
                       value={shipment.handlingNotes ?? ""}
@@ -714,7 +1025,11 @@ export function OrderShippingTab({ order }: { order: Order }) {
                           handlingNotes: event.target.value,
                         })
                       }
-                      placeholder="Carton count, blind ship, reference numbers…"
+                      placeholder={
+                        isPickup
+                          ? "Who picked up, ID checked, cartons…"
+                          : "Carton count, blind ship, reference numbers…"
+                      }
                       rows={2}
                       className="min-h-[72px] resize-none rounded-lg border-[#e3e3e3]"
                     />
@@ -746,7 +1061,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                     {order.lineItems.length === 0 ? (
                       <p className={dashboardTaskDetailClass}>
                         Add blanks/garments on the order to assign pieces to
-                        this shipment.
+                        this {isPickup ? "pickup" : "shipment"}.
                       </p>
                     ) : (
                       <div className="space-y-3">
@@ -779,7 +1094,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                                 </div>
                                 <div className="text-right">
                                   <p className="text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                                    This shipment
+                                    This {isPickup ? "pickup" : "shipment"}
                                   </p>
                                   <p className="mt-0.5 text-[15px] font-semibold tabular-nums text-[#2c6ecb]">
                                     {inThisShipment}
@@ -809,7 +1124,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                                       <th className="px-4 py-2.5">
                                         <div className="flex justify-end">
                                           <span className="w-14 text-center text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                                            Ship here
+                                            {isPickup ? "Pick up" : "Ship here"}
                                           </span>
                                         </div>
                                       </th>
@@ -902,27 +1217,119 @@ export function OrderShippingTab({ order }: { order: Order }) {
                       </div>
                     )}
                   </div>
+
+                  <ShippingSaveBar
+                    willCallMode={willCallMode}
+                    saving={saving}
+                    isDirty={isDirty}
+                    savedFlash={savedFlash}
+                    onSave={handleSave}
+                    className="border-t border-[#ebebeb] pt-4"
+                  />
                 </div>
               </section>
             );
           })}
 
-          <Button
-            type="button"
-            variant="outline"
-            className={cn(
-              dashboardControlClass,
-              "h-10 w-full justify-center border-dashed sm:w-auto"
+          <div className="flex flex-wrap gap-2">
+            {willCallMode ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    dashboardControlClass,
+                    "h-10 border-dashed sm:w-auto"
+                  )}
+                  onClick={addShipment}
+                >
+                  <Plus className="size-3.5" />
+                  Add another pickup
+                </Button>
+                {unallocatedPieces > 0 ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={cn(
+                      dashboardControlClass,
+                      "h-10 border-dashed sm:w-auto"
+                    )}
+                    onClick={addPickupAll}
+                  >
+                    <Package className="size-3.5" />
+                    Re-plan pickup all
+                  </Button>
+                ) : null}
+              </>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                className={cn(
+                  dashboardControlClass,
+                  "h-10 w-full justify-center border-dashed sm:w-auto"
+                )}
+                onClick={addShipment}
+              >
+                <Plus className="size-3.5" />
+                Add another shipment
+              </Button>
             )}
-            onClick={addShipment}
-          >
-            <Plus className="size-3.5" />
-            Add another shipment
-          </Button>
+          </div>
+
+          <ShippingSaveBar
+            willCallMode={willCallMode}
+            saving={saving}
+            isDirty={isDirty}
+            savedFlash={savedFlash}
+            onSave={handleSave}
+            className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-4 py-3"
+          />
         </div>
       )}
 
-      {handlingTotal > 0 ? (
+      {readyToInvoice ? (
+        <section
+          className={cn(
+            dashboardCardClass,
+            "border-[#86d4a8] bg-gradient-to-r from-[#e8f5ee] to-[#f6fbf5]"
+          )}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-5">
+            <div>
+              <p className="text-[14px] font-semibold text-[#0d5c2e]">
+                All goods {willCallMode ? "picked up" : "delivered"}
+              </p>
+              <p className="mt-0.5 text-[13px] text-[#303030]">
+                Every piece is assigned and fulfillment is complete — this
+                order is ready to invoice.
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      <OrderShippingSwitchDialog
+        open={switchDialog !== null}
+        switchInfo={switchDialog}
+        onOpenChange={(open) => {
+          if (!open) setSwitchDialog(null);
+        }}
+        onConfirmClear={confirmSwitchClear}
+        onConfirmConvert={confirmSwitchConvert}
+      />
+
+      <OrderShippingDeleteDialog
+        open={deleteTarget !== null}
+        shipment={deleteTarget}
+        deleting={deleting}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+        onConfirm={confirmRemoveShipment}
+      />
+
+      {!willCallMode && handlingTotal > 0 ? (
         <section className={cn(dashboardInsetSurfaceClass, "rounded-lg px-4 py-3")}>
           <p className="text-[12px] text-[#616161]">
             Total handling across shipments:{" "}

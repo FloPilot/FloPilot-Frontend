@@ -567,9 +567,6 @@ function OrdersTable({
                 <TableHead className="h-9 min-w-[120px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
                   Goods source
                 </TableHead>
-                <TableHead className="h-9 min-w-[96px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-                  Setup
-                </TableHead>
                 <TableHead className="h-9 min-w-[108px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
                   Scheduled
                 </TableHead>
@@ -700,12 +697,6 @@ function OrdersTable({
                     <TableCell className="py-2.5">
                       <CheckpointStatusBadge
                         checkpoint={findCheckpoint(checkpoints, "blank_source")}
-                        compact
-                      />
-                    </TableCell>
-                    <TableCell className="py-2.5">
-                      <CheckpointStatusBadge
-                        checkpoint={findCheckpoint(checkpoints, "prep")}
                         compact
                       />
                     </TableCell>

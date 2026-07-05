@@ -22,7 +22,13 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency } from "@/lib/format";
+import {
+  customerHasNegotiatedPricing,
+  resolveEffectivePricingMatrix,
+} from "@/lib/customer-pricing";
 import { computeEstimateTotals } from "@/lib/order-estimate";
+import { OrderEstimatePricingPanel } from "@/components/orders/order-estimate-pricing-panel";
+import { StaffEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
 import { orderHasDtfEvents } from "@/lib/order-materials";
 import {
   filterMatrixMethodsForOrder,
@@ -46,25 +52,31 @@ type ToastState = {
 
 export function OrderEstimateTab({ order }: { order: Order }) {
   const { settings } = useShopSettings();
-  const { previewOrderDocument, sendProofsAndEstimate } = useSchedule();
+  const { previewOrderDocument, sendProofsAndEstimate, getCustomerById } =
+    useSchedule();
+
+  const customer = getCustomerById(order.customerId);
+  const pricingMatrix = useMemo(
+    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer, order),
+    [settings.pricingMatrix, customer, order]
+  );
 
   const totals = useMemo(
-    () =>
-      computeEstimateTotals(order, settings.taxRate, settings.pricingMatrix),
-    [order, settings.taxRate, settings.pricingMatrix]
+    () => computeEstimateTotals(order, settings.taxRate, pricingMatrix, customer),
+    [order, settings.taxRate, pricingMatrix, customer]
   );
 
   const pricingMethods = useMemo(
     () =>
-      settings.pricingMatrix.enabled
-        ? settings.pricingMatrix.methods.filter((m) => m.rows.length > 0)
+      pricingMatrix.enabled
+        ? pricingMatrix.methods.filter((m) => m.rows.length > 0)
         : [],
-    [settings.pricingMatrix]
+    [pricingMatrix]
   );
 
   const pricingLookup = useMemo(
-    () => resolveOrderPricingHighlights(order, settings.pricingMatrix),
-    [order, settings.pricingMatrix]
+    () => resolveOrderPricingHighlights(order, pricingMatrix),
+    [order, pricingMatrix]
   );
 
   const sortedPricingMethods = useMemo(() => {
@@ -141,6 +153,15 @@ export function OrderEstimateTab({ order }: { order: Order }) {
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
               Pricing breakdown for this order. Preview the customer PDF or send
               it for approval.
+              {pricingMatrix.rateSheetName && !pricingMatrix.usingShopPricing ? (
+                <span className="mt-1 block text-[#2c6ecb]">
+                  Using negotiated rates: {pricingMatrix.rateSheetName}
+                </span>
+              ) : pricingMatrix.usingShopPricing && customerHasNegotiatedPricing(customer) ? (
+                <span className="mt-1 block text-[#616161]">
+                  Using shop standard pricing for this order
+                </span>
+              ) : null}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -197,8 +218,9 @@ export function OrderEstimateTab({ order }: { order: Order }) {
           </div>
         ) : null}
 
-        <div className="p-4 sm:p-5">
-          <EstimateBreakdown totals={totals} />
+        <div className="space-y-4 p-4 sm:p-5">
+          <OrderEstimatePricingPanel order={order} customer={customer} />
+          <StaffEstimateBreakdownTable totals={totals} />
         </div>
       </section>
 
@@ -299,6 +321,7 @@ function EstimateBreakdown({
 }) {
   const garmentRows = totals.rows.filter((row) => row.kind === "garment");
   const decorationRows = totals.rows.filter((row) => row.kind === "decoration");
+  const feeRows = totals.rows.filter((row) => row.kind === "fee");
 
   return (
     <div className="overflow-hidden rounded-lg border border-[#ebebeb]">
@@ -332,6 +355,16 @@ function EstimateBreakdown({
                 />
               ) : null}
               {decorationRows.map((row) => (
+                <EstimateDataRow key={row.id} row={row} />
+              ))}
+
+              {feeRows.length > 0 ? (
+                <EstimateSectionHeader
+                  label="Fees"
+                  subtotal={totals.feesSubtotal}
+                />
+              ) : null}
+              {feeRows.map((row) => (
                 <EstimateDataRow key={row.id} row={row} />
               ))}
             </>

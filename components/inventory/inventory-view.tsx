@@ -126,7 +126,7 @@ export function InventoryView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [tab, setTab] = useState<Tab>("stock");
+  const [tab, setTab] = useState<Tab>("receiving");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [warehouse, setWarehouse] = useState<string>("all");
@@ -403,8 +403,8 @@ export function InventoryView() {
       <div className="flex w-fit max-w-full overflow-x-auto rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5">
         {(
           [
-            { value: "stock", label: "Stock levels" },
             { value: "receiving", label: "Receiving" },
+            { value: "stock", label: "Stock levels" },
             { value: "orders", label: "Purchase orders" },
           ] as { value: Tab; label: string }[]
         ).map((option) => (

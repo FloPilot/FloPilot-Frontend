@@ -50,7 +50,117 @@ export interface Customer {
   archivedBy?: string;
   /** Saved ship-to addresses for split shipments */
   shippingLocations?: CustomerShippingLocation[];
+  /** Account-specific pricing shared with the customer in their portal */
+  negotiatedPricing?: CustomerNegotiatedPricing;
+  /** Staff-visible audit trail for profile, pricing, and location changes */
+  activity?: CustomerActivityEvent[];
 }
+
+export type CustomerActivityType =
+  | "created"
+  | "updated"
+  | "archived"
+  | "restored"
+  | "note"
+  | "branding_updated"
+  | "portal_updated"
+  | "shipping_location_added"
+  | "shipping_location_updated"
+  | "shipping_location_removed"
+  | "pricing_note_updated"
+  | "pricing_sheet_added"
+  | "pricing_sheet_updated"
+  | "pricing_sheet_removed";
+
+export interface CustomerActivityEvent {
+  id: string;
+  type: CustomerActivityType;
+  title: string;
+  detail?: string;
+  timestamp: string;
+  author?: string;
+}
+
+export type CustomerNegotiatedPricingItem = {
+  id: string;
+  label: string;
+  decoration?: string;
+  detail?: string;
+  unitPrice?: number;
+  minQty?: number;
+};
+
+export type CustomerContractFeeKind =
+  | "setup"
+  | "additional_location"
+  | "custom";
+
+export type CustomerContractFeeChargeMode =
+  | "per_order"
+  | "per_location"
+  | "per_piece";
+
+export type CustomerContractFeeTier = {
+  minQty: number;
+  amount: number;
+};
+
+/** Contract fee on a customer rate sheet — setup, extra locations, etc. */
+export type CustomerContractFee = {
+  id: string;
+  kind: CustomerContractFeeKind;
+  label: string;
+  amount: number;
+  chargeMode: CustomerContractFeeChargeMode;
+  /** Locations bundled in decoration base rate (additional_location only) */
+  includedLocations?: number;
+  /** Tiered unit price by order piece count (additional_location only) */
+  quantityTiers?: CustomerContractFeeTier[];
+  enabled: boolean;
+  notes?: string;
+};
+
+/** One negotiated pricing matrix for a customer account */
+export type CustomerNegotiatedRateSheet = {
+  id: string;
+  name: string;
+  notes?: string;
+  isDefault?: boolean;
+  enabled: boolean;
+  methods: import("@/lib/shop-settings").PricingMethod[];
+  /** Setup, additional location, and other contract fees for this sheet */
+  contractFees?: CustomerContractFee[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+/** Categorized fee line on an order estimate */
+export type OrderEstimateFeeCategory =
+  | "setup"
+  | "decoration"
+  | "finishing"
+  | "other";
+
+/** Manual or auto-applied fee line on an order estimate */
+export type OrderEstimateAdjustment = {
+  id: string;
+  label: string;
+  detail?: string;
+  qty: number;
+  unitPrice: number;
+  source: "auto" | "manual";
+  category: OrderEstimateFeeCategory;
+  contractFeeId?: string;
+};
+
+export type CustomerNegotiatedPricing = {
+  summary?: string;
+  updatedAt?: string;
+  /** Full pricing matrices negotiated for this account */
+  rateSheets?: CustomerNegotiatedRateSheet[];
+  /** Legacy flat-rate items (portal fallback) */
+  items?: CustomerNegotiatedPricingItem[];
+};
 
 export interface ShippingAddress {
   label?: string;
@@ -82,6 +192,10 @@ export interface LineItem {
   color: string;
   sizes: SizeBreakdown[];
   unitCost: number;
+  /** Markup % over shop blank cost — defaults from shop settings when unset */
+  markupPercent?: number;
+  /** Customer-facing unit price; overrides markup-derived price when set */
+  customerUnitPrice?: number;
   /** Catalog keys for editing blank garments on the order */
   productKey?: string;
   colorKey?: string;
@@ -375,7 +489,12 @@ export interface Shipment {
   method: string;
   methodKey?: string;
   trackingNumber?: string;
-  status: "pending" | "labeled" | "in_transit" | "delivered";
+  status:
+    | "pending"
+    | "labeled"
+    | "in_transit"
+    | "delivered"
+    | "picked_up";
   /** Display label — kept for legacy rows and quick lists */
   destination: string;
   address?: ShippingAddress;
@@ -446,6 +565,12 @@ export interface Order {
   archived?: boolean;
   archivedAt?: string;
   archivedBy?: string;
+  /** Rate sheet for this order — `"shop"` uses shop matrix; omit = customer default */
+  selectedRateSheetId?: string | null;
+  /** One-off or auto contract fee lines on the estimate */
+  estimateAdjustments?: OrderEstimateAdjustment[];
+  /** Contract fee ids excluded from auto-apply on this order */
+  excludedContractFeeIds?: string[];
 }
 
 /** Reusable decoration spec saved from an order imprint */

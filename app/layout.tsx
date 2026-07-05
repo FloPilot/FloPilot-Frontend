@@ -20,8 +20,11 @@ export const metadata: Metadata = {
   description:
     "Run your decorated apparel or print shop from quote to delivery. Orders, production scheduling, machine stations, customer portal, and team permissions in one platform.",
   icons: {
-    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
-    apple: [{ url: "/apple-icon.svg", type: "image/svg+xml" }],
+    icon: [
+      { url: "/favicon.png", type: "image/png", sizes: "32x32" },
+      { url: "/favicon-48.png", type: "image/png", sizes: "48x48" },
+    ],
+    apple: [{ url: "/apple-icon.png", type: "image/png", sizes: "180x180" }],
   },
   keywords: [
     "print shop software",

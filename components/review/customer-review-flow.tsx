@@ -24,8 +24,8 @@ import {
   reactivatePortalUrl,
   submitCustomerPortalAction,
 } from "@/lib/customer-portal-api";
-import { decorationLabel } from "@/lib/format";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { CustomerEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
+import { decorationLabel, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Step =
@@ -634,8 +634,6 @@ function EstimateStep({
   embedded?: boolean;
 }) {
   const est = session.estimate!;
-  const garmentRows = est.rows.filter((r) => r.kind === "garment");
-  const decorationRows = est.rows.filter((r) => r.kind === "decoration");
 
   return (
     <div className={cn("p-4", embedded ? "sm:p-5" : "sm:p-6")}>
@@ -644,83 +642,29 @@ function EstimateStep({
         Hi {session.customer?.name?.split(" ")[0] || "there"} — here&apos;s the
         pricing breakdown for your order.
       </p>
+      {est.rateSheetName && !est.usingShopPricing ? (
+        <p className="mt-2 text-[13px] font-medium text-[#2c6ecb]">
+          Pricing sheet: {est.rateSheetName}
+        </p>
+      ) : est.usingShopPricing && est.hasNegotiatedPricing ? (
+        <p className="mt-2 text-[13px] text-[#616161]">
+          Shop standard pricing applies to this order.
+        </p>
+      ) : null}
 
-      <div className="mt-5 overflow-hidden rounded-xl border border-[#ebebeb]">
-        <table className="w-full border-collapse text-[13px]">
-          <thead>
-            <tr className="bg-[#fafafa] text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-              <th className="px-3 py-2 text-left">Item</th>
-              <th className="px-3 py-2 text-right">Qty</th>
-              <th className="px-3 py-2 text-right">Unit</th>
-              <th className="px-3 py-2 text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {garmentRows.map((row, i) => (
-              <tr key={`g-${i}`} className="border-t border-[#f0f0f0]">
-                <td className="px-3 py-2.5">
-                  <p className="font-medium text-[#303030]">{row.description}</p>
-                  {row.detail ? (
-                    <p className="text-[11px] text-[#8a8a8a]">{row.detail}</p>
-                  ) : null}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{row.qty}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-[#616161]">
-                  {formatCurrency(row.unitCost)}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums font-medium">
-                  {formatCurrency(row.lineTotal)}
-                </td>
-              </tr>
-            ))}
-            {decorationRows.map((row, i) => (
-              <tr key={`d-${i}`} className="border-t border-[#f0f0f0] bg-[#fafcff]">
-                <td className="px-3 py-2.5">
-                  <p className="font-medium text-[#303030]">{row.description}</p>
-                  {row.detail ? (
-                    <p className="text-[11px] text-[#8a8a8a]">{row.detail}</p>
-                  ) : null}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{row.qty}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-[#616161]">
-                  {formatCurrency(row.unitCost)}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums font-medium">
-                  {formatCurrency(row.lineTotal)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot className="bg-[#fafafa]">
-            <tr className="border-t border-[#ebebeb]">
-              <td colSpan={3} className="px-3 py-2 text-right text-[12px] text-[#616161]">
-                Subtotal
-              </td>
-              <td className="px-3 py-2 text-right font-medium tabular-nums">
-                {formatCurrency(est.subtotal)}
-              </td>
-            </tr>
-            <tr>
-              <td colSpan={3} className="px-3 py-2 text-right text-[12px] text-[#616161]">
-                Tax
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {formatCurrency(est.tax)}
-              </td>
-            </tr>
-            <tr className="border-t border-[#ebebeb]">
-              <td colSpan={3} className="px-3 py-3 text-right text-[14px] font-semibold text-[#303030]">
-                Total
-              </td>
-              <td
-                className="px-3 py-3 text-right text-[18px] font-bold tabular-nums"
-                style={{ color: "var(--review-accent)" }}
-              >
-                {formatCurrency(est.total)}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+      <div className="mt-5">
+        <CustomerEstimateBreakdownTable
+          rows={est.rows}
+          garmentSubtotal={est.garmentSubtotal}
+          decorationSubtotal={est.decorationSubtotal}
+          subtotal={est.subtotal}
+          tax={est.tax}
+          taxRate={est.taxRate}
+          total={est.total}
+          paid={est.paid}
+          balance={est.balance}
+          accentColor="var(--review-accent)"
+        />
       </div>
     </div>
   );

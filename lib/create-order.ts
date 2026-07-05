@@ -9,6 +9,7 @@ import type {
   Customer,
   DecorationType,
   ImprintLocationKey,
+  LineItem,
   Order,
   OrderFile,
   OrderFileKind,
@@ -33,13 +34,70 @@ export type NewOrderMockupFile = {
   previewUrl?: string;
 };
 
-export type NewOrderLineItemInput = {
+export type NewOrderCatalogLineItemInput = {
   id: string;
   productKey: (typeof NEW_ORDER_PRODUCTS)[number]["key"];
   colorKey: (typeof NEW_ORDER_COLORS)[number]["key"];
   sizes: Record<(typeof NEW_ORDER_SIZES)[number], number>;
   unitCost: number;
+  markupPercent?: number;
+  customerUnitPrice?: number;
 };
+
+export type NewOrderSupplierLineItemInput = {
+  id: string;
+  source: "supplier";
+  item: LineItem;
+  markupPercent?: number;
+  customerUnitPrice?: number;
+};
+
+export type NewOrderLineItemInput =
+  | NewOrderCatalogLineItemInput
+  | NewOrderSupplierLineItemInput;
+
+export function isSupplierDraftLineItem(
+  item: NewOrderLineItemInput
+): item is NewOrderSupplierLineItemInput {
+  return "source" in item && item.source === "supplier";
+}
+
+export function draftLineItemToLineItem(
+  item: NewOrderLineItemInput,
+  idOverride?: string
+): LineItem {
+  if (isSupplierDraftLineItem(item)) {
+    return {
+      ...item.item,
+      id: idOverride ?? item.id,
+      markupPercent: item.markupPercent ?? item.item.markupPercent,
+      customerUnitPrice:
+        item.customerUnitPrice ?? item.item.customerUnitPrice,
+    };
+  }
+
+  const built = buildLineItemFromCatalog(
+    item.productKey,
+    item.colorKey,
+    item.sizes,
+    idOverride ?? item.id
+  );
+
+  return {
+    ...built,
+    unitCost: item.unitCost,
+    markupPercent: item.markupPercent,
+    customerUnitPrice: item.customerUnitPrice,
+  };
+}
+
+export function draftLineItemsToLineItems(
+  items: NewOrderLineItemInput[]
+): LineItem[] {
+  return items
+    .filter((item) => lineItemInputPieceCount(item) > 0)
+    .map((item) => draftLineItemToLineItem(item));
+}
 
 export function createLineItemDraftId(): string {
   return createLineItemId();
@@ -161,6 +219,10 @@ export function createEmptyNewOrderForm(
 }
 
 export function lineItemInputPieceCount(item: NewOrderLineItemInput): number {
+  if (isSupplierDraftLineItem(item)) {
+    return item.item.sizes.reduce((sum, row) => sum + (row.quantity || 0), 0);
+  }
+
   return Object.values(item.sizes).reduce((sum, quantity) => sum + quantity, 0);
 }
 
@@ -258,15 +320,23 @@ function buildOrderLineItemsAndJobs(
   );
 
   const lineItems = activeLineItems(form).map((item) => {
+    const id = resolveLineItemId(item, suffix);
+
+    if (isSupplierDraftLineItem(item)) {
+      return draftLineItemToLineItem(item, id);
+    }
+
     const built = buildLineItemFromCatalog(
       item.productKey,
       item.colorKey,
       item.sizes,
-      resolveLineItemId(item, suffix)
+      id
     );
     return {
       ...built,
       unitCost: item.unitCost,
+      markupPercent: item.markupPercent,
+      customerUnitPrice: item.customerUnitPrice,
     };
   });
 
@@ -358,6 +428,9 @@ export function previewOrderTotals(
     jobs,
     shipments: [],
     messages: [],
+    materials: form.blankSource
+      ? { lines: [], blankSource: form.blankSource }
+      : undefined,
   };
 
   return computeEstimateTotals(
@@ -404,13 +477,19 @@ export function applyAutoEventNames(
 }
 
 export function formatLineItemInputLabel(item: NewOrderLineItemInput): string {
+  const pieces = lineItemInputPieceCount(item);
+
+  if (isSupplierDraftLineItem(item)) {
+    const label = `${item.item.brand} ${item.item.productName}`.trim();
+    return `${label} · ${item.item.color} · ${pieces} pcs`;
+  }
+
   const product =
     NEW_ORDER_PRODUCTS.find((entry) => entry.key === item.productKey) ??
     NEW_ORDER_PRODUCTS[0];
   const color =
     NEW_ORDER_COLORS.find((entry) => entry.key === item.colorKey) ??
     NEW_ORDER_COLORS[0];
-  const pieces = lineItemInputPieceCount(item);
   return `${product.brand} ${product.name} · ${color.label} · ${pieces} pcs`;
 }
 
@@ -458,6 +537,9 @@ export function buildOrderFromForm(
       jobs,
       shipments: [],
       messages: [],
+      materials: form.blankSource
+        ? { lines: [], blankSource: form.blankSource }
+        : undefined,
     },
     options?.taxRate ?? 0.08,
     options?.pricingMatrix

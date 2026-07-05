@@ -147,6 +147,7 @@ export async function updateTenantSettings(
     modules?: Partial<ShopSettings["modules"]>;
     branding?: Partial<ShopSettings["branding"]>;
     onboarding?: Partial<ShopSettings["onboarding"]>;
+    pricingMatrix?: Partial<ShopSettings["pricingMatrix"]>;
   }
 ) {
   return callApi<{ settings: ShopSettings }>("updateTenantSettings", {
@@ -497,6 +498,7 @@ export type CustomerUpdate = Partial<NewCustomerInput> & {
   /** Production accent color key; null clears to auto */
   accentColorKey?: string | null;
   shippingLocations?: import("@/types").CustomerShippingLocation[];
+  negotiatedPricing?: import("@/types").CustomerNegotiatedPricing;
 };
 
 export async function updateCustomer(

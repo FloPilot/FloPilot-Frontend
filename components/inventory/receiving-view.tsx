@@ -310,11 +310,19 @@ function ReceivingOrderCard({
   onReceiveLine: (lineId: string, qty: number) => void;
   onReceiveAll: () => void;
 }) {
-  const { order, garmentLines, jobs, blankSource, totalExpected, totalReceived } =
-    group;
+  const {
+    order,
+    openGarmentLines,
+    jobs,
+    blankSource,
+    totalExpected,
+    totalReceived,
+  } = group;
   const styles = GARMENT_RECEIVE_STATUS_STYLES[group.aggregateStatus];
   const progress =
     totalExpected > 0 ? Math.round((totalReceived / totalExpected) * 100) : 0;
+  const linesToShow =
+    group.openLineCount > 0 ? openGarmentLines : group.garmentLines;
 
   return (
     <article className={cn(dashboardCardClass, "overflow-hidden")}>
@@ -385,14 +393,14 @@ function ReceivingOrderCard({
                 style={{ width: `${progress}%` }}
               />
             </div>
-            {group.aggregateStatus !== "received" ? (
+            {group.openLineCount > 0 ? (
               <button
                 type="button"
                 disabled={saving}
                 onClick={onReceiveAll}
                 className={cn(dashboardPrimaryButtonClass, "h-8 px-3 text-[12px]")}
               >
-                Receive all
+                Receive all open
               </button>
             ) : null}
             <Link
@@ -418,7 +426,7 @@ function ReceivingOrderCard({
             </tr>
           </thead>
           <tbody>
-            {garmentLines.map((line) => (
+            {linesToShow.map((line) => (
               <GarmentReceiveRow
                 key={line.id}
                 line={line}
@@ -435,7 +443,7 @@ function ReceivingOrderCard({
 
 export function ReceivingView() {
   const { profile } = useAuth();
-  const { activeOrders, updateOrderMaterials } = useSchedule();
+  const { activeOrders, updateOrderMaterials, shopDataLoading } = useSchedule();
   const [filter, setFilter] = useState<ReceivingFilter>("open");
   const [query, setQuery] = useState("");
   const [savingOrderId, setSavingOrderId] = useState<string | null>(null);
@@ -492,6 +500,14 @@ export function ReceivingView() {
     const next = receiveAllGarmentLines(materials, receiverName);
     await persistMaterials(group.order.id, next);
   };
+
+  if (shopDataLoading) {
+    return (
+      <div className={cn(dashboardCardClass, "flex items-center justify-center px-6 py-16")}>
+        <Loader2 className="size-6 animate-spin text-[#8a8a8a]" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -558,7 +574,7 @@ export function ReceivingView() {
           </h3>
           <p className={cn("mt-2 max-w-md", dashboardTaskDetailClass)}>
             {filter === "open"
-              ? "When orders move into production with blank garments, they show up here for warehouse receiving. Mark qty as received to update the order and production jobs."
+              ? "Orders with blank garments still waiting to arrive show up here. Mark received qty by size to update the order and production jobs."
               : "Try a different filter or search term."}
           </p>
         </div>

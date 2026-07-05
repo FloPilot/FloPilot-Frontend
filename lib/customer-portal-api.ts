@@ -1,5 +1,9 @@
 import { getApiBaseUrl } from "@/lib/api";
 import type {
+  CustomerNegotiatedPricing,
+  CustomerShippingLocation,
+} from "@/types";
+import type {
   CustomerReviewSession,
   ReviewAction,
 } from "@/lib/customer-review-api";
@@ -58,6 +62,58 @@ export type CustomerPortalDashboard = {
 export type CustomerPortalOrderSession = CustomerReviewSession & {
   portalHomeUrl?: string;
   portalExpiresAt?: string | null;
+};
+
+export type CustomerPortalProfile = {
+  id: string;
+  company: string;
+  firstName: string;
+  lastName: string;
+  name: string;
+  email: string;
+  phone: string;
+  city: string;
+  state: string;
+  shippingLocations: CustomerShippingLocation[];
+};
+
+export type CustomerPortalProfileResponse = {
+  expired?: boolean;
+  reactivateUrl?: string;
+  shop?: CustomerPortalDashboard["shop"];
+  profile?: CustomerPortalProfile;
+  portalExpiresAt?: string | null;
+};
+
+export type CustomerPortalPricingResponse = {
+  expired?: boolean;
+  reactivateUrl?: string;
+  shop?: CustomerPortalDashboard["shop"];
+  hasNegotiatedPricing?: boolean;
+  pricing?: {
+    summary?: string;
+    updatedAt?: string | null;
+    items?: CustomerNegotiatedPricing["items"];
+    rateSheets?: CustomerNegotiatedPricing["rateSheets"];
+  } | null;
+};
+
+export type CustomerPortalArtworkItem = {
+  id: string;
+  name: string;
+  locationLabel: string;
+  decoration: string;
+  previewUrl: string;
+  status: "pending" | "approved" | "revision_requested";
+  lastUsedAt: string | null;
+  sourceOrderNumber: string | null;
+};
+
+export type CustomerPortalArtworkResponse = {
+  expired?: boolean;
+  reactivateUrl?: string;
+  shop?: CustomerPortalDashboard["shop"];
+  designs?: CustomerPortalArtworkItem[];
 };
 
 async function portalFetch<T>(
@@ -121,6 +177,51 @@ export function portalHomePath(token: string) {
 
 export function portalOrderPath(token: string, orderId: string) {
   return `/portal/c/${encodeURIComponent(token)}/orders/${encodeURIComponent(orderId)}`;
+}
+
+export function portalPricingPath(token: string) {
+  return `/portal/c/${encodeURIComponent(token)}/pricing`;
+}
+
+export function portalBusinessPath(token: string) {
+  return `/portal/c/${encodeURIComponent(token)}/business`;
+}
+
+export function portalArtworkPath(token: string) {
+  return `/portal/c/${encodeURIComponent(token)}/artwork`;
+}
+
+export async function fetchCustomerPortalProfile(token: string) {
+  return portalFetch<CustomerPortalProfileResponse>(
+    `getCustomerPortalProfile?token=${encodeURIComponent(token)}`
+  );
+}
+
+export async function updateCustomerPortalProfile(
+  token: string,
+  body: Partial<CustomerPortalProfile> & {
+    shippingLocations?: CustomerShippingLocation[];
+  }
+) {
+  return portalFetch<{ ok: boolean; profile: CustomerPortalProfile }>(
+    "updateCustomerPortalProfile",
+    {
+      method: "POST",
+      body: JSON.stringify({ token, ...body }),
+    }
+  );
+}
+
+export async function fetchCustomerPortalPricing(token: string) {
+  return portalFetch<CustomerPortalPricingResponse>(
+    `getCustomerPortalPricing?token=${encodeURIComponent(token)}`
+  );
+}
+
+export async function fetchCustomerPortalArtwork(token: string) {
+  return portalFetch<CustomerPortalArtworkResponse>(
+    `getCustomerPortalArtwork?token=${encodeURIComponent(token)}`
+  );
 }
 
 export const PORTAL_STATUS_LABELS: Record<string, string> = {

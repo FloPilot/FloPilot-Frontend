@@ -18,7 +18,9 @@ import {
 import { CustomerOrderDialog } from "@/components/customers/customer-order-dialog";
 import { CustomerBrandMarkFromRecord } from "@/components/customers/customer-brand-mark";
 import { CustomerShippingLocationsSection } from "@/components/customers/customer-shipping-locations-section";
+import { CustomerNegotiatedPricingSection } from "@/components/customers/customer-negotiated-pricing-section";
 import { EditCustomerDialog } from "@/components/customers/edit-customer-dialog";
+import { CustomerActivityLauncher } from "@/components/customers/customer-activity-launcher";
 import { ReportsLauncher } from "@/components/reports/reports-launcher";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -58,6 +60,7 @@ import {
 } from "@/lib/dashboard-styles";
 import { isArchivedOrder } from "@/lib/order-archive";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
 import { resolveOrderFinancials } from "@/lib/order-estimate";
 import type { Order, OrderStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -126,6 +129,11 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
 
   const { settings } = useShopSettings();
 
+  const effectivePricingMatrix = useMemo(
+    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer),
+    [settings.pricingMatrix, customer]
+  );
+
   const orderFinancials = useMemo(() => {
     const map = new Map<
       string,
@@ -134,15 +142,11 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
     for (const order of allOrders) {
       map.set(
         order.id,
-        resolveOrderFinancials(
-          order,
-          settings.taxRate,
-          settings.pricingMatrix
-        )
+        resolveOrderFinancials(order, settings.taxRate, effectivePricingMatrix)
       );
     }
     return map;
-  }, [allOrders, settings.taxRate, settings.pricingMatrix]);
+  }, [allOrders, settings.taxRate, effectivePricingMatrix]);
 
   const stats = useMemo(() => {
     const base = computeCustomerOrderStats(allOrders);
@@ -260,6 +264,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                   },
                 }}
               />
+              <CustomerActivityLauncher customer={customer} />
               <button
                 type="button"
                 className={cn(dashboardControlClass, "h-9")}
@@ -456,6 +461,13 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
               customer={customer}
               onSave={async (shippingLocations) => {
                 await updateCustomer(customer.id, { shippingLocations });
+              }}
+            />
+
+            <CustomerNegotiatedPricingSection
+              customer={customer}
+              onSave={async (negotiatedPricing) => {
+                await updateCustomer(customer.id, { negotiatedPricing });
               }}
             />
 
