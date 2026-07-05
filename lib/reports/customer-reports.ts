@@ -12,6 +12,7 @@ import type { Customer, LineItem, Order, OrderStatus } from "@/types";
 import { excludeArchivedOrders } from "@/lib/order-archive";
 import { resolveOrderFinancials } from "@/lib/order-estimate";
 import type { CustomerListFinancialContext } from "@/lib/customer-list-summary";
+import { resolveOrderFinancialsInContext } from "@/lib/order-financial-context";
 
 export interface CustomersListReportData {
   customers: Customer[];
@@ -61,11 +62,7 @@ function resolveReportFinancials(
   financials?: CustomerListFinancialContext
 ) {
   if (financials) {
-    return resolveOrderFinancials(
-      order,
-      financials.taxRate,
-      financials.pricingMatrix
-    );
+    return resolveOrderFinancialsInContext(order, financials);
   }
 
   return {

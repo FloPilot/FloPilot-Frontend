@@ -1,25 +1,20 @@
 import { parseISO, subDays, startOfDay } from "date-fns";
 import type { Customer, Order } from "@/types";
 import { formatCustomerFullName } from "@/lib/customers";
-import { resolveOrderFinancials } from "@/lib/order-estimate";
+import {
+  resolveOrderFinancialsInContext,
+  type OrderFinancialContext,
+} from "@/lib/order-financial-context";
 import { isArchivedOrder } from "@/lib/order-archive";
 import { isActiveOrder } from "@/lib/order-list-filters";
-import type { PricingMatrix } from "@/lib/shop-settings";
 
-export type CustomerListFinancialContext = {
-  taxRate: number;
-  pricingMatrix?: PricingMatrix;
-};
+export type CustomerListFinancialContext = OrderFinancialContext;
 
 function resolveOrderBalance(
   order: Order,
   context: CustomerListFinancialContext
 ): number {
-  return resolveOrderFinancials(
-    order,
-    context.taxRate,
-    context.pricingMatrix
-  ).balance;
+  return resolveOrderFinancialsInContext(order, context).balance;
 }
 
 export function sumActiveOrdersOpenBalance(
@@ -35,11 +30,7 @@ function resolveOrderTotal(
   order: Order,
   context: CustomerListFinancialContext
 ): number {
-  return resolveOrderFinancials(
-    order,
-    context.taxRate,
-    context.pricingMatrix
-  ).total;
+  return resolveOrderFinancialsInContext(order, context).total;
 }
 
 function isOpenCustomerOrder(order: Order): boolean {

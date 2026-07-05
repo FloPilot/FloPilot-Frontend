@@ -192,6 +192,7 @@ export function CustomersListView() {
     shopDataLoading,
     shopDataError,
     refreshShopData,
+    getCustomerById,
   } = useSchedule();
   const { settings } = useShopSettings();
 
@@ -199,8 +200,9 @@ export function CustomersListView() {
     () => ({
       taxRate: settings.taxRate,
       pricingMatrix: settings.pricingMatrix,
+      getCustomer: getCustomerById,
     }),
-    [settings.taxRate, settings.pricingMatrix]
+    [settings.taxRate, settings.pricingMatrix, getCustomerById]
   );
 
   const [search, setSearch] = useState("");
@@ -236,11 +238,8 @@ export function CustomersListView() {
 
   const summaries = useMemo(
     () =>
-      buildCustomerListSummaries(customers, orders, {
-        taxRate: settings.taxRate,
-        pricingMatrix: settings.pricingMatrix,
-      }),
-    [customers, orders, settings.taxRate, settings.pricingMatrix]
+      buildCustomerListSummaries(customers, orders, reportFinancials),
+    [customers, orders, reportFinancials]
   );
 
   const stateOptions = useMemo(

@@ -74,6 +74,7 @@ export function ShopDashboard() {
     shopDataLoading,
     shopDataError,
     refreshShopData,
+    getCustomerById,
   } = useSchedule();
   const { settings, isModuleEnabled } = useShopSettings();
   const [filters, setFilters] = useState<DashboardFilters>(
@@ -141,8 +142,9 @@ export function ShopDashboard() {
     () => ({
       taxRate: settings.taxRate,
       pricingMatrix: settings.pricingMatrix,
+      getCustomer: getCustomerById,
     }),
-    [settings.taxRate, settings.pricingMatrix]
+    [settings.taxRate, settings.pricingMatrix, getCustomerById]
   );
 
   const financialSnapshot = useMemo(
