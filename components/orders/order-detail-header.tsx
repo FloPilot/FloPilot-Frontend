@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
+import { OrderCustomLabelEditor } from "@/components/orders/order-custom-label-field";
 import { RushBadge } from "@/components/status-badges";
 import {
   dashboardControlClass,
@@ -9,6 +10,7 @@ import {
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { isArchivedOrder } from "@/lib/order-archive";
 import {
   buildOrderDetailTabs,
@@ -28,11 +30,13 @@ export function OrderDetailHeader({
   summary,
   activeTab,
   onTabChange,
+  onCustomLabelSave,
 }: {
   order: Order;
   summary: OrderListSummary;
   activeTab: OrderDetailTab;
   onTabChange: (tab: OrderDetailTab) => void;
+  onCustomLabelSave?: (customLabel: string) => Promise<void | Order>;
 }) {
   const tabs = buildOrderDetailTabs(order);
 
@@ -64,12 +68,14 @@ export function OrderDetailHeader({
             /
           </span>
           <span className="px-1 font-medium text-[#303030]">
-            Order {order.number}
+            Order {formatOrderDisplayLine(order)}
           </span>
         </nav>
 
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className={dashboardSectionTitleClass}>Order {order.number}</h1>
+          <h1 className={dashboardSectionTitleClass}>
+            Order {formatOrderDisplayLine(order)}
+          </h1>
           {order.rush ? <RushBadge /> : null}
           {isArchivedOrder(order) ? (
             <span className="inline-flex rounded-md bg-[#f1f1f1] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
@@ -81,6 +87,10 @@ export function OrderDetailHeader({
         <p className={dashboardTaskDetailClass}>
           {order.company} · {order.customerName} · In-hands {dueLabel}
         </p>
+
+        {onCustomLabelSave ? (
+          <OrderCustomLabelEditor order={order} onSave={onCustomLabelSave} />
+        ) : null}
       </div>
 
       <div

@@ -187,6 +187,8 @@ export type NewOrderFormInput = {
   shippingMethod: (typeof SHIPPING_METHODS)[number]["key"];
   inHandsDate: string;
   rush: boolean;
+  /** Optional label shown as "SO-1234 — your label" on orders and calendar */
+  customLabel?: string;
 };
 
 export function createEmptyNewOrderJob(
@@ -215,6 +217,7 @@ export function createEmptyNewOrderForm(
     shippingMethod: "ups_ground",
     inHandsDate: format(addDays(new Date(), 21), "yyyy-MM-dd"),
     rush: false,
+    customLabel: "",
   };
 }
 
@@ -592,6 +595,7 @@ export function buildOrderFromForm(
     paid: 0,
     balance: total,
     rush: form.rush,
+    customLabel: form.customLabel?.trim() || undefined,
     garments: hasProducts
       ? {
           status: "waiting",

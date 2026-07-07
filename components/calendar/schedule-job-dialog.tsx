@@ -266,6 +266,20 @@ export function ScheduleJobDialog({
   }, [open, editingBlock, jobRuns, orders]);
 
   useEffect(() => {
+    if (!open || editingBlock) return;
+    const orderId = selectedJob?.orderId ?? orderScopeId;
+    if (!orderId) return;
+    const order = orders.find((entry) => entry.id === orderId);
+    const label = order?.customLabel?.trim();
+    if (!label) return;
+
+    setForm((current) => {
+      if (current.customLabel.trim()) return current;
+      return { ...current, customLabel: label };
+    });
+  }, [open, editingBlock, selectedJob?.orderId, orderScopeId, orders]);
+
+  useEffect(() => {
     if (!open || !selectedMachine) return;
     const hours = getMachineOperatingHours(selectedMachine);
     setForm((f) => ({

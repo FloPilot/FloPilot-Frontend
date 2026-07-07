@@ -273,6 +273,10 @@ type ScheduleContextValue = {
     status: import("@/types").OrderStatus
   ) => Promise<void>;
   setOrderRush: (orderId: string, rush: boolean) => Promise<void>;
+  updateOrderCustomLabel: (
+    orderId: string,
+    customLabel: string
+  ) => Promise<Order>;
   updateOrderEstimatePricing: (
     orderId: string,
     updates: {
@@ -1263,6 +1267,23 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateOrderCustomLabel = useCallback(
+    async (orderId: string, customLabel: string) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update the order name.");
+      }
+
+      const trimmed = customLabel.trim();
+      const { order } = await apiUpdateOrder(token, orderId, {
+        customLabel: trimmed || undefined,
+      });
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const updateOrderEstimatePricing = useCallback(
     async (
       orderId: string,
@@ -1633,6 +1654,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       previewOrderDocument,
       updateOrderStatus,
       setOrderRush,
+      updateOrderCustomLabel,
       updateOrderEstimatePricing,
       updateOrderShipments,
       updateOrderLineItem,
@@ -1709,6 +1731,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       previewOrderDocument,
       updateOrderStatus,
       setOrderRush,
+      updateOrderCustomLabel,
       updateOrderEstimatePricing,
       updateOrderShipments,
       updateOrderLineItem,

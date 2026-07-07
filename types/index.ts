@@ -571,6 +571,8 @@ export interface Order {
   estimateAdjustments?: OrderEstimateAdjustment[];
   /** Contract fee ids excluded from auto-apply on this order */
   excludedContractFeeIds?: string[];
+  /** Optional shop label shown after order number, e.g. "LEGENDS SPIRIT OF DRIVING" */
+  customLabel?: string;
 }
 
 /** Reusable decoration spec saved from an order imprint */

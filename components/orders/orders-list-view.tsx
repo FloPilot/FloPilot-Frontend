@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/table";
 import type { OrderAdvancedFilter } from "@/lib/order-advanced-filters";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import {
   buildOrderFinancialsMap,
   resolveOrderFinancialsInContext,
@@ -622,7 +623,7 @@ function OrdersTable({
                       className="text-[13px] font-semibold text-[#303030] hover:text-[#2c6ecb] hover:underline"
                       onClick={(event) => event.stopPropagation()}
                     >
-                      {order.number}
+                      {formatOrderDisplayLine(order)}
                     </Link>
                     {order.rush ? <RushBadge /> : null}
                   </div>

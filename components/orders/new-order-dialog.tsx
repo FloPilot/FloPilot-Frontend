@@ -14,6 +14,7 @@ import {
   User,
   X,
 } from "lucide-react";
+import { OrderCustomLabelField } from "@/components/orders/order-custom-label-field";
 import { NewOrderBlanksStep } from "@/components/orders/new-order-blanks-step";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
@@ -371,6 +372,13 @@ export function NewOrderDialog({
                   </p>
                 </div>
               )}
+
+              <OrderCustomLabelField
+                orderNumber={previewOrderNumber}
+                value={form.customLabel ?? ""}
+                onChange={(customLabel) => patchForm({ customLabel })}
+                id="new-order-custom-label"
+              />
             </div>
           )}
 

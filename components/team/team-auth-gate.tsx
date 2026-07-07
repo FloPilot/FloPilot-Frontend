@@ -40,8 +40,9 @@ export function TeamAuthGate({ children }: { children: React.ReactNode }) {
             Team access only
           </h2>
           <p className="mt-2 text-sm text-brand-muted">
-            This portal is for FloPilot team members. Sign in with your company
-            email.
+            This portal is for FloPilot platform team members only — not shop
+            admins. Sign in with the company email that was added to the team
+            roster in Firestore.
           </p>
           <Button
             className="mt-6 rounded-lg bg-brand-ink"
