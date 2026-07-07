@@ -9,10 +9,15 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { isPlatformTeamMember } from "@/lib/platform-team";
 import { teamPortalPath } from "@/lib/team-portal";
 
+const TEAM_ACCESS_DENIED_MESSAGE =
+  "That account does not have FloPilot team access. Shop admin is separate — your email must be added as a platform team member first.";
+
 export function TeamLoginForm() {
-  const { signIn, refreshProfile, configured, user } = useAuth();
+  const { signIn, refreshProfile, configured, user, profile, loading } =
+    useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get("next") || teamPortalPath();
@@ -21,17 +26,16 @@ export function TeamLoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(
-    accessError
-      ? "That account does not have FloPilot team access."
-      : null
+    accessError ? TEAM_ACCESS_DENIED_MESSAGE : null
   );
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (user) {
+    if (loading) return;
+    if (user && isPlatformTeamMember(profile)) {
       router.replace(next);
     }
-  }, [user, next, router]);
+  }, [user, profile, loading, next, router]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -40,7 +44,11 @@ export function TeamLoginForm() {
 
     try {
       await signIn(email, password);
-      await refreshProfile(true);
+      const me = await refreshProfile(true);
+      if (!isPlatformTeamMember(me)) {
+        setError(TEAM_ACCESS_DENIED_MESSAGE);
+        return;
+      }
       router.push(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed");

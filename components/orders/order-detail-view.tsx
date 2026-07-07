@@ -160,6 +160,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     addProductionJob,
     updateOrderStatus,
     setOrderRush,
+    updateOrderCustomLabel,
     sendProofsAndEstimate,
     shopDataLoading,
   } = useSchedule();
@@ -329,6 +330,9 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
         summary={summary}
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        onCustomLabelSave={(customLabel) =>
+          updateOrderCustomLabel(order.id, customLabel)
+        }
       />
 
       {actionToast ? (
