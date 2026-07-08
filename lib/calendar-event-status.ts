@@ -50,6 +50,13 @@ export async function applyCalendarEventProductionStatus({
     return;
   }
 
+  if (status === "blocked") {
+    await updateProductionEventWorkflow(orderId, jobId, imprintId, {
+      status: "blocked",
+    });
+    return;
+  }
+
   await updateProductionEventWorkflow(orderId, jobId, imprintId, {
     status: "completed",
   });

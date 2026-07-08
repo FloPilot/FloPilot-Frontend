@@ -77,6 +77,7 @@ export function inkPrepMaterialLine(
     receivedQty: status === "received" ? 1 : 0,
     status,
     notes: existing?.notes,
+    prepDueAt: existing?.prepDueAt,
     updatedAt: existing?.updatedAt,
   };
 }

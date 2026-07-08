@@ -33,10 +33,12 @@ import {
   connectSsActivewearIntegration,
   disconnectSupplierIntegration,
   fetchSupplierIntegrations,
+  verifySsActivewearIntegration,
 } from "@/lib/api";
-import type {
-  SupplierIntegration,
-  SupplierProviderId,
+import {
+  isSsIntegrationUsable,
+  type SupplierIntegration,
+  type SupplierProviderId,
 } from "@/lib/supplier-integrations";
 import { cn } from "@/lib/utils";
 
@@ -113,6 +115,7 @@ export function IntegrationsSection() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [accountNumber, setAccountNumber] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -140,6 +143,40 @@ export function IntegrationsSection() {
   useEffect(() => {
     void loadIntegrations();
   }, [loadIntegrations]);
+
+  useEffect(() => {
+    if (loading || verifying) return;
+    if (!ssIntegration || !isSsIntegrationUsable(ssIntegration)) return;
+    if (ssIntegration.status !== "error") return;
+
+    let cancelled = false;
+
+    async function autoVerify() {
+      setVerifying(true);
+      try {
+        const token = await getIdToken();
+        if (!token || cancelled) return;
+        const { integration } = await verifySsActivewearIntegration(token);
+        if (!cancelled) {
+          setIntegrations((current) => {
+            const others = current.filter(
+              (entry) => entry.provider !== "ssActivewear"
+            );
+            return [...others, integration];
+          });
+        }
+      } catch {
+        // Keep showing the stored error until the user retries manually.
+      } finally {
+        if (!cancelled) setVerifying(false);
+      }
+    }
+
+    void autoVerify();
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, verifying, ssIntegration, getIdToken]);
 
   const openConnectDialog = () => {
     setAccountNumber(ssIntegration?.accountNumber || "");
@@ -172,6 +209,27 @@ export function IntegrationsSection() {
       );
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    setVerifying(true);
+    setError(null);
+    try {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { integration } = await verifySsActivewearIntegration(token);
+      setIntegrations((current) => {
+        const others = current.filter((entry) => entry.provider !== "ssActivewear");
+        return [...others, integration];
+      });
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not verify S&S Activewear"
+      );
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -250,7 +308,7 @@ export function IntegrationsSection() {
               key={supplier.name}
               className={cn(
                 "flex flex-col justify-between gap-4 rounded-lg border px-4 py-4",
-                isSs && integration?.status === "connected"
+                isSs && isSsIntegrationUsable(integration)
                   ? "border-[#cfe0d4] bg-[#f8fcf9]"
                   : "border-dashed border-[#d4d4d4] bg-[#fafafa]"
               )}
@@ -295,10 +353,29 @@ export function IntegrationsSection() {
 
               {supplier.available ? (
                 <div className="flex flex-wrap gap-2">
+                  {isSs && isSsIntegrationUsable(integration) ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleVerify()}
+                      disabled={verifying}
+                    >
+                      {verifying ? (
+                        <>
+                          <Loader2 className="size-3.5 animate-spin" />
+                          Testing…
+                        </>
+                      ) : (
+                        "Test connection"
+                      )}
+                    </Button>
+                  ) : null}
                   <Button size="sm" onClick={openConnectDialog}>
-                    {integration?.status === "connected" ? "Update credentials" : "Connect"}
+                    {isSsIntegrationUsable(integration)
+                      ? "Update credentials"
+                      : "Connect"}
                   </Button>
-                  {integration?.status === "connected" ? (
+                  {isSsIntegrationUsable(integration) ? (
                     <Button
                       size="sm"
                       variant="outline"

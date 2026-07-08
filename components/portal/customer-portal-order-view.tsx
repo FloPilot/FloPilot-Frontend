@@ -144,6 +144,7 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0">
           <CustomerReviewFlow
+            key={orderId}
             portalToken={token}
             orderId={orderId}
             initialSession={session}

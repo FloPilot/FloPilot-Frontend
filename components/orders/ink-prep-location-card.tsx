@@ -78,6 +78,7 @@ function inkColorLabel(row: ImprintInkColor): string {
 
 function InkPrepColorRow({
   row,
+  index,
   prepped,
   disabled,
   meshOptions,
@@ -86,6 +87,7 @@ function InkPrepColorRow({
   onPatch,
 }: {
   row: ImprintInkColor;
+  index: number;
   prepped: boolean;
   disabled?: boolean;
   meshOptions: { value: string; label: string }[];
@@ -135,10 +137,13 @@ function InkPrepColorRow({
     <div
       className={cn(
         "grid gap-2 border-t border-[#f0f0f0] px-3 py-2.5",
-        "grid-cols-1 sm:grid-cols-[28px_minmax(0,1fr)_96px_108px] sm:items-center sm:gap-2",
+        "grid-cols-1 sm:grid-cols-[28px_28px_minmax(0,1fr)_96px_108px] sm:items-center sm:gap-2",
         row.isFlash ? "bg-amber-50/40" : prepped ? "bg-[#f6fbf5]/60" : "bg-white"
       )}
     >
+      <span className="hidden size-6 items-center justify-center rounded-md bg-[#f6f6f7] text-[11px] font-semibold tabular-nums text-[#8a8a8a] sm:flex">
+        {index + 1}
+      </span>
       <div className="flex items-center gap-2 sm:contents">
         <button
           type="button"
@@ -165,7 +170,7 @@ function InkPrepColorRow({
         </span>
       </div>
 
-      <div className="min-w-0 sm:col-start-2">
+      <div className="min-w-0 sm:col-start-3">
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:sr-only">
           Pantone
         </p>
@@ -189,7 +194,7 @@ function InkPrepColorRow({
         )}
       </div>
 
-      <div className="min-w-0 sm:col-start-3">
+      <div className="min-w-0 sm:col-start-4">
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:sr-only">
           Mesh
         </p>
@@ -219,7 +224,7 @@ function InkPrepColorRow({
         )}
       </div>
 
-      <div className="min-w-0 sm:col-start-4">
+      <div className="min-w-0 sm:col-start-5">
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:sr-only">
           Squeegee
         </p>
@@ -476,11 +481,12 @@ export function InkPrepLocationCard({
             <>
               <div className="overflow-x-auto">
                 <div className="min-w-[480px]">
-                  <div className="hidden border-b border-[#ebebeb] bg-[#fafafa] px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:grid sm:grid-cols-[28px_minmax(0,1fr)_96px_108px] sm:gap-2">
+                  <div className="hidden border-b border-[#ebebeb] bg-[#fafafa] px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:grid sm:grid-cols-[28px_28px_minmax(0,1fr)_96px_108px] sm:gap-2">
+                    <span>#</span>
                     <span className="sr-only">Prepped</span>
-                    <span className="sm:col-start-2">Pantone</span>
-                    <span className="sm:col-start-3">Mesh</span>
-                    <span className="sm:col-start-4">Squeegee</span>
+                    <span className="sm:col-start-3">Pantone</span>
+                    <span className="sm:col-start-4">Mesh</span>
+                    <span className="sm:col-start-5">Squeegee</span>
                   </div>
                   {draftColors.map((row, index) => {
                     const colorId = inkColorStableId(row, index);
@@ -488,6 +494,7 @@ export function InkPrepLocationCard({
                     <InkPrepColorRow
                       key={colorId}
                       row={{ ...row, id: colorId }}
+                      index={index}
                       prepped={preppedIdSet.has(colorId)}
                       disabled={saving}
                       meshOptions={meshOptions}

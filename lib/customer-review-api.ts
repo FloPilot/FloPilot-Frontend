@@ -6,6 +6,8 @@ export type ReviewMessage = {
   role: "staff" | "customer";
   content: string;
   timestamp: string;
+  jobId?: string;
+  imprintId?: string;
 };
 
 export type ReviewProof = {
@@ -21,6 +23,7 @@ export type ReviewProof = {
     status: "pending" | "approved" | "revision_requested";
     previewUrl?: string;
     mockupLabel?: string;
+    revisionNotes?: import("@/types").RevisionNote[];
   };
   inkColors: { name: string; pmsCode?: string }[];
 };
@@ -75,6 +78,7 @@ export type CustomerReviewSession = {
     rateSheetName?: string | null;
     usingShopPricing?: boolean;
     hasNegotiatedPricing?: boolean;
+    revisionNotes?: import("@/types").RevisionNote[];
   };
   proofs?: ReviewProof[];
   messages?: ReviewMessage[];
@@ -122,7 +126,14 @@ export type ReviewAction =
       imprintId?: string;
       message: string;
     }
-  | { action: "send_message"; message: string };
+  | { action: "send_message"; message: string }
+  | {
+      action: "add_proof_comment";
+      jobId: string;
+      imprintId: string;
+      message: string;
+    }
+  | { action: "add_estimate_comment"; message: string };
 
 export async function submitCustomerReviewAction(
   token: string,

@@ -69,6 +69,8 @@ import {
   previewOrderDocument as apiPreviewOrderDocument,
   type OrderDocumentScope,
   setArtworkStatus as apiSetArtworkStatus,
+  addArtworkProofNote as apiAddArtworkProofNote,
+  approveOrderEstimate as apiApproveOrderEstimate,
   setMachineOnline as apiSetMachineOnline,
   updateImprintInkColors as apiUpdateImprintInkColors,
   updateImprintNotes as apiUpdateImprintNotes,
@@ -204,8 +206,21 @@ type ScheduleContextValue = {
     orderId: string,
     jobId: string,
     imprintId: string,
-    status: ArtworkFile["status"]
+    status: ArtworkFile["status"],
+    options?: {
+      message?: string;
+      messageRole?: "staff" | "customer";
+      notifyOrderMessage?: boolean;
+    }
   ) => void;
+  addArtworkProofNote: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    message: string,
+    options?: { notifyOrderMessage?: boolean }
+  ) => Promise<void>;
+  approveOrderEstimate: (orderId: string) => Promise<void>;
   uploadArtworkVersion: (
     orderId: string,
     jobId: string,
@@ -1007,7 +1022,12 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       orderId: string,
       jobId: string,
       imprintId: string,
-      status: ArtworkFile["status"]
+      status: ArtworkFile["status"],
+      options?: {
+        message?: string;
+        messageRole?: "staff" | "customer";
+        notifyOrderMessage?: boolean;
+      }
     ) => {
       const token = await getIdToken();
       if (!token) return;
@@ -1017,8 +1037,47 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         orderId,
         jobId,
         imprintId,
-        status
+        status,
+        options
       );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const addArtworkProofNote = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      message: string,
+      options?: { notifyOrderMessage?: boolean }
+    ) => {
+      const trimmed = message.trim();
+      if (!trimmed) return;
+
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiAddArtworkProofNote(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        trimmed,
+        options
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const approveOrderEstimate = useCallback(
+    async (orderId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiApproveOrderEstimate(token, orderId);
       applyOrderUpdate(order);
     },
     [getIdToken, applyOrderUpdate]
@@ -1640,6 +1699,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getOrderMessages,
       sendOrderMessage,
       setArtworkStatus,
+      addArtworkProofNote,
+      approveOrderEstimate,
       uploadArtworkVersion,
       updateOrderGarments,
       updateOrderMaterials,
@@ -1717,6 +1778,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getOrderMessages,
       sendOrderMessage,
       setArtworkStatus,
+      addArtworkProofNote,
+      approveOrderEstimate,
       uploadArtworkVersion,
       updateOrderGarments,
       updateOrderMaterials,

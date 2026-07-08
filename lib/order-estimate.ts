@@ -5,6 +5,7 @@ import {
   formatPricingHighlightDetail,
 } from "@/lib/pricing-matrix-lookup";
 import { buildFeeEstimateRows } from "@/lib/order-contract-fees";
+import { decorationLabel } from "@/lib/format";
 import {
   resolveLineItemCustomerUnitPrice,
   shouldShowBlankPricing,
@@ -135,7 +136,7 @@ function buildDecorationRows(
   return highlights.map((entry) => ({
     id: `decoration-${entry.methodId}-${entry.imprintLabel}-${entry.stepIndex}`,
     kind: "decoration" as const,
-    description: `${entry.decoration} · ${entry.imprintLabel}`,
+    description: `${decorationLabel(entry.decoration)} · ${entry.imprintLabel}`,
     detail: formatPricingHighlightDetail(entry),
     qty: entry.pieceCount,
     unitCost: entry.unitPrice,

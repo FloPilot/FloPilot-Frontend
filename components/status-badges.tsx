@@ -1,4 +1,5 @@
 import type { OrderStatus, TaskStatus } from "@/types";
+import type { OrderEstimateStatus } from "@/lib/order-estimate-status";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -102,6 +103,46 @@ export function RushBadge() {
   return (
     <Badge className="bg-orange-500 hover:bg-orange-500 text-white border-0">
       Rush
+    </Badge>
+  );
+}
+
+const estimateStatusConfig: Record<
+  OrderEstimateStatus,
+  { label: string; className: string }
+> = {
+  pending: {
+    label: "Pending",
+    className: "bg-muted text-muted-foreground",
+  },
+  sent: {
+    label: "Sent to client",
+    className: "bg-brand-primary/10 text-brand-primary border-brand-primary/15",
+  },
+  revision: {
+    label: "Revision",
+    className: "bg-amber-50 text-amber-700 border-amber-100",
+  },
+  approved: {
+    label: "Approved",
+    className: "bg-emerald-50 text-emerald-700 border-emerald-100",
+  },
+};
+
+export function EstimateStatusBadge({
+  status,
+  className,
+}: {
+  status: OrderEstimateStatus;
+  className?: string;
+}) {
+  const config = estimateStatusConfig[status];
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-medium border", config.className, className)}
+    >
+      {config.label}
     </Badge>
   );
 }

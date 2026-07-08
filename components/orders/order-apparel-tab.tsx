@@ -16,8 +16,8 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  LabeledSelectValue,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   NEW_ORDER_COLORS,
@@ -124,7 +124,13 @@ function GarmentCard({
             }}
           >
             <SelectTrigger className={cn(inputClassName, "w-full")}>
-              <SelectValue />
+              <LabeledSelectValue
+                value={productKey}
+                options={NEW_ORDER_PRODUCTS.map((product) => ({
+                  value: product.key,
+                  label: product.name,
+                }))}
+              />
             </SelectTrigger>
             <SelectContent>
               {NEW_ORDER_PRODUCTS.map((product) => (
@@ -145,7 +151,13 @@ function GarmentCard({
             }}
           >
             <SelectTrigger className={cn(inputClassName, "w-full")}>
-              <SelectValue />
+              <LabeledSelectValue
+                value={colorKey}
+                options={NEW_ORDER_COLORS.map((color) => ({
+                  value: color.key,
+                  label: color.label,
+                }))}
+              />
             </SelectTrigger>
             <SelectContent>
               {NEW_ORDER_COLORS.map((color) => (

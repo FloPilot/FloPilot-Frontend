@@ -21,7 +21,7 @@ import {
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
-import { formatCurrency } from "@/lib/format";
+import { decorationLabel, formatCurrency } from "@/lib/format";
 import {
   customerHasNegotiatedPricing,
   resolveEffectivePricingMatrix,
@@ -453,7 +453,7 @@ function EstimateDataRow({
                 accent.badgeText
               )}
             >
-              {row.decorationType}
+              {decorationLabel(row.decorationType)}
             </span>
           ) : null}
           <p className="font-medium text-[#303030]">{row.description}</p>
@@ -684,7 +684,7 @@ function AppliedPricingCallout({
                   accent.badgeText
                 )}
               >
-                {entry.decoration}
+                {decorationLabel(entry.decoration)}
               </span>
               <span className="text-[12px] font-medium text-[#303030]">
                 {entry.imprintLabel}

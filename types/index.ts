@@ -205,16 +205,16 @@ export interface LineItem {
   supplierStyleId?: number | null;
 }
 
-export type ImprintLocationKey =
-  | "front_left_chest"
-  | "front_chest"
-  | "full_front"
-  | "full_back"
-  | "back"
-  | "left_sleeve"
-  | "right_sleeve"
-  | "nape"
-  | "other";
+export type ImprintLocationKey = string;
+
+export interface RevisionNote {
+  id: string;
+  content: string;
+  author: string;
+  role?: "staff" | "customer";
+  timestamp: string;
+  kind?: "revision_request" | "comment";
+}
 
 export interface ArtworkFile {
   id: string;
@@ -230,6 +230,8 @@ export interface ArtworkFile {
   previewUrl?: string;
   /** Previous versions of this imprint artwork */
   history?: ArtworkVersion[];
+  /** Customer or staff notes tied to this proof (revision requests, follow-ups) */
+  revisionNotes?: RevisionNote[];
 }
 
 export interface ArtworkVersion {
@@ -277,6 +279,8 @@ export interface OrderMaterialLine {
   vendor?: string;
   poNumber?: string;
   eta?: string;
+  /** Target date for prep work (screen burn, ink mix) — staff-set, soft deadline */
+  prepDueAt?: string;
   notes?: string;
   /** Ink prep — imprint ink row ids marked mixed and staged */
   preppedInkColorIds?: string[];
@@ -518,6 +522,9 @@ export interface Message {
   role: "staff" | "customer";
   content: string;
   timestamp: string;
+  /** When set, this message belongs to a specific proof location. */
+  jobId?: string;
+  imprintId?: string;
 }
 
 export interface Order {
@@ -539,6 +546,8 @@ export interface Order {
   /** Customer approved the estimate / quote */
   quoteApproved?: boolean;
   quoteApprovedAt?: string;
+  /** Customer or staff revision notes tied to the estimate */
+  estimateRevisionNotes?: RevisionNote[];
   proofsSentAt?: string;
   customerReview?: {
     issuedAt: string;

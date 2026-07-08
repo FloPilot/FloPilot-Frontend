@@ -270,6 +270,7 @@ export function buildScreenSetupLine(
     receivedQty,
     status: receivedQty ? "received" : "waiting",
     notes: existing?.notes,
+    prepDueAt: existing?.prepDueAt,
     updatedAt: existing?.updatedAt,
   };
 }

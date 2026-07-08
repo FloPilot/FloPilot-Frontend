@@ -108,10 +108,14 @@
 
   html {
     @apply scroll-smooth font-sans antialiased;
+    overscroll-behavior: none;
+    height: 100%;
   }
 
   body {
     @apply bg-background text-foreground;
+    overscroll-behavior: none;
+    min-height: 100%;
     font-family: var(--font-geist-sans), system-ui, -apple-system,
       BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
@@ -229,4 +233,10 @@
 
 .scrollbar-none::-webkit-scrollbar {
   display: none;
+}
+
+/* Nested app scroll regions — contain momentum so the page shell never shifts. */
+.scroll-pane {
+  overscroll-behavior-y: contain;
+  overscroll-behavior-x: none;
 }

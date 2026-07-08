@@ -6,8 +6,9 @@ import type {
   Order,
   ScheduleBlock,
 } from "@/types";
+import type { PrintLocationOption } from "@/lib/shop-settings";
 
-export const IMPRINT_LOCATION_LABELS: Record<ImprintLocationKey, string> = {
+export const IMPRINT_LOCATION_LABELS: Record<string, string> = {
   front_left_chest: "Front left chest",
   front_chest: "Front chest",
   full_front: "Full front",
@@ -19,8 +20,18 @@ export const IMPRINT_LOCATION_LABELS: Record<ImprintLocationKey, string> = {
   other: "Other",
 };
 
-export function imprintLocationLabel(key: ImprintLocationKey): string {
-  return IMPRINT_LOCATION_LABELS[key];
+export function imprintLocationLabel(
+  key: ImprintLocationKey,
+  options?: PrintLocationOption[]
+): string {
+  if (options) {
+    const match = options.find((option) => option.value === key);
+    if (match) return match.label;
+  }
+  return (
+    IMPRINT_LOCATION_LABELS[key] ??
+    key.replace(/_/g, " ").replace(/^loc[-_]/, "")
+  );
 }
 
 export function getJobDecorations(job: Job): DecorationType[] {

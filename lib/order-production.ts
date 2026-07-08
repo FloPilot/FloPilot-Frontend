@@ -7,7 +7,11 @@ import type {
   Order,
   ScheduleBlock,
 } from "@/types";
-import { IMPRINT_LOCATION_LABELS } from "@/lib/job-imprints";
+import {
+  getPrintLocationOptions,
+  resolvePrintLocationLabel,
+  type ShopProductionDefaults,
+} from "@/lib/shop-settings";
 
 export type ProductionStep = {
   job: Job;
@@ -60,6 +64,33 @@ export const PRODUCTION_STEP_TEMPLATES: ProductionStepTemplate[] = [
   },
 ];
 
+/** Quick picks for add-event flows — driven by shop print locations (+ enabled finishing steps). */
+export function getProductionStepQuickPicks(
+  productionDefaults?: ShopProductionDefaults | null
+): ProductionStepTemplate[] {
+  const decorationPicks = getPrintLocationOptions(productionDefaults).map(
+    (location) => ({
+      id: `print-${location.value}`,
+      name: location.label,
+      locationKey: location.value,
+      decoration: "screen_print" as DecorationType,
+      kind: "decoration" as const,
+    })
+  );
+
+  const finishingPicks = (productionDefaults?.finishingSteps ?? [])
+    .filter((step) => step.enabled)
+    .map((step) => ({
+      id: `finishing-${step.id}`,
+      name: step.name,
+      locationKey: "other",
+      decoration: "finishing" as DecorationType,
+      kind: "finishing" as const,
+    }));
+
+  return [...decorationPicks, ...finishingPicks];
+}
+
 export function getOrderProductionSteps(order: Order): ProductionStep[] {
   return order.jobs.flatMap((job) =>
     job.imprints.map((imprint) => ({ job, imprint }))
@@ -105,7 +136,8 @@ export function createArtworkId(): string {
 }
 
 export function buildJobFromTemplate(
-  template: ProductionStepTemplate
+  template: ProductionStepTemplate,
+  productionDefaults?: ShopProductionDefaults | null
 ): Job {
   const imprintId = createImprintId();
   return {
@@ -119,7 +151,10 @@ export function buildJobFromTemplate(
         label:
           template.kind === "finishing"
             ? template.name
-            : IMPRINT_LOCATION_LABELS[template.locationKey],
+            : resolvePrintLocationLabel(
+                template.locationKey,
+                productionDefaults
+              ),
         decoration: template.decoration,
         artwork: {
           id: createArtworkId(),
@@ -134,19 +169,25 @@ export function buildJobFromTemplate(
   };
 }
 
-export function buildCustomProductionJob(input: {
-  name: string;
-  locationKey: ImprintLocationKey;
-  decoration: DecorationType;
-  kind: "decoration" | "finishing";
-}): Job {
-  return buildJobFromTemplate({
-    id: "custom",
-    name: input.name.trim(),
-    locationKey: input.locationKey,
-    decoration: input.decoration,
-    kind: input.kind,
-  });
+export function buildCustomProductionJob(
+  input: {
+    name: string;
+    locationKey: ImprintLocationKey;
+    decoration: DecorationType;
+    kind: "decoration" | "finishing";
+  },
+  productionDefaults?: ShopProductionDefaults | null
+): Job {
+  return buildJobFromTemplate(
+    {
+      id: "custom",
+      name: input.name.trim(),
+      locationKey: input.locationKey,
+      decoration: input.decoration,
+      kind: input.kind,
+    },
+    productionDefaults
+  );
 }
 
 export function countScheduledSteps(

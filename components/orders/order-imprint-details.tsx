@@ -18,6 +18,8 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { decorationLabel } from "@/lib/format";
+import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { getPrintLocationOptions } from "@/lib/shop-settings";
 import { imprintLocationLabel } from "@/lib/job-imprints";
 import { eventsLabel } from "@/lib/terminology";
 import {
@@ -55,6 +57,11 @@ export function OrderImprintDetails({
   onScheduleStep: (step: ProductionStep) => void;
   onOpenFiles: (jobId: string, imprintId: string) => void;
 }) {
+  const { settings } = useShopSettings();
+  const printLocationOptions = useMemo(
+    () => getPrintLocationOptions(settings.productionDefaults),
+    [settings.productionDefaults]
+  );
   const [selectedEvent, setSelectedEvent] = useState<{
     jobId: string;
     imprintId: string;
@@ -154,7 +161,10 @@ export function OrderImprintDetails({
                     />
                     <DetailItem
                       label="Location"
-                      value={imprintLocationLabel(imprint.locationKey)}
+                      value={imprintLocationLabel(
+                        imprint.locationKey,
+                        printLocationOptions
+                      )}
                     />
                     <DetailItem label="Colors / ink" value={inkList} />
                     <DetailItem

@@ -28,8 +28,8 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  LabeledSelectValue,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { createSupportTicket, listSupportTickets } from "@/lib/api";
 import {
@@ -379,7 +379,10 @@ export function FeedbackSettingsView() {
                     }}
                   >
                     <SelectTrigger className="h-11 rounded-xl">
-                      <SelectValue />
+                      <LabeledSelectValue
+                        value={category}
+                        options={SUPPORT_TICKET_CATEGORIES}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {SUPPORT_TICKET_CATEGORIES.map((item) => (
@@ -399,7 +402,10 @@ export function FeedbackSettingsView() {
                     }}
                   >
                     <SelectTrigger className="h-11 rounded-xl">
-                      <SelectValue />
+                      <LabeledSelectValue
+                        value={priority}
+                        options={SUPPORT_TICKET_PRIORITIES}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {SUPPORT_TICKET_PRIORITIES.map((item) => (

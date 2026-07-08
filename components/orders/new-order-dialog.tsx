@@ -17,6 +17,7 @@ import {
 import { OrderCustomLabelField } from "@/components/orders/order-custom-label-field";
 import { NewOrderBlanksStep } from "@/components/orders/new-order-blanks-step";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -31,6 +32,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  LabeledSelectValue,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -58,9 +60,17 @@ import {
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
-import { decorationLabel } from "@/lib/format";
-import { IMPRINT_LOCATION_LABELS } from "@/lib/job-imprints";
-import { PRODUCTION_STEP_TEMPLATES } from "@/lib/order-production";
+import {
+  DECORATION_TYPE_OPTIONS,
+  EVENT_KIND_OPTIONS,
+  decorationLabel,
+} from "@/lib/format";
+import {
+  defaultPrintLocationKey,
+  getPrintLocationOptions,
+  resolvePrintLocationLabel,
+} from "@/lib/shop-settings";
+import { getProductionStepQuickPicks } from "@/lib/order-production";
 import { eventLabel, eventsLabel } from "@/lib/terminology";
 import type { DecorationType, ImprintLocationKey, Order } from "@/types";
 import { cn } from "@/lib/utils";
@@ -79,6 +89,7 @@ export function NewOrderDialog({
   onCreated?: (order: Order) => void;
 }) {
   const { customers, orders, getCustomerById, createOrderFromForm } = useSchedule();
+  const { settings } = useShopSettings();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<NewOrderFormInput>(() =>
     createEmptyNewOrderForm(initialCustomerId)
@@ -111,8 +122,25 @@ export function NewOrderDialog({
     [orders]
   );
 
+  const printLocationOptions = useMemo(
+    () => getPrintLocationOptions(settings.productionDefaults),
+    [settings.productionDefaults]
+  );
+  const defaultLocationKey = useMemo(
+    () => defaultPrintLocationKey(settings.productionDefaults),
+    [settings.productionDefaults]
+  );
+  const quickPickTemplates = useMemo(
+    () => getProductionStepQuickPicks(settings.productionDefaults),
+    [settings.productionDefaults]
+  );
+
   const syncJobNames = (jobs: NewOrderJobInput[]) =>
-    applyAutoEventNames(previewOrderNumber, jobs);
+    applyAutoEventNames(
+      previewOrderNumber,
+      jobs,
+      settings.productionDefaults
+    );
 
   const blanks = useMemo(() => activeLineItems(form), [form]);
   const blankSourceMissing =
@@ -152,6 +180,7 @@ export function NewOrderDialog({
         ...current.jobs,
         createEmptyNewOrderJob({
           lineItemIds: defaultLineItemIds,
+          locationKey: defaultLocationKey,
           ...seed,
         }),
       ]),
@@ -168,14 +197,13 @@ export function NewOrderDialog({
   };
 
   const addJobFromTemplate = (templateId: string) => {
-    const template = PRODUCTION_STEP_TEMPLATES.find(
-      (item) => item.id === templateId
-    );
+    const template = quickPickTemplates.find((item) => item.id === templateId);
     if (!template) return;
     addJob({
       decorationType: template.decoration,
       locationKey: template.locationKey,
       kind: template.kind,
+      ...(template.kind === "finishing" ? { name: template.name } : {}),
     });
   };
 
@@ -400,7 +428,7 @@ export function NewOrderDialog({
                     : `${form.jobs.length} ${form.jobs.length !== 1 ? eventsLabel.toLowerCase() : eventLabel.toLowerCase()}`}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {PRODUCTION_STEP_TEMPLATES.slice(0, 4).map((template) => (
+                  {quickPickTemplates.map((template) => (
                     <button
                       key={template.id}
                       type="button"
@@ -432,6 +460,8 @@ export function NewOrderDialog({
                       job={job}
                       blanks={blanks}
                       canRemove
+                      printLocationOptions={printLocationOptions}
+                      defaultLocationKey={defaultLocationKey}
                       onChange={(patch) => updateJob(job.id, patch)}
                       onRemove={() => removeJob(job.id)}
                       onToggleLineItem={(lineItemId) =>
@@ -545,6 +575,8 @@ function JobStepCard({
   job,
   blanks,
   canRemove,
+  printLocationOptions,
+  defaultLocationKey,
   onChange,
   onRemove,
   onToggleLineItem,
@@ -553,6 +585,8 @@ function JobStepCard({
   job: NewOrderJobInput;
   blanks: ReturnType<typeof activeLineItems>;
   canRemove: boolean;
+  printLocationOptions: ReturnType<typeof getPrintLocationOptions>;
+  defaultLocationKey: string;
   onChange: (patch: Partial<NewOrderJobInput>) => void;
   onRemove: () => void;
   onToggleLineItem: (lineItemId: string) => void;
@@ -603,7 +637,7 @@ function JobStepCard({
             }
           >
             <SelectTrigger className={cn(dashboardControlClass, "h-10 w-full")}>
-              <SelectValue />
+              <LabeledSelectValue value={job.kind} options={EVENT_KIND_OPTIONS} />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="decoration">Decoration</SelectItem>
@@ -626,7 +660,10 @@ function JobStepCard({
                 <SelectTrigger
                   className={cn(dashboardControlClass, "h-10 w-full")}
                 >
-                  <SelectValue />
+                  <LabeledSelectValue
+                    value={job.decorationType}
+                    options={DECORATION_TYPE_OPTIONS}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="screen_print">Screen Print</SelectItem>
@@ -641,24 +678,24 @@ function JobStepCard({
                 value={job.locationKey}
                 onValueChange={(value) =>
                   onChange({
-                    locationKey: (value ??
-                      "front_chest") as ImprintLocationKey,
+                    locationKey: (value ?? defaultLocationKey) as ImprintLocationKey,
                   })
                 }
               >
                 <SelectTrigger
                   className={cn(dashboardControlClass, "h-10 w-full")}
                 >
-                  <SelectValue />
+                  <LabeledSelectValue
+                    value={job.locationKey}
+                    options={printLocationOptions}
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  {Object.entries(IMPRINT_LOCATION_LABELS).map(
-                    ([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    )
-                  )}
+                  {printLocationOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </Field>
@@ -725,6 +762,7 @@ function MockupUploadCard({
   onChange: (patch: Partial<NewOrderJobInput>) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const { settings } = useShopSettings();
 
   const handleFiles = async (fileList: FileList | null) => {
     const file = fileList?.[0];
@@ -748,7 +786,10 @@ function MockupUploadCard({
           </p>
           <p className="text-[12px] text-[#616161]">
             {decorationLabel(job.decorationType)} ·{" "}
-            {IMPRINT_LOCATION_LABELS[job.locationKey]}
+            {resolvePrintLocationLabel(
+              job.locationKey,
+              settings.productionDefaults
+            )}
           </p>
         </div>
         {job.mockupFile ? (

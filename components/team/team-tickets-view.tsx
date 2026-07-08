@@ -13,8 +13,8 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  LabeledSelectValue,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   listAllSupportTickets,
@@ -192,7 +192,14 @@ export function TeamTicketsView() {
               }}
             >
               <SelectTrigger className="h-10 w-full rounded-xl sm:w-[150px]">
-                <SelectValue />
+                <LabeledSelectValue
+                  value={assigneeFilter}
+                  options={[
+                    { value: "all", label: "All assignees" },
+                    { value: "mine", label: "Assigned to me" },
+                    { value: "unassigned", label: "Unassigned" },
+                  ]}
+                />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All assignees</SelectItem>
@@ -209,7 +216,13 @@ export function TeamTicketsView() {
               }}
             >
               <SelectTrigger className="h-10 w-full rounded-xl sm:w-[150px]">
-                <SelectValue />
+                <LabeledSelectValue
+                  value={statusFilter}
+                  options={[
+                    { value: "all", label: "All statuses" },
+                    ...SUPPORT_TICKET_STATUSES,
+                  ]}
+                />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All statuses</SelectItem>

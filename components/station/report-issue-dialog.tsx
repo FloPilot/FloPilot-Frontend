@@ -15,8 +15,8 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  LabeledSelectValue,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { ISSUE_TYPE_LABELS } from "@/lib/station-utils";
@@ -75,7 +75,12 @@ export function ReportIssueDialog({
                 }
               >
                 <SelectTrigger className="h-12 w-full rounded-xl text-base">
-                  <SelectValue />
+                  <LabeledSelectValue
+                    value={issueType}
+                    options={Object.entries(ISSUE_TYPE_LABELS).map(
+                      ([value, label]) => ({ value, label })
+                    )}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {Object.entries(ISSUE_TYPE_LABELS).map(([value, label]) => (

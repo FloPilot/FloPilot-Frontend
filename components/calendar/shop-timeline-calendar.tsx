@@ -31,6 +31,7 @@ import {
   RESOURCE_TYPE_LABELS,
 } from "@/lib/machine-styles";
 import { formatOperatingHoursSummary } from "@/lib/machine-hours";
+import { CALENDAR_STATUS_LEGEND } from "@/lib/schedule-block-display";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -208,6 +209,27 @@ export function ShopTimelineCalendar() {
             Schedule event
           </button>
         </div>
+      </div>
+
+      <div
+        className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-[#ebebeb] bg-white px-4 py-2.5"
+        role="list"
+        aria-label="Calendar status colors"
+      >
+        <span className="text-[12px] font-medium text-[#616161]">Status</span>
+        {CALENDAR_STATUS_LEGEND.map((item) => (
+          <div
+            key={item.status}
+            role="listitem"
+            className="flex items-center gap-1.5"
+          >
+            <span
+              className={cn("size-3 shrink-0 rounded border", item.swatchClass)}
+              aria-hidden
+            />
+            <span className="text-[12px] text-[#303030]">{item.label}</span>
+          </div>
+        ))}
       </div>
 
       <EventBasketPanel onScheduleEvent={scheduleFromBasket} />

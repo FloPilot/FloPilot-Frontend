@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
@@ -20,28 +19,9 @@ import {
   filterOrdersWithAdvanced,
   OrderFilterBuilder,
 } from "@/components/orders/order-filter-builder";
-import {
-  CheckpointStatusBadge,
-  findCheckpoint,
-} from "@/components/orders/order-checkpoint-pills";
-import { OrderStatusBadge, RushBadge } from "@/components/status-badges";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { OrdersListViewConfig } from "@/components/orders/orders-list-view-config";
+import { OrdersListTable } from "@/components/orders/orders-list-table";
 import type { OrderAdvancedFilter } from "@/lib/order-advanced-filters";
-import { formatCurrency, formatDate } from "@/lib/format";
-import { formatOrderDisplayLine } from "@/lib/order-display";
-import {
-  buildOrderFinancialsMap,
-  resolveOrderFinancialsInContext,
-  type OrderFinancials,
-} from "@/lib/order-financial-context";
-import { getOrderDecorationSummary } from "@/lib/order-decoration-summary";
 import {
   filterOrdersList,
   JOB_TYPE_FILTER_TABS,
@@ -50,11 +30,11 @@ import {
   type OrderJobTypeFilter,
   type OrderListScope,
 } from "@/lib/order-list-filters";
+import { buildOrderFinancialsMap } from "@/lib/order-financial-context";
 import {
   buildOrderListSummaries,
   computeOrdersListKpis,
   filterOrdersByQuickFilter,
-  type OrderListSummary,
   type OrderQuickFilter,
 } from "@/lib/order-list-summary";
 import {
@@ -70,7 +50,11 @@ import {
 } from "@/lib/dashboard-styles";
 import { downloadReportCsv } from "@/lib/reports/csv";
 import { buildOrdersListExport } from "@/lib/reports/order-list-export";
-import type { Order } from "@/types";
+import {
+  DEFAULT_ORDERS_LIST_COLUMNS,
+  resolveOrdersListColumnsForScope,
+  type OrdersListColumnId,
+} from "@/lib/order-list-columns";
 import { cn } from "@/lib/utils";
 
 const QUICK_FILTERS: {
@@ -175,6 +159,20 @@ export function OrdersListView() {
     []
   );
   const [jobType, setJobType] = useState<OrderJobTypeFilter>("all");
+  const [visibleColumns, setVisibleColumns] = useState<OrdersListColumnId[]>(
+    DEFAULT_ORDERS_LIST_COLUMNS
+  );
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+
+  const customersById = useMemo(
+    () => new Map(customers.map((customer) => [customer.id, customer])),
+    [customers]
+  );
+
+  const tableColumns = useMemo(
+    () => resolveOrdersListColumnsForScope(visibleColumns, scope),
+    [visibleColumns, scope]
+  );
 
   useEffect(() => {
     if (
@@ -334,17 +332,25 @@ export function OrdersListView() {
                 : ""}
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={cn(dashboardControlClass, "h-9")}
-            disabled={filteredOrders.length === 0}
-            onClick={handleExport}
-          >
-            <Download className="size-3.5" />
-            Export CSV
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <OrdersListViewConfig
+              columns={visibleColumns}
+              onColumnsChange={setVisibleColumns}
+              activeViewId={activeViewId}
+              onActiveViewChange={setActiveViewId}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={cn(dashboardControlClass, "h-9")}
+              disabled={filteredOrders.length === 0}
+              onClick={handleExport}
+            >
+              <Download className="size-3.5" />
+              Export CSV
+            </Button>
+          </div>
         </div>
 
         <div className="space-y-0 p-4 sm:p-5">
@@ -436,11 +442,13 @@ export function OrdersListView() {
             </div>
           </div>
 
-          <OrdersTable
+          <OrdersListTable
             items={filteredOrders}
             summaries={summaries}
             orderFinancials={orderFinancials}
             scope={scope}
+            columns={tableColumns}
+            customersById={customersById}
             emptyMessage={
               shopDataLoading
                 ? "Loading orders…"
@@ -483,252 +491,5 @@ function FilterChip({
     >
       {children}
     </button>
-  );
-}
-
-function OrderJobTypeCell({ order }: { order: Order }) {
-  const { labels } = getOrderDecorationSummary(order);
-
-  if (labels.length === 0) {
-    return <span className="text-[13px] text-[#8a8a8a]">—</span>;
-  }
-
-  return (
-    <div className="flex flex-wrap gap-1">
-      {labels.map((label) => (
-        <span
-          key={label}
-          className="inline-flex items-center rounded-md border border-[#e3e3e3] bg-white px-2 py-0.5 text-[11px] font-medium text-[#303030]"
-        >
-          {label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function OrdersTable({
-  items,
-  summaries,
-  orderFinancials,
-  scope,
-  emptyMessage,
-}: {
-  items: Order[];
-  summaries: Map<string, OrderListSummary>;
-  orderFinancials: Map<string, OrderFinancials>;
-  scope: OrderListScope;
-  emptyMessage: string;
-}) {
-  const router = useRouter();
-  const showProduction = scope !== "historical" && scope !== "archived";
-
-  if (items.length === 0) {
-    return (
-      <div className="mt-4 rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] py-14 text-center text-[13px] text-[#616161]">
-        {emptyMessage}
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-4 -mx-4 overflow-x-auto border-t border-[#ebebeb] sm:-mx-5">
-      <Table className="min-w-[1420px]">
-        <TableHeader>
-          <TableRow className="border-[#ebebeb] hover:bg-transparent">
-            <TableHead className="sticky left-0 z-20 h-9 min-w-[132px] bg-[#fafafa] pl-4 text-[12px] font-medium text-[#616161] shadow-[1px_0_0_#ebebeb] sm:pl-5">
-              Order
-            </TableHead>
-            <TableHead className="sticky left-[132px] z-20 h-9 min-w-[160px] bg-[#fafafa] text-[12px] font-medium text-[#616161] shadow-[1px_0_0_#ebebeb]">
-              Customer
-            </TableHead>
-            <TableHead className="h-9 min-w-[108px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-              {scope === "historical" ? "Completed" : "In-hands"}
-            </TableHead>
-            <TableHead className="h-9 min-w-[92px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-              Total
-            </TableHead>
-            {showProduction ? (
-              <>
-                <TableHead className="h-9 min-w-[108px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-                  Proofs
-                </TableHead>
-                <TableHead className="h-9 min-w-[88px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-                  Ink
-                </TableHead>
-                <TableHead className="h-9 min-w-[96px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-                  Screens
-                </TableHead>
-                <TableHead className="h-9 min-w-[108px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-                  Blanks / Garments
-                </TableHead>
-                <TableHead className="h-9 min-w-[88px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-                  DTF
-                </TableHead>
-                <TableHead className="h-9 min-w-[120px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-                  Goods source
-                </TableHead>
-                <TableHead className="h-9 min-w-[108px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-                  Scheduled
-                </TableHead>
-                <TableHead className="h-9 min-w-[108px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-                  Production
-                </TableHead>
-              </>
-            ) : null}
-            <TableHead className="h-9 min-w-[120px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-              Order status
-            </TableHead>
-            <TableHead className="h-9 min-w-[140px] bg-[#fafafa] pr-4 text-[12px] font-medium text-[#616161] sm:pr-5">
-              Job type
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.map((order) => {
-            const href = `/app/orders/${order.id}`;
-            const summary = summaries.get(order.id);
-            const checkpoints = summary?.checkpoints ?? [];
-            const financials =
-              orderFinancials.get(order.id) ??
-              resolveOrderFinancialsInContext(order, { taxRate: 0.08 });
-
-            return (
-              <TableRow
-                key={order.id}
-                tabIndex={0}
-                role="link"
-                aria-label={`View order ${order.number}`}
-                className={cn(
-                  "group cursor-pointer border-[#ebebeb] hover:bg-[#f6f6f7] focus-visible:outline-none focus-visible:bg-[#f6f6f7]",
-                  order.rush && "bg-[#fffdf5] hover:bg-[#f6f6f7] focus-visible:bg-[#f6f6f7]"
-                )}
-                onClick={() => router.push(href)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    router.push(href);
-                  }
-                }}
-              >
-                <TableCell
-                  className={cn(
-                    "sticky left-0 z-10 bg-white py-2.5 pl-4 shadow-[1px_0_0_#ebebeb] transition-colors group-hover:bg-[#f6f6f7] group-focus-visible:bg-[#f6f6f7] sm:pl-5",
-                    order.rush && "bg-[#fffdf5]"
-                  )}
-                >
-                  <div className="flex min-w-[120px] items-center gap-2">
-                    <Link
-                      href={href}
-                      className="text-[13px] font-semibold text-[#303030] hover:text-[#2c6ecb] hover:underline"
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      {formatOrderDisplayLine(order)}
-                    </Link>
-                    {order.rush ? <RushBadge /> : null}
-                  </div>
-                  {summary?.dueDays !== null &&
-                  summary?.dueDays !== undefined &&
-                  summary.dueDays < 0 ? (
-                    <p className="mt-0.5 text-[11px] font-medium text-[#8f1f1f]">
-                      {Math.abs(summary.dueDays)}d overdue
-                    </p>
-                  ) : null}
-                </TableCell>
-                <TableCell
-                  className={cn(
-                    "sticky left-[132px] z-10 bg-white py-2.5 shadow-[1px_0_0_#ebebeb] transition-colors group-hover:bg-[#f6f6f7] group-focus-visible:bg-[#f6f6f7]",
-                    order.rush && "bg-[#fffdf5]"
-                  )}
-                >
-                  <div className="min-w-[140px] max-w-[220px]">
-                    <p className="truncate text-[13px] font-medium text-[#303030]">
-                      {order.company}
-                    </p>
-                    <p className="truncate text-[12px] text-[#616161]">
-                      {order.customerName}
-                    </p>
-                  </div>
-                </TableCell>
-                <TableCell className="py-2.5 text-[13px] text-[#303030]">
-                  {formatDate(order.inHandsDate)}
-                </TableCell>
-                <TableCell className="py-2.5">
-                  <p className="text-[13px] font-medium tabular-nums text-[#303030]">
-                    {formatCurrency(financials.total)}
-                  </p>
-                  {financials.balance > 0 ? (
-                    <p className="text-[11px] tabular-nums text-[#8a8a8a]">
-                      {formatCurrency(financials.balance)} due
-                    </p>
-                  ) : null}
-                </TableCell>
-                {showProduction ? (
-                  <>
-                    <TableCell className="py-2.5">
-                      <CheckpointStatusBadge
-                        checkpoint={findCheckpoint(checkpoints, "artwork")}
-                        compact
-                      />
-                    </TableCell>
-                    <TableCell className="py-2.5">
-                      <CheckpointStatusBadge
-                        checkpoint={findCheckpoint(checkpoints, "ink")}
-                        compact
-                      />
-                    </TableCell>
-                    <TableCell className="py-2.5">
-                      <CheckpointStatusBadge
-                        checkpoint={findCheckpoint(checkpoints, "screens")}
-                        compact
-                      />
-                    </TableCell>
-                    <TableCell className="py-2.5">
-                      <CheckpointStatusBadge
-                        checkpoint={findCheckpoint(checkpoints, "blanks")}
-                        compact
-                      />
-                    </TableCell>
-                    <TableCell className="py-2.5">
-                      <CheckpointStatusBadge
-                        checkpoint={findCheckpoint(checkpoints, "dtf_transfers")}
-                        compact
-                      />
-                    </TableCell>
-                    <TableCell className="py-2.5">
-                      <CheckpointStatusBadge
-                        checkpoint={findCheckpoint(checkpoints, "blank_source")}
-                        compact
-                      />
-                    </TableCell>
-                    <TableCell className="py-2.5">
-                      <CheckpointStatusBadge
-                        checkpoint={findCheckpoint(checkpoints, "scheduled")}
-                        compact
-                      />
-                    </TableCell>
-                    <TableCell className="py-2.5">
-                      <CheckpointStatusBadge
-                        checkpoint={findCheckpoint(checkpoints, "floor")}
-                        compact
-                      />
-                    </TableCell>
-                  </>
-                ) : null}
-                <TableCell className="py-2.5">
-                  <OrderStatusBadge
-                    status={order.status}
-                    className="text-[11px] font-medium"
-                  />
-                </TableCell>
-                <TableCell className="py-2.5 pr-4 sm:pr-5">
-                  <OrderJobTypeCell order={order} />
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
   );
 }
