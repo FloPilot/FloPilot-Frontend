@@ -10,6 +10,7 @@ export const WORKSPACE_AREA_KEYS = [
   "orders",
   "customers",
   "production",
+  "departments",
   "artwork",
   "calendar",
   "machines",
@@ -59,6 +60,11 @@ export const WORKSPACE_AREA_OPTIONS: {
     moduleKey: "productionTasks",
   },
   {
+    key: "departments",
+    label: "Departments",
+    description: "Department queues — artwork, screens, inks, finishing, receiving",
+  },
+  {
     key: "artwork",
     label: "Artwork",
     description: "Proofs and artwork approvals",
@@ -102,6 +108,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
       orders: true,
       customers: true,
       production: true,
+      departments: true,
       artwork: true,
       calendar: true,
       machines: true,
@@ -115,6 +122,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
       orders: true,
       customers: true,
       production: true,
+      departments: true,
       artwork: true,
       calendar: true,
       machines: true,
@@ -128,6 +136,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
       orders: true,
       customers: false,
       production: true,
+      departments: true,
       artwork: true,
       calendar: true,
       machines: true,
@@ -141,6 +150,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
       orders: true,
       customers: true,
       production: true,
+      departments: true,
       artwork: true,
       calendar: false,
       machines: false,
@@ -252,6 +262,7 @@ export function getDefaultLandingPath(
     orders: "/app/orders",
     customers: "/app/customers",
     production: "/app/production",
+    departments: "/app/departments",
     artwork: "/app/artwork",
     calendar: "/app/calendar",
     machines: "/app/machines",
@@ -348,6 +359,7 @@ export function getWorkspaceAreaForPath(
   if (pathname.startsWith("/app/orders")) return "orders";
   if (pathname.startsWith("/app/customers")) return "customers";
   if (pathname.startsWith("/app/production")) return "production";
+  if (pathname.startsWith("/app/departments")) return "departments";
   if (pathname.startsWith("/app/artwork")) return "artwork";
   if (pathname.startsWith("/app/calendar")) return "calendar";
   if (pathname.startsWith("/app/machines")) return "machines";

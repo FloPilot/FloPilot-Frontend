@@ -22,8 +22,8 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  LabeledSelectValue,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   SHOP_TIMEZONE_OPTIONS,
@@ -354,7 +354,10 @@ export function BrandOnboardingWizard({
                   }}
                 >
                   <SelectTrigger className="h-11 rounded-xl">
-                    <SelectValue />
+                    <LabeledSelectValue
+                      value={draft.timezone}
+                      options={SHOP_TIMEZONE_OPTIONS}
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {SHOP_TIMEZONE_OPTIONS.map((option) => (

@@ -4,6 +4,7 @@ import * as React from "react"
 import { Select as SelectPrimitive } from "@base-ui/react/select"
 
 import { cn } from "@/lib/utils"
+import { resolveSelectLabel } from "@/lib/format"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
 
 const Select = SelectPrimitive.Root
@@ -25,6 +26,26 @@ function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
       className={cn("flex flex-1 text-left", className)}
       {...props}
     />
+  )
+}
+
+function LabeledSelectValue({
+  value,
+  options,
+  format,
+  placeholder,
+  className,
+}: {
+  value?: string | null;
+  options?: ReadonlyArray<{ value: string; label: string }>;
+  format?: (value: string) => string;
+  placeholder?: string;
+  className?: string;
+}) {
+  return (
+    <SelectValue placeholder={placeholder} className={className}>
+      {resolveSelectLabel(value, options, format)}
+    </SelectValue>
   )
 }
 
@@ -193,6 +214,7 @@ export {
   SelectGroup,
   SelectItem,
   SelectLabel,
+  LabeledSelectValue,
   SelectScrollDownButton,
   SelectScrollUpButton,
   SelectSeparator,

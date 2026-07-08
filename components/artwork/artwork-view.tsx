@@ -11,6 +11,7 @@ import {
   ClipboardList,
   Clock,
   FileImage,
+  LayoutPanelLeft,
   RotateCcw,
   Search,
 } from "lucide-react";
@@ -53,6 +54,7 @@ import {
   dashboardValueClass,
 } from "@/lib/dashboard-styles";
 import { decorationLabel, formatDate, formatDateTime } from "@/lib/format";
+import { artworkOrderWorkspaceHref } from "@/lib/artwork-routes";
 import { cn } from "@/lib/utils";
 
 const KPI_CONFIG: {
@@ -553,7 +555,24 @@ export function ArtworkView() {
                                 {formatDate(entry.inHandsDate)}
                               </TableCell>
                               <TableCell className="py-2.5 pr-4 text-right sm:pr-5">
-                                <ChevronRight className="ml-auto size-4 -translate-x-1 text-brand-primary opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
+                                <div className="flex items-center justify-end gap-1">
+                                  <Link
+                                    href={artworkOrderWorkspaceHref(
+                                      entry.orderId,
+                                      entry.jobId,
+                                      entry.imprintId
+                                    )}
+                                    className={cn(
+                                      dashboardControlClass,
+                                      "h-7 w-7 justify-center p-0 opacity-0 transition-opacity group-hover:opacity-100"
+                                    )}
+                                    title="Open artwork workspace"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    <LayoutPanelLeft className="size-3.5" />
+                                  </Link>
+                                  <ChevronRight className="size-4 -translate-x-1 text-brand-primary opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
+                                </div>
                               </TableCell>
                             </TableRow>
                           );

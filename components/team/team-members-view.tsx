@@ -12,8 +12,8 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  LabeledSelectValue,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   createPlatformTeamMember,
@@ -158,7 +158,7 @@ export function TeamMembersView() {
                 }}
               >
                 <SelectTrigger className="h-11 rounded-xl">
-                  <SelectValue />
+                  <LabeledSelectValue value={role} options={ROLES} />
                 </SelectTrigger>
                 <SelectContent>
                   {ROLES.map((item) => (

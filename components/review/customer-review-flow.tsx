@@ -25,7 +25,10 @@ import {
   submitCustomerPortalAction,
 } from "@/lib/customer-portal-api";
 import { CustomerEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
+import { ProofNotesThread } from "@/components/orders/proof-notes-thread";
+import { resolveReviewProofNotes } from "@/lib/artwork-routes";
 import { decorationLabel, formatDate } from "@/lib/format";
+import { useLockDocumentScroll } from "@/hooks/use-lock-document-scroll";
 import { cn } from "@/lib/utils";
 
 type Step =
@@ -70,6 +73,7 @@ export function CustomerReviewFlow({
 }) {
   const isPreview = mode === "preview";
   const isPortal = Boolean(portalToken && orderId);
+  useLockDocumentScroll(!embedded);
   const searchParams = useSearchParams();
   const [session, setSession] = useState<CustomerReviewSession | null>(
     initialSession
@@ -79,7 +83,6 @@ export function CustomerReviewFlow({
   );
   const [error, setError] = useState<string | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
-  const [messageDraft, setMessageDraft] = useState("");
   const [revisionDraft, setRevisionDraft] = useState("");
   const [showRevision, setShowRevision] = useState(false);
   const [acting, setActing] = useState(false);
@@ -124,7 +127,7 @@ export function CustomerReviewFlow({
       return;
     }
     void load();
-  }, [initialSession, load]);
+  }, [load, portalToken, orderId, token]);
 
   const steps = useMemo(
     () => (session && !session.expired ? buildSteps(session) : []),
@@ -158,7 +161,6 @@ export function CustomerReviewFlow({
 
   const applySession = (next: CustomerReviewSession) => {
     setSession(next);
-    setMessageDraft("");
     setRevisionDraft("");
     setShowRevision(false);
     onSessionChange?.(next);
@@ -207,6 +209,60 @@ export function CustomerReviewFlow({
     } finally {
       setActing(false);
     }
+  };
+
+  const submitProofComment = async (proof: ReviewProof, message: string) => {
+    if (isPreview) return;
+
+    const body = {
+      action: "add_proof_comment" as const,
+      jobId: proof.jobId,
+      imprintId: proof.imprintId,
+      message,
+    };
+
+    if (isPortal && portalToken && orderId) {
+      const { order } = await submitCustomerPortalAction(
+        portalToken,
+        orderId,
+        body
+      );
+      applySession(order);
+      showToast("Message sent!");
+      return;
+    }
+
+    if (!token) throw new Error("This review link has expired.");
+
+    const { order } = await submitCustomerReviewAction(token, body);
+    applySession(order);
+    showToast("Message sent!");
+  };
+
+  const submitEstimateComment = async (message: string) => {
+    if (isPreview) return;
+
+    const body = {
+      action: "add_estimate_comment" as const,
+      message,
+    };
+
+    if (isPortal && portalToken && orderId) {
+      const { order } = await submitCustomerPortalAction(
+        portalToken,
+        orderId,
+        body
+      );
+      applySession(order);
+      showToast("Message sent!");
+      return;
+    }
+
+    if (!token) throw new Error("This review link has expired.");
+
+    const { order } = await submitCustomerReviewAction(token, body);
+    applySession(order);
+    showToast("Message sent!");
   };
 
   if (loading) {
@@ -275,7 +331,9 @@ export function CustomerReviewFlow({
   return (
     <div
       className={cn(
-        embedded ? "min-h-0 bg-[#f6f6f7]" : "min-h-screen bg-[#f6f6f7]"
+        embedded
+          ? "min-h-0 bg-[#f6f6f7]"
+          : "flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-[#f6f6f7]"
       )}
       style={
         {
@@ -291,7 +349,7 @@ export function CustomerReviewFlow({
       ) : null}
 
       {!hideHeader ? (
-      <header className="border-b border-[#ebebeb] bg-white">
+      <header className="shrink-0 border-b border-[#ebebeb] bg-white">
         <div
           className={cn(
             "mx-auto flex items-center justify-between gap-4 px-4 py-4",
@@ -375,7 +433,9 @@ export function CustomerReviewFlow({
       <main
         className={cn(
           "mx-auto px-4 py-6",
-          embedded ? "max-w-full sm:px-5 sm:py-4" : "max-w-3xl sm:px-6"
+          embedded
+            ? "max-w-full sm:px-5 sm:py-4"
+            : "scroll-pane min-h-0 flex-1 overflow-y-auto overscroll-y-contain max-w-3xl sm:px-6"
         )}
       >
         {hideHeader ? (
@@ -431,9 +491,28 @@ export function CustomerReviewFlow({
 
         <div className="overflow-hidden rounded-2xl border border-[#ebebeb] bg-white shadow-sm">
           {currentStep.kind === "estimate" ? (
-            <EstimateStep session={session} embedded={embedded} />
+            <EstimateStep
+              session={session}
+              embedded={embedded}
+              readOnly={isPreview}
+              onSendReply={
+                isPreview
+                  ? undefined
+                  : (message) => submitEstimateComment(message)
+              }
+            />
           ) : (
-            <ProofStep proof={currentStep.proof} embedded={embedded} />
+            <ProofStep
+              proof={currentStep.proof}
+              session={session}
+              embedded={embedded}
+              readOnly={isPreview}
+              onSendReply={
+                isPreview
+                  ? undefined
+                  : (message) => submitProofComment(currentStep.proof, message)
+              }
+            />
           )}
 
           <div className="border-t border-[#ebebeb] bg-[#fafafa] p-4 sm:p-5">
@@ -547,22 +626,6 @@ export function CustomerReviewFlow({
                 ) : null}
               </div>
             ) : null}
-
-            <MessagesPanel
-              messages={session.messages || []}
-              draft={messageDraft}
-              onDraftChange={setMessageDraft}
-              onSend={() => {
-                if (!messageDraft.trim()) return;
-                void runAction({
-                  action: "send_message",
-                  message: messageDraft.trim(),
-                });
-              }}
-              acting={acting}
-              accent={accent}
-              readOnly={isPreview}
-            />
           </div>
         </div>
 
@@ -629,9 +692,13 @@ export function CustomerReviewFlow({
 function EstimateStep({
   session,
   embedded = false,
+  readOnly = false,
+  onSendReply,
 }: {
   session: CustomerReviewSession;
   embedded?: boolean;
+  readOnly?: boolean;
+  onSendReply?: (message: string) => Promise<void> | void;
 }) {
   const est = session.estimate!;
 
@@ -651,6 +718,18 @@ function EstimateStep({
           Shop standard pricing applies to this order.
         </p>
       ) : null}
+
+      <ProofNotesThread
+        notes={est.revisionNotes}
+        title="Notes for your estimate"
+        className="mt-5"
+        alwaysShow
+        disabled={readOnly}
+        emptyLabel="Questions or notes about your estimate will appear here."
+        replyPlaceholder="Ask a question or reply about your estimate…"
+        sendLabel="Send message"
+        onSendReply={onSendReply}
+      />
 
       <div className="mt-5">
         <CustomerEstimateBreakdownTable
@@ -672,11 +751,22 @@ function EstimateStep({
 
 function ProofStep({
   proof,
+  session,
   embedded = false,
+  readOnly = false,
+  onSendReply,
 }: {
   proof: ReviewProof;
+  session: CustomerReviewSession;
   embedded?: boolean;
+  readOnly?: boolean;
+  onSendReply?: (message: string) => Promise<void> | void;
 }) {
+  const proofNotes = resolveReviewProofNotes(proof, {
+    customerName: session.customer?.name,
+    messages: session.messages,
+  });
+
   return (
     <div className={cn("p-4", embedded ? "sm:p-5" : "sm:p-6")}>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
@@ -721,110 +811,18 @@ function ProofStep({
           ))}
         </div>
       ) : null}
-    </div>
-  );
-}
 
-function MessagesPanel({
-  messages,
-  draft,
-  onDraftChange,
-  onSend,
-  acting,
-  accent,
-  readOnly = false,
-}: {
-  messages: CustomerReviewSession["messages"];
-  draft: string;
-  onDraftChange: (v: string) => void;
-  onSend: () => void;
-  acting: boolean;
-  accent: string;
-  readOnly?: boolean;
-}) {
-  const [open, setOpen] = useState(messages && messages.length > 0);
-
-  return (
-    <div className="rounded-xl border border-[#ebebeb] bg-white">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between px-3 py-2.5 text-left text-[13px] font-medium text-[#303030]"
-      >
-        <span className="inline-flex items-center gap-2">
-          <MessageSquare className="size-4 text-[#616161]" />
-          Messages ({messages?.length || 0})
-        </span>
-        <ChevronRight
-          className={cn(
-            "size-4 text-[#8a8a8a] transition-transform",
-            open && "rotate-90"
-          )}
-        />
-      </button>
-
-      {open ? (
-        <div className="border-t border-[#ebebeb] px-3 py-3">
-          <div className="max-h-48 space-y-2 overflow-y-auto">
-            {(messages || []).length === 0 ? (
-              <p className="text-[12px] text-[#8a8a8a]">
-                No messages yet. Ask a question anytime.
-              </p>
-            ) : (
-              (messages || []).map((m) => (
-                <div
-                  key={m.id}
-                  className={cn(
-                    "rounded-lg px-3 py-2 text-[13px]",
-                    m.role === "customer"
-                      ? "ml-4 bg-[#f4f7fd] text-[#303030]"
-                      : "mr-4 bg-[#fafafa] text-[#303030]"
-                  )}
-                >
-                  <p className="text-[11px] font-medium text-[#8a8a8a]">
-                    {m.author} ·{" "}
-                    {new Date(m.timestamp).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </p>
-                  <p className="mt-0.5 whitespace-pre-wrap">{m.content}</p>
-                </div>
-              ))
-            )}
-          </div>
-          {!readOnly ? (
-            <div className="mt-3 flex gap-2">
-              <input
-                type="text"
-                value={draft}
-                onChange={(e) => onDraftChange(e.target.value)}
-                placeholder="Ask a question…"
-                className="min-w-0 flex-1 rounded-lg border border-[#e3e3e3] px-3 py-2 text-[13px] outline-none focus:border-[var(--review-accent)]"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    onSend();
-                  }
-                }}
-              />
-              <button
-                type="button"
-                disabled={acting || !draft.trim()}
-                onClick={onSend}
-                className="shrink-0 rounded-lg px-4 text-[13px] font-semibold text-white disabled:opacity-50"
-                style={{ backgroundColor: accent }}
-              >
-                Send
-              </button>
-            </div>
-          ) : (
-            <p className="mt-2 text-[11px] text-[#8a8a8a]">
-              Customers can send messages from their review link.
-            </p>
-          )}
-        </div>
-      ) : null}
+      <ProofNotesThread
+        notes={proofNotes}
+        title="Notes for this proof"
+        className="mt-4"
+        alwaysShow
+        disabled={readOnly}
+        emptyLabel="Messages about this proof location will appear here."
+        replyPlaceholder="Ask a question or reply about this proof…"
+        sendLabel="Send message"
+        onSendReply={onSendReply}
+      />
     </div>
   );
 }

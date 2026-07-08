@@ -166,6 +166,17 @@ export async function fetchSupplierIntegrations(token: string) {
   );
 }
 
+export async function verifySsActivewearIntegration(token: string) {
+  return callApi<{ integration: import("@/lib/supplier-integrations").SupplierIntegration }>(
+    "verifySupplierIntegration",
+    {
+      method: "POST",
+      body: { provider: "ssActivewear" },
+      token,
+    }
+  );
+}
+
 export async function connectSsActivewearIntegration(
   token: string,
   payload: { accountNumber: string; apiKey: string }
@@ -535,6 +546,52 @@ export async function restoreCustomer(token: string, customerId: string) {
   );
 }
 
+// ─── Order list views ────────────────────────────────────────────────────────
+
+export async function fetchOrderListViews(token: string) {
+  return callApi<import("@/lib/order-list-columns").OrderListViewsState>(
+    "getOrderListViews",
+    { token }
+  );
+}
+
+export async function saveOrderListView(
+  token: string,
+  body: {
+    id?: string;
+    name: string;
+    columns: import("@/lib/order-list-columns").OrdersListColumnId[];
+    shared?: boolean;
+  }
+) {
+  return callApi<{ view: import("@/lib/order-list-columns").OrderListViewRecord }>(
+    "saveOrderListView",
+    { method: "POST", body, token }
+  );
+}
+
+export async function deleteOrderListView(token: string, viewId: string) {
+  return callApi<{ ok: boolean }>("deleteOrderListView", {
+    method: "POST",
+    body: { viewId },
+    token,
+  });
+}
+
+export async function setActiveOrderListView(
+  token: string,
+  viewId: string | null
+) {
+  return callApi<{
+    activeViewId: string | null;
+    activeColumns: import("@/lib/order-list-columns").OrdersListColumnId[];
+  }>("setActiveOrderListView", {
+    method: "POST",
+    body: { viewId },
+    token,
+  });
+}
+
 // ─── Orders ─────────────────────────────────────────────────────────────────
 
 export type ListOrdersQuery = {
@@ -800,11 +857,55 @@ export async function setArtworkStatus(
   orderId: string,
   jobId: string,
   imprintId: string,
-  status: import("@/types").ArtworkFile["status"]
+  status: import("@/types").ArtworkFile["status"],
+  options?: {
+    message?: string;
+    messageRole?: "staff" | "customer";
+    notifyOrderMessage?: boolean;
+  }
 ) {
   return callApi<{ order: Order }>("setArtworkStatus", {
     method: "PATCH",
-    body: { orderId, jobId, imprintId, status },
+    body: {
+      orderId,
+      jobId,
+      imprintId,
+      status,
+      message: options?.message,
+      messageRole: options?.messageRole,
+      notifyOrderMessage: options?.notifyOrderMessage,
+    },
+    token,
+  });
+}
+
+export async function addArtworkProofNote(
+  token: string,
+  orderId: string,
+  jobId: string,
+  imprintId: string,
+  message: string,
+  options?: {
+    notifyOrderMessage?: boolean;
+  }
+) {
+  return callApi<{ order: Order }>("addArtworkProofNote", {
+    method: "POST",
+    body: {
+      orderId,
+      jobId,
+      imprintId,
+      message,
+      notifyOrderMessage: options?.notifyOrderMessage,
+    },
+    token,
+  });
+}
+
+export async function approveOrderEstimate(token: string, orderId: string) {
+  return callApi<{ order: Order }>("approveOrderEstimate", {
+    method: "PATCH",
+    body: { orderId },
     token,
   });
 }

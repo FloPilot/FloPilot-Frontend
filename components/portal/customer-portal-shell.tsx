@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { FloPilotWatermark } from "@/components/branding/flopilot-watermark";
 import { useCustomerPortal } from "@/components/portal/customer-portal-provider";
+import { useLockDocumentScroll } from "@/hooks/use-lock-document-scroll";
 import {
   portalArtworkPath,
   portalBusinessPath,
@@ -25,8 +26,10 @@ export type PortalNavKey = "dashboard" | "pricing" | "business" | "artwork";
 
 function PortalPageFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-[#f6f6f7]">
-      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+    <div className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-[#f6f6f7]">
+      <div className="scroll-pane min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+        {children}
+      </div>
       <FloPilotWatermark />
     </div>
   );
@@ -77,6 +80,7 @@ export function CustomerPortalShell({
   children: React.ReactNode;
   activeNav?: PortalNavKey;
 }) {
+  useLockDocumentScroll();
   const pathname = usePathname();
   const { token, dashboard, loading, error, accent } = useCustomerPortal();
   const homeHref = portalHomePath(token);
@@ -132,7 +136,7 @@ export function CustomerPortalShell({
   const customer = dashboard?.customer;
 
   return (
-    <div className="flex h-dvh min-h-dvh flex-col overflow-hidden bg-[#f6f6f7]">
+    <div className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-[#f6f6f7]">
       <header className="shrink-0 border-b border-[#ebebeb] bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
@@ -192,7 +196,7 @@ export function CustomerPortalShell({
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
+        <main className="scroll-pane min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain">
           <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
             {children}
           </div>

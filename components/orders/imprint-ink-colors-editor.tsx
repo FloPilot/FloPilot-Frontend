@@ -7,8 +7,27 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
 } from "react";
-import { Loader2, Plus, Trash2, Zap } from "lucide-react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical, Loader2, Plus, Trash2, Zap } from "lucide-react";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,10 +52,35 @@ import { dashboardControlClass } from "@/lib/dashboard-styles";
 import { cn } from "@/lib/utils";
 
 const defaultInputClassName =
-  "h-9 rounded-lg border-border/80 bg-white text-sm shadow-none";
+  "h-9 w-full min-w-0 rounded-lg border-border/80 bg-white text-sm shadow-none";
+
+/** Static class literals so Tailwind emits the grid templates (dynamic strings break layout). */
+function inkRowGridClass(
+  isScreenPrint: boolean,
+  isDtf: boolean,
+  sortable: boolean
+): string {
+  if (isScreenPrint) {
+    return sortable
+      ? "grid-cols-[32px_24px_minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,1fr)_36px]"
+      : "grid-cols-[24px_minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,1fr)]";
+  }
+  if (isDtf) {
+    return sortable
+      ? "grid-cols-[32px_24px_minmax(0,1fr)_minmax(0,1.15fr)_36px]"
+      : "grid-cols-[24px_minmax(0,1fr)_minmax(0,1.15fr)]";
+  }
+  return sortable
+    ? "grid-cols-[32px_24px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)_36px]"
+    : "grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)]";
+}
+
+const inkRowBaseClass =
+  "grid w-full min-w-[520px] items-center gap-x-3 gap-y-0 px-3 py-2.5";
 
 const InkColorRowEditor = memo(function InkColorRowEditor({
   row,
+  index,
   isScreenPrint,
   isDtf,
   fieldClassName,
@@ -55,8 +99,12 @@ const InkColorRowEditor = memo(function InkColorRowEditor({
   onPatch,
   onRemove,
   isNew,
+  sortable = false,
+  dragHandleProps,
+  isDragging = false,
 }: {
   row: ImprintInkColor;
+  index: number;
   isScreenPrint: boolean;
   isDtf: boolean;
   fieldClassName: string;
@@ -75,6 +123,9 @@ const InkColorRowEditor = memo(function InkColorRowEditor({
   onPatch: (patch: Partial<ImprintInkColor>, immediate?: boolean) => void;
   onRemove: () => void;
   isNew?: boolean;
+  sortable?: boolean;
+  dragHandleProps?: Record<string, unknown>;
+  isDragging?: boolean;
 }) {
   const [pmsDraft, setPmsDraft] = useState(row.pmsCode ?? "");
   const [nameDraft, setNameDraft] = useState(row.name ?? "");
@@ -105,131 +156,169 @@ const InkColorRowEditor = memo(function InkColorRowEditor({
   return (
     <div
       className={cn(
-        "grid items-center gap-2 px-3 py-2",
-        isScreenPrint
-          ? "grid-cols-[minmax(0,1.3fr)_minmax(0,0.95fr)_minmax(0,1fr)_40px]"
-          : isDtf
-            ? "grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_40px]"
-            : "grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.95fr)_minmax(0,1fr)_40px]",
-        row.isFlash && "bg-amber-50/60",
-        isNew && "animate-in fade-in slide-in-from-top-1 bg-[#f4f7fd]/60 duration-200"
+        inkRowBaseClass,
+        inkRowGridClass(isScreenPrint, isDtf, sortable),
+        row.isFlash && "bg-amber-50/50",
+        isNew && "animate-in fade-in slide-in-from-top-1 bg-[#f4f7fd]/60 duration-200",
+        isDragging &&
+          "relative z-10 bg-white shadow-[0_10px_28px_rgba(26,26,26,0.12)] ring-1 ring-[#c9d7ef]"
       )}
     >
-      {row.isFlash && isScreenPrint ? (
-        <div className="flex h-9 items-center gap-1.5 px-1 text-[12px] font-medium text-amber-700">
-          <Zap className="size-3.5 shrink-0" />
-          Flash
-        </div>
-      ) : (
-        <Input
-          value={row.isFlash ? "" : pmsDraft}
-          onChange={(event) => setPmsDraft(event.target.value)}
-          onBlur={commitPms}
-          placeholder={row.isFlash ? "—" : "289 C or WHITE"}
-          disabled={row.isFlash}
-          className={fieldClassName}
-          autoFocus={isNew && !row.isFlash}
-        />
-      )}
+      {sortable ? (
+        <button
+          type="button"
+          className={cn(
+            dashboardControlClass,
+            "h-8 w-8 shrink-0 justify-center self-center p-0 text-[#616161] cursor-grab touch-none active:cursor-grabbing hover:text-[#303030]",
+            isDragging && "cursor-grabbing"
+          )}
+          aria-label={`Drag stroke ${index + 1}`}
+          {...dragHandleProps}
+        >
+          <GripVertical className="size-3.5" strokeWidth={1.75} />
+        </button>
+      ) : null}
 
-      {!isScreenPrint ? (
-        isDtf ? (
-          <ShopPresetSelect
-            value={transferTypeValue}
-            options={transferTypeOptions}
-            onChange={(value) => {
-              const label =
-                transferTypeOptions.find((option) => option.value === value)
-                  ?.label ?? "";
-              onPatch(
-                {
-                  transferType: value || undefined,
-                  name: label,
-                },
-                false
-              );
-            }}
-            className={fieldClassName}
-            placeholder="Select transfer type"
-            canAddCustom={canAddCustomTransferType}
-            onAddCustom={onAddCustomTransferType}
-            addingCustom={addingCustomTransferType}
-            addLabel="Add transfer type"
-            addPlaceholder="e.g. Warm peel"
-          />
+      <span className="flex size-6 shrink-0 items-center justify-center self-center rounded-md bg-[#f6f6f7] text-[11px] font-semibold tabular-nums text-[#8a8a8a]">
+        {index + 1}
+      </span>
+
+      <div className="min-w-0">
+        {row.isFlash && isScreenPrint ? (
+          <div className="flex h-9 items-center gap-1.5 rounded-lg border border-amber-200/80 bg-amber-50/80 px-2.5 text-[12px] font-medium text-amber-800">
+            <Zap className="size-3.5 shrink-0" />
+            Flash
+          </div>
         ) : (
           <Input
-            value={nameDraft}
-            onChange={(event) => setNameDraft(event.target.value)}
-            onBlur={() => {
-              const next = nameDraft.trim();
-              if (row.name === next) return;
-              onPatch({ name: next }, false);
-            }}
-            placeholder={row.isFlash ? "Flash" : "White"}
+            value={row.isFlash ? "" : pmsDraft}
+            onChange={(event) => setPmsDraft(event.target.value)}
+            onBlur={commitPms}
+            placeholder={row.isFlash ? "—" : "289 C or WHITE"}
+            disabled={row.isFlash}
             className={fieldClassName}
+            autoFocus={isNew && !row.isFlash}
           />
-        )
+        )}
+      </div>
+
+      {!isScreenPrint ? (
+        <div className="min-w-0">
+          {isDtf ? (
+            <ShopPresetSelect
+              value={transferTypeValue}
+              options={transferTypeOptions}
+              onChange={(value) => {
+                const label =
+                  transferTypeOptions.find((option) => option.value === value)
+                    ?.label ?? "";
+                onPatch(
+                  {
+                    transferType: value || undefined,
+                    name: label,
+                  },
+                  false
+                );
+              }}
+              className={fieldClassName}
+              placeholder="Select transfer type"
+              canAddCustom={canAddCustomTransferType}
+              onAddCustom={onAddCustomTransferType}
+              addingCustom={addingCustomTransferType}
+              addLabel="Add transfer type"
+              addPlaceholder="e.g. Warm peel"
+            />
+          ) : (
+            <Input
+              value={nameDraft}
+              onChange={(event) => setNameDraft(event.target.value)}
+              onBlur={() => {
+                const next = nameDraft.trim();
+                if (row.name === next) return;
+                onPatch({ name: next }, false);
+              }}
+              placeholder={row.isFlash ? "Flash" : "White"}
+              className={fieldClassName}
+            />
+          )}
+        </div>
       ) : null}
 
       {showMeshSqueegee ? (
-        <ShopPresetSelect
-          value={row.mesh != null ? String(row.mesh) : ""}
-          options={meshOptions}
-          onChange={(value) => {
-            const parsed = Number(value);
-            onPatch(
-              {
-                mesh:
-                  Number.isFinite(parsed) && parsed > 0
-                    ? Math.round(parsed)
-                    : undefined,
-              },
-              false
-            );
-          }}
-          disabled={row.isFlash}
-          className={fieldClassName}
-          placeholder="Mesh"
-          canAddCustom={canAddCustomMesh && !row.isFlash}
-          onAddCustom={onAddCustomMesh}
-          addingCustom={addingCustomMesh}
-          addLabel="Add mesh count"
-          addPlaceholder="e.g. 230 — Fine detail"
-        />
+        <div className="min-w-0">
+          {row.isFlash ? (
+            <div className="flex h-9 items-center px-2 text-[12px] text-[#8a8a8a]">
+              —
+            </div>
+          ) : (
+            <ShopPresetSelect
+              value={row.mesh != null ? String(row.mesh) : ""}
+              options={meshOptions}
+              onChange={(value) => {
+                const parsed = Number(value);
+                onPatch(
+                  {
+                    mesh:
+                      Number.isFinite(parsed) && parsed > 0
+                        ? Math.round(parsed)
+                        : undefined,
+                  },
+                  false
+                );
+              }}
+              className={fieldClassName}
+              placeholder="Mesh"
+              canAddCustom={canAddCustomMesh}
+              onAddCustom={onAddCustomMesh}
+              addingCustom={addingCustomMesh}
+              addLabel="Add mesh count"
+              addPlaceholder="e.g. 230 — Fine detail"
+            />
+          )}
+        </div>
       ) : null}
 
       {showMeshSqueegee ? (
-        <ShopPresetSelect
-          value={row.squeegee ?? "medium"}
-          options={squeegeeOptions}
-          onChange={(value) => onPatch({ squeegee: value }, false)}
-          disabled={row.isFlash}
-          className={fieldClassName}
-          placeholder="Squeegee"
-          canAddCustom={canAddCustomSqueegee && !row.isFlash}
-          onAddCustom={onAddCustomSqueegee}
-          addingCustom={addingCustomSqueegee}
-          addLabel="Add squeegee type"
-          addPlaceholder="e.g. 70 durometer"
-        />
+        <div className="min-w-0">
+          {row.isFlash ? (
+            <div className="flex h-9 items-center px-2 text-[12px] text-[#8a8a8a]">
+              —
+            </div>
+          ) : (
+            <ShopPresetSelect
+              value={row.squeegee ?? "medium"}
+              options={squeegeeOptions}
+              onChange={(value) => onPatch({ squeegee: value }, false)}
+              className={fieldClassName}
+              placeholder="Squeegee"
+              canAddCustom={canAddCustomSqueegee}
+              onAddCustom={onAddCustomSqueegee}
+              addingCustom={addingCustomSqueegee}
+              addLabel="Add squeegee type"
+              addPlaceholder="e.g. 70 durometer"
+            />
+          )}
+        </div>
       ) : null}
 
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        className="text-muted-foreground hover:text-destructive"
-        onClick={onRemove}
-        aria-label="Remove ink row"
-      >
-        <Trash2 className="size-3.5" />
-      </Button>
+      <div className="flex justify-end">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          className="text-muted-foreground hover:text-destructive"
+          onClick={onRemove}
+          aria-label="Remove ink row"
+        >
+          <Trash2 className="size-3.5" />
+        </Button>
+      </div>
     </div>
   );
 }, (prev, next) => {
   return (
     prev.row.id === next.row.id &&
+    prev.index === next.index &&
     prev.row.pmsCode === next.row.pmsCode &&
     prev.row.name === next.row.name &&
     prev.row.mesh === next.row.mesh &&
@@ -248,9 +337,50 @@ const InkColorRowEditor = memo(function InkColorRowEditor({
     prev.addingCustomMesh === next.addingCustomMesh &&
     prev.addingCustomSqueegee === next.addingCustomSqueegee &&
     prev.addingCustomTransferType === next.addingCustomTransferType &&
-    prev.isNew === next.isNew
+    prev.isNew === next.isNew &&
+    prev.sortable === next.sortable &&
+    prev.isDragging === next.isDragging
   );
 });
+
+function SortableInkColorRow({
+  row,
+  index,
+  ...editorProps
+}: {
+  row: ImprintInkColor;
+  index: number;
+} & Omit<
+  ComponentProps<typeof InkColorRowEditor>,
+  "row" | "index" | "sortable" | "dragHandleProps" | "isDragging"
+>) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: row.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style}>
+      <InkColorRowEditor
+        row={row}
+        index={index}
+        sortable
+        dragHandleProps={{ ...listeners, ...attributes }}
+        isDragging={isDragging}
+        {...editorProps}
+      />
+    </div>
+  );
+}
 
 function buildMeshOptions(
   productionDefaults: ShopProductionDefaults | undefined,
@@ -447,9 +577,31 @@ export function ImprintInkColorsEditor({
     [applyDraft]
   );
 
-  const removeRow = (id: string) => {
-    handleRemoveRow(id);
-  };
+  const sortableRowIds = useMemo(() => draft.map((row) => row.id), [draft]);
+
+  const inkSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleInkDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+
+      const ids = draftRef.current.map((row) => row.id);
+      const oldIndex = ids.indexOf(String(active.id));
+      const newIndex = ids.indexOf(String(over.id));
+      if (oldIndex < 0 || newIndex < 0) return;
+
+      applyDraft(arrayMove(draftRef.current, oldIndex, newIndex), {
+        immediate: true,
+      });
+    },
+    [applyDraft]
+  );
 
   const addColorRow = async () => {
     const id = createInkColorId();
@@ -603,34 +755,51 @@ export function ImprintInkColorsEditor({
     );
   }
 
-  const headerCols = isScreenPrint
-    ? "grid-cols-[minmax(0,1.3fr)_minmax(0,0.95fr)_minmax(0,1fr)_40px]"
-    : isDtf
-      ? "grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_40px]"
-      : "grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,0.95fr)_minmax(0,1fr)_40px]";
+  const headerCols = inkRowGridClass(isScreenPrint, isDtf, !readOnly);
 
   return (
     <div className="space-y-3">
+      {!readOnly && draft.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
+          <div>
+            <p className="text-[13px] font-semibold text-[#303030]">
+              Production order
+            </p>
+            <p className="text-[12px] text-muted-foreground">
+              Drag strokes to match press order — colors and flashes run top to
+              bottom.
+            </p>
+          </div>
+          <span className="rounded-full bg-[#f1f1f1] px-2.5 py-1 text-[11px] font-medium text-[#616161]">
+            {draft.length} stroke{draft.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+      ) : null}
+
       <div
         className={cn(
-          "overflow-hidden rounded-xl border border-border/70",
+          "overflow-hidden rounded-xl border border-[#ebebeb] bg-white",
           compact && "text-sm"
         )}
       >
-        <div
-          className={cn(
-            "grid gap-2 border-b border-border/70 bg-muted/30 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground",
-            headerCols
-          )}
-        >
-          <span>PMS</span>
-          {!isScreenPrint ? (
-            <span>{isDtf ? "Transfer type" : "Ink / stroke"}</span>
-          ) : null}
-          {!isDtf ? <span>Mesh</span> : null}
-          {!isDtf ? <span>Squeegee</span> : null}
-          <span className="sr-only">Remove</span>
-        </div>
+        <div className="overflow-x-auto">
+          <div
+            className={cn(
+              inkRowBaseClass,
+              headerCols,
+              "border-b border-[#ebebeb] bg-[#fafafa] py-2 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a]"
+            )}
+          >
+            {!readOnly ? <span aria-hidden /> : null}
+            <span>#</span>
+            <span>PMS</span>
+            {!isScreenPrint ? (
+              <span>{isDtf ? "Transfer type" : "Ink / stroke"}</span>
+            ) : null}
+            {!isDtf ? <span>Mesh</span> : null}
+            {!isDtf ? <span>Squeegee</span> : null}
+            {!readOnly ? <span className="sr-only">Remove</span> : null}
+          </div>
 
         {draft.length === 0 ? (
           <div className="px-3 py-6 text-center text-sm text-muted-foreground">
@@ -641,24 +810,32 @@ export function ImprintInkColorsEditor({
                 : "Add ink colors and flash strokes for this location."}
           </div>
         ) : readOnly ? (
-          <div className="divide-y divide-border/60">
-            {draft.map((row) => (
+          <div className="divide-y divide-[#f0f0f0]">
+            {draft.map((row, index) => (
               <div
                 key={row.id}
                 className={cn(
-                  "grid items-center gap-2 px-3 py-2 text-[13px]",
+                  inkRowBaseClass,
                   headerCols,
-                  row.isFlash && "bg-amber-50/60"
+                  "text-[13px]",
+                  row.isFlash && "bg-amber-50/50"
                 )}
               >
-                <span className="font-mono text-xs">
-                  {row.isFlash ? "—" : row.pmsCode || "—"}
+                <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-[#f6f6f7] text-[11px] font-semibold tabular-nums text-[#8a8a8a]">
+                  {index + 1}
+                </span>
+                <span className="min-w-0 font-mono text-xs">
+                  {row.isFlash ? (
+                    <span className="inline-flex items-center gap-1 font-sans font-medium text-amber-800">
+                      <Zap className="size-3.5" />
+                      Flash
+                    </span>
+                  ) : (
+                    row.pmsCode || "—"
+                  )}
                 </span>
                 {!isScreenPrint ? (
-                  <span className="flex items-center gap-1.5 font-medium">
-                    {row.isFlash && (
-                      <Zap className="size-3.5 shrink-0 text-amber-600" />
-                    )}
+                  <span className="min-w-0 font-medium">
                     {isDtf
                       ? (transferTypeOptions.find(
                           (option) => option.value === row.transferType
@@ -670,7 +847,7 @@ export function ImprintInkColorsEditor({
                 ) : null}
                 {!isDtf ? (
                   <>
-                    <span>
+                    <span className="min-w-0">
                       {row.isFlash
                         ? "—"
                         : meshOptions.find((o) => o.value === String(row.mesh))
@@ -678,48 +855,63 @@ export function ImprintInkColorsEditor({
                           row.mesh ??
                           "—"}
                     </span>
-                    <span>
-                      {squeegeeOptions.find((o) => o.value === row.squeegee)
-                        ?.label ??
-                        row.squeegee ??
-                        "—"}
+                    <span className="min-w-0">
+                      {row.isFlash
+                        ? "—"
+                        : squeegeeOptions.find((o) => o.value === row.squeegee)
+                            ?.label ??
+                          row.squeegee ??
+                          "—"}
                     </span>
                   </>
                 ) : null}
-                <span />
               </div>
             ))}
           </div>
         ) : (
-          <div className="divide-y divide-border/60">
-            {draft.map((row) => (
-              <InkColorRowEditor
-                key={row.id}
-                row={row}
-                isScreenPrint={isScreenPrint}
-                isDtf={isDtf}
-                fieldClassName={fieldClassName}
-                meshOptions={meshOptions}
-                squeegeeOptions={squeegeeOptions}
-                transferTypeOptions={transferTypeOptions}
-                canAddCustomMesh={isAdmin}
-                canAddCustomSqueegee={isAdmin}
-                canAddCustomTransferType={isAdmin && isDtf}
-                onAddCustomMesh={handleAddCustomMesh}
-                onAddCustomSqueegee={handleAddCustomSqueegee}
-                onAddCustomTransferType={handleAddCustomTransferType}
-                addingCustomMesh={addingCustomMesh}
-                addingCustomSqueegee={addingCustomSqueegee}
-                addingCustomTransferType={addingCustomTransferType}
-                onPatch={(patch, immediate) =>
-                  handlePatchRow(row.id, patch, immediate)
-                }
-                onRemove={() => handleRemoveRow(row.id)}
-                isNew={row.id === newRowId}
-              />
-            ))}
-          </div>
+          <DndContext
+            sensors={inkSensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis]}
+            onDragEnd={handleInkDragEnd}
+          >
+            <SortableContext
+              items={sortableRowIds}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="divide-y divide-[#f0f0f0] bg-white">
+                {draft.map((row, index) => (
+                  <SortableInkColorRow
+                    key={row.id}
+                    row={row}
+                    index={index}
+                    isScreenPrint={isScreenPrint}
+                    isDtf={isDtf}
+                    fieldClassName={fieldClassName}
+                    meshOptions={meshOptions}
+                    squeegeeOptions={squeegeeOptions}
+                    transferTypeOptions={transferTypeOptions}
+                    canAddCustomMesh={isAdmin}
+                    canAddCustomSqueegee={isAdmin}
+                    canAddCustomTransferType={isAdmin && isDtf}
+                    onAddCustomMesh={handleAddCustomMesh}
+                    onAddCustomSqueegee={handleAddCustomSqueegee}
+                    onAddCustomTransferType={handleAddCustomTransferType}
+                    addingCustomMesh={addingCustomMesh}
+                    addingCustomSqueegee={addingCustomSqueegee}
+                    addingCustomTransferType={addingCustomTransferType}
+                    onPatch={(patch, immediate) =>
+                      handlePatchRow(row.id, patch, immediate)
+                    }
+                    onRemove={() => handleRemoveRow(row.id)}
+                    isNew={row.id === newRowId}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         )}
+        </div>
       </div>
 
       {!readOnly && (

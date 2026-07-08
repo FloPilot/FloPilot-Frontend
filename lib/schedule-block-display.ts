@@ -4,7 +4,8 @@ import type { Order, ScheduleBlock, StationJobRun } from "@/types";
 export type ScheduleBlockProductionStatus =
   | "scheduled"
   | "in_progress"
-  | "completed";
+  | "completed"
+  | "blocked";
 
 export const CALENDAR_EVENT_STATUS_OPTIONS: {
   value: ScheduleBlockProductionStatus;
@@ -26,6 +27,11 @@ export const CALENDAR_EVENT_STATUS_OPTIONS: {
     label: "Completed",
     hint: "This event is finished",
   },
+  {
+    value: "blocked",
+    label: "Blocked",
+    hint: "Issue or hold — needs attention before continuing",
+  },
 ];
 
 export function formatScheduleBlockOrderLine(block: ScheduleBlock): string {
@@ -44,13 +50,16 @@ export function resolveScheduleBlockProductionStatus(
   if (run?.status === "running" || run?.status === "paused") {
     return "in_progress";
   }
+  if (run?.status === "cancelled") return "blocked";
 
   const order = orders.find((entry) => entry.id === block.orderId);
   const job = order?.jobs.find((entry) => entry.id === block.jobId);
   const imprint = job?.imprints.find((entry) => entry.id === block.imprintId);
+  const workflow = imprint?.workflow;
 
-  if (imprint?.workflow?.status === "completed") return "completed";
-  if (imprint?.workflow?.status === "in_progress") return "in_progress";
+  if (workflow?.status === "completed") return "completed";
+  if (workflow?.status === "blocked" || workflow?.onHold) return "blocked";
+  if (workflow?.status === "in_progress") return "in_progress";
   return "scheduled";
 }
 
@@ -59,6 +68,16 @@ export const COMPLETED_EVENT_CLASSES = [
   "border-emerald-300",
   "text-emerald-950",
 ] as const;
+
+export const STATUS_EVENT_CLASSES: Record<
+  ScheduleBlockProductionStatus,
+  readonly string[]
+> = {
+  scheduled: ["bg-blue-50/90", "border-blue-300", "text-blue-950"],
+  in_progress: ["bg-amber-50/90", "border-amber-300", "text-amber-950"],
+  completed: COMPLETED_EVENT_CLASSES,
+  blocked: ["bg-red-50/90", "border-red-300", "text-red-950"],
+};
 
 /** Shared inner padding for timeline / grid schedule chips */
 export const SCHEDULE_CHIP_BOX_PADDING = "pl-2 pr-1.5 pt-2 pb-1";
@@ -69,17 +88,45 @@ export const PRODUCTION_STATUS_FLAG: Record<
 > = {
   scheduled: {
     label: "Scheduled",
-    className:
-      "bg-white/75 text-[#2c6ecb] ring-1 ring-[#2c6ecb]/15",
+    className: "bg-white/80 text-[#2c6ecb] ring-1 ring-[#2c6ecb]/20",
   },
   in_progress: {
     label: "In progress",
-    className:
-      "bg-[#fff5ea] text-[#b98900] ring-1 ring-[#f0d9a8]/80",
+    className: "bg-white/80 text-[#b98900] ring-1 ring-[#f0d9a8]/80",
   },
   completed: {
     label: "Completed",
-    className:
-      "bg-emerald-200/90 text-emerald-950 ring-1 ring-emerald-400/50",
+    className: "bg-white/80 text-emerald-800 ring-1 ring-emerald-300/60",
+  },
+  blocked: {
+    label: "Blocked",
+    className: "bg-white/80 text-red-800 ring-1 ring-red-300/60",
   },
 };
+
+export const CALENDAR_STATUS_LEGEND: {
+  status: ScheduleBlockProductionStatus;
+  label: string;
+  swatchClass: string;
+}[] = [
+  {
+    status: "scheduled",
+    label: "Scheduled",
+    swatchClass: "bg-blue-100 border-blue-300",
+  },
+  {
+    status: "in_progress",
+    label: "In progress",
+    swatchClass: "bg-amber-100 border-amber-300",
+  },
+  {
+    status: "completed",
+    label: "Completed",
+    swatchClass: "bg-emerald-100 border-emerald-300",
+  },
+  {
+    status: "blocked",
+    label: "Blocked",
+    swatchClass: "bg-red-100 border-red-300",
+  },
+];

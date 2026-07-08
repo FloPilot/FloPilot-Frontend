@@ -23,7 +23,7 @@ export function StaffSidebar() {
         staffNav.sidebarBorder
       )}
     >
-      <div className="flex-1 min-h-0 overflow-y-auto px-2 py-3">
+      <div className="scroll-pane flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-2 py-3">
         <StaffNavLinks />
       </div>
 

@@ -117,6 +117,16 @@ export type SupplierStyleDetail = SupplierStyleSummary & {
   pricing: SupplierStylePricing;
 };
 
+export function isSsIntegrationUsable(
+  integration?: SupplierIntegration | null
+): boolean {
+  return (
+    integration?.provider === "ssActivewear" &&
+    integration.hasCredentials === true &&
+    integration.status !== "disconnected"
+  );
+}
+
 /** Preferred S&S style lookup ref — styleId and brand+name are reliable; partNumber is not. */
 export function supplierStyleRef(style: SupplierStyleSummary): string {
   if (style.styleId != null) return String(style.styleId);

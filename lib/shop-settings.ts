@@ -109,6 +109,11 @@ export type InkTypeOption = {
   label: string;
 };
 
+export type PrintLocationOption = {
+  value: string;
+  label: string;
+};
+
 export type DtfTransferTypeOption = {
   value: string;
   label: string;
@@ -142,6 +147,8 @@ export type ShopProductionDefaults = {
   meshPresets?: MeshPreset[];
   /** Custom ink types beyond built-in defaults */
   inkTypes?: InkTypeOption[];
+  /** Print locations for decoration events on orders */
+  printLocations?: PrintLocationOption[];
   /** Finishing steps offered (bagging, labeling, etc.) */
   finishingSteps?: FinishingStepPreset[];
 };
@@ -216,6 +223,7 @@ export const DEFAULT_PRODUCTION_DEFAULTS: ShopProductionDefaults = {
   dtfTransferTypes: [],
   meshPresets: [],
   inkTypes: [],
+  printLocations: [],
   finishingSteps: [],
 };
 
@@ -693,6 +701,36 @@ export function normalizeProductionDefaults(
         .slice(0, 24)
     : [];
 
+  const seenPrintLocations = new Set<string>();
+  const seenPrintLabels = new Set<string>();
+  const printLocations = Array.isArray(input.printLocations)
+    ? input.printLocations
+        .map((option) => {
+          const label =
+            typeof option?.label === "string" ? option.label.trim().slice(0, 80) : "";
+          const value =
+            typeof option?.value === "string" && option.value.trim()
+              ? option.value.trim().slice(0, 64)
+              : label
+                ? slugifySqueegeeValue(label)
+                : "";
+          const labelKey = label.toLowerCase();
+          if (
+            !label ||
+            !value ||
+            seenPrintLocations.has(value) ||
+            seenPrintLabels.has(labelKey)
+          ) {
+            return null;
+          }
+          seenPrintLocations.add(value);
+          seenPrintLabels.add(labelKey);
+          return { value, label };
+        })
+        .filter((option): option is PrintLocationOption => option !== null)
+        .slice(0, 40)
+    : [];
+
   const seenFinishing = new Set<string>();
   const finishingSteps = Array.isArray(input.finishingSteps)
     ? input.finishingSteps
@@ -727,6 +765,7 @@ export function normalizeProductionDefaults(
     dtfTransferTypes,
     meshPresets,
     inkTypes,
+    printLocations,
     finishingSteps,
   };
 }
@@ -793,6 +832,18 @@ export const DEFAULT_INK_TYPE_OPTIONS: InkTypeOption[] = [
   { value: "water-based", label: "Water-based" },
   { value: "discharge", label: "Discharge" },
   { value: "silicone", label: "Silicone" },
+  { value: "other", label: "Other" },
+];
+
+export const DEFAULT_PRINT_LOCATIONS: PrintLocationOption[] = [
+  { value: "front_left_chest", label: "Front left chest" },
+  { value: "front_chest", label: "Front chest" },
+  { value: "full_front", label: "Full front" },
+  { value: "full_back", label: "Full back" },
+  { value: "back", label: "Back" },
+  { value: "left_sleeve", label: "Left sleeve" },
+  { value: "right_sleeve", label: "Right sleeve" },
+  { value: "nape", label: "Nape / yoke" },
   { value: "other", label: "Other" },
 ];
 
@@ -933,6 +984,40 @@ export function getInkTypeOptions(
 ): InkTypeOption[] {
   const custom = productionDefaults?.inkTypes ?? [];
   return [...DEFAULT_INK_TYPE_OPTIONS, ...custom];
+}
+
+export function getPrintLocationOptions(
+  productionDefaults?: ShopProductionDefaults | null
+): PrintLocationOption[] {
+  const configured =
+    normalizeProductionDefaults(productionDefaults).printLocations ?? [];
+  if (configured.length > 0) return configured;
+  return DEFAULT_PRINT_LOCATIONS;
+}
+
+export function resolvePrintLocationLabel(
+  key: string,
+  productionDefaults?: ShopProductionDefaults | null
+): string {
+  const match = getPrintLocationOptions(productionDefaults).find(
+    (option) => option.value === key
+  );
+  if (match) return match.label;
+  return (
+    DEFAULT_PRINT_LOCATIONS.find((option) => option.value === key)?.label ??
+    key.replace(/_/g, " ").replace(/^loc-/, "")
+  );
+}
+
+export function defaultPrintLocationKey(
+  productionDefaults?: ShopProductionDefaults | null
+): string {
+  const options = getPrintLocationOptions(productionDefaults);
+  return (
+    options.find((option) => option.value === "front_chest")?.value ??
+    options[0]?.value ??
+    "front_chest"
+  );
 }
 
 export function getWarehouseNames(warehouses?: ShopWarehouse[] | null): string[] {

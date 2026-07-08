@@ -1,6 +1,9 @@
 import { addDays, format } from "date-fns";
 import { computeEstimateTotals } from "@/lib/order-estimate";
-import { IMPRINT_LOCATION_LABELS } from "@/lib/job-imprints";
+import {
+  resolvePrintLocationLabel,
+  type ShopProductionDefaults,
+} from "@/lib/shop-settings";
 import { buildCustomProductionJob } from "@/lib/order-production";
 import { buildLineItemFromCatalog, createLineItemId } from "@/lib/line-items";
 import type { PricingMatrix } from "@/lib/shop-settings";
@@ -313,7 +316,8 @@ export function estimateOrderTotals(pieceCount: number) {
 function buildOrderLineItemsAndJobs(
   form: NewOrderFormInput,
   orderNumber: string,
-  suffix: string
+  suffix: string,
+  productionDefaults?: ShopProductionDefaults | null
 ) {
   const pieceCount = countOrderFormPieces(form);
   const hasProducts = pieceCount > 0;
@@ -344,19 +348,27 @@ function buildOrderLineItemsAndJobs(
   });
 
   const lineItemIdSet = new Set(lineItems.map((item) => item.id));
-  const jobNames = formatAutoEventNameList(orderNumber, form.jobs);
+  const jobNames = formatAutoEventNameList(
+    orderNumber,
+    form.jobs,
+    productionDefaults
+  );
   const now = new Date().toISOString();
 
   const jobs = form.jobs.map((jobInput, index) => {
     const eventName =
-      jobNames[index] ?? formatAutoEventName(orderNumber, jobInput.locationKey);
-    const built = buildCustomProductionJob({
-      name: eventName,
-      locationKey: jobInput.locationKey,
-      decoration:
-        jobInput.kind === "finishing" ? "finishing" : jobInput.decorationType,
-      kind: jobInput.kind,
-    });
+      jobNames[index] ??
+      formatAutoEventName(orderNumber, jobInput.locationKey, productionDefaults);
+    const built = buildCustomProductionJob(
+      {
+        name: eventName,
+        locationKey: jobInput.locationKey,
+        decoration:
+          jobInput.kind === "finishing" ? "finishing" : jobInput.decorationType,
+        kind: jobInput.kind,
+      },
+      productionDefaults
+    );
 
     if (jobInput.kind !== "finishing" && hasProducts) {
       const linkedIds = (jobInput.lineItemIds ?? [])
@@ -450,21 +462,26 @@ export function compactOrderNumberForLabel(orderNumber: string): string {
 /** e.g. SO1054 - FRONT LEFT CHEST */
 export function formatAutoEventName(
   orderNumber: string,
-  locationKey: ImprintLocationKey
+  locationKey: ImprintLocationKey,
+  productionDefaults?: ShopProductionDefaults | null
 ): string {
   const prefix = compactOrderNumberForLabel(orderNumber);
-  const placement = IMPRINT_LOCATION_LABELS[locationKey].toUpperCase();
+  const placement = resolvePrintLocationLabel(
+    locationKey,
+    productionDefaults
+  ).toUpperCase();
   return `${prefix} - ${placement}`;
 }
 
 export function formatAutoEventNameList(
   orderNumber: string,
-  jobs: Array<{ locationKey: ImprintLocationKey }>
+  jobs: Array<{ locationKey: ImprintLocationKey }>,
+  productionDefaults?: ShopProductionDefaults | null
 ): string[] {
   const seen = new Map<string, number>();
 
   return jobs.map((job) => {
-    const base = formatAutoEventName(orderNumber, job.locationKey);
+    const base = formatAutoEventName(orderNumber, job.locationKey, productionDefaults);
     const count = (seen.get(base) ?? 0) + 1;
     seen.set(base, count);
     return count > 1 ? `${base} (${count})` : base;
@@ -473,10 +490,17 @@ export function formatAutoEventNameList(
 
 export function applyAutoEventNames(
   orderNumber: string,
-  jobs: NewOrderJobInput[]
+  jobs: NewOrderJobInput[],
+  productionDefaults?: ShopProductionDefaults | null
 ): NewOrderJobInput[] {
-  const names = formatAutoEventNameList(orderNumber, jobs);
-  return jobs.map((job, index) => ({ ...job, name: names[index] }));
+  const names = formatAutoEventNameList(orderNumber, jobs, productionDefaults);
+  return jobs.map((job, index) => ({
+    ...job,
+    name:
+      job.kind === "finishing" && job.name.trim()
+        ? job.name
+        : names[index],
+  }));
 }
 
 export function formatLineItemInputLabel(item: NewOrderLineItemInput): string {
@@ -507,6 +531,7 @@ export function buildOrderFromForm(
   options?: {
     taxRate?: number;
     pricingMatrix?: PricingMatrix;
+    productionDefaults?: ShopProductionDefaults | null;
   }
 ): Order {
   const shipping =
@@ -516,7 +541,12 @@ export function buildOrderFromForm(
   const suffix = String(Date.now());
   const number = generateOrderNumber(existingNumbers);
   const { lineItems, jobs, pieceCount, hasProducts, jobNames, draftToFinalId } =
-    buildOrderLineItemsAndJobs(form, number, suffix);
+    buildOrderLineItemsAndJobs(
+      form,
+      number,
+      suffix,
+      options?.productionDefaults
+    );
   const now = new Date().toISOString();
 
   const financials = computeEstimateTotals(
@@ -553,7 +583,8 @@ export function buildOrderFromForm(
   form.jobs.forEach((jobInput, index) => {
     if (jobInput.notes.trim()) {
       const noteEventName =
-        jobNames[index] ?? formatAutoEventName(number, jobInput.locationKey);
+        jobNames[index] ??
+        formatAutoEventName(number, jobInput.locationKey, options?.productionDefaults);
       internalNotes.push({
         id: `inote-job-${suffix}-${index}`,
         author: "Shop",

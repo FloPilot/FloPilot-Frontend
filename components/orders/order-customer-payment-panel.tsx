@@ -1,11 +1,15 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { Button } from "@/components/ui/button";
+import { RevisionNotesPanel } from "@/components/orders/revision-notes-panel";
 import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
 import {
   dashboardInsetSurfaceClass,
+  dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -14,6 +18,7 @@ import {
   type EstimateRow,
   type EstimateTotals,
 } from "@/lib/order-estimate";
+import { canEnterProduction } from "@/lib/order-approval";
 import {
   getOrderPaymentDisplay,
   orderPaymentHealthStatus,
@@ -210,7 +215,8 @@ function TotalsLine({
 
 export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
   const { settings } = useShopSettings();
-  const { getCustomerById } = useSchedule();
+  const { getCustomerById, approveOrderEstimate } = useSchedule();
+  const [approvingEstimate, setApprovingEstimate] = useState(false);
   const customer = getCustomerById(order.customerId);
   const pricingMatrix = useMemo(
     () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer, order),
@@ -263,8 +269,39 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
           {order.quoteApprovedAt
             ? ` · ${formatDate(order.quoteApprovedAt)}`
             : ""}
+          {canEnterProduction(order) ? " · Ready for production scheduling" : ""}
         </div>
-      ) : null}
+      ) : (
+        <div className="flex flex-col gap-3 rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[13px] text-[#616161]">
+            Mark the estimate approved when the customer signs off — the order
+            moves into production automatically once proofs are approved too.
+          </p>
+          <Button
+            type="button"
+            className={cn(dashboardPrimaryButtonClass, "h-9 shrink-0 text-[12px]")}
+            disabled={approvingEstimate}
+            onClick={() => {
+              setApprovingEstimate(true);
+              void approveOrderEstimate(order.id).finally(() =>
+                setApprovingEstimate(false)
+              );
+            }}
+          >
+            {approvingEstimate ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="size-3.5" />
+            )}
+            Mark estimate approved
+          </Button>
+        </div>
+      )}
+
+      <RevisionNotesPanel
+        notes={order.estimateRevisionNotes}
+        title="Estimate notes"
+      />
 
       <div className="space-y-2">
         <h3 className="text-[13px] font-semibold text-[#303030]">

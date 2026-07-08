@@ -37,8 +37,8 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  LabeledSelectValue,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import {
   cancelTeamInvite,
@@ -435,7 +435,12 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                     }}
                   >
                     <SelectTrigger className="h-11 w-full rounded-xl">
-                      <SelectValue />
+                      <LabeledSelectValue
+                        value={inviteRole}
+                        options={STAFF_ROLE_OPTIONS.filter(
+                          (option) => option.value !== "admin"
+                        )}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {STAFF_ROLE_OPTIONS.filter((option) => option.value !== "admin").map(
@@ -513,7 +518,10 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                   }}
                 >
                   <SelectTrigger className="h-11 w-full rounded-xl">
-                    <SelectValue />
+                    <LabeledSelectValue
+                      value={editRole}
+                      options={STAFF_ROLE_OPTIONS}
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {STAFF_ROLE_OPTIONS.map((option) => (

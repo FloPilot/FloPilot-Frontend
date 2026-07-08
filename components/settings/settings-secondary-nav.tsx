@@ -13,6 +13,7 @@ import {
   Plug,
   Printer,
   ScanLine,
+  Shirt,
   SlidersHorizontal,
   Users,
   type LucideIcon,
@@ -76,6 +77,11 @@ const GROUPS: SettingsNavGroup[] = [
         href: "/app/settings/shop/screen-print",
         label: "Screen print",
         icon: Printer,
+      },
+      {
+        href: "/app/settings/shop/print-locations",
+        label: "Print locations",
+        icon: Shirt,
       },
       {
         href: "/app/settings/shop/dtf",

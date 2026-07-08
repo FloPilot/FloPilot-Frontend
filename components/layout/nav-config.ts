@@ -1,7 +1,7 @@
 import {
   BarChart3,
   Bell,
-  Boxes,
+  Building2,
   CalendarDays,
   CheckSquare,
   ClipboardList,
@@ -19,6 +19,11 @@ import {
   Wrench,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import {
+  DEPARTMENT_DEFINITIONS,
+  DEPARTMENTS_BASE,
+  isDepartmentsSection,
+} from "@/lib/departments";
 import type { ShopModuleKey, ShopModules } from "@/lib/shop-settings";
 import type { StaffAccess } from "@/lib/staff-access";
 import {
@@ -33,6 +38,7 @@ export type NavChildItem = {
   icon?: LucideIcon;
   isActive: (pathname: string) => boolean;
   adminOnly?: boolean;
+  moduleKey?: ShopModuleKey;
 };
 
 export type NavItem = {
@@ -80,6 +86,7 @@ export function shouldExpandNavChildren(
   if (!item.children) return false;
   if (item.href === MACHINES_BASE) return isMachinesSection(pathname);
   if (item.href === FILES_BASE) return isFilesSection(pathname);
+  if (item.href === DEPARTMENTS_BASE) return isDepartmentsSection(pathname);
   return isNavItemActive(pathname, item);
 }
 
@@ -108,6 +115,21 @@ export const navItems: NavItem[] = [
     icon: Factory,
     moduleKey: "productionTasks",
     workspaceArea: "production",
+  },
+  {
+    href: DEPARTMENTS_BASE,
+    label: "Departments",
+    icon: Building2,
+    workspaceArea: "departments",
+    isActive: isDepartmentsSection,
+    children: DEPARTMENT_DEFINITIONS.map((dept) => ({
+      href: dept.href,
+      label: dept.label,
+      icon: dept.icon,
+      moduleKey: dept.moduleKey,
+      isActive: (pathname: string) =>
+        pathname === dept.href || pathname.startsWith(`${dept.href}/`),
+    })),
   },
   {
     href: ARTWORK_BASE,
@@ -195,13 +217,19 @@ export function getVisibleNavItems(
     })
     .map((item) => {
       if (!item.children) return item;
-      const children = item.children.filter(
-        (child) => !child.adminOnly || role === "admin"
-      );
+      const children = item.children.filter((child) => {
+        if (child.adminOnly && role !== "admin") return false;
+        if (child.moduleKey && modules[child.moduleKey] === false) {
+          return false;
+        }
+        return true;
+      });
+      if (children.length === 0) return null;
       return children.length === item.children.length
         ? item
         : { ...item, children };
-    });
+    })
+    .filter((item): item is NavItem => item !== null);
 }
 
 export function isNavItemActive(pathname: string, item: NavItem): boolean {

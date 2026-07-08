@@ -20,10 +20,11 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  LabeledSelectValue,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { fetchSupplierIntegrations } from "@/lib/api";
+import { isSsIntegrationUsable } from "@/lib/supplier-integrations";
 import {
   createLineItemDraftId,
   draftLineItemsToLineItems,
@@ -212,10 +213,10 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
         const token = await getIdToken();
         if (!token || cancelled) return;
         const { integrations } = await fetchSupplierIntegrations(token);
-        const connected = integrations.some(
-          (entry) =>
-            entry.provider === "ssActivewear" && entry.status === "connected"
+        const ssEntry = integrations.find(
+          (entry) => entry.provider === "ssActivewear"
         );
+        const connected = isSsIntegrationUsable(ssEntry);
         if (!cancelled) {
           setSsConnected(connected);
           setSource(connected ? "ss" : "manual");
@@ -491,7 +492,13 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
                         "h-10 w-full justify-between"
                       )}
                     >
-                      <SelectValue />
+                      <LabeledSelectValue
+                        value={productKey}
+                        options={NEW_ORDER_PRODUCTS.map((product) => ({
+                          value: product.key,
+                          label: `${product.brand} — ${product.name}`,
+                        }))}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {NEW_ORDER_PRODUCTS.map((product) => (
@@ -523,7 +530,14 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
                         "h-10 w-full justify-between"
                       )}
                     >
-                      <SelectValue placeholder="Select a color" />
+                      <LabeledSelectValue
+                        value={colorKey}
+                        placeholder="Select a color"
+                        options={NEW_ORDER_COLORS.map((color) => ({
+                          value: color.key,
+                          label: color.label,
+                        }))}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {NEW_ORDER_COLORS.map((color) => (

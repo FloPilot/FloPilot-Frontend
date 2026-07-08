@@ -419,6 +419,7 @@ export function ScheduleJobDialog({
     scheduled: "bg-[#ebf4ff] text-[#2c6ecb]",
     in_progress: "bg-[#fff5ea] text-[#b98900]",
     completed: "bg-[#e3f1df] text-[#108043]",
+    blocked: "bg-[#fff1f1] text-[#b42318]",
   };
 
   const accent = selectedJob

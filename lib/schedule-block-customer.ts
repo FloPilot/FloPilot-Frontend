@@ -1,7 +1,7 @@
 import { getCustomerAccentFromCustomer } from "@/lib/production-customer-colors";
 import type { CustomerAccent } from "@/lib/production-customer-colors";
 import {
-  COMPLETED_EVENT_CLASSES,
+  STATUS_EVENT_CLASSES,
   type ScheduleBlockProductionStatus,
 } from "@/lib/schedule-block-display";
 import type { Customer, Order, ScheduleBlock } from "@/types";
@@ -38,7 +38,7 @@ export function resolveScheduleBlockCustomer(
 }
 
 export function getScheduleBlockEventClasses(
-  presentation: ScheduleBlockCustomerPresentation,
+  _presentation: ScheduleBlockCustomerPresentation,
   options?: {
     muted?: boolean;
     hasConflict?: boolean;
@@ -48,15 +48,9 @@ export function getScheduleBlockEventClasses(
   if (options?.hasConflict) {
     return [];
   }
-  if (options?.productionStatus === "completed") {
-    return [...COMPLETED_EVENT_CLASSES];
-  }
   if (options?.muted) {
     return ["bg-muted/45", "border-border/70", "text-brand-muted"];
   }
-  return [
-    presentation.accent.bg,
-    presentation.accent.border,
-    presentation.accent.text,
-  ];
+  const status = options?.productionStatus ?? "scheduled";
+  return [...STATUS_EVENT_CLASSES[status]];
 }

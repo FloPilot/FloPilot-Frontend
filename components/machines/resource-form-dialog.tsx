@@ -15,8 +15,8 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  LabeledSelectValue,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -147,7 +147,12 @@ export function ResourceFormDialog({
                   <SelectTrigger
                     className={cn(dashboardControlClass, "h-10 w-full justify-between")}
                   >
-                    <SelectValue />
+                    <LabeledSelectValue
+                      value={form.type}
+                      options={Object.entries(RESOURCE_TYPE_LABELS).map(
+                        ([value, label]) => ({ value, label })
+                      )}
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {Object.entries(RESOURCE_TYPE_LABELS).map(([value, label]) => (
@@ -173,7 +178,10 @@ export function ResourceFormDialog({
                   <SelectTrigger
                     className={cn(dashboardControlClass, "h-10 w-full justify-between")}
                   >
-                    <SelectValue />
+                    <LabeledSelectValue
+                      value={form.color}
+                      options={MACHINE_COLOR_OPTIONS}
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {MACHINE_COLOR_OPTIONS.map((opt) => (
@@ -219,7 +227,13 @@ export function ResourceFormDialog({
                   <SelectTrigger
                     className={cn(dashboardControlClass, "h-10 w-full justify-between")}
                   >
-                    <SelectValue />
+                    <LabeledSelectValue
+                      value={form.active ? "yes" : "no"}
+                      options={[
+                        { value: "yes", label: "Yes" },
+                        { value: "no", label: "No — unavailable" },
+                      ]}
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="yes">Yes</SelectItem>

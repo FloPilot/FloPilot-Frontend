@@ -19,8 +19,8 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  LabeledSelectValue,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { listSupportTickets, updateSupportTicket } from "@/lib/api";
 import {
@@ -197,7 +197,13 @@ export function PlatformTicketsView() {
                   }}
                 >
                   <SelectTrigger className="h-9 w-[140px] rounded-full text-xs">
-                    <SelectValue />
+                    <LabeledSelectValue
+                      value={statusFilter}
+                      options={[
+                        { value: "all", label: "All statuses" },
+                        ...SUPPORT_TICKET_STATUSES,
+                      ]}
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All statuses</SelectItem>
@@ -368,7 +374,10 @@ export function PlatformTicketsView() {
                         }}
                       >
                         <SelectTrigger className="h-11 rounded-xl">
-                          <SelectValue />
+                          <LabeledSelectValue
+                            value={draftStatus}
+                            options={SUPPORT_TICKET_STATUSES}
+                          />
                         </SelectTrigger>
                         <SelectContent>
                           {SUPPORT_TICKET_STATUSES.map((item) => (
