@@ -1,593 +1,493 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { Info, Plus, Trash2, Upload } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ChevronRight, Info, Loader2, Plus, Star, Trash2 } from "lucide-react";
 import {
   AdminLockNotice,
-  SaveButton,
   SettingsError,
   SettingsHeader,
   SettingsMain,
   SettingsPanel,
-  useSectionDraft,
 } from "@/components/settings/settings-kit";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { PricingMatrixEditor } from "@/components/pricing/pricing-matrix-editor";
+import { CustomerContractFeesEditor } from "@/components/pricing/customer-contract-fees-editor";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { parsePricingCsv, type ParsedPricingGrid } from "@/lib/pricing-csv";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  type PricingMatrix,
-  type PricingMethod,
+  countShopRateSheetMethods,
+  emptyShopRateSheet,
+  ensureSingleShopDefault,
+  matrixFromShopSheet,
+  shopRateSheetSummary,
+  sortShopRateSheets,
+} from "@/lib/shop-pricing";
+import {
+  matrixFromShopPricingRateSheet,
+  normalizeShopPricingRateSheetList,
+  type ShopPricingRateSheet,
 } from "@/lib/shop-settings";
-import { CustomerContractFeesEditor } from "@/components/pricing/customer-contract-fees-editor";
+import {
+  dashboardControlClass,
+  dashboardInsetSurfaceClass,
+  dashboardPrimaryButtonClass,
+  dashboardTaskDetailClass,
+  dashboardTaskTitleClass,
+} from "@/lib/dashboard-styles";
+import { formatDate } from "@/lib/format";
 import type { CustomerNegotiatedRateSheet } from "@/types";
 import { cn } from "@/lib/utils";
-
-function newId() {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
-  }
-  return `method-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function methodNameFromFile(fileName: string): string {
-  return fileName.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").trim();
-}
-
-const STARTER_METHODS = ["Screen Print", "Embroidery", "DTF", "DTG"];
 
 export function PricingSection() {
   const { settings, isAdmin, updateSettings } = useShopSettings();
   const currency = settings.companyProfile.currency || "USD";
-  const { draft, setDraft, dirty } = useSectionDraft<PricingMatrix>(
-    settings.pricingMatrix
+
+  const savedSheets = useMemo(
+    () =>
+      sortShopRateSheets(
+        normalizeShopPricingRateSheetList(
+          settings.pricingMatrix,
+          settings.pricingRateSheets
+        )
+      ),
+    [settings.pricingMatrix, settings.pricingRateSheets]
+  );
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingSheetId, setEditingSheetId] = useState<string | null>(null);
+  const [sheetDraft, setSheetDraft] = useState<ShopPricingRateSheet>(
+    emptyShopRateSheet()
   );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [csvError, setCsvError] = useState<string | null>(null);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ShopPricingRateSheet | null>(
+    null
+  );
+  const [deleting, setDeleting] = useState(false);
 
-  const fileRef = useRef<HTMLInputElement>(null);
-  const importTargetRef = useRef<string | null>(null);
-
-  const handleSave = async () => {
+  const persistSheets = async (rateSheets: ShopPricingRateSheet[]) => {
+    const nextSheets = ensureSingleShopDefault(rateSheets);
+    const defaultSheet =
+      nextSheets.find((sheet) => sheet.isDefault) ?? nextSheets[0];
     setSaving(true);
     setError(null);
     setSaved(false);
     try {
       await updateSettings({
-        pricingMatrix: {
-          ...draft,
-          blankMarkupPercent:
-            settings.pricingMatrix.blankMarkupPercent ?? draft.blankMarkupPercent ?? 0,
-        },
+        pricingRateSheets: nextSheets,
+        pricingMatrix: defaultSheet
+          ? matrixFromShopPricingRateSheet(defaultSheet)
+          : settings.pricingMatrix,
       });
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save pricing");
+      throw err;
     } finally {
       setSaving(false);
     }
   };
 
-  const updateMethod = (id: string, patch: Partial<PricingMethod>) =>
-    setDraft((current) => ({
-      ...current,
-      methods: current.methods.map((m) =>
-        m.id === id ? { ...m, ...patch } : m
-      ),
-    }));
-
-  const addMethod = (name = "", grid?: ParsedPricingGrid) =>
-    setDraft((current) => ({
-      ...current,
-      methods: [
-        ...current.methods,
-        {
-          id: newId(),
-          name,
-          unit: "per piece",
-          notes: "",
-          columns: grid?.columns ?? ["Price"],
-          rows: grid?.rows ?? [{ minQty: 1, prices: [0] }],
-        },
-      ],
-    }));
-
-  const removeMethod = (id: string) =>
-    setDraft((current) => ({
-      ...current,
-      methods: current.methods.filter((m) => m.id !== id),
-    }));
-
-  const addRow = (id: string) =>
-    setDraft((current) => ({
-      ...current,
-      methods: current.methods.map((m) =>
-        m.id === id
-          ? {
-              ...m,
-              rows: [
-                ...m.rows,
-                { minQty: 1, prices: m.columns.map(() => 0) },
-              ],
-            }
-          : m
-      ),
-    }));
-
-  const removeRow = (id: string, index: number) =>
-    setDraft((current) => ({
-      ...current,
-      methods: current.methods.map((m) =>
-        m.id === id
-          ? { ...m, rows: m.rows.filter((_, i) => i !== index) }
-          : m
-      ),
-    }));
-
-  const updateRowQty = (id: string, index: number, minQty: number) =>
-    setDraft((current) => ({
-      ...current,
-      methods: current.methods.map((m) =>
-        m.id === id
-          ? {
-              ...m,
-              rows: m.rows.map((r, i) =>
-                i === index ? { ...r, minQty } : r
-              ),
-            }
-          : m
-      ),
-    }));
-
-  const updateCell = (
-    id: string,
-    rowIndex: number,
-    colIndex: number,
-    value: number
-  ) =>
-    setDraft((current) => ({
-      ...current,
-      methods: current.methods.map((m) =>
-        m.id === id
-          ? {
-              ...m,
-              rows: m.rows.map((r, i) =>
-                i === rowIndex
-                  ? {
-                      ...r,
-                      prices: r.prices.map((p, c) =>
-                        c === colIndex ? value : p
-                      ),
-                    }
-                  : r
-              ),
-            }
-          : m
-      ),
-    }));
-
-  const updateColumnName = (id: string, colIndex: number, name: string) =>
-    setDraft((current) => ({
-      ...current,
-      methods: current.methods.map((m) =>
-        m.id === id
-          ? {
-              ...m,
-              columns: m.columns.map((c, i) => (i === colIndex ? name : c)),
-            }
-          : m
-      ),
-    }));
-
-  const addColumn = (id: string) =>
-    setDraft((current) => ({
-      ...current,
-      methods: current.methods.map((m) =>
-        m.id === id
-          ? {
-              ...m,
-              columns: [...m.columns, `Column ${m.columns.length + 1}`],
-              rows: m.rows.map((r) => ({ ...r, prices: [...r.prices, 0] })),
-            }
-          : m
-      ),
-    }));
-
-  const removeColumn = (id: string, colIndex: number) =>
-    setDraft((current) => ({
-      ...current,
-      methods: current.methods.map((m) =>
-        m.id === id && m.columns.length > 1
-          ? {
-              ...m,
-              columns: m.columns.filter((_, i) => i !== colIndex),
-              rows: m.rows.map((r) => ({
-                ...r,
-                prices: r.prices.filter((_, i) => i !== colIndex),
-              })),
-            }
-          : m
-      ),
-    }));
-
-  const triggerImport = (targetId: string | null) => {
-    importTargetRef.current = targetId;
-    setCsvError(null);
-    fileRef.current?.click();
+  const openNewSheet = () => {
+    const draft = emptyShopRateSheet(
+      savedSheets.length === 0 ? "Shop standard" : "New pricing sheet"
+    );
+    draft.isDefault = savedSheets.length === 0;
+    setEditingSheetId(null);
+    setSheetDraft(draft);
+    setDraftError(null);
+    setDialogOpen(true);
   };
 
-  const handleFile = async (file: File | undefined) => {
-    if (!file) return;
-    setCsvError(null);
-    try {
-      const text = await file.text();
-      const { grid, error: parseError } = parsePricingCsv(text);
-      if (parseError || !grid) {
-        setCsvError(parseError ?? "Could not read that CSV.");
-        return;
-      }
-      const targetId = importTargetRef.current;
-      if (targetId) {
-        updateMethod(targetId, { columns: grid.columns, rows: grid.rows });
-      } else {
-        addMethod(methodNameFromFile(file.name), grid);
-      }
-    } catch {
-      setCsvError("Could not read that file.");
+  const openEditSheet = (sheet: ShopPricingRateSheet) => {
+    setEditingSheetId(sheet.id);
+    setSheetDraft({ ...sheet });
+    setDraftError(null);
+    setDialogOpen(true);
+  };
+
+  const saveSheetDraft = async () => {
+    const trimmedName = sheetDraft.name.trim() || "Shop standard";
+    const nextSheet: ShopPricingRateSheet = {
+      ...sheetDraft,
+      name: trimmedName,
+      notes: sheetDraft.notes?.trim() || "",
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (countShopRateSheetMethods(nextSheet) === 0) {
+      setDraftError("Add at least one decoration method with pricing rows.");
+      return;
     }
+
+    const withoutEdited = editingSheetId
+      ? savedSheets.filter((sheet) => sheet.id !== editingSheetId)
+      : savedSheets;
+    const clearedDefaults = nextSheet.isDefault
+      ? withoutEdited.map((sheet) => ({ ...sheet, isDefault: false }))
+      : withoutEdited;
+    const nextSheets = sortShopRateSheets([...clearedDefaults, nextSheet]);
+
+    try {
+      await persistSheets(nextSheets);
+      setDialogOpen(false);
+      setEditingSheetId(null);
+      setDraftError(null);
+    } catch {
+      /* error already set */
+    }
+  };
+
+  const deleteSheet = async (sheetId: string) => {
+    if (savedSheets.length <= 1) {
+      setDraftError("Keep at least one shop pricing sheet.");
+      return;
+    }
+    setDeleting(true);
+    try {
+      await persistSheets(savedSheets.filter((sheet) => sheet.id !== sheetId));
+      setDeleteTarget(null);
+      setDialogOpen(false);
+      setEditingSheetId(null);
+    } catch {
+      /* error already set */
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const openDeleteConfirm = () => {
+    const sheet = savedSheets.find((entry) => entry.id === editingSheetId);
+    if (sheet) setDeleteTarget(sheet);
   };
 
   return (
     <SettingsMain>
       <SettingsHeader
-        title="Pricing matrix"
-        description="Define decoration pricing by quantity so quotes and orders price themselves."
+        title="Pricing"
+        description="Create one or more shop rate sheets. Staff can pick which sheet applies on each order estimate."
       >
-        <SaveButton
-          dirty={dirty}
-          saving={saving}
-          saved={saved}
-          disabled={!isAdmin}
-          onSave={() => void handleSave()}
-        />
+        <div className="flex items-center gap-2">
+          {saved ? (
+            <span className="text-[12px] font-medium text-[#1f7a3f]">Saved</span>
+          ) : null}
+          <Button
+            type="button"
+            className={cn(dashboardPrimaryButtonClass, "h-9 rounded-lg")}
+            onClick={openNewSheet}
+            disabled={!isAdmin || saving}
+          >
+            <Plus className="size-3.5" />
+            Add rate sheet
+          </Button>
+        </div>
       </SettingsHeader>
 
       {!isAdmin && <AdminLockNotice />}
       {error && <SettingsError message={error} />}
 
-      <input
-        ref={fileRef}
-        type="file"
-        accept=".csv,text/csv"
-        className="hidden"
-        onChange={(e) => {
-          void handleFile(e.target.files?.[0]);
-          e.target.value = "";
-        }}
-      />
-
       <SettingsPanel
-        title="Auto-apply to orders"
-        description="When on, matching pricing tiers are suggested as you build line items."
-        action={
-          <button
-            type="button"
-            role="switch"
-            aria-checked={draft.enabled}
-            disabled={!isAdmin}
-            onClick={() => setDraft((c) => ({ ...c, enabled: !c.enabled }))}
-            className={cn(
-              "relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors",
-              draft.enabled ? "bg-brand-primary" : "bg-[#d4d4d4]",
-              !isAdmin && "cursor-not-allowed opacity-50"
-            )}
-          >
-            <span
-              className={cn(
-                "pointer-events-none absolute top-0.5 inline-block size-5 rounded-full bg-white shadow transition-transform",
-                draft.enabled ? "translate-x-5" : "translate-x-0.5"
-              )}
-            />
-          </button>
-        }
+        title="Shop rate sheets"
+        description="The default sheet syncs to legacy shop pricing and is used when an order does not pick another sheet."
       >
-        <div className="flex items-start gap-2.5 rounded-lg border border-[#dbe6ff] bg-[#f4f7ff] px-4 py-3 text-[13px] text-[#3a4a6b]">
+        <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-[#dbe6ff] bg-[#f4f7ff] px-4 py-3 text-[13px] text-[#3a4a6b]">
           <Info className="mt-0.5 size-4 shrink-0 text-brand-primary" />
           <p>
-            Prices are per unit at each quantity break. Upload a CSV where the
-            first column is the quantity and each remaining column is a price
-            option (for example, number of print colors). The highest tier whose
-            minimum quantity is met is used.
+            Add multiple matrices when you need different shop defaults (for
+            example retail vs wholesale). On the order estimate, staff can choose
+            among these sheets and any customer negotiated sheets.
           </p>
+        </div>
+
+        <div className="space-y-2">
+          {savedSheets.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-6 text-center">
+              <p className="text-[13px] font-medium text-[#303030]">
+                No shop pricing yet
+              </p>
+              <p className={cn("mx-auto mt-1 max-w-xs", dashboardTaskDetailClass)}>
+                Add a rate sheet to price decoration methods and additional fees.
+              </p>
+            </div>
+          ) : (
+            savedSheets.map((sheet) => (
+              <button
+                key={sheet.id}
+                type="button"
+                disabled={!isAdmin}
+                onClick={() => openEditSheet(sheet)}
+                className="group flex w-full items-start justify-between gap-3 rounded-lg border border-[#ebebeb] bg-white px-3.5 py-3 text-left transition-colors hover:border-[#d4d4d4] hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-[13px] font-semibold text-[#303030]">
+                      {sheet.name}
+                    </p>
+                    {sheet.isDefault ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-[#f4f7fd] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#2c6ecb]">
+                        <Star className="size-3 fill-current" />
+                        Default
+                      </span>
+                    ) : null}
+                    {!sheet.enabled ? (
+                      <span className="rounded-full bg-[#f1f1f1] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161]">
+                        Disabled
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-[12px] text-[#616161]">
+                    {shopRateSheetSummary(sheet)}
+                  </p>
+                  {sheet.updatedAt ? (
+                    <p className="mt-1 text-[11px] text-[#8a8a8a]">
+                      Updated {formatDate(sheet.updatedAt)}
+                    </p>
+                  ) : null}
+                </div>
+                <ChevronRight className="mt-1 size-4 shrink-0 text-[#8a8a8a] transition-transform group-hover:translate-x-0.5 group-hover:text-[#2c6ecb]" />
+              </button>
+            ))
+          )}
         </div>
       </SettingsPanel>
 
-      {draft.methods.length === 0 ? (
-        <SettingsPanel title="Decoration methods">
-          <div className="flex flex-col items-center justify-center gap-4 py-8 text-center">
-            <p className="max-w-sm text-[13px] text-[#616161]">
-              Upload a pricing CSV to load your matrix in seconds, or add a
-              method to build one by hand.
-            </p>
-            <Button size="sm" disabled={!isAdmin} onClick={() => triggerImport(null)}>
-              <Upload className="size-4" />
-              Import CSV
-            </Button>
-            {csvError && (
-              <p className="text-xs text-[#b42318]">{csvError}</p>
-            )}
-            <div className="flex flex-wrap justify-center gap-2 pt-2">
-              {STARTER_METHODS.map((name) => (
-                <Button
-                  key={name}
-                  variant="outline"
-                  size="sm"
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="flex max-h-[min(94vh,900px)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl">
+          <DialogHeader className="shrink-0 border-b border-[#ebebeb] bg-[#fafafa] px-5 py-4 text-left">
+            <DialogTitle className={dashboardTaskTitleClass}>
+              {editingSheetId ? "Edit rate sheet" : "Add rate sheet"}
+            </DialogTitle>
+            <DialogDescription className={dashboardTaskDetailClass}>
+              Build or import a pricing matrix for this shop sheet. Mark one sheet
+              as the shop default.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                  Rate sheet name
+                </Label>
+                <Input
+                  value={sheetDraft.name}
+                  onChange={(event) =>
+                    setSheetDraft((current) => ({
+                      ...current,
+                      name: event.target.value,
+                    }))
+                  }
+                  placeholder="Shop standard, Wholesale, Retail"
+                  className="h-9 rounded-lg border-[#e3e3e3]"
                   disabled={!isAdmin}
-                  onClick={() => addMethod(name)}
-                >
-                  <Plus className="size-4" />
-                  {name}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </SettingsPanel>
-      ) : (
-        <div className="space-y-4">
-          {csvError && <SettingsError message={csvError} />}
-
-          {draft.methods.map((method) => (
-            <SettingsPanel
-              key={method.id}
-              title={method.name || "Untitled method"}
-              action={
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!isAdmin}
-                    onClick={() => triggerImport(method.id)}
-                  >
-                    <Upload className="size-4" />
-                    Replace via CSV
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    disabled={!isAdmin}
-                    onClick={() => removeMethod(method.id)}
-                    className="text-[#8a8a8a] hover:text-[#b42318]"
-                    aria-label="Remove method"
-                  >
-                    <Trash2 className="size-4" />
-                  </Button>
-                </>
-              }
-            >
-              <div className="space-y-5">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Method name</Label>
-                    <Input
-                      value={method.name}
-                      disabled={!isAdmin}
-                      onChange={(e) =>
-                        updateMethod(method.id, { name: e.target.value })
-                      }
-                      placeholder="e.g. Screen Print"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Unit label</Label>
-                    <Input
-                      value={method.unit}
-                      disabled={!isAdmin}
-                      onChange={(e) =>
-                        updateMethod(method.id, { unit: e.target.value })
-                      }
-                      placeholder="per piece"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <Label>Pricing grid ({currency})</Label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={!isAdmin}
-                      onClick={() => addColumn(method.id)}
-                    >
-                      <Plus className="size-4" />
-                      Add column
-                    </Button>
-                  </div>
-
-                  <div className="overflow-x-auto rounded-lg border border-[#e3e3e3]">
-                    <table className="w-full border-collapse text-sm">
-                      <thead>
-                        <tr className="bg-[#fafafa]">
-                          <th className="sticky left-0 z-10 bg-[#fafafa] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-[#8a8a8a]">
-                            Min qty
-                          </th>
-                          {method.columns.map((col, colIndex) => (
-                            <th
-                              key={colIndex}
-                              className="border-l border-[#ebebeb] px-2 py-1.5"
-                            >
-                              <div className="flex items-center gap-1">
-                                <Input
-                                  value={col}
-                                  disabled={!isAdmin}
-                                  onChange={(e) =>
-                                    updateColumnName(
-                                      method.id,
-                                      colIndex,
-                                      e.target.value
-                                    )
-                                  }
-                                  className="h-8 w-24 text-xs"
-                                />
-                                {method.columns.length > 1 && (
-                                  <button
-                                    type="button"
-                                    disabled={!isAdmin}
-                                    onClick={() =>
-                                      removeColumn(method.id, colIndex)
-                                    }
-                                    className="text-[#b0b0b0] hover:text-[#b42318] disabled:opacity-40"
-                                    aria-label="Remove column"
-                                  >
-                                    <Trash2 className="size-3.5" />
-                                  </button>
-                                )}
-                              </div>
-                            </th>
-                          ))}
-                          <th className="w-10 border-l border-[#ebebeb]" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {method.rows.map((row, rowIndex) => (
-                          <tr
-                            key={rowIndex}
-                            className="border-t border-[#ebebeb]"
-                          >
-                            <td className="sticky left-0 z-10 bg-white px-2 py-1.5">
-                              <Input
-                                type="number"
-                                min={1}
-                                step={1}
-                                disabled={!isAdmin}
-                                value={row.minQty}
-                                onChange={(e) =>
-                                  updateRowQty(
-                                    method.id,
-                                    rowIndex,
-                                    Math.max(
-                                      1,
-                                      Math.floor(Number(e.target.value) || 1)
-                                    )
-                                  )
-                                }
-                                className="h-8 w-20 text-xs"
-                              />
-                            </td>
-                            {row.prices.map((price, colIndex) => (
-                              <td
-                                key={colIndex}
-                                className="border-l border-[#ebebeb] px-2 py-1.5"
-                              >
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  step={0.01}
-                                  disabled={!isAdmin}
-                                  value={price}
-                                  onChange={(e) =>
-                                    updateCell(
-                                      method.id,
-                                      rowIndex,
-                                      colIndex,
-                                      Math.max(0, Number(e.target.value) || 0)
-                                    )
-                                  }
-                                  className="h-8 w-20 text-xs"
-                                />
-                              </td>
-                            ))}
-                            <td className="border-l border-[#ebebeb] px-2 py-1.5 text-center">
-                              <button
-                                type="button"
-                                disabled={!isAdmin || method.rows.length <= 1}
-                                onClick={() => removeRow(method.id, rowIndex)}
-                                className="text-[#b0b0b0] hover:text-[#b42318] disabled:opacity-40"
-                                aria-label="Remove row"
-                              >
-                                <Trash2 className="size-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={!isAdmin}
-                    onClick={() => addRow(method.id)}
-                  >
-                    <Plus className="size-4" />
-                    Add quantity row
-                  </Button>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Notes (optional)</Label>
-                  <Input
-                    value={method.notes}
-                    disabled={!isAdmin}
-                    onChange={(e) =>
-                      updateMethod(method.id, { notes: e.target.value })
-                    }
-                    placeholder="e.g. white base / underbase counts as a color"
-                  />
-                </div>
+                />
               </div>
-            </SettingsPanel>
-          ))}
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                  Internal notes
+                </Label>
+                <Input
+                  value={sheetDraft.notes ?? ""}
+                  onChange={(event) =>
+                    setSheetDraft((current) => ({
+                      ...current,
+                      notes: event.target.value,
+                    }))
+                  }
+                  placeholder="Optional context for your team"
+                  className="h-9 rounded-lg border-[#e3e3e3]"
+                  disabled={!isAdmin}
+                />
+              </div>
+            </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              disabled={!isAdmin}
-              onClick={() => triggerImport(null)}
-            >
-              <Upload className="size-4" />
-              Import CSV
-            </Button>
-            <Button
-              variant="outline"
-              disabled={!isAdmin}
-              onClick={() => addMethod()}
-            >
-              <Plus className="size-4" />
-              Add decoration method
-            </Button>
-          </div>
+            <div className="flex flex-wrap items-center gap-4">
+              <label className="flex items-center gap-2 text-[13px] text-[#303030]">
+                <input
+                  type="checkbox"
+                  checked={Boolean(sheetDraft.isDefault)}
+                  onChange={(event) =>
+                    setSheetDraft((current) => ({
+                      ...current,
+                      isDefault: event.target.checked,
+                    }))
+                  }
+                  className="size-4 rounded border-[#c9c9c9]"
+                  disabled={!isAdmin}
+                />
+                Default shop rate sheet
+              </label>
+              <label className="flex items-center gap-2 text-[13px] text-[#303030]">
+                <input
+                  type="checkbox"
+                  checked={sheetDraft.enabled !== false}
+                  onChange={(event) =>
+                    setSheetDraft((current) => ({
+                      ...current,
+                      enabled: event.target.checked,
+                    }))
+                  }
+                  className="size-4 rounded border-[#c9c9c9]"
+                  disabled={!isAdmin}
+                />
+                Active
+              </label>
+            </div>
 
-          <SettingsPanel
-            title="Order fee presets"
-            description="Saved setup, finishing, and other fees staff can pick when building an estimate."
-          >
+            <div
+              className={cn(dashboardInsetSurfaceClass, "space-y-2 rounded-lg p-3.5")}
+            >
+              <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                Blank garment markup (%)
+              </Label>
+              <Input
+                type="number"
+                min={0}
+                step={0.1}
+                value={sheetDraft.blankMarkupPercent ?? 0}
+                onChange={(event) =>
+                  setSheetDraft((current) => ({
+                    ...current,
+                    blankMarkupPercent: Math.max(
+                      0,
+                      Number(event.target.value) || 0
+                    ),
+                  }))
+                }
+                className={cn(dashboardControlClass, "h-9 max-w-[160px]")}
+                disabled={!isAdmin}
+              />
+              <p className={dashboardTaskDetailClass}>
+                Applied to blank garment cost when this sheet is selected on an
+                order.
+              </p>
+            </div>
+
+            <PricingMatrixEditor
+              value={matrixFromShopSheet(sheetDraft)}
+              onChange={(matrix) =>
+                setSheetDraft((current) => ({
+                  ...current,
+                  methods: matrix.methods,
+                  enabled: matrix.enabled,
+                }))
+              }
+              currency={currency}
+            />
+
             <CustomerContractFeesEditor
               sheet={
                 {
-                  id: "shop",
-                  name: "Shop standard",
-                  enabled: true,
-                  methods: [],
-                  contractFees: draft.contractFees ?? [],
+                  id: sheetDraft.id,
+                  name: sheetDraft.name,
+                  enabled: sheetDraft.enabled,
+                  methods: sheetDraft.methods,
+                  contractFees: sheetDraft.contractFees ?? [],
                 } satisfies CustomerNegotiatedRateSheet
               }
               onChange={(sheet) =>
-                setDraft((current) => ({
+                setSheetDraft((current) => ({
                   ...current,
                   contractFees: sheet.contractFees ?? [],
                 }))
               }
               currency={currency}
             />
-          </SettingsPanel>
-        </div>
-      )}
+
+            {draftError ? (
+              <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[13px] text-[#8f1f1f]">
+                {draftError}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-4">
+            {editingSheetId ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-[#8f1f1f] hover:bg-[#fff1f1] hover:text-[#8f1f1f]"
+                disabled={!isAdmin || saving || deleting || savedSheets.length <= 1}
+                onClick={openDeleteConfirm}
+              >
+                <Trash2 className="size-3.5" />
+                Delete rate sheet
+              </Button>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                className="rounded-lg"
+                onClick={() => setDialogOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                className={cn(dashboardPrimaryButtonClass, "rounded-lg")}
+                disabled={!isAdmin || saving}
+                onClick={() => void saveSheetDraft()}
+              >
+                {saving ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                Save rate sheet
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete rate sheet?</DialogTitle>
+            <DialogDescription>
+              Remove &ldquo;{deleteTarget?.name}&rdquo; from shop pricing. Orders
+              already using this sheet will fall back to the shop default.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={deleting}
+              onClick={() => setDeleteTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => {
+                if (deleteTarget) void deleteSheet(deleteTarget.id);
+              }}
+            >
+              {deleting ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              Delete
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </SettingsMain>
   );
 }

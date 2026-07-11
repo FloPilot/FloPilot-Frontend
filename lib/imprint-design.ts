@@ -121,6 +121,42 @@ export function summarizeInkColors(inkColors?: ImprintInkColor[]): string {
     .join(" · ");
 }
 
+export function formatInkColorLabel(
+  row: Pick<ImprintInkColor, "name" | "pmsCode" | "isFlash" | "transferType">
+): string {
+  if (row.isFlash) return "Flash";
+  const pms = row.pmsCode?.trim() || "";
+  const name = row.name?.trim() || "";
+  if (pms && name && pms.toLowerCase() !== name.toLowerCase()) {
+    return `${pms} · ${name}`;
+  }
+  return pms || name || "—";
+}
+
+export function formatInkColorDetails(
+  row: Pick<
+    ImprintInkColor,
+    "mesh" | "squeegee" | "transferType" | "isFlash"
+  >,
+  options?: { decoration?: DecorationType }
+): string {
+  if (row.isFlash) return "Cure between colors";
+  const parts: string[] = [];
+  if (options?.decoration === "dtf" && row.transferType?.trim()) {
+    parts.push(row.transferType.trim());
+  }
+  if (row.mesh != null && Number.isFinite(Number(row.mesh))) {
+    parts.push(`${row.mesh} mesh`);
+  }
+  if (row.squeegee?.trim()) {
+    const label =
+      SQUEEGEE_OPTIONS.find((option) => option.value === row.squeegee)?.label ||
+      row.squeegee;
+    parts.push(`${label} squeegee`);
+  }
+  return parts.join(" · ");
+}
+
 export function countPrintColors(inkColors?: ImprintInkColor[]): number {
   return (
     inkColors?.filter(

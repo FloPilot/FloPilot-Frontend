@@ -146,12 +146,16 @@ function buildDecorationRows(
   }));
 }
 
-function buildFeeRows(order: Order, customer?: Customer | null): EstimateRow[] {
-  return buildFeeEstimateRows(order, customer).map((entry) => ({
+function buildFeeRows(
+  order: Order,
+  customer?: Customer | null,
+  pricingMatrix?: PricingMatrix
+): EstimateRow[] {
+  return buildFeeEstimateRows(order, customer, pricingMatrix).map((entry) => ({
     id: entry.id,
     kind: "fee" as const,
     description: entry.label,
-    detail: entry.detail || (entry.source === "auto" ? "Contract fee" : ""),
+    detail: entry.detail || (entry.source === "auto" ? "Additional fee" : ""),
     qty: entry.qty,
     unitCost: entry.unitPrice,
     lineTotal: round2(entry.qty * entry.unitPrice),
@@ -175,7 +179,7 @@ export function computeEstimateTotals(
 
   const garmentRows = buildGarmentRows(order, pricingMatrix);
   const decorationRows = buildDecorationRows(order, pricingMatrix);
-  const feeRows = buildFeeRows(order, customer);
+  const feeRows = buildFeeRows(order, customer, pricingMatrix);
   const rows = [...garmentRows, ...decorationRows, ...feeRows];
 
   let garmentSubtotal = round2(

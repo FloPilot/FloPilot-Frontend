@@ -2,10 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { CalendarPlus, Droplets } from "lucide-react";
-import { ScheduleJobDialog } from "@/components/calendar/schedule-job-dialog";
-import { schedulableJobKey } from "@/lib/job-imprints";
-import { inkColorStableId } from "@/lib/imprint-design";
+import { Droplets } from "lucide-react";
 import {
   DepartmentCardTitle,
   DepartmentEmptyState,
@@ -27,6 +24,7 @@ import { mergeOrderMaterials } from "@/lib/order-materials";
 import { dashboardControlClass } from "@/lib/dashboard-styles";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { inkColorStableId } from "@/lib/imprint-design";
 
 export function InksDepartmentPanel() {
   const {
@@ -36,8 +34,6 @@ export function InksDepartmentPanel() {
     updateOrderMaterials,
   } = useSchedule();
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [scheduleKey, setScheduleKey] = useState<string | null>(null);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const entries = useMemo(
     () => collectInkQueue(orders, scheduleBlocks),
@@ -74,13 +70,13 @@ export function InksDepartmentPanel() {
     <DepartmentsShell
       activeSlug="inks"
       title="Ink prep queue"
-      description="Mix and stage ink for each screen-print location. Mark colors as you go — the floor sees the same status on the order."
+      description="Mix and stage ink for scheduled screen-print locations. Each location appears here after its event is on the calendar."
     >
       {entries.length === 0 ? (
         <DepartmentEmptyState
           icon={Droplets}
           title="Ink prep is caught up"
-          description="Locations with ink colors to mix appear here after proofs are approved."
+          description="When screen-print events are scheduled on the calendar, ink prep tasks show up here with a target date before the run."
         />
       ) : (
         <div className="space-y-2.5">
@@ -117,6 +113,7 @@ export function InksDepartmentPanel() {
                     <DepartmentOrderLink
                       orderId={entry.order.id}
                       orderNumber={entry.order.number}
+                      customLabel={entry.order.customLabel}
                     />
                     <span className="mx-1 text-[#c9cccf]">·</span>
                     {entry.jobName}
@@ -203,23 +200,6 @@ export function InksDepartmentPanel() {
                         );
                       }}
                     />
-                    <button
-                      type="button"
-                      className={cn(dashboardControlClass, "h-8 gap-1.5 px-3 text-xs font-semibold")}
-                      onClick={() => {
-                        setScheduleKey(
-                          schedulableJobKey(
-                            entry.order.id,
-                            entry.line.jobId!,
-                            entry.line.imprintId!
-                          )
-                        );
-                        setScheduleOpen(true);
-                      }}
-                    >
-                      <CalendarPlus className="size-3.5" />
-                      Schedule
-                    </button>
                     <Link
                       href={`/app/orders/${entry.order.id}?tab=materials`}
                       className={cn(dashboardControlClass, "h-8 px-3 text-xs font-semibold")}
@@ -233,15 +213,6 @@ export function InksDepartmentPanel() {
           })}
         </div>
       )}
-
-      <ScheduleJobDialog
-        open={scheduleOpen}
-        onOpenChange={setScheduleOpen}
-        prefillJobKey={scheduleKey ?? undefined}
-        filterOrderId={
-          scheduleKey ? scheduleKey.split("::")[0] : undefined
-        }
-      />
     </DepartmentsShell>
   );
 }

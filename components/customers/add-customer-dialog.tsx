@@ -37,10 +37,16 @@ export function AddCustomerDialog({
   open,
   onOpenChange,
   onCreate,
+  title = "Add customer",
+  description = "Create a new account. You can start an order from their profile after saving.",
+  submitLabel = "Add customer",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreate: (input: NewCustomerInput) => Customer | Promise<Customer>;
+  title?: string;
+  description?: string;
+  submitLabel?: string;
 }) {
   const [form, setForm] = useState<NewCustomerInput>(EMPTY_NEW_CUSTOMER);
   const [logo, setLogo] = useState<string | null>(null);
@@ -96,11 +102,10 @@ export function AddCustomerDialog({
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
           <DialogHeader className="px-8 pt-7 pb-5 border-b border-border shrink-0 text-left">
             <DialogTitle className="text-xl font-semibold text-brand-ink">
-              Add customer
+              {title}
             </DialogTitle>
             <DialogDescription className="text-sm leading-relaxed">
-              Create a new account. You can start an order from their profile
-              after saving.
+              {description}
             </DialogDescription>
           </DialogHeader>
 
@@ -253,7 +258,7 @@ export function AddCustomerDialog({
               className="rounded-full min-w-[132px]"
               disabled={submitting}
             >
-              {submitting ? "Saving…" : "Add customer"}
+              {submitting ? "Saving…" : submitLabel}
             </Button>
           </div>
         </form>

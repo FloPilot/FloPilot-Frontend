@@ -13,6 +13,7 @@ import type { Order, OrderStatus, ScheduleBlock, StationJobRun, Task, TaskStatus
 export type ActiveProductionOrder = {
   id: string;
   number: string;
+  customLabel?: string;
   company: string;
   status: OrderStatus;
   departmentTaskCount: number;
@@ -108,6 +109,7 @@ export function buildProductionPipelineSnapshot({
       return {
         id: order.id,
         number: order.number,
+        customLabel: order.customLabel,
         company: order.company,
         status: order.status,
         departmentTaskCount: orderTasks.length,

@@ -7,6 +7,8 @@ import type { StaffRole } from "@/lib/staff-roles";
 import type { StaffAccess } from "@/lib/staff-access";
 import type { SupportTicket } from "@/lib/support-tickets";
 import type { Customer, DashboardStats, Order, StaffNotification } from "@/types";
+import type { ReportDateRange } from "@/lib/reports/report-date-range";
+import type { SavedCustomReport } from "@/lib/reports/custom-report-builder";
 
 export function getApiBaseUrl() {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -14,6 +16,16 @@ export function getApiBaseUrl() {
     throw new Error("NEXT_PUBLIC_API_BASE_URL is not set in .env.local");
   }
   return base.replace(/\/$/, "");
+}
+
+function resolveFunctionUrl(functionName: string): string {
+  if (
+    functionName === "askReportAssistant" &&
+    process.env.NEXT_PUBLIC_API_ASK_REPORT_ASSISTANT
+  ) {
+    return process.env.NEXT_PUBLIC_API_ASK_REPORT_ASSISTANT.replace(/\/$/, "");
+  }
+  return `${getApiBaseUrl()}/${functionName}`;
 }
 
 export type ApiError = {
@@ -31,7 +43,7 @@ export async function callApi<T>(
   } = {}
 ): Promise<T> {
   const { method = "GET", body, token, query } = options;
-  const url = new URL(`${getApiBaseUrl()}/${functionName}`);
+  const url = new URL(resolveFunctionUrl(functionName));
 
   if (query) {
     for (const [key, value] of Object.entries(query)) {
@@ -274,6 +286,7 @@ export type TeamMember = {
   role: StaffRole;
   status?: "active" | "disabled";
   access?: StaffAccess | null;
+  tags?: string[];
   createdAt: string;
 };
 
@@ -310,7 +323,12 @@ export async function inviteTeamMember(
 export async function updateTeamMember(
   token: string,
   userId: string,
-  body: { name?: string; role?: StaffRole; access?: StaffAccess | null }
+  body: {
+    name?: string;
+    role?: StaffRole;
+    access?: StaffAccess | null;
+    tags?: string[];
+  }
 ) {
   return callApi<{ member: TeamMember }>("updateTeamMember", {
     method: "PATCH",
@@ -479,6 +497,32 @@ export async function fetchDashboardStats(token: string) {
   });
 }
 
+// ─── Reports AI ─────────────────────────────────────────────────────────────
+
+export type AskReportAssistantResponse = {
+  reply: string;
+  reportId: string | null;
+  customReport: SavedCustomReport | null;
+  suggestions: string[];
+  contextSummary?: Record<string, number | string>;
+  model?: string;
+};
+
+export async function askReportAssistant(
+  token: string,
+  input: {
+    message: string;
+    dateRange?: ReportDateRange;
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+  }
+) {
+  return callApi<AskReportAssistantResponse>("askReportAssistant", {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
 // ─── Customers ──────────────────────────────────────────────────────────────
 
 export async function listCustomers(token: string, search?: string) {
@@ -509,7 +553,9 @@ export type CustomerUpdate = Partial<NewCustomerInput> & {
   /** Production accent color key; null clears to auto */
   accentColorKey?: string | null;
   shippingLocations?: import("@/types").CustomerShippingLocation[];
+  subCustomers?: import("@/types").SubCustomer[];
   negotiatedPricing?: import("@/types").CustomerNegotiatedPricing;
+  salesRepId?: string | null;
 };
 
 export async function updateCustomer(
@@ -517,11 +563,14 @@ export async function updateCustomer(
   customerId: string,
   updates: CustomerUpdate
 ) {
-  return callApi<{ customer: Customer }>("updateCustomer", {
-    method: "PATCH",
-    body: { customerId, ...updates },
-    token,
-  });
+  return callApi<{ customer: Customer; ordersUpdated?: number }>(
+    "updateCustomer",
+    {
+      method: "PATCH",
+      body: { customerId, ...updates },
+      token,
+    }
+  );
 }
 
 export async function archiveCustomer(token: string, customerId: string) {
@@ -561,6 +610,9 @@ export async function saveOrderListView(
     id?: string;
     name: string;
     columns: import("@/lib/order-list-columns").OrdersListColumnId[];
+    columnLabels?: Partial<
+      Record<import("@/lib/order-list-columns").OrdersListColumnId, string>
+    >;
     shared?: boolean;
   }
 ) {
@@ -585,6 +637,9 @@ export async function setActiveOrderListView(
   return callApi<{
     activeViewId: string | null;
     activeColumns: import("@/lib/order-list-columns").OrdersListColumnId[];
+    activeColumnLabels?: Partial<
+      Record<import("@/lib/order-list-columns").OrdersListColumnId, string>
+    >;
   }>("setActiveOrderListView", {
     method: "POST",
     body: { viewId },
@@ -927,6 +982,42 @@ export async function uploadArtworkVersion(
   });
 }
 
+export async function addProofSlide(
+  token: string,
+  orderId: string,
+  jobId: string,
+  imprintId: string,
+  payload: {
+    fileName: string;
+    previewUrl?: string;
+    label?: string;
+  }
+) {
+  return callApi<{ order: Order }>("addProofSlide", {
+    method: "POST",
+    body: { orderId, jobId, imprintId, ...payload },
+    token,
+  });
+}
+
+export async function updateProofSlides(
+  token: string,
+  orderId: string,
+  jobId: string,
+  imprintId: string,
+  payload: {
+    orderedIds?: string[];
+    slides?: { id: string; label?: string }[];
+    removeIds?: string[];
+  }
+) {
+  return callApi<{ order: Order }>("updateProofSlides", {
+    method: "PATCH",
+    body: { orderId, jobId, imprintId, ...payload },
+    token,
+  });
+}
+
 export async function updateOrderMaterials(
   token: string,
   orderId: string,
@@ -1167,7 +1258,10 @@ export async function updateScheduleBlock(
   blockId: string,
   block: Omit<import("@/types").ScheduleBlock, "id">
 ) {
-  return callApi<{ block: import("@/types").ScheduleBlock }>(
+  return callApi<{
+    block: import("@/types").ScheduleBlock;
+    order: import("@/types").Order | null;
+  }>(
     "updateScheduleBlock",
     {
       method: "PATCH",
@@ -1178,11 +1272,14 @@ export async function updateScheduleBlock(
 }
 
 export async function deleteScheduleBlock(token: string, blockId: string) {
-  return callApi<void>("deleteScheduleBlock", {
-    method: "DELETE",
-    body: { blockId },
-    token,
-  });
+  return callApi<{ order: import("@/types").Order | null }>(
+    "deleteScheduleBlock",
+    {
+      method: "POST",
+      body: { blockId },
+      token,
+    }
+  );
 }
 
 export async function listJobRuns(token: string) {
@@ -1424,6 +1521,7 @@ export type AssignableStaffMember = {
   name: string;
   email: string;
   role: StaffRole;
+  tags?: string[];
 };
 
 export async function listTasks(token: string) {

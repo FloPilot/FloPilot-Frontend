@@ -8,6 +8,7 @@ import {
 } from "@/components/calendar/order-production-flow";
 import { RushBadge } from "@/components/status-badges";
 import { decorationLabel, formatDate } from "@/lib/format";
+import { formatOrderRef } from "@/lib/order-display";
 import type { SchedulingQueueOrder } from "@/lib/event-basket";
 import type { HealthStatus } from "@/lib/order-health";
 import {
@@ -48,7 +49,7 @@ function SchedulingQueueOrderCard({ item }: { item: SchedulingQueueOrder }) {
         <div className="min-w-0 flex-1 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm font-semibold text-brand-ink transition-colors group-hover:text-brand-primary">
-              {item.orderNumber}
+              {formatOrderRef(item)}
             </span>
             <span className="text-sm text-brand-muted truncate">
               {item.customerName}

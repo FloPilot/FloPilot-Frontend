@@ -31,6 +31,7 @@ import {
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { decorationLabel, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { getDueDateUrgency } from "@/lib/order-health";
 import { analyzeOrderProductionFlow } from "@/lib/production-flow";
 import {
@@ -231,7 +232,7 @@ export function ProductionEventSheet({
             ) : null}
           </div>
           <DialogDescription className="mt-1 text-[13px] text-[#616161]">
-            {order.number} · {decorationLabel(imprint.decoration)}
+            {formatOrderDisplayLine(order)} · {decorationLabel(imprint.decoration)}
             {job.name !== imprint.label ? ` · ${job.name}` : ""}
           </DialogDescription>
           <p className="mt-2 text-[13px] font-medium text-[#303030]">
@@ -271,8 +272,7 @@ export function ProductionEventSheet({
                 Order readiness
               </p>
               <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-                Same checkpoints as the Events table — actions update the order
-                and this event&apos;s status.
+                Proofs, materials, and production status for this decoration.
               </p>
             </div>
             <div className="space-y-2 p-3">

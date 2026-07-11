@@ -1657,7 +1657,7 @@ export function OrderMaterialsPanel({
       <div className="space-y-5 p-4 sm:p-5">
         {allReceived && !section ? (
           <div className="rounded-lg border border-[#b7d8b7] bg-[#e3f1df] px-4 py-3 text-sm font-medium text-[#0d5c2e]">
-            All receiving items done — ready to schedule production.
+            Receiving complete — keep scheduling production on the calendar.
           </div>
         ) : null}
 

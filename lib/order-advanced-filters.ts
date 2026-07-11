@@ -51,7 +51,7 @@ export const ORDER_STATUS_OPTIONS: { value: OrderStatus; label: string }[] = [
   { value: "draft", label: "Draft" },
   { value: "quote_sent", label: "Quote sent" },
   { value: "awaiting_approval", label: "Awaiting approval" },
-  { value: "approved", label: "Approved" },
+  { value: "approved", label: "Ready for scheduling" },
   { value: "in_production", label: "In production" },
   { value: "ready_to_ship", label: "Ready to ship" },
   { value: "shipped", label: "Shipped" },
@@ -81,7 +81,8 @@ function matchesFilter(order: Order, filter: OrderAdvancedFilter): boolean {
       if (!q) return true;
       return (
         order.number.toLowerCase().includes(q) ||
-        order.number.replace(/-/g, "").toLowerCase().includes(q.replace(/-/g, ""))
+        order.number.replace(/-/g, "").toLowerCase().includes(q.replace(/-/g, "")) ||
+        (order.customLabel?.trim().toLowerCase().includes(q) ?? false)
       );
     }
     case "status":

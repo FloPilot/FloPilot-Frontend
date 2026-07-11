@@ -30,6 +30,7 @@ import {
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { cn } from "@/lib/utils";
 import type { DashboardAttentionItem } from "@/lib/dashboard-insights";
 
@@ -142,6 +143,7 @@ export function ShopDashboard() {
     () => ({
       taxRate: settings.taxRate,
       pricingMatrix: settings.pricingMatrix,
+      pricingRateSheets: settings.pricingRateSheets,
       getCustomer: getCustomerById,
     }),
     [settings.taxRate, settings.pricingMatrix, getCustomerById]
@@ -363,7 +365,7 @@ export function ShopDashboard() {
                               href={`/app/orders/${order.id}`}
                               className="text-[15px] font-semibold text-[#303030] hover:text-brand-primary"
                             >
-                              {order.number}
+                              {formatOrderDisplayLine(order)}
                             </Link>
                             <p className="mt-0.5 text-xs text-[#616161] sm:hidden">
                               {order.company}

@@ -43,6 +43,7 @@ import {
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { formatDateTime } from "@/lib/format";
+import { formatOrderRef } from "@/lib/order-display";
 import { isArchivedOrder } from "@/lib/order-archive";
 import { buildOrderFileList, type OrderFileItem } from "@/lib/order-files";
 import type { OrderFileKind } from "@/types";
@@ -54,6 +55,7 @@ type FileRow = {
   file: OrderFileItem;
   orderId: string;
   orderNumber: string;
+  orderCustomLabel?: string;
   customerName: string;
   company: string;
 };
@@ -185,6 +187,7 @@ function FileBrowser({ scope }: { scope: "all" | "screens" }) {
           file,
           orderId: order.id,
           orderNumber: order.number,
+          orderCustomLabel: order.customLabel,
           customerName: order.customerName,
           company: order.company,
         });
@@ -214,7 +217,7 @@ function FileBrowser({ scope }: { scope: "all" | "screens" }) {
       }
       if (query) {
         const haystack =
-          `${row.file.name} ${row.orderNumber} ${row.company} ${row.customerName}`.toLowerCase();
+          `${row.file.name} ${formatOrderRef(row)} ${row.company} ${row.customerName}`.toLowerCase();
         if (!haystack.includes(query)) return false;
       }
       return true;
@@ -468,7 +471,7 @@ function FilesTable({
                     className="text-[13px] font-semibold text-[#303030] hover:text-[#2c6ecb] hover:underline"
                     onClick={(event) => event.stopPropagation()}
                   >
-                    {row.orderNumber}
+                    {formatOrderRef(row)}
                   </Link>
                 </TableCell>
                 <TableCell className="py-2.5">
@@ -560,7 +563,7 @@ function FilePreviewDialog({
 
               <div className="grid grid-cols-2 gap-2 text-[13px]">
                 <Meta label="Type" value={kindLabel(file.kind)} />
-                <Meta label="Order" value={row.orderNumber} />
+                <Meta label="Order" value={formatOrderRef(row)} />
                 {file.source === "imprint" && file.imprintLabel ? (
                   <Meta label="Location" value={file.imprintLabel} />
                 ) : null}

@@ -219,7 +219,7 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
   const [approvingEstimate, setApprovingEstimate] = useState(false);
   const customer = getCustomerById(order.customerId);
   const pricingMatrix = useMemo(
-    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer, order),
+    () => resolveEffectivePricingMatrix(settings, customer, order),
     [settings.pricingMatrix, customer, order]
   );
   const totals = useMemo(

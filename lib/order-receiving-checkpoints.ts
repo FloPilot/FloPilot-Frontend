@@ -14,9 +14,14 @@ import type { BlankSource, JobImprint, MaterialReceiveStatus, Order } from "@/ty
 export type ReceivingCheckpointKey =
   | "ink"
   | "screens"
+  | "screen_files"
   | "blanks"
   | "dtf_transfers"
   | "blank_source";
+
+export function getOrderScreenFiles(order: Order) {
+  return (order.files ?? []).filter((file) => file.kind === "separation");
+}
 
 function materialLinesToStatus(
   lines: { status: MaterialReceiveStatus }[]
@@ -114,6 +119,35 @@ function buildInkCheckpoint(order: Order): OrderCheckpoint {
         : status === "in_progress"
           ? `${inkLines.length - done} screen print location${inkLines.length - done !== 1 ? "s" : ""} still need ink prep`
           : "Mix and prep ink on the Inks tab",
+  };
+}
+
+function buildScreenFilesCheckpoint(order: Order): OrderCheckpoint {
+  if (!orderHasScreenPrintEvents(order)) {
+    return {
+      key: "screen_files",
+      label: "Screen files",
+      shortLabel: "Files",
+      status: "not_applicable",
+      detail: "",
+      title: "Not a screen print order",
+    };
+  }
+
+  const files = getOrderScreenFiles(order);
+  const uploaded = files.length > 0;
+
+  return {
+    key: "screen_files",
+    label: "Screen files",
+    shortLabel: "Files",
+    status: uploaded ? "done" : "pending",
+    detail: uploaded
+      ? `${files.length} file${files.length === 1 ? "" : "s"}`
+      : "Not uploaded",
+    title: uploaded
+      ? `${files.length} production screen file${files.length === 1 ? "" : "s"} uploaded`
+      : "Upload screen / separation files on the Screens tab",
   };
 }
 
@@ -269,6 +303,7 @@ function buildBlankSourceCheckpoint(order: Order): OrderCheckpoint {
 export function computeReceivingCheckpoints(order: Order): OrderCheckpoint[] {
   return [
     buildInkCheckpoint(order),
+    buildScreenFilesCheckpoint(order),
     buildScreensCheckpoint(order),
     buildBlanksCheckpoint(order),
     buildDtfTransfersCheckpoint(order),

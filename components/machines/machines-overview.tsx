@@ -19,6 +19,7 @@ import { useSchedule } from "@/components/providers/schedule-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { machineColorStyles, RESOURCE_TYPE_LABELS } from "@/lib/machine-styles";
+import { ScheduleBlockOrderLine } from "@/components/orders/order-display-line";
 import { formatOperatingHoursSummary } from "@/lib/machine-hours";
 import {
   formatRunElapsed,
@@ -353,7 +354,7 @@ export function MachinesOverview({
                           {activeBlock.jobName}
                         </p>
                         <p className="mt-0.5 truncate text-xs text-[#616161]">
-                          {activeBlock.orderNumber} · {activeBlock.customerName}
+                          <ScheduleBlockOrderLine block={activeBlock} /> · {activeBlock.customerName}
                         </p>
                       </div>
                     ) : (

@@ -4,6 +4,7 @@ import {
   blankSourceLabel,
   blanksColumnLabel,
   garmentLinesToCheckpointStatus,
+  getOrderScreenFiles,
 } from "@/lib/order-receiving-checkpoints";
 import {
   getDtfReceivingLines,
@@ -108,12 +109,37 @@ function buildEventInkCheckpoint(
   };
 }
 
+function buildEventScreenFilesCheckpoint(
+  order: Order,
+  decoration: DecorationType
+): OrderCheckpoint {
+  if (decoration !== "screen_print") {
+    return notApplicable("screen_files", "Screen files", "Files");
+  }
+
+  const files = getOrderScreenFiles(order);
+  const uploaded = files.length > 0;
+
+  return {
+    key: "screen_files",
+    label: "Screen files",
+    shortLabel: "Files",
+    status: uploaded ? "done" : "pending",
+    detail: uploaded
+      ? `${files.length} file${files.length === 1 ? "" : "s"}`
+      : "Not uploaded",
+    title: uploaded
+      ? `${files.length} production file${files.length === 1 ? "" : "s"} on the Screens tab`
+      : "Upload separation / production files on the Screens tab",
+  };
+}
+
 function buildEventScreensCheckpoint(
   order: Order,
   decoration: DecorationType
 ): OrderCheckpoint {
   if (decoration !== "screen_print") {
-    return notApplicable("screens", "Screens", "Screens");
+    return notApplicable("screens", "Screens burned", "Burned");
   }
 
   const materials = mergeOrderMaterials(order);
@@ -121,24 +147,24 @@ function buildEventScreensCheckpoint(
   if (!screenLine) {
     return {
       key: "screens",
-      label: "Screens",
-      shortLabel: "Screens",
+      label: "Screens burned",
+      shortLabel: "Burned",
       status: "pending",
       detail: "",
-      title: "Confirm screens on the Screens tab",
+      title: "Confirm screens are burned on the Screens tab",
     };
   }
 
   return {
     key: "screens",
-    label: "Screens",
-    shortLabel: "Screens",
+    label: "Screens burned",
+    shortLabel: "Burned",
     status: lineStatusToRollup(screenLine.status),
     detail: screenLine.status === "received" ? "Ready" : "Pending",
     title:
       screenLine.status === "received"
-        ? "Screens burned and ready"
-        : "Screens not confirmed yet",
+        ? "Screens burned and ready for press"
+        : "Confirm screens are burned on the Screens tab",
   };
 }
 
@@ -237,7 +263,8 @@ export const EVENT_STATUS_COLUMNS: {
 }[] = [
   { key: "artwork", label: "Proofs" },
   { key: "ink", label: "Ink" },
-  { key: "screens", label: "Screens" },
+  { key: "screen_files", label: "Screen files" },
+  { key: "screens", label: "Screens burned" },
   { key: "blanks", label: (order) => blanksColumnLabel(order) },
   { key: "dtf_transfers", label: "DTF" },
   { key: "blank_source", label: "Goods source" },
@@ -257,14 +284,22 @@ export function computeEventStatusCards(
   const scheduled = workflow.find((checkpoint) => checkpoint.key === "scheduled");
   const floor = workflow.find((checkpoint) => checkpoint.key === "floor");
 
+  // Screen print already has Screen files + Screens (burned). The workflow
+  // "prep" step is also labeled Screens ready — hide it to avoid duplicates.
+  const prepCard =
+    imprint.decoration === "screen_print"
+      ? notApplicable("prep", "Setup", "Setup")
+      : (prep ?? notApplicable("prep", "Setup", "Setup"));
+
   return [
     buildEventArtworkCheckpoint(imprint),
     buildEventInkCheckpoint(order, job.id, imprint.id, imprint),
+    buildEventScreenFilesCheckpoint(order, imprint.decoration),
     buildEventScreensCheckpoint(order, imprint.decoration),
     buildEventBlanksCheckpoint(order),
     buildEventDtfCheckpoint(order, job.id, imprint.id, imprint.decoration),
     buildEventBlankSourceCheckpoint(order),
-    prep ?? notApplicable("prep", "Setup", "Setup"),
+    prepCard,
     scheduled ?? notApplicable("scheduled", "Scheduled", "Scheduled"),
     floor ?? notApplicable("floor", "Production", "Production"),
   ];

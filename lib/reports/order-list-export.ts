@@ -1,4 +1,5 @@
 import { formatCurrency, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { getOrderDecorationSummary } from "@/lib/order-decoration-summary";
 import type { OrderJobTypeFilter, OrderListScope } from "@/lib/order-list-filters";
 import {
@@ -51,7 +52,7 @@ export function buildOrdersListExport(
     rows: orders.map((order) => {
       const financials = orderFinancials?.get(order.id);
       return {
-      orderNumber: order.number,
+      orderNumber: formatOrderDisplayLine(order),
       company: order.company,
       contact: order.customerName,
       jobTypes: getOrderDecorationSummary(order).label,

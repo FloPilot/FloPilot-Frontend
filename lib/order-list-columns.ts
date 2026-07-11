@@ -3,6 +3,7 @@ import type { OrderListScope } from "@/lib/order-list-filters";
 export type OrdersListColumnId =
   | "order"
   | "customer"
+  | "sales_rep"
   | "in_hands"
   | "created"
   | "total"
@@ -16,6 +17,7 @@ export type OrdersListColumnId =
   | "contact_email"
   | "proofs"
   | "ink"
+  | "screen_files"
   | "screens"
   | "blanks"
   | "dtf"
@@ -56,6 +58,12 @@ export const ORDERS_LIST_COLUMN_DEFS: OrdersListColumnDef[] = [
     group: "order",
     minWidth: "160px",
     sticky: true,
+  },
+  {
+    id: "sales_rep",
+    label: "Sales rep",
+    group: "order",
+    minWidth: "120px",
   },
   {
     id: "in_hands",
@@ -138,6 +146,14 @@ export const ORDERS_LIST_COLUMN_DEFS: OrdersListColumnDef[] = [
     productionOnly: true,
   },
   {
+    id: "screen_files",
+    label: "Screen files",
+    group: "production",
+    description: "Whether production screen / separation files are uploaded",
+    minWidth: "112px",
+    productionOnly: true,
+  },
+  {
     id: "screens",
     label: "Screens",
     group: "production",
@@ -202,12 +218,14 @@ export const ORDERS_LIST_COLUMN_DEFS: OrdersListColumnDef[] = [
 export const DEFAULT_ORDERS_LIST_COLUMNS: OrdersListColumnId[] = [
   "order",
   "customer",
+  "sales_rep",
   "in_hands",
   "total",
   "order_status",
   "estimate_status",
   "proofs",
   "ink",
+  "screen_files",
   "screens",
   "blanks",
   "dtf",
@@ -277,6 +295,8 @@ export type OrderListViewRecord = {
   id: string;
   name: string;
   columns: OrdersListColumnId[];
+  /** Optional per-column display names for this view only */
+  columnLabels?: Partial<Record<OrdersListColumnId, string>>;
   shared: boolean;
   ownerUserId: string;
   ownerName: string;
@@ -289,6 +309,7 @@ export type OrderListViewsState = {
   views: OrderListViewRecord[];
   activeViewId: string | null;
   activeColumns: OrdersListColumnId[];
+  activeColumnLabels?: Partial<Record<OrdersListColumnId, string>>;
   defaultColumns: OrdersListColumnId[];
 };
 
@@ -301,3 +322,42 @@ export const ORDERS_LIST_COLUMN_GROUP_LABELS: Record<
   production: "Production checkpoints",
   status: "Status",
 };
+
+export const MAX_ORDERS_LIST_COLUMN_LABEL_LENGTH = 32;
+
+export function normalizeOrdersListColumnLabels(
+  input?: Partial<Record<OrdersListColumnId, string>> | null,
+  columns?: OrdersListColumnId[] | null
+): Partial<Record<OrdersListColumnId, string>> {
+  const allowed = new Set(
+    columns?.length ? columns : ORDERS_LIST_COLUMN_DEFS.map((def) => def.id)
+  );
+  const labels: Partial<Record<OrdersListColumnId, string>> = {};
+  if (!input) return labels;
+
+  for (const [rawId, rawLabel] of Object.entries(input)) {
+    const id = rawId as OrdersListColumnId;
+    if (!allowed.has(id)) continue;
+    if (typeof rawLabel !== "string") continue;
+    const label = rawLabel.trim().slice(0, MAX_ORDERS_LIST_COLUMN_LABEL_LENGTH);
+    if (!label) continue;
+    const systemLabel = getOrdersListColumnDef(id)?.label?.trim() ?? "";
+    if (systemLabel && label.toLowerCase() === systemLabel.toLowerCase()) {
+      continue;
+    }
+    labels[id] = label;
+  }
+
+  return labels;
+}
+
+export function resolveOrdersListColumnLabel(
+  columnId: OrdersListColumnId,
+  columnLabels?: Partial<Record<OrdersListColumnId, string>> | null,
+  scope?: OrderListScope
+): string {
+  const custom = columnLabels?.[columnId]?.trim();
+  if (custom) return custom;
+  if (columnId === "in_hands" && scope) return inHandsColumnLabel(scope);
+  return getOrdersListColumnDef(columnId)?.label || columnId;
+}

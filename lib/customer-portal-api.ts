@@ -12,6 +12,7 @@ export type PortalAttentionItem = {
   type: "estimate" | "artwork";
   orderId: string;
   orderNumber: string;
+  orderCustomLabel?: string;
   jobId?: string;
   imprintId?: string;
   title: string;
@@ -22,6 +23,7 @@ export type PortalAttentionItem = {
 export type PortalOrderSummary = {
   id: string;
   number: string;
+  customLabel?: string;
   status: string;
   issueDate: string | null;
   inHandsDate: string | null;

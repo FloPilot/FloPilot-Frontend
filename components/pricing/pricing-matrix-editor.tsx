@@ -5,8 +5,21 @@ import { Info, Plus, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { parsePricingCsv, type ParsedPricingGrid } from "@/lib/pricing-csv";
-import { type PricingMatrix, type PricingMethod } from "@/lib/shop-settings";
+import { DECORATION_TYPE_OPTIONS, decorationLabel } from "@/lib/format";
+import {
+  inferPricingDecorationType,
+  type PricingMatrix,
+  type PricingMethod,
+} from "@/lib/shop-settings";
+import type { DecorationType } from "@/types";
 import { cn } from "@/lib/utils";
 
 function newMethodId() {
@@ -20,7 +33,16 @@ function methodNameFromFile(fileName: string): string {
   return fileName.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").trim();
 }
 
-const STARTER_METHODS = ["Screen Print", "Embroidery", "DTF", "DTG"];
+const STARTER_METHODS: { name: string; decorationType: DecorationType }[] = [
+  { name: "Screen Print", decorationType: "screen_print" },
+  { name: "Embroidery", decorationType: "embroidery" },
+  { name: "DTF", decorationType: "dtf" },
+  { name: "Vinyl", decorationType: "vinyl" },
+];
+
+const PRICING_DECORATION_OPTIONS = DECORATION_TYPE_OPTIONS.filter(
+  (option) => option.value !== "finishing"
+);
 
 export function PricingMatrixEditor({
   value,
@@ -49,14 +71,21 @@ export function PricingMatrixEditor({
       ),
     });
 
-  const addMethod = (name = "", grid?: ParsedPricingGrid) =>
+  const addMethod = (
+    name = "",
+    grid?: ParsedPricingGrid,
+    decorationType?: DecorationType
+  ) => {
+    const resolvedType =
+      decorationType || inferPricingDecorationType(name) || undefined;
     onChange({
       ...value,
       methods: [
         ...value.methods,
         {
           id: newMethodId(),
-          name,
+          name: name || (resolvedType ? decorationLabel(resolvedType) : ""),
+          ...(resolvedType ? { decorationType: resolvedType } : {}),
           unit: "per piece",
           notes: "",
           columns: grid?.columns ?? ["Price"],
@@ -64,6 +93,7 @@ export function PricingMatrixEditor({
         },
       ],
     });
+  };
 
   const removeMethod = (id: string) =>
     onChange({
@@ -208,7 +238,11 @@ export function PricingMatrixEditor({
       if (targetId) {
         updateMethod(targetId, { columns: grid.columns, rows: grid.rows });
       } else {
-        addMethod(methodNameFromFile(file.name), grid);
+        addMethod(
+          methodNameFromFile(file.name),
+          grid,
+          inferPricingDecorationType(methodNameFromFile(file.name))
+        );
       }
     } catch {
       setCsvError("Could not read that file.");
@@ -290,16 +324,18 @@ export function PricingMatrixEditor({
             Import CSV
           </Button>
           <div className="flex flex-wrap justify-center gap-2 pt-1">
-            {STARTER_METHODS.map((name) => (
+            {STARTER_METHODS.map((starter) => (
               <Button
-                key={name}
+                key={starter.decorationType}
                 variant="outline"
                 size="sm"
                 disabled={disabled}
-                onClick={() => addMethod(name)}
+                onClick={() =>
+                  addMethod(starter.name, undefined, starter.decorationType)
+                }
               >
                 <Plus className="size-4" />
-                {name}
+                {starter.name}
               </Button>
             ))}
           </div>
@@ -339,16 +375,60 @@ export function PricingMatrixEditor({
               </div>
 
               <div className="space-y-5 p-4 sm:p-5">
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-4 sm:grid-cols-3">
                   <div className="space-y-2">
-                    <Label>Method name</Label>
+                    <Label>Decoration type</Label>
+                    <Select
+                      value={
+                        method.decorationType ||
+                        inferPricingDecorationType(method.name) ||
+                        ""
+                      }
+                      disabled={disabled}
+                      onValueChange={(next) => {
+                        const decorationType = (next || undefined) as
+                          | DecorationType
+                          | undefined;
+                        updateMethod(method.id, {
+                          decorationType,
+                          name:
+                            method.name.trim() ||
+                            (decorationType
+                              ? decorationLabel(decorationType)
+                              : method.name),
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="h-9">
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRICING_DECORATION_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] text-[#8a8a8a]">
+                      Links this grid to orders — safe to rename the display
+                      name.
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Display name</Label>
                     <Input
                       value={method.name}
                       disabled={disabled}
                       onChange={(event) =>
-                        updateMethod(method.id, { name: event.target.value })
+                        updateMethod(method.id, {
+                          name: event.target.value,
+                          decorationType:
+                            method.decorationType ||
+                            inferPricingDecorationType(event.target.value),
+                        })
                       }
-                      placeholder="e.g. Screen Print"
+                      placeholder="e.g. Screen Print — Standard"
                     />
                   </div>
                   <div className="space-y-2">

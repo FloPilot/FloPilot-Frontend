@@ -143,10 +143,11 @@ export function CustomerContractFeesEditor({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className={dashboardTaskTitleClass}>Contract fees</h3>
+        <h3 className={dashboardTaskTitleClass}>Additional fees</h3>
         <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-          Setup and location surcharges auto-apply on orders using this rate
-          sheet. Staff can still add one-off fees on the estimate.
+          Turn fees on or off below. Enabled fees auto-apply on orders using
+          this pricing — staff can still skip or add one-off fees on the
+          estimate.
         </p>
       </div>
 
@@ -317,8 +318,16 @@ export function CustomerContractFeesEditor({
           {customFees.map((fee) => (
             <div
               key={fee.id}
-              className={cn(dashboardInsetSurfaceClass, "grid gap-3 p-4 sm:grid-cols-[1fr_120px_auto]")}
+              className={cn(
+                dashboardInsetSurfaceClass,
+                "grid gap-3 p-4 sm:grid-cols-[auto_1fr_120px_auto] sm:items-center"
+              )}
             >
+              <FeeToggle
+                label="On"
+                checked={fee.enabled !== false}
+                onChange={(enabled) => updateCustomFee(fee.id, { enabled })}
+              />
               <Input
                 value={fee.label}
                 onChange={(event) =>

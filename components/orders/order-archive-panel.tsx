@@ -20,6 +20,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { isArchivedOrder } from "@/lib/order-archive";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import type { Order } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -94,12 +95,12 @@ export function OrderArchivePanel({ order }: { order: Order }) {
             <DialogDescription>
               {archived ? (
                 <>
-                  Order <span className="font-medium text-[#303030]">{order.number}</span>{" "}
+                  Order <span className="font-medium text-[#303030]">{formatOrderDisplayLine(order)}</span>{" "}
                   will return to your active orders list.
                 </>
               ) : (
                 <>
-                  Order <span className="font-medium text-[#303030]">{order.number}</span>{" "}
+                  Order <span className="font-medium text-[#303030]">{formatOrderDisplayLine(order)}</span>{" "}
                   will be hidden from active and historical lists. Find it anytime
                   under <span className="font-medium text-[#303030]">Archived</span> on
                   the orders page.

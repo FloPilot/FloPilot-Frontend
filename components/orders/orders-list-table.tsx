@@ -23,7 +23,7 @@ import type { OrderFinancials } from "@/lib/order-financial-context";
 import type { OrderListScope } from "@/lib/order-list-filters";
 import {
   getOrdersListColumnDef,
-  inHandsColumnLabel,
+  resolveOrdersListColumnLabel,
   type OrdersListColumnId,
 } from "@/lib/order-list-columns";
 import type { OrderListSummary } from "@/lib/order-list-summary";
@@ -119,6 +119,12 @@ function OrdersListCell({
           </p>
         </div>
       );
+    case "sales_rep":
+      return (
+        <span className="truncate text-[13px] text-[#303030]">
+          {order.salesRepName?.trim() || "—"}
+        </span>
+      );
     case "in_hands":
       return (
         <span className="text-[13px] text-[#303030]">
@@ -206,6 +212,13 @@ function OrdersListCell({
           compact
         />
       );
+    case "screen_files":
+      return (
+        <CheckpointStatusBadge
+          checkpoint={findCheckpoint(checkpoints, "screen_files")}
+          compact
+        />
+      );
     case "screens":
       return (
         <CheckpointStatusBadge
@@ -275,6 +288,7 @@ export function OrdersListTable({
   orderFinancials,
   scope,
   columns,
+  columnLabels,
   customersById,
   emptyMessage,
 }: {
@@ -283,6 +297,7 @@ export function OrdersListTable({
   orderFinancials: Map<string, OrderFinancials>;
   scope: OrderListScope;
   columns: OrdersListColumnId[];
+  columnLabels?: Partial<Record<OrdersListColumnId, string>>;
   customersById: Map<string, Customer>;
   emptyMessage: string;
 }) {
@@ -306,10 +321,11 @@ export function OrdersListTable({
             {columns.map((columnId) => {
               const def = getOrdersListColumnDef(columnId);
               const stickyLeft = stickyOffset(columnId, columns);
-              const label =
-                columnId === "in_hands"
-                  ? inHandsColumnLabel(scope)
-                  : def?.label || columnId;
+              const label = resolveOrdersListColumnLabel(
+                columnId,
+                columnLabels,
+                scope
+              );
 
               return (
                 <TableHead
@@ -353,7 +369,7 @@ export function OrdersListTable({
                 key={order.id}
                 tabIndex={0}
                 role="link"
-                aria-label={`View order ${order.number}`}
+                aria-label={`View order ${formatOrderDisplayLine(order)}`}
                 className={cn(
                   "group cursor-pointer border-[#ebebeb] hover:bg-[#f6f6f7] focus-visible:bg-[#f6f6f7] focus-visible:outline-none",
                   order.rush &&

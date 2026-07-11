@@ -9,6 +9,7 @@ import {
   StickyNote,
   Tag,
   UserPlus,
+  Users,
 } from "lucide-react";
 import {
   buildCustomerActivityFeed,
@@ -41,6 +42,9 @@ const ICON_MAP: Record<
   pricing_sheet_added: Tag,
   pricing_sheet_updated: Tag,
   pricing_sheet_removed: Tag,
+  sub_customer_added: Users,
+  sub_customer_updated: Users,
+  sub_customer_removed: Users,
 };
 
 const ICON_STYLES: Record<CustomerActivityEvent["type"], string> = {
@@ -58,6 +62,9 @@ const ICON_STYLES: Record<CustomerActivityEvent["type"], string> = {
   pricing_sheet_added: "bg-[#e8f5ee] text-[#0d5c2e]",
   pricing_sheet_updated: "bg-[#eef1ff] text-brand-primary",
   pricing_sheet_removed: "bg-[#fdf2f2] text-[#b42318]",
+  sub_customer_added: "bg-[#e8f5ee] text-[#0d5c2e]",
+  sub_customer_updated: "bg-[#eef1ff] text-brand-primary",
+  sub_customer_removed: "bg-[#fdf2f2] text-[#b42318]",
 };
 
 const ACTOR_STYLES: Record<

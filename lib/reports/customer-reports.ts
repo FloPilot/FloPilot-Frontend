@@ -1,5 +1,6 @@
 import { format, parseISO, startOfDay } from "date-fns";
 import { formatCurrency, formatDate, decorationLabel } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { formatCustomerFullName } from "@/lib/customers";
 import {
   documentTypeLabel,
@@ -13,18 +14,14 @@ import { excludeArchivedOrders } from "@/lib/order-archive";
 import { resolveOrderFinancials } from "@/lib/order-estimate";
 import type { CustomerListFinancialContext } from "@/lib/customer-list-summary";
 import { resolveOrderFinancialsInContext } from "@/lib/order-financial-context";
+import { buildResult } from "@/lib/reports/report-utils";
+import type { ShopReportData, CustomerDetailReportData } from "@/lib/reports/shop-report-data";
 
-export interface CustomersListReportData {
-  customers: Customer[];
-  orders: Order[];
-  financials?: CustomerListFinancialContext;
-}
-
-export interface CustomerDetailReportData {
-  customer: Customer;
-  orders: Order[];
-  financials?: CustomerListFinancialContext;
-}
+export type {
+  ShopReportData,
+  CustomersListReportData,
+  CustomerDetailReportData,
+} from "@/lib/reports/shop-report-data";
 
 const DONE_STATUSES: OrderStatus[] = ["completed", "shipped"];
 
@@ -39,22 +36,6 @@ function lineItemQuantity(item: LineItem): number {
 
 function sizeBreakdown(item: LineItem): string {
   return item.sizes.map((row) => `${row.size}:${row.quantity}`).join(" ");
-}
-
-function buildResult(
-  definition: Pick<ReportDefinition, "id" | "title" | "description">,
-  columns: ReportResult["columns"],
-  rows: ReportResult["rows"],
-  filenameBase: string
-): ReportResult {
-  return {
-    id: definition.id,
-    title: definition.title,
-    description: definition.description,
-    columns,
-    rows,
-    filename: `${filenameBase}-${reportTimestamp()}.csv`,
-  };
 }
 
 function resolveReportFinancials(
@@ -74,7 +55,7 @@ function resolveReportFinancials(
   };
 }
 
-const customerDirectoryReport: ReportDefinition<CustomersListReportData> = {
+const customerDirectoryReport: ReportDefinition<ShopReportData> = {
   id: "customer-directory",
   title: "Customer directory",
   description: "Contact details, names, and lifetime value for every customer.",
@@ -120,7 +101,7 @@ const customerDirectoryReport: ReportDefinition<CustomersListReportData> = {
     ),
 };
 
-const customersOpenBalancesReport: ReportDefinition<CustomersListReportData> = {
+const customersOpenBalancesReport: ReportDefinition<ShopReportData> = {
   id: "customers-open-balances",
   title: "Customers with open balances",
   description: "Outstanding balances rolled up by customer with order counts.",
@@ -176,7 +157,7 @@ const customersOpenBalancesReport: ReportDefinition<CustomersListReportData> = {
   },
 };
 
-const allCustomerOrdersReport: ReportDefinition<CustomersListReportData> = {
+const allCustomerOrdersReport: ReportDefinition<ShopReportData> = {
   id: "all-customer-orders",
   title: "All customer orders",
   description: "Every order across your customer base — status, due dates, and totals.",
@@ -205,7 +186,7 @@ const allCustomerOrdersReport: ReportDefinition<CustomersListReportData> = {
         .map((order) => {
           const amounts = resolveReportFinancials(order, financials);
           return {
-            orderNumber: order.number,
+            orderNumber: formatOrderDisplayLine(order),
             company: order.company,
             contact: order.customerName,
             type: documentTypeLabel(order.type),
@@ -250,7 +231,7 @@ const orderHistoryReport: ReportDefinition<CustomerDetailReportData> = {
         .map((order) => {
           const amounts = resolveReportFinancials(order, financials);
           return {
-            orderNumber: order.number,
+            orderNumber: formatOrderDisplayLine(order),
             type: documentTypeLabel(order.type),
             status: orderStatusLabel(order.status),
             jobs:
@@ -305,7 +286,7 @@ const pastDueOrdersReport: ReportDefinition<CustomerDetailReportData> = {
             )
           );
           return {
-            orderNumber: order.number,
+            orderNumber: formatOrderDisplayLine(order),
             status: orderStatusLabel(order.status),
             jobs: order.jobs.map((job) => job.name).join("; "),
             inHandsDate: formatDate(order.inHandsDate),
@@ -343,7 +324,7 @@ const openBalancesReport: ReportDefinition<CustomerDetailReportData> = {
         .filter(({ amounts }) => amounts.balance > 0)
         .sort((a, b) => b.amounts.balance - a.amounts.balance)
         .map(({ order, amounts }) => ({
-          orderNumber: order.number,
+          orderNumber: formatOrderDisplayLine(order),
           status: orderStatusLabel(order.status),
           inHandsDate: formatDate(order.inHandsDate),
           total: formatCurrency(amounts.total),
@@ -443,7 +424,7 @@ const lineItemDetailReport: ReportDefinition<CustomerDetailReportData> = {
       ],
       orders.flatMap((order) =>
         order.lineItems.map((item) => ({
-          orderNumber: order.number,
+          orderNumber: formatOrderDisplayLine(order),
           orderDate: formatDate(order.createdAt),
           productName: item.productName,
           brand: item.brand,
@@ -477,7 +458,7 @@ const productionJobsReport: ReportDefinition<CustomerDetailReportData> = {
       ],
       orders.flatMap((order) =>
         order.jobs.map((job) => ({
-          orderNumber: order.number,
+          orderNumber: formatOrderDisplayLine(order),
           orderStatus: orderStatusLabel(order.status),
           jobName: job.name,
           decorations: [
@@ -569,7 +550,7 @@ function customerBaseRow(customer: Customer) {
   };
 }
 
-const completeCustomerExportReport: ReportDefinition<CustomersListReportData> = {
+const completeCustomerExportReport: ReportDefinition<ShopReportData> = {
   id: "complete-customer-export",
   title: "Complete customer export",
   description:
@@ -616,7 +597,7 @@ const completeCustomerExportReport: ReportDefinition<CustomersListReportData> = 
         rows.push({
           ...base,
           orderId: order.id,
-          orderNumber: order.number,
+          orderNumber: formatOrderDisplayLine(order),
           orderType: documentTypeLabel(order.type),
           orderStatus: orderStatusLabel(order.status),
           orderCreated: formatDate(order.createdAt),
@@ -680,7 +661,7 @@ const completeCustomerExportReport: ReportDefinition<CustomersListReportData> = 
   },
 };
 
-const customerProfilesExportReport: ReportDefinition<CustomersListReportData> = {
+const customerProfilesExportReport: ReportDefinition<ShopReportData> = {
   id: "customer-profiles-export",
   title: "Customer profiles",
   description:
@@ -746,7 +727,7 @@ const customerProfilesExportReport: ReportDefinition<CustomersListReportData> = 
           totalOrders: customerOrders.length,
           lifetimeValue: formatCurrency(lifetimeValue),
           openBalance: formatCurrency(openBalance),
-          orderNumbers: customerOrders.map((order) => order.number).join("; "),
+          orderNumbers: customerOrders.map((order) => formatOrderDisplayLine(order)).join("; "),
           activeOrderCount: activeCount,
         };
       }),
@@ -754,7 +735,7 @@ const customerProfilesExportReport: ReportDefinition<CustomersListReportData> = 
     ),
 };
 
-export const CUSTOMER_LIST_REPORTS: ReportDefinition<CustomersListReportData>[] =
+export const CUSTOMER_LIST_REPORTS: ReportDefinition<ShopReportData>[] =
   [
     completeCustomerExportReport,
     customerProfilesExportReport,
@@ -763,7 +744,7 @@ export const CUSTOMER_LIST_REPORTS: ReportDefinition<CustomersListReportData>[] 
     allCustomerOrdersReport,
   ];
 
-export const REPORTS_HUB_REPORTS: ReportDefinition<CustomersListReportData>[] =
+export const REPORTS_HUB_REPORTS: ReportDefinition<ShopReportData>[] =
   CUSTOMER_LIST_REPORTS;
 
 export const CUSTOMER_DETAIL_REPORTS: ReportDefinition<CustomerDetailReportData>[] =
@@ -775,17 +756,6 @@ export const CUSTOMER_DETAIL_REPORTS: ReportDefinition<CustomerDetailReportData>
     lineItemDetailReport,
     productionJobsReport,
   ];
-
-export function getReportsForContext(
-  context: "customers_list" | "reports_hub"
-): ReportDefinition<CustomersListReportData>[];
-export function getReportsForContext(
-  context: "customer_detail"
-): ReportDefinition<CustomerDetailReportData>[];
-export function getReportsForContext(context: ReportContext) {
-  if (context === "customer_detail") return CUSTOMER_DETAIL_REPORTS;
-  return CUSTOMER_LIST_REPORTS;
-}
 
 export function runReport<TData>(
   report: ReportDefinition<TData>,

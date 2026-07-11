@@ -3,6 +3,10 @@ import type { DashboardAttentionItem } from "@/lib/dashboard-insights";
 import type { SchedulingQueueOrder } from "@/lib/event-basket";
 import { schedulableJobKey } from "@/lib/job-imprints";
 import { formatDate } from "@/lib/format";
+import {
+  formatOrderDisplayLine,
+  formatOrderRef,
+} from "@/lib/order-display";
 import { getDueDateUrgency } from "@/lib/order-health";
 import { isArchivedOrder } from "@/lib/order-archive";
 import { getOrderProductionSteps } from "@/lib/order-production";
@@ -186,7 +190,7 @@ export function buildExpandedShopTasks({
   for (const order of activeRushOrders) {
     pushTask({
       id: `rush-${order.id}`,
-      title: order.number,
+      title: formatOrderDisplayLine(order),
       detail: `Rush · ${order.company} · Due ${formatDate(order.inHandsDate)}`,
       href: `/app/orders/${order.id}`,
       tone: "critical",
@@ -199,7 +203,7 @@ export function buildExpandedShopTasks({
     if (rushIds.has(order.id)) continue;
     pushTask({
       id: `overdue-${order.id}`,
-      title: order.number,
+      title: formatOrderDisplayLine(order),
       detail: `Overdue · ${order.company} · Was due ${formatDate(order.inHandsDate)}`,
       href: `/app/orders/${order.id}`,
       tone: "critical",
@@ -237,7 +241,7 @@ export function buildExpandedShopTasks({
 
       tasks.push({
         id: `event-${jobKey}`,
-        title: `${order.number} · ${step.imprint.label}`,
+        title: `${formatOrderDisplayLine(order)} · ${step.imprint.label}`,
         detail: formatProductionEventDetail({
           order,
           job: step.job,
@@ -287,7 +291,7 @@ export function buildExpandedShopTasks({
 
         pushTask({
           id: `schedule-${item.orderId}-${event.key}`,
-          title: `${item.orderNumber} · ${event.imprintLabel}`,
+          title: `${formatOrderRef(item)} · ${event.imprintLabel}`,
           detail: `${item.customerName} · ${item.dueLabel}${flowHint}`,
           href: `/app/orders/${item.orderId}`,
           tone: eventUrgent ? "critical" : "default",
@@ -303,7 +307,7 @@ export function buildExpandedShopTasks({
       const entryUrgent = entry.artwork.status === "revision_requested";
       pushTask({
         id: `artwork-${entry.orderId}-${entry.imprintId}`,
-        title: entry.orderNumber,
+        title: formatOrderRef(entry),
         detail: `Proof · ${entry.imprintLabel} · ${entry.company}`,
         href: `/app/orders/${entry.orderId}`,
         tone: "warning",
@@ -318,7 +322,7 @@ export function buildExpandedShopTasks({
     const urgency = getDueDateUrgency(order);
     pushTask({
       id: `approval-${order.id}`,
-      title: order.number,
+      title: formatOrderDisplayLine(order),
       detail: `Awaiting approval · ${order.company} · ${formatDate(order.inHandsDate)}`,
       href: `/app/orders/${order.id}`,
       tone: "warning",
@@ -331,7 +335,7 @@ export function buildExpandedShopTasks({
   for (const order of activeReadyToShipOrders) {
     pushTask({
       id: `ship-${order.id}`,
-      title: order.number,
+      title: formatOrderDisplayLine(order),
       detail: `Ready to ship · ${order.company}`,
       href: `/app/orders/${order.id}`,
       tone: "default",
@@ -357,7 +361,7 @@ export function buildExpandedShopTasks({
     pushTask({
       id: `production-${task.id}`,
       title: task.title,
-      detail: `${task.orderNumber} · ${task.customerName} · ${task.department}`,
+      detail: `${formatOrderRef(task)} · ${task.customerName} · ${task.department}`,
       href: `/app/orders/${task.orderId}`,
       tone: task.status === "blocked" ? "critical" : "default",
       kind: "production",

@@ -12,6 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
+import { ProofSlidesViewer } from "@/components/orders/artwork/proof-slides-gallery";
 import {
   fetchCustomerReview,
   reactivateReviewUrl,
@@ -28,6 +29,7 @@ import { CustomerEstimateBreakdownTable } from "@/components/estimate/estimate-b
 import { ProofNotesThread } from "@/components/orders/proof-notes-thread";
 import { resolveReviewProofNotes } from "@/lib/artwork-routes";
 import { decorationLabel, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { useLockDocumentScroll } from "@/hooks/use-lock-document-scroll";
 import { cn } from "@/lib/utils";
 
@@ -372,7 +374,7 @@ export function CustomerReviewFlow({
           </div>
           <div className="text-right text-[12px] text-[#8a8a8a]">
             <p className="font-medium text-[#303030]">
-              Order {session.order.number}
+              Order {formatOrderDisplayLine(session.order)}
             </p>
             <p>In-hands {formatDate(session.order.inHandsDate)}</p>
           </div>
@@ -704,32 +706,29 @@ function EstimateStep({
 
   return (
     <div className={cn("p-4", embedded ? "sm:p-5" : "sm:p-6")}>
-      <h1 className="text-[20px] font-semibold text-[#303030]">Your estimate</h1>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+        Estimate
+      </p>
+      <h1 className="mt-1 text-[20px] font-semibold text-[#303030]">
+        Your estimate
+      </h1>
       <p className="mt-1 text-[14px] text-[#616161]">
         Hi {session.customer?.name?.split(" ")[0] || "there"} — here&apos;s the
-        pricing breakdown for your order.
+        pricing breakdown for order{" "}
+        {session.order
+          ? formatOrderDisplayLine(session.order)
+          : "your order"}
+        .
       </p>
       {est.rateSheetName && !est.usingShopPricing ? (
-        <p className="mt-2 text-[13px] font-medium text-[#2c6ecb]">
+        <p className="mt-3 inline-flex rounded-lg border border-[#c4d7f2] bg-[#f4f7fd] px-3 py-1.5 text-[12px] font-medium text-[#2c6ecb]">
           Pricing sheet: {est.rateSheetName}
         </p>
       ) : est.usingShopPricing && est.hasNegotiatedPricing ? (
-        <p className="mt-2 text-[13px] text-[#616161]">
-          Shop standard pricing applies to this order.
+        <p className="mt-3 inline-flex rounded-lg border border-[#ebebeb] bg-[#fafafa] px-3 py-1.5 text-[12px] text-[#616161]">
+          Shop standard pricing
         </p>
       ) : null}
-
-      <ProofNotesThread
-        notes={est.revisionNotes}
-        title="Notes for your estimate"
-        className="mt-5"
-        alwaysShow
-        disabled={readOnly}
-        emptyLabel="Questions or notes about your estimate will appear here."
-        replyPlaceholder="Ask a question or reply about your estimate…"
-        sendLabel="Send message"
-        onSendReply={onSendReply}
-      />
 
       <div className="mt-5">
         <CustomerEstimateBreakdownTable
@@ -745,8 +744,50 @@ function EstimateStep({
           accentColor="var(--review-accent)"
         />
       </div>
+
+      <ProofNotesThread
+        notes={est.revisionNotes}
+        title="Notes for your estimate"
+        className="mt-5"
+        alwaysShow
+        disabled={readOnly}
+        emptyLabel="Questions or notes about your estimate will appear here."
+        replyPlaceholder="Ask a question or reply about your estimate…"
+        sendLabel="Send message"
+        onSendReply={onSendReply}
+      />
     </div>
   );
+}
+
+function formatProofInkLabel(ink: ReviewProof["inkColors"][number]): string {
+  if (ink.isFlash) return "Flash";
+  const pms = ink.pmsCode?.trim() || "";
+  const name = ink.name?.trim() || "";
+  if (pms && name && pms.toLowerCase() !== name.toLowerCase()) {
+    return `${pms} · ${name}`;
+  }
+  return pms || name || "—";
+}
+
+function formatProofInkMeta(
+  ink: ReviewProof["inkColors"][number],
+  decoration: string
+): string {
+  if (ink.isFlash) return "Cure between colors";
+  const parts: string[] = [];
+  if (decoration === "dtf" && ink.transferType?.trim()) {
+    parts.push(ink.transferType.trim());
+  }
+  if (ink.mesh != null && Number.isFinite(Number(ink.mesh))) {
+    parts.push(`${ink.mesh} mesh`);
+  }
+  if (ink.squeegee?.trim()) {
+    const label =
+      ink.squeegee.charAt(0).toUpperCase() + ink.squeegee.slice(1);
+    parts.push(`${label} squeegee`);
+  }
+  return parts.join(" · ");
 }
 
 function ProofStep({
@@ -767,6 +808,25 @@ function ProofStep({
     messages: session.messages,
   });
 
+  const notes = proof.notes || {};
+  const specRows = [
+    notes.dimensions ? { label: "Print size", value: notes.dimensions } : null,
+    notes.placement ? { label: "Placement", value: notes.placement } : null,
+    notes.inkType ? { label: "Ink type", value: notes.inkType } : null,
+    typeof notes.flashCount === "number" && notes.flashCount > 0
+      ? {
+          label: "Flashes",
+          value: String(notes.flashCount),
+        }
+      : null,
+    notes.instructions
+      ? { label: "Proof notes", value: notes.instructions }
+      : null,
+  ].filter(Boolean) as { label: string; value: string }[];
+
+  const inkRows = proof.inkColors || [];
+  const slideCount = proof.artwork.proofSlides?.length || 0;
+
   return (
     <div className={cn("p-4", embedded ? "sm:p-5" : "sm:p-6")}>
       <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
@@ -778,39 +838,82 @@ function ProofStep({
       <p className="mt-1 text-[14px] text-[#616161]">
         {proof.label} · {decorationLabel(proof.decoration)} · v
         {proof.artwork.version}
+        {slideCount > 1 ? ` · ${slideCount} images` : ""}
       </p>
 
-      <div className="mt-5 flex items-center justify-center rounded-xl border border-[#ebebeb] bg-[#f6f6f7] p-4">
-        {proof.artwork.previewUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={proof.artwork.previewUrl}
-            alt={proof.artwork.name}
-            className={cn(
-              "w-auto rounded-lg bg-white shadow-sm",
-              embedded ? "max-h-[min(44vh,380px)]" : "max-h-[min(52vh,420px)]"
-            )}
-          />
-        ) : (
-          <p className="py-16 text-[13px] text-[#8a8a8a]">
-            Preview not available — contact us if you need the file.
-          </p>
-        )}
+      <div className="mt-5">
+        <ProofSlidesViewer
+          artwork={proof.artwork}
+          imprintLabel={proof.label}
+          jobName={proof.jobName}
+          compact={embedded}
+        />
       </div>
 
-      {proof.inkColors.length > 0 ? (
-        <div className="mt-4 flex flex-wrap gap-2">
-          {proof.inkColors.map((ink, i) => (
-            <span
-              key={i}
-              className="rounded-md border border-[#ebebeb] bg-[#fafafa] px-2.5 py-1 text-[12px] text-[#616161]"
-            >
-              {ink.name}
-              {ink.pmsCode ? ` · ${ink.pmsCode}` : ""}
-            </span>
-          ))}
+      {(specRows.length > 0 || inkRows.length > 0) && (
+        <div className="mt-5 space-y-4 rounded-xl border border-[#ebebeb] bg-[#fafafa] p-4">
+          {specRows.length > 0 ? (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                Print specifications
+              </p>
+              <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                {specRows.map((row) => (
+                  <div key={row.label} className="min-w-0">
+                    <dt className="text-[11px] font-medium text-[#8a8a8a]">
+                      {row.label}
+                    </dt>
+                    <dd className="mt-0.5 text-[13px] font-medium text-[#303030]">
+                      {row.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          ) : null}
+
+          {inkRows.length > 0 ? (
+            <div className={specRows.length > 0 ? "border-t border-[#ebebeb] pt-4" : ""}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                  Ink colors & Pantones
+                </p>
+                <span className="rounded-md bg-white px-2 py-0.5 text-[11px] font-medium text-[#616161] ring-1 ring-[#ebebeb]">
+                  {inkRows.length} stroke{inkRows.length === 1 ? "" : "s"}
+                </span>
+              </div>
+              <div className="mt-3 overflow-hidden rounded-lg border border-[#ebebeb] bg-white">
+                <div className="divide-y divide-[#f0f0f0]">
+                  {inkRows.map((ink, index) => {
+                    const label = formatProofInkLabel(ink);
+                    const meta = formatProofInkMeta(ink, proof.decoration);
+                    return (
+                      <div
+                        key={`${label}-${index}`}
+                        className="flex items-center gap-3 px-3 py-2.5"
+                      >
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-[#f6f6f7] text-[11px] font-semibold tabular-nums text-[#8a8a8a]">
+                          {index + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-medium text-[#303030]">
+                            {label}
+                          </p>
+                          {meta ? (
+                            <p className="truncate text-[11px] text-[#8a8a8a]">
+                              {meta}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      )}
 
       <ProofNotesThread
         notes={proofNotes}

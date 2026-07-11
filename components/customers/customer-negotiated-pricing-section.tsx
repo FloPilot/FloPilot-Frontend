@@ -276,9 +276,9 @@ export function CustomerNegotiatedPricingSection({
               {editingSheetId ? "Edit rate sheet" : "Add rate sheet"}
             </DialogTitle>
             <DialogDescription className={dashboardTaskDetailClass}>
-              Build or import a pricing matrix for {customer.company}. Match
-              decoration method names to your shop matrix for auto-pricing on
-              orders.
+              Build or import a pricing matrix for {customer.company}. Set each
+              method&apos;s decoration type so renamed display names still price
+              screen print, embroidery, and DTF orders correctly.
             </DialogDescription>
           </DialogHeader>
 

@@ -118,6 +118,7 @@ export function filterReceivingQueue(
 
     const haystack = [
       group.order.number,
+      group.order.customLabel ?? "",
       group.order.customerName,
       blankSourceLabel(group.blankSource),
       ...group.garmentLines.map(

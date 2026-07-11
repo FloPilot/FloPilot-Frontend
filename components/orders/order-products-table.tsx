@@ -119,7 +119,7 @@ export function OrderFinancialSummary({ order }: { order: Order }) {
   const { getCustomerById } = useSchedule();
   const customer = getCustomerById(order.customerId);
   const pricingMatrix = useMemo(
-    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer, order),
+    () => resolveEffectivePricingMatrix(settings, customer, order),
     [settings.pricingMatrix, customer, order]
   );
   const totals = useMemo(

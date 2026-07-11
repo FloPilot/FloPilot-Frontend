@@ -3,6 +3,7 @@ import {
   normalizeTenantBranding,
   type TenantBranding,
 } from "@/lib/tenant-branding";
+import type { DecorationType } from "@/types";
 import type { LucideIcon } from "lucide-react";
 
 export type { TenantBranding };
@@ -60,6 +61,11 @@ export type PricingRow = {
 export type PricingMethod = {
   id: string;
   name: string;
+  /**
+   * Links this method to imprint decoration types so renaming the display
+   * name does not break estimate lookup.
+   */
+  decorationType?: DecorationType;
   unit: string;
   notes: string;
   /** Column headers, e.g. ["1 COLOR", "2 COLOR"] or ["Price"]. */
@@ -153,6 +159,19 @@ export type ShopProductionDefaults = {
   finishingSteps?: FinishingStepPreset[];
 };
 
+export type ShopPricingRateSheet = {
+  id: string;
+  name: string;
+  notes?: string;
+  isDefault?: boolean;
+  enabled: boolean;
+  methods: PricingMethod[];
+  contractFees?: import("@/types").CustomerContractFee[];
+  blankMarkupPercent?: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type ShopSettings = {
   shopName: string;
   email: string;
@@ -162,7 +181,10 @@ export type ShopSettings = {
   modules: ShopModules;
   branding: TenantBranding;
   companyProfile: CompanyProfile;
+  /** Legacy/default view of shop pricing — kept in sync with the default rate sheet. */
   pricingMatrix: PricingMatrix;
+  /** Named shop pricing sheets staff can choose on an order. */
+  pricingRateSheets?: ShopPricingRateSheet[];
   productionDefaults: ShopProductionDefaults;
   warehouses: ShopWarehouse[];
   onboarding: ShopOnboarding;
@@ -242,6 +264,18 @@ export const DEFAULT_SHOP_SETTINGS: ShopSettings = {
     address: { ...DEFAULT_COMPANY_ADDRESS },
   },
   pricingMatrix: { enabled: false, methods: [], blankMarkupPercent: 0 },
+  pricingRateSheets: [
+    {
+      id: "shop-standard",
+      name: "Shop standard",
+      notes: "",
+      isDefault: true,
+      enabled: true,
+      methods: [],
+      contractFees: [],
+      blankMarkupPercent: 0,
+    },
+  ],
   productionDefaults: { ...DEFAULT_PRODUCTION_DEFAULTS },
   warehouses: [],
   onboarding: { ...DEFAULT_SHOP_ONBOARDING },
@@ -414,6 +448,42 @@ function toPrice(value: unknown): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+export function inferPricingDecorationType(
+  name?: string | null,
+  explicit?: string | null
+): DecorationType | undefined {
+  if (
+    explicit === "screen_print" ||
+    explicit === "embroidery" ||
+    explicit === "dtf" ||
+    explicit === "vinyl" ||
+    explicit === "finishing"
+  ) {
+    return explicit;
+  }
+
+  const normalized = String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  if (!normalized) return undefined;
+  if (
+    normalized.includes("screen print") ||
+    normalized.includes("screenprint") ||
+    normalized === "sp" ||
+    normalized.startsWith("screen")
+  ) {
+    return "screen_print";
+  }
+  if (normalized.includes("embroid")) return "embroidery";
+  if (normalized.includes("dtf")) return "dtf";
+  if (normalized.includes("vinyl") || normalized.includes("heat transfer")) {
+    return "vinyl";
+  }
+  if (normalized.includes("finish")) return "finishing";
+  return undefined;
+}
+
 export function normalizePricingMatrix(
   raw?: Partial<PricingMatrix> | null
 ): PricingMatrix {
@@ -460,9 +530,16 @@ export function normalizePricingMatrix(
           })
           .sort((a, b) => a.minQty - b.minQty);
 
+        const name = cleanStr(m.name, 80);
+        const decorationType = inferPricingDecorationType(
+          name,
+          m.decorationType
+        );
+
         return {
           id: cleanStr(m.id, 64) || `method-${index}`,
-          name: cleanStr(m.name, 80),
+          name,
+          ...(decorationType ? { decorationType } : {}),
           unit: cleanStr(m.unit, 40) || "per piece",
           notes: cleanStr(m.notes, 280),
           columns,
@@ -501,6 +578,87 @@ function normalizeMarkupPercent(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.min(500, Math.max(0, Math.round(parsed * 100) / 100));
+}
+
+/** Migrate legacy single matrix into named sheets; always returns ≥1 sheet. */
+export function normalizeShopPricingRateSheetList(
+  matrix: PricingMatrix,
+  sheetsInput?: ShopPricingRateSheet[] | null
+): ShopPricingRateSheet[] {
+  let sheets = Array.isArray(sheetsInput)
+    ? sheetsInput.slice(0, 12).map((sheet, index) => {
+        const normalizedMatrix = normalizePricingMatrix({
+          enabled: sheet?.enabled !== false,
+          methods: sheet?.methods,
+          contractFees: sheet?.contractFees,
+          blankMarkupPercent: sheet?.blankMarkupPercent,
+        });
+        return {
+          id:
+            typeof sheet?.id === "string" && sheet.id.trim()
+              ? sheet.id.trim().slice(0, 64)
+              : `shop-rate-${index}`,
+          name:
+            typeof sheet?.name === "string" && sheet.name.trim()
+              ? sheet.name.trim().slice(0, 120)
+              : `Pricing sheet ${index + 1}`,
+          notes:
+            typeof sheet?.notes === "string"
+              ? sheet.notes.trim().slice(0, 500)
+              : "",
+          isDefault: Boolean(sheet?.isDefault),
+          enabled: sheet?.enabled !== false,
+          methods: normalizedMatrix.methods,
+          contractFees: normalizedMatrix.contractFees ?? [],
+          blankMarkupPercent: normalizedMatrix.blankMarkupPercent ?? 0,
+          createdAt:
+            typeof sheet?.createdAt === "string"
+              ? sheet.createdAt
+              : new Date().toISOString(),
+          updatedAt:
+            typeof sheet?.updatedAt === "string"
+              ? sheet.updatedAt
+              : new Date().toISOString(),
+        } satisfies ShopPricingRateSheet;
+      })
+    : [];
+
+  if (sheets.length === 0) {
+    const now = new Date().toISOString();
+    sheets = [
+      {
+        id: "shop-standard",
+        name: "Shop standard",
+        notes: "",
+        isDefault: true,
+        enabled: true,
+        methods: matrix.methods ?? [],
+        contractFees: matrix.contractFees ?? [],
+        blankMarkupPercent: matrix.blankMarkupPercent ?? 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+  }
+
+  const enabled = sheets.filter((sheet) => sheet.enabled !== false);
+  const pool = enabled.length > 0 ? enabled : sheets;
+  const defaultSheet = sheets.find((sheet) => sheet.isDefault) ?? pool[0];
+  return sheets.map((sheet) => ({
+    ...sheet,
+    isDefault: sheet.id === defaultSheet.id,
+  }));
+}
+
+export function matrixFromShopPricingRateSheet(
+  sheet: ShopPricingRateSheet
+): PricingMatrix {
+  return normalizePricingMatrix({
+    enabled: sheet.enabled !== false && (sheet.methods?.length ?? 0) > 0,
+    methods: sheet.methods ?? [],
+    contractFees: sheet.contractFees,
+    blankMarkupPercent: sheet.blankMarkupPercent ?? 0,
+  });
 }
 
 function slugifySqueegeeValue(label: string): string {
@@ -1040,6 +1198,17 @@ export function normalizeShopSettings(raw?: Partial<ShopSettings> | null): ShopS
     }
   }
 
+  const pricingMatrix = normalizePricingMatrix(input.pricingMatrix);
+  const pricingRateSheets = normalizeShopPricingRateSheetList(
+    pricingMatrix,
+    input.pricingRateSheets
+  );
+  const defaultSheet =
+    pricingRateSheets.find((sheet) => sheet.isDefault) ?? pricingRateSheets[0];
+  const syncedMatrix = defaultSheet
+    ? matrixFromShopPricingRateSheet(defaultSheet)
+    : pricingMatrix;
+
   return {
     shopName:
       typeof input.shopName === "string"
@@ -1064,7 +1233,8 @@ export function normalizeShopSettings(raw?: Partial<ShopSettings> | null): ShopS
     modules,
     branding: normalizeTenantBranding(input.branding),
     companyProfile: normalizeCompanyProfile(input.companyProfile),
-    pricingMatrix: normalizePricingMatrix(input.pricingMatrix),
+    pricingMatrix: syncedMatrix,
+    pricingRateSheets,
     productionDefaults: normalizeProductionDefaults(input.productionDefaults),
     warehouses: normalizeWarehouses(input.warehouses),
     onboarding: hasOnboardingField

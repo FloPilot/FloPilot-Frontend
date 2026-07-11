@@ -13,6 +13,7 @@ import type {
 } from "@/lib/dashboard-insights";
 import type { SchedulingQueueOrder } from "@/lib/event-basket";
 import { decorationLabel, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine, formatOrderRef } from "@/lib/order-display";
 import type { HealthStatus } from "@/lib/order-health";
 import {
   eventsToScheduleLabel,
@@ -58,7 +59,7 @@ function OrderAttentionRow({
         <Link href={`/app/orders/${order.id}`} className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[15px] font-semibold text-[#303030] hover:text-brand-primary">
-              {order.number}
+              {formatOrderDisplayLine(order)}
             </span>
             <OrderStatusBadge status={order.status} />
             {order.rush && <RushBadge />}
@@ -137,7 +138,7 @@ export function AttentionScheduleList({
                     href={`/app/orders/${item.orderId}`}
                     className="text-[15px] font-semibold text-[#303030] hover:text-brand-primary"
                   >
-                    {item.orderNumber}
+                    {formatOrderRef(item)}
                   </Link>
                   <span className="text-sm text-[#616161]">
                     {item.customerName}
@@ -236,7 +237,7 @@ export function AttentionArtworkList({
             >
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[15px] font-semibold text-[#303030]">
-                  {entry.orderNumber}
+                  {formatOrderRef(entry)}
                 </span>
                 <span
                   className={cn(

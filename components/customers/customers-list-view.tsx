@@ -65,7 +65,8 @@ import {
 } from "@/lib/dashboard-styles";
 import { formatCompactCurrency, formatCurrency, formatDate } from "@/lib/format";
 import { downloadReportCsv } from "@/lib/reports/csv";
-import { getReportsForContext, runReport } from "@/lib/reports/customer-reports";
+import { getReportsForContext, runReport } from "@/lib/reports/registry";
+import { EMPTY_SHOP_REPORT_DATA } from "@/lib/reports/shop-report-data";
 import { cn } from "@/lib/utils";
 
 const QUICK_FILTERS: {
@@ -200,6 +201,7 @@ export function CustomersListView() {
     () => ({
       taxRate: settings.taxRate,
       pricingMatrix: settings.pricingMatrix,
+      pricingRateSheets: settings.pricingRateSheets,
       getCustomer: getCustomerById,
     }),
     [settings.taxRate, settings.pricingMatrix, getCustomerById]
@@ -277,6 +279,7 @@ export function CustomersListView() {
     if (!report) return;
     downloadReportCsv(
       runReport(report, {
+        ...EMPTY_SHOP_REPORT_DATA,
         customers: filteredCustomers,
         orders: activeOrders,
         financials: reportFinancials,
@@ -327,7 +330,12 @@ export function CustomersListView() {
           <div className="flex flex-wrap items-center gap-2">
             <ReportsLauncher
               context="customers_list"
-              data={{ customers, orders: activeOrders, financials: reportFinancials }}
+              data={{
+                ...EMPTY_SHOP_REPORT_DATA,
+                customers,
+                orders: activeOrders,
+                financials: reportFinancials,
+              }}
             />
             <Button
               type="button"

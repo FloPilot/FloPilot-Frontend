@@ -1,5 +1,6 @@
 import { format, parseISO } from "date-fns";
 import { ChevronRight, Clock, Package, Pencil } from "lucide-react";
+import { ScheduleBlockOrderLine } from "@/components/orders/order-display-line";
 import type { ScheduleBlock } from "@/types";
 import { machineColorStyles } from "@/lib/machine-styles";
 import type { MachineCalendarColor } from "@/types";
@@ -34,7 +35,7 @@ export function StationJobCard({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-base font-semibold text-brand-ink group-hover:text-brand-primary transition-colors">
-              {block.orderNumber}
+              <ScheduleBlockOrderLine block={block} />
             </p>
             <p className="text-sm text-brand-muted mt-0.5 truncate">
               {block.customerName}

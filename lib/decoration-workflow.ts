@@ -21,7 +21,7 @@ const SHARED_SCHEDULED: DecorationWorkflowStep = {
   label: "Scheduled",
   shortLabel: "Scheduled",
   doneTitle: "On the production calendar",
-  pendingTitle: "Not scheduled yet",
+  pendingTitle: "Ready for scheduling",
   inProgressTitle: "Partially scheduled",
 };
 
@@ -29,7 +29,7 @@ const SHARED_FLOOR: DecorationWorkflowStep = {
   key: "floor",
   label: "On the floor",
   shortLabel: "Production",
-  doneTitle: "Production complete",
+  doneTitle: "Completed",
   pendingTitle: "Not started on the floor",
   inProgressTitle: "Running on the floor",
 };

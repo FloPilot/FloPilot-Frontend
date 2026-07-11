@@ -7,6 +7,7 @@ import { ScheduleJobDialog } from "@/components/calendar/schedule-job-dialog";
 import { ProductionEventSheet } from "@/components/tasks/production-event-sheet";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import type { TodayFloorItem } from "@/lib/dashboard-insights";
+import { formatOrderRef } from "@/lib/order-display";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -59,7 +60,7 @@ function FloorRow({
       />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={dashboardTaskTitleClass}>{item.orderNumber}</span>
+          <span className={dashboardTaskTitleClass}>{formatOrderRef(item)}</span>
           {isRunning ? (
             <span className="inline-flex items-center gap-1 rounded-sm bg-[#e3f1df] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#108043]">
               <Play className="size-2.5 fill-current" />

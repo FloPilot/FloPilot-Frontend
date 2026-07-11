@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ScheduleBlockOrderLine } from "@/components/orders/order-display-line";
 import { formatJobBarcode, groupUpcomingByDay } from "@/lib/station-runs";
 import { machineColorStyles } from "@/lib/machine-styles";
 import type { Machine, ScheduleBlock, StationJobRun } from "@/types";
@@ -100,7 +101,7 @@ export function StationQueueDialog({
                             <div className="min-w-0 flex-1">
                               <div className="flex flex-wrap items-center gap-2">
                                 <p className="text-sm font-semibold text-brand-ink">
-                                  {block.orderNumber}
+                                  <ScheduleBlockOrderLine block={block} />
                                 </p>
                                 {isNext && (
                                   <span className="rounded-full bg-brand-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">

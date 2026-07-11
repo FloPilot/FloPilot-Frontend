@@ -2,6 +2,12 @@ import type {
   CheckpointRollupStatus,
   OrderCheckpoint,
 } from "@/lib/order-list-summary";
+import {
+  COMPLETED_LABEL,
+  PARTIALLY_SCHEDULED_LABEL,
+  READY_FOR_SCHEDULING_LABEL,
+  SCHEDULED_LABEL,
+} from "@/lib/terminology";
 import { cn } from "@/lib/utils";
 
 type BadgeTone = "neutral" | "warning" | "attention" | "success" | "critical";
@@ -79,6 +85,11 @@ function labelForCheckpoint(checkpoint: OrderCheckpoint): string {
     return "Pending";
   }
 
+  if (key === "screen_files") {
+    if (status === "done") return "Uploaded";
+    return "Not uploaded";
+  }
+
   if (key === "blanks") {
     if (status === "done") return "Received";
     if (status === "in_progress") return "Partial";
@@ -110,13 +121,13 @@ function labelForCheckpoint(checkpoint: OrderCheckpoint): string {
   }
 
   if (key === "scheduled") {
-    if (status === "done") return "Scheduled";
-    if (status === "in_progress") return "Partial";
-    return "Unscheduled";
+    if (status === "done") return SCHEDULED_LABEL;
+    if (status === "in_progress") return PARTIALLY_SCHEDULED_LABEL;
+    return READY_FOR_SCHEDULING_LABEL;
   }
 
   if (key === "floor") {
-    if (status === "done") return "Complete";
+    if (status === "done") return COMPLETED_LABEL;
     if (status === "in_progress") return "Running";
     return "Not started";
   }

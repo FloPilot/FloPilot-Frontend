@@ -209,7 +209,7 @@ export function computeOrderHealth(
   }
 
   let scheduleStatus: HealthStatus = "neutral";
-  let scheduleValue = "Not scheduled";
+  let scheduleValue = "Ready for scheduling";
   if (orderBlocks.length > 0) {
     scheduleValue =
       progress.total > 0 && progress.scheduled === progress.total

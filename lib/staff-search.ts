@@ -15,6 +15,11 @@ import { excludeArchivedOrders } from "@/lib/order-archive";
 import { orderStatusLabel } from "@/lib/order-status";
 import { documentTypeLabel } from "@/lib/reports/format";
 import { formatCurrency } from "@/lib/format";
+import {
+  formatOrderDisplayLine,
+  formatOrderRef,
+  formatScheduleBlockDisplayLine,
+} from "@/lib/order-display";
 
 export type SearchCategory =
   | "all"
@@ -166,6 +171,8 @@ function searchOrders(orders: Order[], query: string, limit = 20): StaffSearchRe
     .filter((order) => {
       const haystack = [
         order.number,
+        order.customLabel ?? "",
+        formatOrderDisplayLine(order),
         order.customerName,
         order.company,
         order.status,
@@ -180,7 +187,7 @@ function searchOrders(orders: Order[], query: string, limit = 20): StaffSearchRe
     .map((order) => ({
       id: `order-${order.id}`,
       category: "orders" as const,
-      title: order.number,
+      title: formatOrderDisplayLine(order),
       subtitle: `${order.company} · ${formatCurrency(order.total)}`,
       badge: orderStatusLabel(order.status),
       href: `/app/orders/${order.id}`,
@@ -262,6 +269,7 @@ function searchTasks(tasks: Task[], query: string, limit = 20): StaffSearchResul
         task.department,
         task.assignee,
         task.orderNumber,
+        task.orderCustomLabel ?? "",
         task.customerName,
         task.status,
       ].join(" ");
@@ -272,7 +280,7 @@ function searchTasks(tasks: Task[], query: string, limit = 20): StaffSearchResul
       id: `task-${task.id}-${task.orderId}`,
       category: "tasks" as const,
       title: task.title,
-      subtitle: `${task.orderNumber} · ${task.customerName}`,
+      subtitle: `${formatOrderRef(task)} · ${task.customerName}`,
       badge: task.status.replace(/_/g, " "),
       href: `/app/orders/${task.orderId}`,
       icon: Factory,
@@ -303,7 +311,7 @@ function searchScheduleBlocks(
     .map((block) => ({
       id: `sched-${block.id}`,
       category: "tasks" as const,
-      title: `${block.orderNumber} · ${block.imprintLabel}`,
+      title: `${formatScheduleBlockDisplayLine(block)} · ${block.imprintLabel}`,
       subtitle: `${machineNames.get(block.machineId) || "Station"} · ${block.jobName}`,
       href: "/app/calendar",
       icon: Factory,
@@ -318,7 +326,7 @@ function buildAttentionResults(orders: Order[]): StaffSearchResult[] {
       attention.push({
         id: `attention-approval-${order.id}`,
         category: "orders",
-        title: `${order.number} needs approval`,
+        title: `${formatOrderDisplayLine(order)} needs approval`,
         subtitle: order.company,
         badge: "Awaiting approval",
         href: `/app/orders/${order.id}`,
@@ -328,7 +336,7 @@ function buildAttentionResults(orders: Order[]): StaffSearchResult[] {
       attention.push({
         id: `attention-rush-${order.id}`,
         category: "orders",
-        title: `Rush · ${order.number}`,
+        title: `Rush · ${formatOrderDisplayLine(order)}`,
         subtitle: order.company,
         badge: "Rush",
         href: `/app/orders/${order.id}`,
@@ -382,7 +390,7 @@ export function buildStaffSearchResults({
       ...recentOrders.slice(0, 3).map((order) => ({
         id: `suggested-order-${order.id}`,
         category: "orders" as const,
-        title: order.number,
+        title: formatOrderDisplayLine(order),
         subtitle: `${order.company} · ${orderStatusLabel(order.status)}`,
         href: `/app/orders/${order.id}`,
         icon: ClipboardList,

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { documentTypeLabel } from "@/lib/reports/format";
 import {
   dashboardCardClass,
@@ -68,7 +69,7 @@ export function OrderInfoGrid({
       <section className={cn(dashboardCardClass, "p-4 sm:p-5")}>
         <h2 className={dashboardTaskTitleClass}>Order details</h2>
         <div className="mt-2 divide-y divide-[#f1f1f1]">
-          <InfoRow label="Order number" value={order.number} />
+          <InfoRow label="Order number" value={formatOrderDisplayLine(order)} />
           <InfoRow label="Created" value={formatDate(order.createdAt)} />
           <InfoRow label="Customer due" value={formatDate(order.inHandsDate)} />
           <InfoRow label="Document" value={documentTypeLabel(order.type)} />

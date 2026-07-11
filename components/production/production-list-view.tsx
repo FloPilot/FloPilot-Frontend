@@ -8,6 +8,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { formatDate } from "@/lib/format";
+import { formatOrderRef } from "@/lib/order-display";
 import { getCustomerAccent } from "@/lib/production-customer-colors";
 import {
   PRODUCTION_STATUS_BADGE,
@@ -108,7 +109,7 @@ export function ProductionListView({
                       {task.customerName}
                     </span>
                     <span className="text-xs text-[#616161]">
-                      {task.orderNumber} · {task.department}
+                      {formatOrderRef(task)} · {task.department}
                     </span>
                   </div>
                   {task.phase ? (

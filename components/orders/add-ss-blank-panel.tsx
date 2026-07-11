@@ -29,6 +29,7 @@ import { formatCurrency } from "@/lib/format";
 import {
   buildLineItemFromSsSelection,
   existingSsSizesOnOrder,
+  priceForSku,
 } from "@/lib/supplier-line-items";
 import type {
   SupplierBrand,
@@ -333,11 +334,7 @@ export function AddSsBlankPanel({
     if (!selectedColor) return 0;
     return selectedColor.sizes.reduce((sum, sku) => {
       const qty = quantities[sku.sizeName] || 0;
-      const price =
-        sku.customerPrice > 0
-          ? sku.customerPrice
-          : sku.salePrice ?? sku.piecePrice;
-      return sum + qty * price;
+      return sum + qty * priceForSku(sku);
     }, 0);
   }, [quantities, selectedColor]);
 
@@ -718,7 +715,7 @@ export function AddSsBlankPanel({
             {selectedColor.colorName}
           </p>
           <p className="mt-0.5 text-[12px] text-[#616161]">
-            Your S&amp;S customer pricing · {selectedColor.totalQty.toLocaleString()}{" "}
+            Standard S&amp;S piece pricing · {selectedColor.totalQty.toLocaleString()}{" "}
             in stock across warehouses
           </p>
         </div>
@@ -740,7 +737,7 @@ export function AddSsBlankPanel({
                   Add
                 </th>
                 <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
-                  Your price
+                  Piece price
                 </th>
                 <th className="px-4 py-2.5 text-right font-medium text-[#616161]">
                   Line total
@@ -751,10 +748,7 @@ export function AddSsBlankPanel({
               {selectedColor.sizes.map((sku) => {
                 const qty = quantities[sku.sizeName] || 0;
                 const onOrder = existingOnOrder[sku.sizeName] || 0;
-                const price =
-                  sku.customerPrice > 0
-                    ? sku.customerPrice
-                    : sku.salePrice ?? sku.piecePrice;
+                const price = priceForSku(sku);
 
                 return (
                   <tr

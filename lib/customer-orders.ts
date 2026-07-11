@@ -44,6 +44,7 @@ export function filterCustomerOrders(
 
     const haystack = [
       order.number,
+      order.customLabel ?? "",
       order.type,
       order.status,
       order.inHandsDate,
@@ -110,7 +111,7 @@ export const ORDER_STATUS_FILTER_OPTIONS: {
 }[] = [
   { value: "all", label: "All statuses" },
   { value: "in_production", label: "In production" },
-  { value: "approved", label: "Approved" },
+  { value: "approved", label: "Ready for scheduling" },
   { value: "quote_sent", label: "Quote sent" },
   { value: "awaiting_approval", label: "Awaiting approval" },
   { value: "completed", label: "Completed" },

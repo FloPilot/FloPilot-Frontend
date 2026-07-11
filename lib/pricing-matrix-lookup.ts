@@ -1,6 +1,10 @@
 import { decorationLabel } from "@/lib/format";
 import { lineItemPieceCount } from "@/lib/order-estimate";
-import type { PricingMatrix, PricingMethod } from "@/lib/shop-settings";
+import {
+  inferPricingDecorationType,
+  type PricingMatrix,
+  type PricingMethod,
+} from "@/lib/shop-settings";
 import type { DecorationType, Job, JobImprint, Order } from "@/types";
 
 export type PricingColumnMode = "color" | "size";
@@ -175,8 +179,15 @@ function normalizeName(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function methodDecorationType(method: PricingMethod): DecorationType | undefined {
+  return (
+    method.decorationType ||
+    inferPricingDecorationType(method.name, method.decorationType)
+  );
+}
+
 function isDtfPricingMethod(method: PricingMethod): boolean {
-  return normalizeName(method.name).includes("dtf");
+  return methodDecorationType(method) === "dtf";
 }
 
 export function formatPricingHighlightDetail(
@@ -228,8 +239,12 @@ function findPricingMethod(
   methods: PricingMethod[],
   decoration: string
 ): PricingMethod | null {
-  const target = normalizeName(decorationLabel(decoration));
+  const typed = methods.find(
+    (method) => methodDecorationType(method) === decoration
+  );
+  if (typed) return typed;
 
+  const target = normalizeName(decorationLabel(decoration));
   const exact = methods.find((m) => normalizeName(m.name) === target);
   if (exact) return exact;
 

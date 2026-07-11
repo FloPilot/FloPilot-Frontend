@@ -14,6 +14,7 @@ import {
   type CustomerPortalOrderSession,
 } from "@/lib/customer-portal-api";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { groupReviewEstimateSections } from "@/lib/estimate-breakdown";
 import { cn } from "@/lib/utils";
 
@@ -122,7 +123,7 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
         </Link>
         <div className="min-w-0 flex-1">
           <h1 className="text-[20px] font-semibold text-[#303030] sm:text-[22px]">
-            Order {session.order.number}
+            Order {formatOrderDisplayLine(session.order)}
           </h1>
           <p className="text-[13px] text-[#616161]">
             In-hands {formatDate(session.order.inHandsDate)}

@@ -45,21 +45,24 @@ function ReadinessRow({
   return (
     <div
       className={cn(
-        dashboardInsetSurfaceClass,
-        "flex flex-wrap items-center justify-between gap-3 px-3.5 py-3",
-        isDone && "bg-[#f6fbf5]/60"
+        "flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3.5 py-3",
+        isDone
+          ? "border-[#d4eddf] bg-[#f6fbf5]"
+          : "border-[#ebebeb] bg-white"
       )}
     >
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-semibold text-[#303030]">
+          <p className="text-[13px] font-semibold text-[#303030]">
             {checkpoint.label}
           </p>
           <CheckpointStatusBadge checkpoint={checkpoint} compact />
         </div>
-        <p className={cn(dashboardTaskDetailClass, "text-[12px]")}>
-          {checkpoint.title}
-        </p>
+        {checkpoint.title ? (
+          <p className={cn(dashboardTaskDetailClass, "text-[12px]")}>
+            {checkpoint.title}
+          </p>
+        ) : null}
       </div>
 
       {action && !isDone ? (
@@ -218,9 +221,16 @@ export function EventReadinessPanel({
           onClick: () => runAction("ink", markInkReady),
         };
 
+      case "screen_files":
+        return {
+          label: "Upload files",
+          variant: "primary",
+          onClick: () => openTab("screens"),
+        };
+
       case "screens":
         return {
-          label: "Mark screens ready",
+          label: "Mark burned",
           variant: "primary",
           onClick: () => runAction("screens", markScreensReady),
         };
@@ -244,12 +254,6 @@ export function EventReadinessPanel({
         };
 
       case "prep":
-        if (imprint.decoration === "screen_print") {
-          return {
-            label: "Confirm screens",
-            onClick: () => runAction("prep", markScreensReady),
-          };
-        }
         return {
           label: "Mark setup done",
           onClick: () => runAction("prep", markSetupDone),
@@ -275,7 +279,18 @@ export function EventReadinessPanel({
     }
   };
 
-  if (applicableCards.length === 0) return null;
+  if (applicableCards.length === 0) {
+    return (
+      <div
+        className={cn(
+          dashboardInsetSurfaceClass,
+          "px-3.5 py-6 text-center text-[13px] text-[#616161]"
+        )}
+      >
+        No readiness items for this decoration.
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">

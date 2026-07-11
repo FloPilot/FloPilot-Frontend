@@ -4,7 +4,9 @@ import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { format, parseISO } from "date-fns";
 import { CustomerBrandMark } from "@/components/customers/customer-brand-mark";
+import { useSchedule } from "@/components/providers/schedule-provider";
 import type { ScheduleBlock } from "@/types";
+import { formatScheduleBlockDisplayLine } from "@/lib/order-display";
 import { getCalendarCellDropId } from "@/lib/schedule-reschedule";
 import {
   PRODUCTION_STATUS_FLAG,
@@ -18,12 +20,12 @@ import {
 import { cn } from "@/lib/utils";
 
 function ScheduleBlockOrderTitle({ block }: { block: ScheduleBlock }) {
-  const customLabel = block.customLabel?.trim();
+  const { activeOrders } = useSchedule();
+  const order = activeOrders.find((entry) => entry.id === block.orderId);
 
   return (
     <p className="text-xs font-semibold leading-snug break-words [overflow-wrap:anywhere]">
-      {block.orderNumber}
-      {customLabel ? <> — {customLabel}</> : null}
+      {formatScheduleBlockDisplayLine(block, order)}
     </p>
   );
 }

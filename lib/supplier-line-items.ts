@@ -23,10 +23,21 @@ export function ssColorKey(colorCode: string): string {
   return `${SS_PRODUCT_KEY_PREFIX}${colorCode}`;
 }
 
-function priceForSku(sku: SupplierSizeSku): number {
-  if (sku.customerPrice > 0) return sku.customerPrice;
-  if (sku.salePrice != null && sku.salePrice > 0) return sku.salePrice;
-  if (sku.piecePrice > 0) return sku.piecePrice;
+/**
+ * Blank unit cost for quotes/orders from an S&S SKU.
+ * Uses standard piece pricing (not sale / promo) so estimates stay stable
+ * while waiting for customer approval.
+ */
+export function priceForSku(sku: SupplierSizeSku): number {
+  if (sku.standardUnitPrice != null && sku.standardUnitPrice > 0) {
+    return Math.round(sku.standardUnitPrice * 100) / 100;
+  }
+  if (sku.piecePrice > 0) {
+    return Math.round(sku.piecePrice * 100) / 100;
+  }
+  if (sku.customerPrice > 0) {
+    return Math.round(sku.customerPrice * 100) / 100;
+  }
   return 0;
 }
 

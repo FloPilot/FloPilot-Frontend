@@ -9,6 +9,7 @@ import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-b
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
 import { resolveArtworkRevisionNotes } from "@/lib/artwork-routes";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import {
   artworkQueueEntryKey,
   collectArtworkQueue,
@@ -118,7 +119,7 @@ export function ArtworkProofWorkspaceContent({
               {selectedEntry?.imprintLabel ?? "Artwork"}
             </p>
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-              {order.number} · {customer?.company || order.company} · In hands{" "}
+              {formatOrderDisplayLine(order)} · {customer?.company || order.company} · In hands{" "}
               {formatDate(order.inHandsDate)}
             </p>
           </div>
@@ -154,7 +155,7 @@ export function ArtworkProofWorkspaceContent({
           </span>
           <div>
             <h1 className={dashboardSectionTitleClass}>
-              {order.number} artwork workspace
+              {formatOrderDisplayLine(order)} artwork workspace
             </h1>
             <p className={cn("mt-1", dashboardTaskDetailClass)}>
               {customer?.company || order.company} · {order.customerName} · In

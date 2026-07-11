@@ -224,6 +224,7 @@ export function ReceivingDepartmentPanel() {
                     <DepartmentOrderLink
                       orderId={group.order.id}
                       orderNumber={group.order.number}
+                      customLabel={group.order.customLabel}
                     />
                   }
                   meta={

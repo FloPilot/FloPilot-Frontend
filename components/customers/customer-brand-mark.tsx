@@ -42,7 +42,7 @@ export function CustomerBrandMark({
   return (
     <div
       className={cn(
-        "relative flex shrink-0 items-center justify-center overflow-hidden border font-semibold leading-none text-white",
+        "flex shrink-0 items-center justify-center overflow-hidden border font-semibold leading-none text-white",
         logoUrl ? "border-[#e3e3e3] bg-white" : cn("border-transparent", accent.cap),
         SIZE_CLASS[size],
         className
@@ -58,15 +58,6 @@ export function CustomerBrandMark({
       ) : (
         initials
       )}
-      {logoUrl ? (
-        <span
-          aria-hidden
-          className={cn(
-            "absolute bottom-0 right-0 size-2 rounded-full ring-2 ring-white",
-            accent.dot
-          )}
-        />
-      ) : null}
     </div>
   );
 }

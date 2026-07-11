@@ -70,8 +70,24 @@ export function buildOrderSuggestedActions({
     });
   }
 
+  const readyToSchedule =
+    order.status === "approved" || isInProductionPhase(order);
+
   if (
-    isInProductionPhase(order) &&
+    readyToSchedule &&
+    summary.needsSchedule &&
+    canSchedule
+  ) {
+    actions.push({
+      id: "schedule",
+      label: "Schedule on calendar",
+      description: "Put decorations on the production calendar",
+      emphasis: "primary",
+    });
+  }
+
+  if (
+    readyToSchedule &&
     !allMaterialsReceived(order) &&
     summary.eventCount > 0
   ) {
@@ -79,16 +95,7 @@ export function buildOrderSuggestedActions({
       id: "finish_receiving",
       label: "Finish receiving checklist",
       description: "Confirm blanks, DTF sheets, screens, and ink on their tabs",
-      emphasis: "primary",
-    });
-  }
-
-  if (isInProductionPhase(order) && summary.needsSchedule && canSchedule) {
-    actions.push({
-      id: "schedule",
-      label: "Schedule on calendar",
-      description: "Put decorations on the production calendar",
-      emphasis: "primary",
+      emphasis: summary.needsSchedule ? "secondary" : "primary",
     });
   }
 
@@ -100,7 +107,7 @@ export function buildOrderSuggestedActions({
     actions.push({
       id: "mark_ready_to_ship",
       label: "Mark ready to ship",
-      description: "All decorations finished — pack it up",
+      description: "All decorations completed — pack it up",
       emphasis: "primary",
     });
   }

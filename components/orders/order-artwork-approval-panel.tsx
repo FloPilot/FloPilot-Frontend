@@ -16,6 +16,7 @@ import { ProofActionButton } from "@/components/orders/artwork/proof-action-butt
 import { ProofApprovalProgressBar } from "@/components/orders/artwork/proof-approval-progress";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { decorationLabel } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { getArtworkApprovalSummary } from "@/lib/order-health";
 import {
   dashboardCardClass,
@@ -46,7 +47,7 @@ export function OrderArtworkApprovalPanel({
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const loadProofsPdf = useCallback(
-    () => previewOrderDocument(order.id, "proofs"),
+    () => previewOrderDocument(order.id, "all"),
     [previewOrderDocument, order.id]
   );
 
@@ -269,7 +270,7 @@ export function OrderArtworkApprovalPanel({
                 )}
               >
                 <FileText className="size-3.5" />
-                Preview proofs
+                Preview PDF
               </button>
               {summary.revisionRequested > 0 ? (
                 <span className="text-[12px] font-medium text-[#8a6116]">
@@ -380,8 +381,8 @@ export function OrderArtworkApprovalPanel({
       <PdfPreviewDialog
         open={previewOpen}
         onOpenChange={setPreviewOpen}
-        title={`Proofs · Order ${order.number}`}
-        subtitle="These are the art approval pages the customer receives."
+        title={`Proofs & estimate · Order ${formatOrderDisplayLine(order)}`}
+        subtitle="Same PDF attached when you send proofs + estimate to the customer."
         load={loadProofsPdf}
       />
     </section>

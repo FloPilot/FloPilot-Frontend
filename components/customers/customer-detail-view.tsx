@@ -18,6 +18,8 @@ import {
 import { CustomerOrderDialog } from "@/components/customers/customer-order-dialog";
 import { CustomerBrandMarkFromRecord } from "@/components/customers/customer-brand-mark";
 import { CustomerShippingLocationsSection } from "@/components/customers/customer-shipping-locations-section";
+import { CustomerSubCustomersSection } from "@/components/customers/customer-sub-customers-section";
+import { CustomerSalesRepSection } from "@/components/customers/customer-sales-rep-section";
 import { CustomerNegotiatedPricingSection } from "@/components/customers/customer-negotiated-pricing-section";
 import { EditCustomerDialog } from "@/components/customers/edit-customer-dialog";
 import { CustomerActivityLauncher } from "@/components/customers/customer-activity-launcher";
@@ -60,6 +62,7 @@ import {
 } from "@/lib/dashboard-styles";
 import { isArchivedOrder } from "@/lib/order-archive";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { resolveOrderFinancialsInContext, buildOrderFinancialsMap, type OrderFinancials } from "@/lib/order-financial-context";
 import type { Order, OrderStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -132,6 +135,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
     () => ({
       taxRate: settings.taxRate,
       pricingMatrix: settings.pricingMatrix,
+      pricingRateSheets: settings.pricingRateSheets,
       getCustomer: () => customer,
     }),
     [settings.taxRate, settings.pricingMatrix, customer]
@@ -255,6 +259,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                   financials: {
                     taxRate: settings.taxRate,
                     pricingMatrix: settings.pricingMatrix,
+                    pricingRateSheets: settings.pricingRateSheets,
                     getCustomer: () => customer,
                   },
                 }}
@@ -451,6 +456,20 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                 </div>
               </div>
             </section>
+
+            <CustomerSubCustomersSection
+              customer={customer}
+              onSave={async (subCustomers) => {
+                await updateCustomer(customer.id, { subCustomers });
+              }}
+            />
+
+            <CustomerSalesRepSection
+              customer={customer}
+              onSave={async (salesRepId) => {
+                await updateCustomer(customer.id, { salesRepId: salesRepId ?? "" });
+              }}
+            />
 
             <CustomerShippingLocationsSection
               customer={customer}
@@ -773,7 +792,7 @@ function OrderHistoryRow({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-semibold text-[#303030] transition-colors group-hover:text-[#2c6ecb]">
-            {order.number}
+            {formatOrderDisplayLine(order)}
           </span>
           <OrderStatusBadge status={order.status} />
           {order.rush ? <RushBadge /> : null}

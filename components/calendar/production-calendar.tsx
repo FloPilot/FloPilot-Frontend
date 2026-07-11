@@ -45,6 +45,7 @@ import {
   SCHEDULE_CHIP_BOX_PADDING,
   type ScheduleBlockProductionStatus,
 } from "@/lib/schedule-block-display";
+import { formatScheduleBlockDisplayLine } from "@/lib/order-display";
 import { machineColorStyles, RESOURCE_TYPE_LABELS } from "@/lib/machine-styles";
 import { cn } from "@/lib/utils";
 
@@ -104,6 +105,10 @@ function ScheduleChip({
   highlighted?: boolean;
   contextOnly?: boolean;
 }) {
+  const { activeOrders } = useSchedule();
+  const order = activeOrders.find((entry) => entry.id === block.orderId);
+  const orderTitle = formatScheduleBlockDisplayLine(block, order);
+
   const className = cn(
     "w-full text-left rounded-lg border flex flex-col items-start justify-start",
     SCHEDULE_CHIP_BOX_PADDING,
@@ -128,7 +133,7 @@ function ScheduleChip({
 
   if (contextOnly) {
     return (
-      <div className={className} title={`${block.orderNumber} · other order`}>
+      <div className={className} title={`${orderTitle} · other order`}>
         {content}
       </div>
     );

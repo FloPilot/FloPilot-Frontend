@@ -64,7 +64,7 @@ const QUICK_FILTERS: {
 }[] = [
   { value: "all", label: "All orders" },
   { value: "needs_art", label: "Needs art", kpiKey: "needsArt" },
-  { value: "needs_schedule", label: "Not scheduled", kpiKey: "needsSchedule" },
+  { value: "needs_schedule", label: "Ready for scheduling", kpiKey: "needsSchedule" },
   { value: "on_floor", label: "On floor", kpiKey: "onFloor" },
   { value: "blocked", label: "Blocked", kpiKey: "blocked" },
 ];
@@ -104,7 +104,7 @@ const KPI_CONFIG: {
   },
   {
     key: "needsSchedule",
-    label: "Not scheduled",
+    label: "Ready for scheduling",
     hint: "Ready but not on the calendar",
     icon: Calendar,
     surface: "bg-[#f4f7fd]",
@@ -162,6 +162,9 @@ export function OrdersListView() {
   const [visibleColumns, setVisibleColumns] = useState<OrdersListColumnId[]>(
     DEFAULT_ORDERS_LIST_COLUMNS
   );
+  const [columnLabels, setColumnLabels] = useState<
+    Partial<Record<OrdersListColumnId, string>>
+  >({});
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
 
   const customersById = useMemo(
@@ -214,6 +217,7 @@ export function OrdersListView() {
     () => ({
       taxRate: settings.taxRate,
       pricingMatrix: settings.pricingMatrix,
+      pricingRateSheets: settings.pricingRateSheets,
       getCustomer: getCustomerById,
     }),
     [settings.taxRate, settings.pricingMatrix, getCustomerById]
@@ -336,6 +340,8 @@ export function OrdersListView() {
             <OrdersListViewConfig
               columns={visibleColumns}
               onColumnsChange={setVisibleColumns}
+              columnLabels={columnLabels}
+              onColumnLabelsChange={setColumnLabels}
               activeViewId={activeViewId}
               onActiveViewChange={setActiveViewId}
             />
@@ -448,6 +454,7 @@ export function OrdersListView() {
             orderFinancials={orderFinancials}
             scope={scope}
             columns={tableColumns}
+            columnLabels={columnLabels}
             customersById={customersById}
             emptyMessage={
               shopDataLoading

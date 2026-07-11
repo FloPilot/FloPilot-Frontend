@@ -3,8 +3,13 @@ import type { PricingMatrix } from "@/lib/shop-settings";
 import {
   listCustomerRateSheets,
   resolveRateSheetForOrder,
-  SHOP_PRICING_SHEET_ID,
 } from "@/lib/customer-pricing";
+import {
+  asShopPricingSource,
+  isShopRateSheetId,
+  listShopRateSheets,
+  type ShopPricingSource,
+} from "@/lib/shop-pricing";
 import {
   countOrderPieces,
   resolveTierAmount,
@@ -86,6 +91,7 @@ function presetsFromContractFees(
   const rows: OrderFeePreset[] = [];
 
   for (const fee of fees ?? []) {
+    if (fee.enabled === false) continue;
     if ((fee.amount || 0) <= 0 && fee.kind !== "additional_location") continue;
 
     const category = contractFeeCategory(fee);
@@ -118,14 +124,17 @@ export function buildOrderFeePresets({
   shopMatrix,
   order,
   selectedRateSheetId,
+  shopSettings,
 }: {
   customer?: Customer | null;
   shopMatrix: PricingMatrix;
   order: Order;
   selectedRateSheetId?: string | null;
+  shopSettings?: ShopPricingSource | null;
 }): OrderFeePreset[] {
   const presets: OrderFeePreset[] = [];
   const seen = new Set<string>();
+  const source = asShopPricingSource(shopSettings ?? shopMatrix);
 
   const pushUnique = (rows: OrderFeePreset[]) => {
     for (const row of rows) {
@@ -137,10 +146,10 @@ export function buildOrderFeePresets({
   };
 
   const rateSheets = listCustomerRateSheets(customer);
-  const activeSheet = resolveRateSheetForOrder(customer, order);
+  const activeSheet = resolveRateSheetForOrder(customer, order, source);
   const prioritizedSheetIds = [
     selectedRateSheetId &&
-    selectedRateSheetId !== SHOP_PRICING_SHEET_ID &&
+    !isShopRateSheetId(source, selectedRateSheetId) &&
     selectedRateSheetId,
     activeSheet?.id,
     ...rateSheets.filter((sheet) => sheet.isDefault).map((sheet) => sheet.id),
@@ -169,14 +178,16 @@ export function buildOrderFeePresets({
     );
   }
 
-  pushUnique(
-    presetsFromContractFees(
-      shopMatrix.contractFees,
-      "Shop standard",
-      "shop",
-      order
-    )
-  );
+  for (const sheet of listShopRateSheets(source)) {
+    pushUnique(
+      presetsFromContractFees(
+        sheet.contractFees,
+        sheet.name,
+        `shop:${sheet.id}`,
+        order
+      )
+    );
+  }
 
   for (const item of customer?.negotiatedPricing?.items ?? []) {
     if (!item.label || item.unitPrice == null) continue;

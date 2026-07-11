@@ -1,7 +1,14 @@
-import type { PricingMatrix } from "@/lib/shop-settings";
+import type { PricingMatrix, ShopSettings } from "@/lib/shop-settings";
 import type { Customer, CustomerNegotiatedRateSheet, Order } from "@/types";
+import {
+  asShopPricingSource,
+  isShopRateSheetId,
+  resolveShopPricingMatrix,
+  SHOP_PRICING_SHEET_ID,
+  type ShopPricingSource,
+} from "@/lib/shop-pricing";
 
-export const SHOP_PRICING_SHEET_ID = "shop";
+export { SHOP_PRICING_SHEET_ID };
 
 export function createRateSheetId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -48,14 +55,19 @@ export function listCustomerRateSheets(
 
 export function resolveRateSheetForOrder(
   customer?: Customer | null,
-  order?: Order | null
+  order?: Order | null,
+  shop?: ShopPricingSource | PricingMatrix | null
 ): CustomerNegotiatedRateSheet | null {
   const sheets = listCustomerRateSheets(customer);
   if (sheets.length === 0) return null;
-  if (order?.selectedRateSheetId === SHOP_PRICING_SHEET_ID) return null;
 
-  if (order?.selectedRateSheetId) {
-    const selected = sheets.find((sheet) => sheet.id === order.selectedRateSheetId);
+  const selectedId = order?.selectedRateSheetId;
+  if (selectedId && isShopRateSheetId(asShopPricingSource(shop), selectedId)) {
+    return null;
+  }
+
+  if (selectedId) {
+    const selected = sheets.find((sheet) => sheet.id === selectedId);
     if (selected) return selected;
   }
 
@@ -64,7 +76,8 @@ export function resolveRateSheetForOrder(
 
 export function resolveCustomerPricingMatrix(
   customer?: Customer | null,
-  order?: Order | null
+  order?: Order | null,
+  shop?: ShopPricingSource | PricingMatrix | null
 ): (PricingMatrix & { rateSheetId?: string; rateSheetName?: string }) | null {
   const sheets = sortRateSheets(
     (customer?.negotiatedPricing?.rateSheets ?? []).filter(
@@ -74,7 +87,7 @@ export function resolveCustomerPricingMatrix(
   if (sheets.length === 0) return null;
 
   const selected =
-    resolveRateSheetForOrder(customer, order) ??
+    resolveRateSheetForOrder(customer, order, shop) ??
     sheets.find((sheet) => sheet.isDefault) ??
     sheets[0];
 
@@ -89,7 +102,7 @@ export function resolveCustomerPricingMatrix(
 }
 
 export function resolveEffectivePricingMatrix(
-  shopMatrix: PricingMatrix,
+  shop: PricingMatrix | ShopPricingSource | Pick<ShopSettings, "pricingMatrix" | "pricingRateSheets">,
   customer?: Customer | null,
   order?: Order | null
 ): PricingMatrix & {
@@ -97,15 +110,19 @@ export function resolveEffectivePricingMatrix(
   rateSheetName?: string;
   usingShopPricing?: boolean;
 } {
-  if (order?.selectedRateSheetId === SHOP_PRICING_SHEET_ID) {
-    return { ...shopMatrix, usingShopPricing: true };
+  const source = asShopPricingSource(shop);
+  const selectedId = order?.selectedRateSheetId;
+
+  if (selectedId && isShopRateSheetId(source, selectedId)) {
+    return resolveShopPricingMatrix(source, order);
   }
 
-  const customerMatrix = resolveCustomerPricingMatrix(customer, order);
+  const customerMatrix = resolveCustomerPricingMatrix(customer, order, source);
   if (customerMatrix?.enabled && customerMatrix.methods.length > 0) {
     return customerMatrix;
   }
-  return shopMatrix;
+
+  return resolveShopPricingMatrix(source, order);
 }
 
 export function customerHasNegotiatedPricing(customer?: Customer | null): boolean {
@@ -118,7 +135,9 @@ export function countRateSheetMethods(sheet: CustomerNegotiatedRateSheet): numbe
 
 export function rateSheetSummary(sheet: CustomerNegotiatedRateSheet): string {
   const methodCount = countRateSheetMethods(sheet);
-  const feeCount = (sheet.contractFees ?? []).filter((fee) => fee.enabled).length;
+  const feeCount = (sheet.contractFees ?? []).filter(
+    (fee) => fee.enabled !== false
+  ).length;
   if (methodCount === 0 && feeCount === 0) return "No pricing configured yet";
 
   const parts: string[] = [];

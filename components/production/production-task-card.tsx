@@ -12,6 +12,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { formatDate } from "@/lib/format";
+import { formatOrderRef } from "@/lib/order-display";
 import { getCustomerAccent } from "@/lib/production-customer-colors";
 import {
   PRODUCTION_STATUS_BADGE,
@@ -125,7 +126,7 @@ export function ProductionTaskCard({
               </span>
             </span>
             <span className="rounded-sm bg-[#f1f1f1] px-1.5 py-0.5 font-mono text-[11px] font-medium text-[#303030]">
-              {task.orderNumber}
+              {formatOrderRef(task)}
             </span>
           </div>
 

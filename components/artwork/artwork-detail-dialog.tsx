@@ -23,6 +23,7 @@ import {
   type ArtworkQueueEntry,
 } from "@/lib/artwork-queue";
 import { artworkOrderWorkspaceHref } from "@/lib/artwork-routes";
+import { formatOrderRef } from "@/lib/order-display";
 import {
   getCustomerAccent,
   getCustomerInitials,
@@ -85,7 +86,7 @@ export function ArtworkDetailDialog({
                     className="font-medium text-[#303030] hover:text-[#2c6ecb]"
                     onClick={() => onOpenChange(false)}
                   >
-                    {liveEntry.orderNumber}
+                    {formatOrderRef(liveEntry)}
                   </Link>
                   {" · "}
                   {liveEntry.company || liveEntry.customerName}

@@ -16,6 +16,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { resolveOrderFinancialsInContext } from "@/lib/order-financial-context";
 import { formatOrderBalanceLabel } from "@/lib/order-payment";
 import { countScheduledSteps } from "@/lib/order-production";
@@ -42,10 +43,11 @@ export function CustomerOrderDialog({
         ? resolveOrderFinancialsInContext(order, {
             taxRate: settings.taxRate,
             pricingMatrix: settings.pricingMatrix,
+            pricingRateSheets: settings.pricingRateSheets,
             getCustomer: getCustomerById,
           })
         : null,
-    [order, settings.taxRate, settings.pricingMatrix, getCustomerById]
+    [order, settings, getCustomerById]
   );
   const paymentOrder = useMemo(
     () => (order && financials ? { ...order, ...financials } : order),
@@ -75,7 +77,7 @@ export function CustomerOrderDialog({
           <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
             <div>
               <DialogTitle className="text-xl font-semibold flex flex-wrap items-center gap-2">
-                {order.number}
+                {formatOrderDisplayLine(order)}
                 {order.rush && <RushBadge />}
               </DialogTitle>
               <DialogDescription className="mt-1">
