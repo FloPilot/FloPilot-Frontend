@@ -892,8 +892,30 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       if (!token) return;
       const { run } = await apiUpdateJobRunStatus(token, runId, "finished");
       updateJobRun(run);
+
+      // Mirror completion onto the production event workflow so Floor + Workflow agree.
+      const block = scheduleBlocks.find(
+        (entry) => entry.id === run.scheduleBlockId
+      );
+      if (block) {
+        const order = orders.find((entry) => entry.id === block.orderId);
+        const job = order?.jobs.find((entry) => entry.id === block.jobId);
+        const imprint = job?.imprints.find(
+          (entry) => entry.id === block.imprintId
+        );
+        if (imprint && imprint.workflow?.status !== "completed") {
+          const { order: updatedOrder } = await apiUpdateProductionEventWorkflow(
+            token,
+            block.orderId,
+            block.jobId,
+            block.imprintId,
+            { status: "completed" }
+          );
+          applyOrderUpdate(updatedOrder);
+        }
+      }
     },
-    [getIdToken, updateJobRun]
+    [getIdToken, updateJobRun, scheduleBlocks, orders, applyOrderUpdate]
   );
 
   const cancelJobRun = useCallback(
@@ -1139,8 +1161,33 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         workflow
       );
       applyOrderUpdate(order);
+
+      // Keep the floor / station run in sync when an event is marked completed.
+      if (workflow.status === "completed") {
+        const block = scheduleBlocks.find(
+          (entry) =>
+            entry.orderId === orderId &&
+            entry.jobId === jobId &&
+            entry.imprintId === imprintId
+        );
+        const run = block
+          ? getRunForBlock(jobRuns, block.id)
+          : undefined;
+        if (
+          run &&
+          run.status !== "finished" &&
+          run.status !== "cancelled"
+        ) {
+          const { run: updated } = await apiUpdateJobRunStatus(
+            token,
+            run.id,
+            "finished"
+          );
+          updateJobRun(updated);
+        }
+      }
     },
-    [getIdToken, applyOrderUpdate]
+    [getIdToken, applyOrderUpdate, scheduleBlocks, jobRuns, updateJobRun]
   );
 
   const uploadArtworkVersion = useCallback(
