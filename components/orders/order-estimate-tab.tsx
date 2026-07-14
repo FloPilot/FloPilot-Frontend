@@ -28,6 +28,7 @@ import {
   resolveEffectivePricingMatrix,
 } from "@/lib/customer-pricing";
 import { computeEstimateTotals } from "@/lib/order-estimate";
+import { OrderEstimateApprovalPanel } from "@/components/orders/order-estimate-approval-panel";
 import { OrderEstimatePricingPanel } from "@/components/orders/order-estimate-pricing-panel";
 import { StaffEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
 import { orderHasDtfEvents } from "@/lib/order-materials";
@@ -147,6 +148,8 @@ export function OrderEstimateTab({ order }: { order: Order }) {
 
   return (
     <div className="space-y-4">
+      <OrderEstimateApprovalPanel order={order} />
+
       <section className={dashboardCardClass}>
         <div className="flex flex-col gap-3 border-b border-[#ebebeb] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="min-w-0">
