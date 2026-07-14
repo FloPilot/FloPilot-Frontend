@@ -25,6 +25,10 @@ import {
   clearTenantBrandingCache,
   persistTenantBrandingCache,
 } from "@/lib/tenant-branding-cache";
+import {
+  clearStaffDisplayName,
+  persistStaffDisplayName,
+} from "@/lib/staff-display-name";
 
 type AuthContextValue = {
   user: User | null;
@@ -69,6 +73,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
 
     persistStaffBranding(me);
+    if (me.type === "staff") {
+      persistStaffDisplayName(me.user.name);
+    }
   }, []);
 
   const resolveStaffSession = useCallback(
@@ -181,6 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await firebaseSignOut(auth);
     setProfile(null);
     clearTenantBrandingCache();
+    clearStaffDisplayName();
     resetTenantBrandingOnDocument();
   }, []);
 
