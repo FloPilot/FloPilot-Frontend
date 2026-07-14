@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CheckCircle2, RotateCcw, Send } from "lucide-react";
-import { MockupPreview } from "@/components/orders/artwork/mockup-preview";
+import { ProofSlidesViewer } from "@/components/orders/artwork/proof-slides-gallery";
 import { ProofNotesThread } from "@/components/orders/proof-notes-thread";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
@@ -139,7 +139,12 @@ export function ArtworkProofDetail({
       <div className="flex min-h-0 flex-col border-b border-[#ebebeb] bg-[#fafafa] p-4 sm:p-5 lg:border-b-0 lg:border-r">
         {job && imprint ? (
           <div className="flex min-h-[280px] flex-1 flex-col lg:min-h-[420px]">
-            <MockupPreview entry={{ job, imprint }} fill />
+            <ProofSlidesViewer
+              artwork={imprint.artwork}
+              imprintLabel={imprint.label}
+              jobName={job.name}
+              className="flex h-full flex-col rounded-lg border border-[#e3e3e3] bg-white p-3"
+            />
           </div>
         ) : (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[#e3e3e3] bg-white/60 p-8 text-sm text-[#616161]">

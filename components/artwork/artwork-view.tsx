@@ -54,6 +54,7 @@ import {
   dashboardValueClass,
 } from "@/lib/dashboard-styles";
 import { decorationLabel, formatDate, formatDateTime } from "@/lib/format";
+import { formatOrderRef } from "@/lib/order-display";
 import { artworkOrderWorkspaceHref } from "@/lib/artwork-routes";
 import { cn } from "@/lib/utils";
 
@@ -483,7 +484,7 @@ export function ArtworkView() {
                               key={artworkQueueEntryKey(entry)}
                               tabIndex={0}
                               role="button"
-                              aria-label={`Review ${entry.imprintLabel} on ${entry.orderNumber}`}
+                              aria-label={`Review ${entry.imprintLabel} on ${formatOrderRef(entry)}`}
                               className={cn(
                                 "group cursor-pointer border-[#ebebeb] transition-colors hover:bg-[#f6f6f7] focus-visible:bg-[#f6f6f7] focus-visible:outline-none",
                                 entry.archived && "opacity-70"
@@ -510,7 +511,7 @@ export function ArtworkView() {
                                   className="text-[13px] font-semibold text-[#303030] hover:text-[#2c6ecb] hover:underline"
                                   onClick={(event) => event.stopPropagation()}
                                 >
-                                  {entry.orderNumber}
+                                  {formatOrderRef(entry)}
                                 </Link>
                                 <p className="mt-0.5 text-[12px] text-[#616161] md:hidden">
                                   {entry.company || entry.customerName}

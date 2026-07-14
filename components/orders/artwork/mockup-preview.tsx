@@ -4,6 +4,7 @@ import { CheckCircle2, Shirt } from "lucide-react";
 import { decorationLabel, formatDateTime } from "@/lib/format";
 import type { MockupEntry } from "@/lib/job-imprints";
 import { dashboardElevatedShadow } from "@/lib/dashboard-styles";
+import { artworkHasProofImages, getProofSlides } from "@/lib/proof-slides";
 import { cn } from "@/lib/utils";
 import { ArtworkStatusBadge } from "./artwork-status-badge";
 
@@ -32,7 +33,10 @@ export function MockupPreview({
   const { job, imprint } = entry;
   const file = imprint.artwork;
   const approved = file.status === "approved";
-  const hasPreview = Boolean(file.previewUrl);
+  const slides = getProofSlides(file);
+  const hasPreview = artworkHasProofImages(file);
+  const previewUrl = slides[0]?.previewUrl;
+  const slideCount = slides.length;
   const noMockupAttached = file.name === "No mockup attached";
   const Wrapper = onClick ? "button" : "div";
 
@@ -77,14 +81,21 @@ export function MockupPreview({
         )}
       >
         {hasPreview ? (
-          <img
-            src={file.previewUrl}
-            alt={file.name}
-            className={cn(
-              "max-h-full w-full object-contain",
-              banner ? "max-h-[160px]" : compact ? "max-h-[140px]" : "max-h-[220px]"
-            )}
-          />
+          <>
+            <img
+              src={previewUrl}
+              alt={slides[0]?.label || file.name}
+              className={cn(
+                "max-h-full w-full object-contain",
+                banner ? "max-h-[160px]" : compact ? "max-h-[140px]" : "max-h-[220px]"
+              )}
+            />
+            {slideCount > 1 ? (
+              <span className="absolute bottom-3 left-3 rounded-md bg-black/55 px-2 py-0.5 text-[11px] font-medium text-white">
+                {slideCount} images
+              </span>
+            ) : null}
+          </>
         ) : (
           <>
             <div
@@ -153,7 +164,9 @@ export function MockupPreview({
             {noMockupAttached ? "No mockup attached" : file.name}
           </p>
           <p className="text-xs text-[#8a8a8a]">
-            {imprint.label} · v{file.version} · {formatDateTime(file.uploadedAt)}
+            {imprint.label} · v{file.version}
+            {slideCount > 1 ? ` · ${slideCount} images` : ""} ·{" "}
+            {formatDateTime(file.uploadedAt)}
           </p>
         </div>
         <ArtworkStatusBadge status={file.status} />

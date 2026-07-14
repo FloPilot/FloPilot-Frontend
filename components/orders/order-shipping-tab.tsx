@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import {
   Loader2,
@@ -10,6 +11,7 @@ import {
   Store,
   Trash2,
   Truck,
+  Users,
 } from "lucide-react";
 import { CustomerShippingLocationsSection } from "@/components/customers/customer-shipping-locations-section";
 import { OrderShippingDeleteDialog } from "@/components/orders/order-shipping-delete-dialog";
@@ -132,8 +134,11 @@ export function OrderShippingTab({ order }: { order: Order }) {
   const { customers, updateOrderShipments, updateCustomer } = useSchedule();
   const customer = customers.find((entry) => entry.id === order.customerId);
   const customerLocations = useMemo(
-    () => resolveCustomerShippingLocations(customer),
-    [customer]
+    () =>
+      resolveCustomerShippingLocations(customer, {
+        subCustomerId: order.subCustomerId,
+      }),
+    [customer, order.subCustomerId]
   );
 
   const [shipments, setShipments] = useState<Shipment[]>(order.shipments ?? []);
@@ -455,6 +460,29 @@ export function OrderShippingTab({ order }: { order: Order }) {
           />
         </div>
 
+        {order.subCustomerName ? (
+          <div className="mx-4 mt-4 flex flex-wrap items-start gap-2 rounded-lg border border-[#dbeafe] bg-[#f4f7fd] px-4 py-3 sm:mx-5">
+            <Users className="mt-0.5 size-4 shrink-0 text-[#2c6ecb]" />
+            <div className="min-w-0 text-[12px] leading-relaxed text-[#303030]">
+              <p className="font-semibold">End business: {order.subCustomerName}</p>
+              <p className="mt-0.5 text-[#616161]">
+                Ship-to options use this business&apos;s saved addresses
+                {customerLocations.length > 0
+                  ? ` (${customerLocations.length} available)`
+                  : ""}
+                . Edit them on the{" "}
+                <Link
+                  href={`/app/customers/${order.customerId}`}
+                  className="font-medium text-[#2c6ecb] hover:underline"
+                >
+                  customer profile
+                </Link>
+                .
+              </p>
+            </div>
+          </div>
+        ) : null}
+
         {shipments.length > 0 ? (
           <div
             className={cn(
@@ -564,7 +592,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
             </div>
           </div>
 
-          {!willCallMode && customer ? (
+          {!willCallMode && customer && !order.subCustomerId ? (
             <CustomerShippingLocationsSection
               customer={customer}
               variant="compact"

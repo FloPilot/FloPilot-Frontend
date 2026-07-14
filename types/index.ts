@@ -50,10 +50,15 @@ export interface Customer {
   archivedBy?: string;
   /** Saved ship-to addresses for split shipments */
   shippingLocations?: CustomerShippingLocation[];
+  /** End businesses / accounts under a broker or contractor parent */
+  subCustomers?: SubCustomer[];
   /** Account-specific pricing shared with the customer in their portal */
   negotiatedPricing?: CustomerNegotiatedPricing;
   /** Staff-visible audit trail for profile, pricing, and location changes */
   activity?: CustomerActivityEvent[];
+  /** Default sales rep for new orders on this account */
+  salesRepId?: string;
+  salesRepName?: string;
 }
 
 export type CustomerActivityType =
@@ -70,7 +75,10 @@ export type CustomerActivityType =
   | "pricing_note_updated"
   | "pricing_sheet_added"
   | "pricing_sheet_updated"
-  | "pricing_sheet_removed";
+  | "pricing_sheet_removed"
+  | "sub_customer_added"
+  | "sub_customer_updated"
+  | "sub_customer_removed";
 
 export interface CustomerActivityEvent {
   id: string;
@@ -178,6 +186,22 @@ export interface CustomerShippingLocation extends ShippingAddress {
   isDefault?: boolean;
 }
 
+/** An end business or brand managed under a broker/contractor customer account. */
+export interface SubCustomer {
+  id: string;
+  /** Business or brand name shown on orders */
+  name: string;
+  contactName?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+  /** When true, this account may use the parent customer's ship-to locations */
+  warehousesAtParent?: boolean;
+  shippingLocations?: CustomerShippingLocation[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface SizeBreakdown {
   size: string;
   quantity: number;
@@ -216,6 +240,16 @@ export interface RevisionNote {
   kind?: "revision_request" | "comment";
 }
 
+export interface ProofSlide {
+  id: string;
+  previewUrl?: string;
+  /** e.g. "Front mockup", "Logo file" */
+  label?: string;
+  sortOrder: number;
+  uploadedAt: string;
+  uploadedBy?: string;
+}
+
 export interface ArtworkFile {
   id: string;
   name: string;
@@ -228,6 +262,8 @@ export interface ArtworkFile {
   kind?: OrderFileKind;
   /** Inline image preview for PNG/JPG uploads (metadata-only storage today) */
   previewUrl?: string;
+  /** Ordered images for the current proof (logo, mockup, detail shots, etc.) */
+  proofSlides?: ProofSlide[];
   /** Previous versions of this imprint artwork */
   history?: ArtworkVersion[];
   /** Customer or staff notes tied to this proof (revision requests, follow-ups) */
@@ -242,6 +278,7 @@ export interface ArtworkVersion {
   uploadedBy: string;
   mockupLabel?: string;
   previewUrl?: string;
+  proofSlides?: ProofSlide[];
 }
 
 export type OrderFileKind =
@@ -460,6 +497,8 @@ export interface Task {
   dueDate: string;
   orderId: string;
   orderNumber: string;
+  /** Order-level custom name for display (SO-123 — label) */
+  orderCustomLabel?: string;
   customerId?: string;
   customerName: string;
   /** Current workflow phase when this row mirrors a production event */
@@ -535,6 +574,9 @@ export interface Order {
   customerId: string;
   customerName: string;
   company: string;
+  /** End business under the billing customer (brokers / contractors) */
+  subCustomerId?: string;
+  subCustomerName?: string;
   createdAt: string;
   inHandsDate: string;
   subtotal: number;
@@ -580,8 +622,11 @@ export interface Order {
   estimateAdjustments?: OrderEstimateAdjustment[];
   /** Contract fee ids excluded from auto-apply on this order */
   excludedContractFeeIds?: string[];
-  /** Optional shop label shown after order number, e.g. "LEGENDS SPIRIT OF DRIVING" */
+  /** Optional shop label shown after order number, e.g. "CUSTOM NAME" */
   customLabel?: string;
+  /** Assigned sales rep — receives order notifications */
+  salesRepId?: string;
+  salesRepName?: string;
 }
 
 /** Reusable decoration spec saved from an order imprint */
@@ -719,7 +764,7 @@ export interface ScheduleBlock {
   endAt: string;
   pieceCount?: number;
   notes?: string;
-  /** Optional shop label shown after order number on the calendar, e.g. "LEGENDS SPIRIT OF DRIVING FLC" */
+  /** Optional shop label shown after order number on the calendar, e.g. "CUSTOM NAME" */
   customLabel?: string;
 }
 
@@ -752,6 +797,7 @@ export interface StationJobRun {
 export interface SchedulableJobOption {
   orderId: string;
   orderNumber: string;
+  orderCustomLabel?: string;
   customerName: string;
   jobId: string;
   jobName: string;

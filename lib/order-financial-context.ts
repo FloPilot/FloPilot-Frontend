@@ -6,6 +6,7 @@ import { resolveOrderFinancials } from "@/lib/order-estimate";
 export type OrderFinancialContext = {
   taxRate: number;
   pricingMatrix?: PricingMatrix;
+  pricingRateSheets?: import("@/lib/shop-settings").ShopPricingRateSheet[];
   getCustomer?: (customerId: string) => Customer | null | undefined;
 };
 
@@ -20,7 +21,10 @@ export function resolveOrderFinancialsInContext(
 ): OrderFinancials {
   const customer = context.getCustomer?.(order.customerId) ?? null;
   const matrix = resolveEffectivePricingMatrix(
-    context.pricingMatrix ?? EMPTY_MATRIX,
+    {
+      pricingMatrix: context.pricingMatrix ?? EMPTY_MATRIX,
+      pricingRateSheets: context.pricingRateSheets,
+    },
     customer,
     order
   );

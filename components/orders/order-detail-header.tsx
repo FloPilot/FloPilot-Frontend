@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { OrderCustomLabelEditor } from "@/components/orders/order-custom-label-field";
+import { OrderEndBusinessEditor } from "@/components/orders/order-end-business-editor";
+import { OrderSalesRepEditor } from "@/components/orders/order-sales-rep-editor";
 import { RushBadge } from "@/components/status-badges";
 import {
   dashboardControlClass,
@@ -10,14 +12,13 @@ import {
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { formatDate } from "@/lib/format";
-import { formatOrderDisplayLine } from "@/lib/order-display";
 import { isArchivedOrder } from "@/lib/order-archive";
 import {
   buildOrderDetailTabs,
   type OrderDetailTab,
 } from "@/lib/order-detail-tabs";
 import type { OrderListSummary } from "@/lib/order-list-summary";
-import type { Order } from "@/types";
+import type { Order, SubCustomer } from "@/types";
 import { cn } from "@/lib/utils";
 
 export type { OrderDetailTab } from "@/lib/order-detail-tabs";
@@ -31,14 +32,23 @@ export function OrderDetailHeader({
   activeTab,
   onTabChange,
   onCustomLabelSave,
+  subCustomers,
+  onEndBusinessSave,
+  onSalesRepSave,
 }: {
   order: Order;
   summary: OrderListSummary;
   activeTab: OrderDetailTab;
   onTabChange: (tab: OrderDetailTab) => void;
   onCustomLabelSave?: (customLabel: string) => Promise<void | Order>;
+  subCustomers?: SubCustomer[];
+  onEndBusinessSave?: (subCustomerId: string | null) => Promise<void | Order>;
+  onSalesRepSave?: (salesRepId: string | null) => Promise<void | Order>;
 }) {
   const tabs = buildOrderDetailTabs(order);
+  const showEndBusiness =
+    Boolean(onEndBusinessSave) &&
+    Boolean(subCustomers?.length || order.subCustomerId);
 
   const dueLabel =
     summary.dueDays === null
@@ -68,14 +78,25 @@ export function OrderDetailHeader({
             /
           </span>
           <span className="px-1 font-medium text-[#303030]">
-            Order {formatOrderDisplayLine(order)}
+            Order {order.number}
+            {order.customLabel?.trim() ? ` — ${order.customLabel.trim()}` : ""}
           </span>
         </nav>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className={dashboardSectionTitleClass}>
-            Order {formatOrderDisplayLine(order)}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-2">
+          <h1 className={cn(dashboardSectionTitleClass, "shrink-0")}>
+            Order {order.number}
           </h1>
+          {onCustomLabelSave ? (
+            <OrderCustomLabelEditor
+              order={order}
+              onSave={onCustomLabelSave}
+            />
+          ) : order.customLabel?.trim() ? (
+            <span className="rounded-md border border-[#ebebeb] px-2.5 py-1 text-[13px] font-medium text-[#616161]">
+              {order.customLabel.trim()}
+            </span>
+          ) : null}
           {order.rush ? <RushBadge /> : null}
           {isArchivedOrder(order) ? (
             <span className="inline-flex rounded-md bg-[#f1f1f1] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
@@ -84,13 +105,22 @@ export function OrderDetailHeader({
           ) : null}
         </div>
 
-        <p className={dashboardTaskDetailClass}>
-          {order.company} · {order.customerName} · In-hands {dueLabel}
-        </p>
-
-        {onCustomLabelSave ? (
-          <OrderCustomLabelEditor order={order} onSave={onCustomLabelSave} />
-        ) : null}
+        <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1">
+          <p className={dashboardTaskDetailClass}>
+            {order.company} · {order.customerName} · In-hands {dueLabel}
+          </p>
+          {showEndBusiness ? (
+            <OrderEndBusinessEditor
+              order={order}
+              subCustomers={subCustomers ?? []}
+              customerId={order.customerId}
+              onSave={onEndBusinessSave!}
+            />
+          ) : null}
+          {onSalesRepSave ? (
+            <OrderSalesRepEditor order={order} onSave={onSalesRepSave} />
+          ) : null}
+        </div>
       </div>
 
       <div

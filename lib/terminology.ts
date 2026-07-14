@@ -54,3 +54,9 @@ export const productionEventsWaitingMessage =
 
 export const allProductionEventsScheduledMessage =
   "All production events are on the calendar — nothing waiting to schedule.";
+
+/** On-brand scheduling and production checkpoint labels */
+export const READY_FOR_SCHEDULING_LABEL = "Ready for scheduling";
+export const SCHEDULED_LABEL = "Scheduled";
+export const COMPLETED_LABEL = "Completed";
+export const PARTIALLY_SCHEDULED_LABEL = "Partially scheduled";

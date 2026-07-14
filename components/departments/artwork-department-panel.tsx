@@ -124,6 +124,7 @@ export function ArtworkDepartmentPanel() {
                     <DepartmentOrderLink
                       orderId={entry.orderId}
                       orderNumber={entry.orderNumber}
+                      customLabel={entry.orderCustomLabel}
                     />
                     <span className="mx-1 text-[#c9cccf]">·</span>
                     {decorationLabel(entry.decoration)} · {entry.jobName}

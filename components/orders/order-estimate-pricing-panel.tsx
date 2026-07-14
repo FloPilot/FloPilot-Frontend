@@ -29,9 +29,14 @@ import {
   SHOP_PRICING_SHEET_ID,
 } from "@/lib/customer-pricing";
 import {
+  listShopRateSheets,
+  isShopRateSheetId,
+} from "@/lib/shop-pricing";
+import {
   buildFeeEstimateRows,
   createEstimateAdjustmentId,
   emptyManualAdjustment,
+  listAutoContractFeeCandidates,
 } from "@/lib/order-contract-fees";
 import {
   FEE_CATEGORY_OPTIONS,
@@ -76,46 +81,89 @@ export function OrderEstimatePricingPanel({
     null
   );
 
-  const rateSheets = useMemo(
+  const customerRateSheets = useMemo(
     () => listCustomerRateSheets(customer),
     [customer]
   );
 
-  const activeRateSheet = useMemo(
-    () => resolveRateSheetForOrder(customer, order),
-    [customer, order]
+  const shopRateSheets = useMemo(
+    () => listShopRateSheets(settings),
+    [settings]
   );
 
-  const selectedRateSheetId =
-    order.selectedRateSheetId === SHOP_PRICING_SHEET_ID
-      ? SHOP_PRICING_SHEET_ID
-      : order.selectedRateSheetId ??
-        activeRateSheet?.id ??
-        (rateSheets.length > 0
-          ? rateSheets.find((sheet) => sheet.isDefault)?.id
-          : SHOP_PRICING_SHEET_ID) ??
-        SHOP_PRICING_SHEET_ID;
+  const activeRateSheet = useMemo(
+    () => resolveRateSheetForOrder(customer, order, settings),
+    [customer, order, settings]
+  );
+
+  const selectedRateSheetId = useMemo(() => {
+    const current = order.selectedRateSheetId;
+    if (current && isShopRateSheetId(settings, current)) {
+      if (current === SHOP_PRICING_SHEET_ID) {
+        return (
+          shopRateSheets.find((sheet) => sheet.isDefault)?.id ??
+          shopRateSheets[0]?.id ??
+          SHOP_PRICING_SHEET_ID
+        );
+      }
+      return current;
+    }
+    if (current && customerRateSheets.some((sheet) => sheet.id === current)) {
+      return current;
+    }
+    if (activeRateSheet?.id) return activeRateSheet.id;
+    if (customerRateSheets.length > 0) {
+      return (
+        customerRateSheets.find((sheet) => sheet.isDefault)?.id ??
+        customerRateSheets[0].id
+      );
+    }
+    return (
+      shopRateSheets.find((sheet) => sheet.isDefault)?.id ??
+      shopRateSheets[0]?.id ??
+      SHOP_PRICING_SHEET_ID
+    );
+  }, [
+    order.selectedRateSheetId,
+    settings,
+    shopRateSheets,
+    customerRateSheets,
+    activeRateSheet?.id,
+  ]);
 
   const selectedRateSheetLabel = useMemo(() => {
-    if (selectedRateSheetId === SHOP_PRICING_SHEET_ID) {
-      return "Shop standard pricing";
+    const shopSheet = shopRateSheets.find(
+      (entry) => entry.id === selectedRateSheetId
+    );
+    if (shopSheet) {
+      return shopSheet.isDefault
+        ? `${shopSheet.name} (shop default)`
+        : shopSheet.name;
     }
-    const sheet = rateSheets.find((entry) => entry.id === selectedRateSheetId);
+    const sheet = customerRateSheets.find(
+      (entry) => entry.id === selectedRateSheetId
+    );
     if (sheet) {
       return sheet.isDefault ? `${sheet.name} (default)` : sheet.name;
     }
     return activeRateSheet?.name ?? "Select pricing";
-  }, [selectedRateSheetId, rateSheets, activeRateSheet?.name]);
+  }, [
+    selectedRateSheetId,
+    shopRateSheets,
+    customerRateSheets,
+    activeRateSheet?.name,
+  ]);
 
   const feePresets = useMemo(
     () =>
       buildOrderFeePresets({
         customer,
         shopMatrix: settings.pricingMatrix,
+        shopSettings: settings,
         order,
         selectedRateSheetId,
       }),
-    [customer, settings.pricingMatrix, order, selectedRateSheetId]
+    [customer, settings, order, selectedRateSheetId]
   );
 
   const presetOptions = useMemo(
@@ -129,11 +177,15 @@ export function OrderEstimatePricingPanel({
   );
 
   const feeRows = useMemo(
-    () => buildFeeEstimateRows(order, customer),
-    [order, customer]
+    () => buildFeeEstimateRows(order, customer, settings),
+    [order, customer, settings]
   );
 
-  const autoFees = feeRows.filter((row) => row.source === "auto");
+  const autoFeeCandidates = useMemo(
+    () => listAutoContractFeeCandidates(order, customer, settings),
+    [order, customer, settings]
+  );
+
   const manualFees = feeRows.filter((row) => row.source === "manual");
   const excluded = new Set(order.excludedContractFeeIds ?? []);
 
@@ -230,7 +282,8 @@ export function OrderEstimatePricingPanel({
     });
   };
 
-  const showRateSheetPicker = rateSheets.length > 0;
+  const showRateSheetPicker =
+    shopRateSheets.length > 1 || customerRateSheets.length > 0;
   const canSaveFee =
     draftManual &&
     draftManual.label.trim() &&
@@ -247,9 +300,9 @@ export function OrderEstimatePricingPanel({
             {saving ? <Loader2 className="size-3.5 animate-spin text-[#8a8a8a]" /> : null}
           </div>
           <p className={cn("mt-1", dashboardTaskDetailClass)}>
-            Choose which rate sheet applies to this order. Contract fees apply
-            automatically — pick saved fees from the customer or shop when you
-            need to add more.
+            Choose which rate sheet applies to this order. Enabled additional
+            fees apply automatically — skip any you do not want on this order,
+            or add more from saved presets.
           </p>
         </div>
       </div>
@@ -266,13 +319,16 @@ export function OrderEstimatePricingPanel({
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={SHOP_PRICING_SHEET_ID}>
-                Shop standard pricing
-              </SelectItem>
-              {rateSheets.map((sheet) => (
+              {shopRateSheets.map((sheet) => (
                 <SelectItem key={sheet.id} value={sheet.id}>
                   {sheet.name}
-                  {sheet.isDefault ? " (default)" : ""}
+                  {sheet.isDefault ? " (shop default)" : ""}
+                </SelectItem>
+              ))}
+              {customerRateSheets.map((sheet) => (
+                <SelectItem key={sheet.id} value={sheet.id}>
+                  {sheet.name}
+                  {sheet.isDefault ? " (customer default)" : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -280,13 +336,13 @@ export function OrderEstimatePricingPanel({
         </div>
       ) : null}
 
-      {selectedRateSheetId !== SHOP_PRICING_SHEET_ID && autoFees.length > 0 ? (
+      {autoFeeCandidates.length > 0 ? (
         <div className="space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-            Contract fees
+            Additional fees
           </p>
           <div className="space-y-2">
-            {autoFees.map((fee) => {
+            {autoFeeCandidates.map((fee) => {
               const excludedFee = fee.contractFeeId
                 ? excluded.has(fee.contractFeeId)
                 : false;
@@ -311,7 +367,7 @@ export function OrderEstimatePricingPanel({
                         {fee.label}
                       </span>
                       <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161] ring-1 ring-[#e3e3e3]">
-                        Auto
+                        {excludedFee ? "Skipped" : "Auto"}
                       </span>
                     </div>
                     {fee.detail ? (
@@ -322,8 +378,9 @@ export function OrderEstimatePricingPanel({
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-[13px] tabular-nums text-[#303030]">
-                      {fee.qty} × {formatCurrency(fee.unitPrice)} ={" "}
-                      {formatCurrency(lineTotal)}
+                      {excludedFee
+                        ? "Not charged"
+                        : `${fee.qty} × ${formatCurrency(fee.unitPrice)} = ${formatCurrency(lineTotal)}`}
                     </span>
                     {fee.contractFeeId ? (
                       <Button

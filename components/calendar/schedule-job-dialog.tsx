@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { schedulableJobKey } from "@/lib/job-imprints";
+import { formatOrderDisplayLine, formatOrderRef, formatOrderNumberWithLabel } from "@/lib/order-display";
 import {
   dashboardControlClass,
   dashboardInsetSurfaceClass,
@@ -229,7 +230,7 @@ export function ScheduleJobDialog({
   const selectedMachine = machines.find((m) => m.id === form.machineId);
 
   const selectedJobLabel = selectedJob
-    ? `${selectedJob.orderNumber} — ${selectedJob.imprintLabel} · ${decorationLabel(selectedJob.decoration)}`
+    ? `${formatOrderRef(selectedJob)} — ${selectedJob.imprintLabel} · ${decorationLabel(selectedJob.decoration)}`
     : null;
 
   const selectedOrder = selectedJob
@@ -495,8 +496,8 @@ export function ScheduleJobDialog({
                   </h3>
                   <p className="mt-1.5 max-w-sm text-[13px] leading-relaxed text-[#616161]">
                     {blockedQueueOrders.length > 0
-                      ? "These orders are in the queue but waiting on approvals or materials. Open one to see what it needs."
-                      : "Every event that's ready is already on the calendar. New events show up here as orders are approved and move into production."}
+                      ? "These orders are in the queue but still waiting on customer approvals. Open one to see what it needs."
+                      : "Every event that's ready is already on the calendar. New events show up here once the customer approves the estimate and proofs."}
                   </p>
                 </div>
 
@@ -531,7 +532,7 @@ export function ScheduleJobDialog({
                               key={order.id}
                               role="link"
                               tabIndex={0}
-                              aria-label={`Open order ${order.number}`}
+                              aria-label={`Open order ${formatOrderDisplayLine(order)}`}
                               onClick={() => openOrder(order.id)}
                               onKeyDown={(event) => {
                                 if (event.key === "Enter" || event.key === " ") {
@@ -543,7 +544,7 @@ export function ScheduleJobDialog({
                             >
                               <td className="px-4 py-2.5 align-top">
                                 <p className="font-semibold text-[#303030] group-hover:text-[#2c6ecb]">
-                                  {order.number}
+                                  {formatOrderDisplayLine(order)}
                                 </p>
                                 <p className="mt-0.5 truncate text-[12px] text-[#616161]">
                                   {order.company}
@@ -600,13 +601,13 @@ export function ScheduleJobDialog({
                   onChange={(e) =>
                     setForm((f) => ({ ...f, customLabel: e.target.value }))
                   }
-                  placeholder='e.g. LEGENDS SPIRIT OF DRIVING FLC'
+                  placeholder="e.g. CUSTOM NAME"
                   className="h-10 rounded-lg border-[#e3e3e3] text-[13px]"
                 />
                 <p className="text-[12px] text-[#616161]">
                   Shows on the calendar as{" "}
                   <span className="font-medium text-[#303030]">
-                    {selectedJob?.orderNumber ?? editingBlock?.orderNumber}
+                    {selectedJob ? formatOrderRef(selectedJob) : editingBlock ? formatOrderNumberWithLabel(editingBlock.orderNumber, editingBlock.customLabel) : ""}
                     {form.customLabel.trim()
                       ? ` — ${form.customLabel.trim()}`
                       : ""}
@@ -676,7 +677,7 @@ export function ScheduleJobDialog({
                           job.imprintId
                         )}
                       >
-                        {job.orderNumber} — {job.imprintLabel} ·{" "}
+                        {formatOrderRef(job)} — {job.imprintLabel} ·{" "}
                         {decorationLabel(job.decoration)}
                       </SelectItem>
                     ))}
@@ -704,7 +705,7 @@ export function ScheduleJobDialog({
                 </span>
                 <div className="min-w-0 flex-1 space-y-0.5">
                   <p className="text-[13px] font-semibold text-[#303030]">
-                    {selectedJob.orderNumber}
+                    {formatOrderRef(selectedJob)}
                     <span className="ml-1.5 font-normal text-[#616161]">
                       {selectedJob.customerName}
                     </span>

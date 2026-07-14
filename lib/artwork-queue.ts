@@ -5,6 +5,7 @@ import { isArchivedOrder } from "@/lib/order-archive";
 export type ArtworkQueueEntry = {
   orderId: string;
   orderNumber: string;
+  orderCustomLabel?: string;
   customerId: string;
   customerName: string;
   company: string;
@@ -49,6 +50,7 @@ export function collectArtworkQueue(orders: Order[]): ArtworkQueueEntry[] {
         entries.push({
           orderId: order.id,
           orderNumber: order.number,
+          orderCustomLabel: order.customLabel,
           customerId: order.customerId,
           customerName: order.customerName,
           company: order.company,

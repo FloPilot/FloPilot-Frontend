@@ -1,15 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { useMemo } from "react";
+import { CheckCircle2 } from "lucide-react";
+import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
-import { Button } from "@/components/ui/button";
 import { RevisionNotesPanel } from "@/components/orders/revision-notes-panel";
 import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
 import {
   dashboardInsetSurfaceClass,
-  dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -18,7 +17,7 @@ import {
   type EstimateRow,
   type EstimateTotals,
 } from "@/lib/order-estimate";
-import { canEnterProduction } from "@/lib/order-approval";
+import { canEnterProduction, isQuoteApproved } from "@/lib/order-approval";
 import {
   getOrderPaymentDisplay,
   orderPaymentHealthStatus,
@@ -216,10 +215,10 @@ function TotalsLine({
 export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
   const { settings } = useShopSettings();
   const { getCustomerById, approveOrderEstimate } = useSchedule();
-  const [approvingEstimate, setApprovingEstimate] = useState(false);
   const customer = getCustomerById(order.customerId);
+  const quoteApproved = isQuoteApproved(order);
   const pricingMatrix = useMemo(
-    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer, order),
+    () => resolveEffectivePricingMatrix(settings, customer, order),
     [settings.pricingMatrix, customer, order]
   );
   const totals = useMemo(
@@ -263,8 +262,9 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
         <p className="text-[13px] text-[#616161]">{paymentDisplay.detail}</p>
       ) : null}
 
-      {order.quoteApproved ? (
-        <div className="rounded-lg border border-[#b7d8b7] bg-[#f6fbf5] px-3.5 py-2.5 text-[13px] text-[#0d5c2e]">
+      {quoteApproved ? (
+        <div className="inline-flex items-center gap-2 rounded-lg border border-[#86d4a8] bg-[#e8f5ee] px-3.5 py-2.5 text-[13px] font-medium text-[#0d5c2e]">
+          <CheckCircle2 className="size-3.5 shrink-0" />
           Estimate approved
           {order.quoteApprovedAt
             ? ` · ${formatDate(order.quoteApprovedAt)}`
@@ -274,27 +274,20 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
       ) : (
         <div className="flex flex-col gap-3 rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[13px] text-[#616161]">
-            Mark the estimate approved when the customer signs off — the order
-            moves into production automatically once proofs are approved too.
+            Approve here once the customer signs off — same one-click flow as
+            proofs. Production unlocks when proofs are approved too.
           </p>
-          <Button
-            type="button"
-            className={cn(dashboardPrimaryButtonClass, "h-9 shrink-0 text-[12px]")}
-            disabled={approvingEstimate}
-            onClick={() => {
-              setApprovingEstimate(true);
-              void approveOrderEstimate(order.id).finally(() =>
-                setApprovingEstimate(false)
-              );
-            }}
+          <ProofActionButton
+            variant="success"
+            successLabel="Approved"
+            className="shrink-0"
+            onClick={() => approveOrderEstimate(order.id)}
           >
-            {approvingEstimate ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : (
+            <span className="inline-flex items-center gap-1.5">
               <CheckCircle2 className="size-3.5" />
-            )}
-            Mark estimate approved
-          </Button>
+              Approve estimate
+            </span>
+          </ProofActionButton>
         </div>
       )}
 

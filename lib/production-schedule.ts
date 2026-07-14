@@ -2,17 +2,20 @@ import type { Order, OrderStatus, SchedulableJobOption } from "@/types";
 import { isArchivedOrder } from "@/lib/order-archive";
 import { approvalSummary } from "@/lib/order-approval";
 import { getArtworkApprovalSummary } from "@/lib/order-health";
-import { allMaterialsReceived } from "@/lib/order-materials";
 import {
   findScheduleBlockForStep,
   getOrderProductionSteps,
 } from "@/lib/order-production";
 
-/** Only orders in the production phase can be scheduled */
+/**
+ * Orders that can appear in the calendar scheduling queue once estimate +
+ * proofs are approved. Materials receiving is tracked separately and does not
+ * block scheduling.
+ */
 const SCHEDULABLE_STATUSES = new Set<OrderStatus>([
+  "approved",
   "in_production",
   "ready_to_ship",
-  "approved",
 ]);
 
 export function orderHasProductionEvents(order: Order): boolean {
@@ -28,9 +31,7 @@ export function isOrderEligibleForSchedulingQueue(order: Order): boolean {
   if (!SCHEDULABLE_STATUSES.has(order.status)) return false;
 
   const artwork = getArtworkApprovalSummary(order);
-  if (!artwork.allApproved) return false;
-
-  return allMaterialsReceived(order);
+  return artwork.allApproved;
 }
 
 /** Dashboard queue — any open sales order with production events, regardless of artwork */
@@ -60,17 +61,13 @@ export function getSchedulingQueueBlockReason(order: Order): string | null {
     if (!approval.artworkApproved) {
       return `Proofs ${approval.artworkApprovedCount}/${approval.artworkTotal} approved`;
     }
-    return "Approvals complete — order should be in production before scheduling";
+    return "Approvals complete — status should update to Ready for scheduling";
   }
 
   const artwork = getArtworkApprovalSummary(order);
   if (artwork.total === 0) return "Add production events to this order first";
   if (!artwork.allApproved) {
     return `Proofs ${artwork.approved}/${artwork.total} approved — finish approval first`;
-  }
-
-  if (!allMaterialsReceived(order)) {
-    return "Finish receiving on Blanks, DTF sheets, or Screens first";
   }
 
   return `Order status is "${order.status.replace(/_/g, " ")}"`;
@@ -130,6 +127,7 @@ export function getSchedulableJobs(
         optionsList.push({
           orderId: order.id,
           orderNumber: order.number,
+          orderCustomLabel: order.customLabel,
           customerName: order.company,
           jobId: job.id,
           jobName: job.name,

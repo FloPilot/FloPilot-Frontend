@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { SchedulingQueueOrder, UnscheduledEvent } from "@/lib/event-basket";
+import { formatOrderRef } from "@/lib/order-display";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -160,7 +161,7 @@ export function OrderScheduleSheet({
           <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
             <div className="min-w-0 space-y-2">
               <DialogTitle className="text-xl font-bold tracking-tight text-[#303030]">
-                Schedule {queueItem.orderNumber}
+                Schedule {formatOrderRef(queueItem)}
               </DialogTitle>
               <DialogDescription className="text-sm text-[#616161]">
                 Pick any production event below — you can schedule them in any

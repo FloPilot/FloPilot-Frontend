@@ -6,7 +6,14 @@ import type {
   OrderEstimateAdjustment,
   OrderEstimateFeeCategory,
 } from "@/types";
+import type { PricingMatrix } from "@/lib/shop-settings";
 import { resolveRateSheetForOrder, SHOP_PRICING_SHEET_ID } from "@/lib/customer-pricing";
+import {
+  asShopPricingSource,
+  isShopRateSheetId,
+  resolveShopRateSheet,
+  type ShopPricingSource,
+} from "@/lib/shop-pricing";
 import {
   autoFeeCategoryFromContract,
   defaultLabelForFeeCategory,
@@ -64,20 +71,53 @@ export function resolveTierAmount(
   return fallback;
 }
 
+export function listEnabledContractFees(
+  fees: CustomerContractFee[] | undefined | null
+): CustomerContractFee[] {
+  return (fees ?? []).filter((fee) => fee.enabled !== false);
+}
+
+export function resolveContractFeesForOrder(
+  order: Order,
+  customer?: Customer | null,
+  shop?: PricingMatrix | ShopPricingSource | null
+): CustomerContractFee[] {
+  const source = asShopPricingSource(shop);
+  const selectedId = order.selectedRateSheetId;
+
+  if (selectedId && isShopRateSheetId(source, selectedId)) {
+    const sheet = resolveShopRateSheet(source, order);
+    return listEnabledContractFees(
+      sheet?.contractFees ?? source.pricingMatrix?.contractFees
+    );
+  }
+
+  const rateSheet = resolveRateSheetForOrder(customer, order, source);
+  if (rateSheet) {
+    return listEnabledContractFees(rateSheet.contractFees);
+  }
+
+  const defaultShop = resolveShopRateSheet(source, null);
+  return listEnabledContractFees(
+    defaultShop?.contractFees ?? source.pricingMatrix?.contractFees
+  );
+}
+
 export function computeAutoContractFees(
   order: Order,
-  rateSheet: CustomerNegotiatedRateSheet | null | undefined
+  fees: CustomerContractFee[] | null | undefined,
+  options?: { includeExcluded?: boolean }
 ): OrderEstimateAdjustment[] {
-  if (!rateSheet) return [];
-
-  const fees = (rateSheet.contractFees ?? []).filter((fee) => fee.enabled !== false);
+  const enabledFees = listEnabledContractFees(fees);
   const excluded = new Set(order.excludedContractFeeIds ?? []);
   const pieceCount = countOrderPieces(order);
   const imprintCount = countBillableImprints(order);
   const rows: OrderEstimateAdjustment[] = [];
+  const includeExcluded = options?.includeExcluded === true;
 
-  for (const fee of fees) {
-    if (excluded.has(fee.id)) continue;
+  for (const fee of enabledFees) {
+    const isExcluded = excluded.has(fee.id);
+    if (isExcluded && !includeExcluded) continue;
 
     if (fee.kind === "setup" && fee.chargeMode === "per_order") {
       rows.push({
@@ -96,7 +136,9 @@ export function computeAutoContractFees(
     if (fee.kind === "additional_location") {
       const included = fee.includedLocations ?? 2;
       const extra = Math.max(0, imprintCount - included);
-      if (extra <= 0) continue;
+      if (extra <= 0) {
+        if (!includeExcluded || !isExcluded) continue;
+      }
 
       const unitPrice = resolveTierAmount(
         fee.quantityTiers,
@@ -106,8 +148,11 @@ export function computeAutoContractFees(
       rows.push({
         id: `auto-${fee.id}`,
         label: fee.label || "Additional imprint location",
-        detail: `${extra} location${extra !== 1 ? "s" : ""} beyond ${included} included`,
-        qty: extra,
+        detail:
+          extra > 0
+            ? `${extra} location${extra !== 1 ? "s" : ""} beyond ${included} included`
+            : `No extra locations beyond ${included} included`,
+        qty: Math.max(extra, isExcluded ? 1 : 0) || 1,
         unitPrice,
         source: "auto",
         category: "decoration",
@@ -155,11 +200,22 @@ export function mergeEstimateAdjustments(
 
 export function buildFeeEstimateRows(
   order: Order,
-  customer?: Customer | null
+  customer?: Customer | null,
+  shop?: PricingMatrix | ShopPricingSource | null
 ): OrderEstimateAdjustment[] {
-  const rateSheet = resolveRateSheetForOrder(customer, order);
-  const autoRows = computeAutoContractFees(order, rateSheet);
+  const fees = resolveContractFeesForOrder(order, customer, shop);
+  const autoRows = computeAutoContractFees(order, fees);
   return mergeEstimateAdjustments(order, autoRows);
+}
+
+/** All enabled auto fees for UI, including ones currently skipped on the order. */
+export function listAutoContractFeeCandidates(
+  order: Order,
+  customer?: Customer | null,
+  shop?: PricingMatrix | ShopPricingSource | null
+): OrderEstimateAdjustment[] {
+  const fees = resolveContractFeesForOrder(order, customer, shop);
+  return computeAutoContractFees(order, fees, { includeExcluded: true });
 }
 
 export function emptyManualAdjustment(

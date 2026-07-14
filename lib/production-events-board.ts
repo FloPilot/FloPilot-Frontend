@@ -147,6 +147,7 @@ export function buildProductionBoardTasks({
         dueDate: order.inHandsDate,
         orderId: order.id,
         orderNumber: order.number,
+        orderCustomLabel: order.customLabel,
         customerId: order.customerId,
         customerName: order.company,
         phase: resolved.phase,

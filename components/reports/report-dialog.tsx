@@ -10,6 +10,7 @@ import {
   Shirt,
   Users,
   Wrench,
+  Sparkles,
 } from "lucide-react";
 import { downloadReportCsv } from "@/lib/reports/csv";
 import { runReport } from "@/lib/reports/customer-reports";
@@ -48,6 +49,10 @@ const CATEGORY_ICONS: Record<string, typeof BarChart3> = {
   Orders: FileSpreadsheet,
   Products: Shirt,
   Production: Wrench,
+  Sales: BarChart3,
+  Team: Users,
+  Inventory: FileSpreadsheet,
+  Custom: Sparkles,
 };
 
 export function ReportDialog<TData>({

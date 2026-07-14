@@ -22,11 +22,13 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { decorationLabel, formatCurrency } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import {
   customerHasNegotiatedPricing,
   resolveEffectivePricingMatrix,
 } from "@/lib/customer-pricing";
 import { computeEstimateTotals } from "@/lib/order-estimate";
+import { OrderEstimateApprovalPanel } from "@/components/orders/order-estimate-approval-panel";
 import { OrderEstimatePricingPanel } from "@/components/orders/order-estimate-pricing-panel";
 import { StaffEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
 import { orderHasDtfEvents } from "@/lib/order-materials";
@@ -57,7 +59,7 @@ export function OrderEstimateTab({ order }: { order: Order }) {
 
   const customer = getCustomerById(order.customerId);
   const pricingMatrix = useMemo(
-    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer, order),
+    () => resolveEffectivePricingMatrix(settings, customer, order),
     [settings.pricingMatrix, customer, order]
   );
 
@@ -122,7 +124,7 @@ export function OrderEstimateTab({ order }: { order: Order }) {
   }, []);
 
   const loadEstimatePdf = useCallback(
-    () => previewOrderDocument(order.id, "estimate"),
+    () => previewOrderDocument(order.id, "all"),
     [previewOrderDocument, order.id]
   );
 
@@ -146,13 +148,15 @@ export function OrderEstimateTab({ order }: { order: Order }) {
 
   return (
     <div className="space-y-4">
+      <OrderEstimateApprovalPanel order={order} />
+
       <section className={dashboardCardClass}>
         <div className="flex flex-col gap-3 border-b border-[#ebebeb] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <div className="min-w-0">
             <h2 className={dashboardTaskTitleClass}>Estimate</h2>
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-              Pricing breakdown for this order. Preview the customer PDF or send
-              it for approval.
+              Pricing breakdown for this order. Preview the full customer PDF
+              (estimate + proofs) or send it for approval.
               {pricingMatrix.rateSheetName && !pricingMatrix.usingShopPricing ? (
                 <span className="mt-1 block text-[#2c6ecb]">
                   Using negotiated rates: {pricingMatrix.rateSheetName}
@@ -174,7 +178,7 @@ export function OrderEstimateTab({ order }: { order: Order }) {
               )}
             >
               <FileText className="size-3.5" />
-              Preview estimate
+              Preview PDF
             </button>
             <button
               type="button"
@@ -306,8 +310,8 @@ export function OrderEstimateTab({ order }: { order: Order }) {
       <PdfPreviewDialog
         open={previewOpen}
         onOpenChange={setPreviewOpen}
-        title={`Estimate · Order ${order.number}`}
-        subtitle="This is the estimate page the customer receives."
+        title={`Proofs & estimate · Order ${formatOrderDisplayLine(order)}`}
+        subtitle="Same PDF attached when you send proofs + estimate to the customer."
         load={loadEstimatePdf}
       />
     </div>

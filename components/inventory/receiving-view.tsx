@@ -19,6 +19,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { RushBadge } from "@/components/status-badges";
 import { Input } from "@/components/ui/input";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import {
   applyGarmentLineReceive,
   GARMENT_RECEIVE_STATUS_STYLES,
@@ -343,7 +344,7 @@ function ReceivingOrderCard({
                 href={`/app/orders/${order.id}?tab=blanks`}
                 className="text-[15px] font-semibold text-[#303030] hover:text-[#2c6ecb]"
               >
-                {order.number}
+                {formatOrderDisplayLine(order)}
               </Link>
               <span
                 className={cn(

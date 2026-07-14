@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { ComponentType, ReactNode } from "react";
 import { format, parseISO } from "date-fns";
-import { CalendarDays, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronRight, FileWarning } from "lucide-react";
 import { CustomerBrandMark } from "@/components/customers/customer-brand-mark";
 import { RushBadge } from "@/components/status-badges";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import {
   isPrepDateDueSoon,
   isPrepDateOverdue,
@@ -64,8 +65,7 @@ export function DepartmentOrderLink({
         className
       )}
     >
-      {orderNumber}
-      {customLabel ? ` — ${customLabel}` : null}
+      {formatOrderDisplayLine({ number: orderNumber, customLabel })}
       <ChevronRight className="size-3.5 opacity-70" />
     </Link>
   );
@@ -97,7 +97,7 @@ export function PrepScheduleLabels({
           ) : null}
         </span>
       ) : (
-        <span className="text-[#8a8a8a]">Not on calendar yet</span>
+        <span className="text-[#8a8a8a]">Scheduled — prep deadline will appear here</span>
       )}
       {targetDate && !complete ? (
         <span
@@ -113,6 +113,35 @@ export function PrepScheduleLabels({
           Target {formatDate(targetDate)}
         </span>
       ) : null}
+    </div>
+  );
+}
+
+export function ProductionFilesNotice({
+  ready,
+  fileCount = 0,
+}: {
+  ready: boolean;
+  fileCount?: number;
+}) {
+  if (ready) {
+    return (
+      <p className="text-[12px] text-[#616161]">
+        {fileCount} production file{fileCount === 1 ? "" : "s"} uploaded — ready
+        to burn screens.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-[#fde2c8] bg-[#fff8eb] px-3 py-2 text-[12px] text-[#8a6116]">
+      <FileWarning className="mt-0.5 size-3.5 shrink-0" />
+      <div>
+        <p className="font-semibold text-[#6b4f12]">Waiting on production files</p>
+        <p className="mt-0.5 leading-relaxed">
+          Upload separation or TIFF files on the order before burning screens.
+        </p>
+      </div>
     </div>
   );
 }
@@ -218,12 +247,14 @@ export function DepartmentQueueCard({
 export function DepartmentMarkDoneButton({
   done,
   saving,
+  disabled,
   onClick,
   doneLabel = "Mark done",
   undoLabel = "Mark not done",
 }: {
   done: boolean;
   saving?: boolean;
+  disabled?: boolean;
   onClick: () => void;
   doneLabel?: string;
   undoLabel?: string;
@@ -231,7 +262,7 @@ export function DepartmentMarkDoneButton({
   return (
     <button
       type="button"
-      disabled={saving}
+      disabled={saving || disabled}
       onClick={onClick}
       className={cn(
         done ? dashboardGhostButtonClass : dashboardControlClass,

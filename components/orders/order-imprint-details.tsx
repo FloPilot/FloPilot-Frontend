@@ -37,7 +37,7 @@ const WORKFLOW_LABEL: Record<string, string> = {
   needs_attention: "Needs attention",
   in_progress: "In progress",
   blocked: "Blocked",
-  completed: "Complete",
+  completed: "Completed",
 };
 
 export function OrderImprintDetails({

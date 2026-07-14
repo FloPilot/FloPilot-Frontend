@@ -154,6 +154,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
   const parsedTab = parseOrderDetailTab(searchParams.get("tab"));
   const {
     getOrderById,
+    getCustomerById,
     scheduleBlocks,
     machines,
     jobRuns,
@@ -161,11 +162,14 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     updateOrderStatus,
     setOrderRush,
     updateOrderCustomLabel,
+    updateOrderEndBusiness,
+    updateOrderSalesRep,
     sendProofsAndEstimate,
     shopDataLoading,
   } = useSchedule();
 
   const order = getOrderById(orderId);
+  const customer = order ? getCustomerById(order.customerId) : undefined;
   const [addStepOpen, setAddStepOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [prefillJobKey, setPrefillJobKey] = useState<string>();
@@ -216,7 +220,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
 
   const canSchedule =
     order?.type === "sales_order" &&
-    ["draft", "approved", "in_production"].includes(order.status);
+    ["approved", "in_production", "ready_to_ship"].includes(order.status);
 
   const firstUnscheduledStep = useMemo(() => {
     if (!order) return undefined;
@@ -330,6 +334,13 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
         summary={summary}
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        subCustomers={customer?.subCustomers}
+        onEndBusinessSave={(subCustomerId) =>
+          updateOrderEndBusiness(order.id, subCustomerId)
+        }
+        onSalesRepSave={(salesRepId) =>
+          updateOrderSalesRep(order.id, salesRepId)
+        }
         onCustomLabelSave={(customLabel) =>
           updateOrderCustomLabel(order.id, customLabel)
         }

@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { CalendarPlus, Layers } from "lucide-react";
-import { ScheduleJobDialog } from "@/components/calendar/schedule-job-dialog";
+import { Layers } from "lucide-react";
 import {
   DepartmentCardTitle,
   DepartmentEmptyState,
@@ -12,6 +11,8 @@ import {
   DepartmentQueueCard,
   PrepDueDateField,
   PrepScheduleLabels,
+  ProductionFilesNotice,
+  departmentStatusPill,
 } from "@/components/departments/department-shared";
 import { DepartmentsShell } from "@/components/departments/departments-shell";
 import { useSchedule } from "@/components/providers/schedule-provider";
@@ -22,15 +23,9 @@ import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export function ScreensDepartmentPanel() {
-  const {
-    orders,
-    scheduleBlocks,
-    getCustomerById,
-    updateOrderMaterials,
-  } = useSchedule();
+  const { orders, scheduleBlocks, getCustomerById, updateOrderMaterials } =
+    useSchedule();
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [scheduleOrderId, setScheduleOrderId] = useState<string | null>(null);
-  const [scheduleOpen, setScheduleOpen] = useState(false);
 
   const entries = useMemo(
     () => collectScreenQueue(orders, scheduleBlocks),
@@ -39,7 +34,9 @@ export function ScreensDepartmentPanel() {
 
   const saveScreenLine = async (
     orderId: string,
-    updater: (lines: ReturnType<typeof mergeOrderMaterials>["lines"]) => ReturnType<typeof mergeOrderMaterials>["lines"]
+    updater: (
+      lines: ReturnType<typeof mergeOrderMaterials>["lines"]
+    ) => ReturnType<typeof mergeOrderMaterials>["lines"]
   ) => {
     const order = orders.find((entry) => entry.id === orderId);
     if (!order) return;
@@ -59,13 +56,13 @@ export function ScreensDepartmentPanel() {
     <DepartmentsShell
       activeSlug="screens"
       title="Screen burn queue"
-      description="Orders with screen printing that still need screens burned. Target about five days before the earliest scheduled run — adjust the date if your shop needs more lead time."
+      description="Scheduled screen-print orders that still need screens burned. Work appears here after events are on the calendar — target about five days before the run."
     >
       {entries.length === 0 ? (
         <DepartmentEmptyState
           icon={Layers}
           title="No screens waiting"
-          description="When screen-print orders are approved and screens aren't marked ready, they'll show up here."
+          description="After you schedule screen-print events on the calendar, prep work shows up here with a target date for burning screens."
         />
       ) : (
         <div className="space-y-2.5">
@@ -73,6 +70,7 @@ export function ScreensDepartmentPanel() {
             const customer = getCustomerById(entry.order.customerId);
             const saving = savingId === entry.order.id;
             const done = entry.screenLine.status === "received";
+            const waitingOnFiles = !entry.hasProductionFiles;
 
             return (
               <DepartmentQueueCard
@@ -84,12 +82,32 @@ export function ScreensDepartmentPanel() {
                 fallbackKey={entry.order.id}
                 rush={entry.order.rush}
                 title={
-                  <DepartmentCardTitle>
-                    Burn screens
-                    {entry.screenPrintCount > 1
-                      ? ` · ${entry.screenPrintCount} locations`
-                      : ""}
-                  </DepartmentCardTitle>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <DepartmentCardTitle>
+                      {waitingOnFiles
+                        ? "Waiting on production files"
+                        : "Burn screens"}
+                      {entry.screenPrintCount > 1
+                        ? ` · ${entry.screenPrintCount} locations`
+                        : ""}
+                    </DepartmentCardTitle>
+                    {departmentStatusPill(
+                      waitingOnFiles
+                        ? "Blocked"
+                        : done
+                          ? "Ready"
+                          : entry.screenLine.status === "partial"
+                            ? "In progress"
+                            : "Not started",
+                      waitingOnFiles
+                        ? "warning"
+                        : done
+                          ? "success"
+                          : entry.screenLine.status === "partial"
+                            ? "warning"
+                            : "neutral"
+                    )}
+                  </div>
                 }
                 subtitle={
                   <DepartmentOrderLink
@@ -105,11 +123,12 @@ export function ScreensDepartmentPanel() {
                       prepDueAt={entry.prepDueAt}
                       complete={done}
                     />
+                    <ProductionFilesNotice
+                      ready={entry.hasProductionFiles}
+                      fileCount={entry.productionFileCount}
+                    />
                     <p className="text-[12px] text-[#616161]">
                       In hands {formatDate(entry.order.inHandsDate)}
-                      {entry.screenLine.status === "partial"
-                        ? " · Partially complete"
-                        : null}
                     </p>
                   </div>
                 }
@@ -131,6 +150,7 @@ export function ScreensDepartmentPanel() {
                     <DepartmentMarkDoneButton
                       done={done}
                       saving={saving}
+                      disabled={waitingOnFiles}
                       doneLabel="Screens burned"
                       undoLabel="Not ready"
                       onClick={() => {
@@ -150,22 +170,17 @@ export function ScreensDepartmentPanel() {
                         );
                       }}
                     />
-                    <button
-                      type="button"
-                      className={cn(dashboardControlClass, "h-8 gap-1.5 px-3 text-xs font-semibold")}
-                      onClick={() => {
-                        setScheduleOrderId(entry.order.id);
-                        setScheduleOpen(true);
-                      }}
-                    >
-                      <CalendarPlus className="size-3.5" />
-                      Schedule
-                    </button>
                     <Link
                       href={`/app/orders/${entry.order.id}?tab=materials`}
-                      className={cn(dashboardControlClass, "h-8 px-3 text-xs font-semibold")}
+                      className={cn(
+                        dashboardControlClass,
+                        "h-8 px-3 text-xs font-semibold",
+                        waitingOnFiles
+                          ? "border-[#f0c674] bg-[#fff8eb] text-[#6b4f12] hover:border-[#e8b84d]"
+                          : undefined
+                      )}
                     >
-                      Separations
+                      {waitingOnFiles ? "Upload files" : "Separations"}
                     </Link>
                   </>
                 }
@@ -174,12 +189,6 @@ export function ScreensDepartmentPanel() {
           })}
         </div>
       )}
-
-      <ScheduleJobDialog
-        open={scheduleOpen}
-        onOpenChange={setScheduleOpen}
-        filterOrderId={scheduleOrderId ?? undefined}
-      />
     </DepartmentsShell>
   );
 }

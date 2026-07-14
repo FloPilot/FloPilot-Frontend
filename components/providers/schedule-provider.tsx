@@ -86,6 +86,8 @@ import {
   updateOrderLineItem as apiUpdateOrderLineItem,
   updateScheduleBlock as apiUpdateScheduleBlock,
   uploadArtworkVersion as apiUploadArtworkVersion,
+  addProofSlide as apiAddProofSlide,
+  updateProofSlides as apiUpdateProofSlides,
   type DashboardStatsResponse,
 } from "@/lib/api";
 import type { NewOrderFormInput } from "@/lib/create-order";
@@ -230,6 +232,22 @@ type ScheduleContextValue = {
     kind?: OrderFileKind,
     previewUrl?: string
   ) => void;
+  addProofSlide: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    payload: { fileName: string; previewUrl?: string; label?: string }
+  ) => Promise<void>;
+  updateProofSlides: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    payload: {
+      orderedIds?: string[];
+      slides?: { id: string; label?: string }[];
+      removeIds?: string[];
+    }
+  ) => Promise<void>;
   updateOrderGarments: (
     orderId: string,
     garments: import("@/types").OrderGarments
@@ -291,6 +309,14 @@ type ScheduleContextValue = {
   updateOrderCustomLabel: (
     orderId: string,
     customLabel: string
+  ) => Promise<Order>;
+  updateOrderEndBusiness: (
+    orderId: string,
+    subCustomerId: string | null
+  ) => Promise<Order>;
+  updateOrderSalesRep: (
+    orderId: string,
+    salesRepId: string | null
   ) => Promise<Order>;
   updateOrderEstimatePricing: (
     orderId: string,
@@ -356,6 +382,7 @@ function deriveProductionTasks(orders: Order[]): Task[] {
           ...task,
           orderId: order.id,
           orderNumber: order.number,
+          orderCustomLabel: order.customLabel,
           customerName: order.company,
         });
       }
@@ -586,15 +613,20 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const token = await getIdToken();
       if (!token) throw new Error("Not signed in");
 
-      const { customer } = await apiUpdateCustomer(token, id, updates);
+      const { customer, ordersUpdated = 0 } = await apiUpdateCustomer(
+        token,
+        id,
+        updates
+      );
       setCustomers((prev) =>
         prev
           .map((existing) => (existing.id === id ? customer : existing))
           .sort((a, b) => a.company.localeCompare(b.company))
       );
+      if (ordersUpdated > 0) await refreshShopData();
       return customer;
     },
-    [getIdToken]
+    [getIdToken, refreshShopData]
   );
 
   const archiveCustomer = useCallback(
@@ -755,7 +787,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const token = await getIdToken();
       if (!token) throw new Error("Not signed in");
 
-      const { block: saved } = await apiUpdateScheduleBlock(token, id, block);
+      const { block: saved, order } = await apiUpdateScheduleBlock(token, id, block);
       setScheduleBlocks((prev) =>
         prev.map((entry) => (entry.id === id ? saved : entry))
       );
@@ -766,9 +798,12 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
             : run
         )
       );
+      if (order) {
+        applyOrderUpdate(order);
+      }
       await refreshCalendarData();
     },
-    [getIdToken, refreshCalendarData]
+    [getIdToken, applyOrderUpdate, refreshCalendarData]
   );
 
   const removeScheduleBlock = useCallback(
@@ -776,12 +811,15 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const token = await getIdToken();
       if (!token) throw new Error("Not signed in");
 
-      await apiDeleteScheduleBlock(token, id);
+      const { order } = await apiDeleteScheduleBlock(token, id);
       setScheduleBlocks((prev) => prev.filter((block) => block.id !== id));
       setJobRuns((prev) => prev.filter((run) => run.scheduleBlockId !== id));
+      if (order) {
+        applyOrderUpdate(order);
+      }
       await refreshCalendarData();
     },
-    [getIdToken, refreshCalendarData]
+    [getIdToken, applyOrderUpdate, refreshCalendarData]
   );
 
   const getJobRun = useCallback(
@@ -854,8 +892,30 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       if (!token) return;
       const { run } = await apiUpdateJobRunStatus(token, runId, "finished");
       updateJobRun(run);
+
+      // Mirror completion onto the production event workflow so Floor + Workflow agree.
+      const block = scheduleBlocks.find(
+        (entry) => entry.id === run.scheduleBlockId
+      );
+      if (block) {
+        const order = orders.find((entry) => entry.id === block.orderId);
+        const job = order?.jobs.find((entry) => entry.id === block.jobId);
+        const imprint = job?.imprints.find(
+          (entry) => entry.id === block.imprintId
+        );
+        if (imprint && imprint.workflow?.status !== "completed") {
+          const { order: updatedOrder } = await apiUpdateProductionEventWorkflow(
+            token,
+            block.orderId,
+            block.jobId,
+            block.imprintId,
+            { status: "completed" }
+          );
+          applyOrderUpdate(updatedOrder);
+        }
+      }
     },
-    [getIdToken, updateJobRun]
+    [getIdToken, updateJobRun, scheduleBlocks, orders, applyOrderUpdate]
   );
 
   const cancelJobRun = useCallback(
@@ -1101,8 +1161,33 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         workflow
       );
       applyOrderUpdate(order);
+
+      // Keep the floor / station run in sync when an event is marked completed.
+      if (workflow.status === "completed") {
+        const block = scheduleBlocks.find(
+          (entry) =>
+            entry.orderId === orderId &&
+            entry.jobId === jobId &&
+            entry.imprintId === imprintId
+        );
+        const run = block
+          ? getRunForBlock(jobRuns, block.id)
+          : undefined;
+        if (
+          run &&
+          run.status !== "finished" &&
+          run.status !== "cancelled"
+        ) {
+          const { run: updated } = await apiUpdateJobRunStatus(
+            token,
+            run.id,
+            "finished"
+          );
+          updateJobRun(updated);
+        }
+      }
     },
-    [getIdToken, applyOrderUpdate]
+    [getIdToken, applyOrderUpdate, scheduleBlocks, jobRuns, updateJobRun]
   );
 
   const uploadArtworkVersion = useCallback(
@@ -1127,6 +1212,54 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         mockupLabel,
         kind,
         previewUrl
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const addProofSlide = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      payload: { fileName: string; previewUrl?: string; label?: string }
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiAddProofSlide(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        payload
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateProofSlides = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      payload: {
+        orderedIds?: string[];
+        slides?: { id: string; label?: string }[];
+        removeIds?: string[];
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateProofSlides(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        payload
       );
       applyOrderUpdate(order);
     },
@@ -1335,7 +1468,39 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
       const trimmed = customLabel.trim();
       const { order } = await apiUpdateOrder(token, orderId, {
-        customLabel: trimmed || undefined,
+        customLabel: trimmed,
+      });
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderEndBusiness = useCallback(
+    async (orderId: string, subCustomerId: string | null) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update the end business.");
+      }
+
+      const { order } = await apiUpdateOrder(token, orderId, {
+        subCustomerId: subCustomerId ?? "",
+      });
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderSalesRep = useCallback(
+    async (orderId: string, salesRepId: string | null) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update the sales rep.");
+      }
+
+      const { order } = await apiUpdateOrder(token, orderId, {
+        salesRepId: salesRepId ?? "",
       });
       applyOrderUpdate(order);
       return order;
@@ -1702,6 +1867,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       addArtworkProofNote,
       approveOrderEstimate,
       uploadArtworkVersion,
+      addProofSlide,
+      updateProofSlides,
       updateOrderGarments,
       updateOrderMaterials,
       createDesignFromImprint,
@@ -1716,6 +1883,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateOrderStatus,
       setOrderRush,
       updateOrderCustomLabel,
+      updateOrderEndBusiness,
+      updateOrderSalesRep,
       updateOrderEstimatePricing,
       updateOrderShipments,
       updateOrderLineItem,
@@ -1781,6 +1950,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       addArtworkProofNote,
       approveOrderEstimate,
       uploadArtworkVersion,
+      addProofSlide,
+      updateProofSlides,
       updateOrderGarments,
       updateOrderMaterials,
       createDesignFromImprint,
@@ -1795,6 +1966,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateOrderStatus,
       setOrderRush,
       updateOrderCustomLabel,
+      updateOrderEndBusiness,
+      updateOrderSalesRep,
       updateOrderEstimatePricing,
       updateOrderShipments,
       updateOrderLineItem,

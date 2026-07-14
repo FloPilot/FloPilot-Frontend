@@ -12,9 +12,12 @@ import {
   Trash2,
   Upload,
   User,
+  UserPlus,
   X,
 } from "lucide-react";
+import { AddCustomerDialog } from "@/components/customers/add-customer-dialog";
 import { OrderCustomLabelField } from "@/components/orders/order-custom-label-field";
+import { StaffRepSelect } from "@/components/staff/staff-rep-select";
 import { NewOrderBlanksStep } from "@/components/orders/new-order-blanks-step";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -54,8 +57,10 @@ import {
   type NewOrderFormInput,
   type NewOrderJobInput,
 } from "@/lib/create-order";
+import type { NewCustomerInput } from "@/lib/customers";
 import {
   dashboardControlClass,
+  dashboardGhostButtonClass,
   dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
@@ -71,6 +76,7 @@ import {
   resolvePrintLocationLabel,
 } from "@/lib/shop-settings";
 import { getProductionStepQuickPicks } from "@/lib/order-production";
+import { sortSubCustomers } from "@/lib/sub-customers";
 import { eventLabel, eventsLabel } from "@/lib/terminology";
 import type { DecorationType, ImprintLocationKey, Order } from "@/types";
 import { cn } from "@/lib/utils";
@@ -88,7 +94,13 @@ export function NewOrderDialog({
   initialCustomerId?: string;
   onCreated?: (order: Order) => void;
 }) {
-  const { customers, orders, getCustomerById, createOrderFromForm } = useSchedule();
+  const {
+    customers,
+    orders,
+    getCustomerById,
+    createOrderFromForm,
+    addCustomer,
+  } = useSchedule();
   const { settings } = useShopSettings();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<NewOrderFormInput>(() =>
@@ -96,17 +108,35 @@ export function NewOrderDialog({
   );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [addCustomerOpen, setAddCustomerOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setStep(1);
     setForm(createEmptyNewOrderForm(initialCustomerId ?? ""));
     setError(null);
+    setAddCustomerOpen(false);
   }, [open, initialCustomerId]);
 
   const selectedCustomer = form.customerId
     ? getCustomerById(form.customerId)
     : undefined;
+
+  const subCustomerOptions = useMemo(
+    () => sortSubCustomers(selectedCustomer?.subCustomers ?? []),
+    [selectedCustomer?.subCustomers]
+  );
+
+  const subCustomerSelectItems = useMemo(
+    () => [
+      { value: "none", label: "General account order" },
+      ...subCustomerOptions.map((entry) => ({
+        value: entry.id,
+        label: entry.name,
+      })),
+    ],
+    [subCustomerOptions]
+  );
 
   const customerSelectItems = useMemo(
     () =>
@@ -155,6 +185,12 @@ export function NewOrderDialog({
   const patchForm = (patch: Partial<NewOrderFormInput>) => {
     setForm((current) => ({ ...current, ...patch }));
     if (error) setError(null);
+  };
+
+  const handleCreateCustomer = async (input: NewCustomerInput) => {
+    const customer = await addCustomer(input);
+    patchForm({ customerId: customer.id, subCustomerId: "" });
+    return customer;
   };
 
   const updateJob = (id: string, patch: Partial<NewOrderJobInput>) => {
@@ -282,17 +318,24 @@ export function NewOrderDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(92vh,820px)] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-3xl">
-        <DialogHeader className="shrink-0 border-b border-[#ebebeb] px-5 py-4 text-left">
-          <DialogTitle className={dashboardTaskTitleClass}>
-            New sales order
-          </DialogTitle>
-          <DialogDescription className={dashboardTaskDetailClass}>
-            Start with customer, blanks/garments, events, and mockups — finish
-            shipping and details on the order page.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog
+        open={open}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && addCustomerOpen) return;
+          onOpenChange(nextOpen);
+        }}
+      >
+        <DialogContent className="flex max-h-[min(92vh,820px)] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-3xl">
+          <DialogHeader className="shrink-0 border-b border-[#ebebeb] px-5 py-4 text-left">
+            <DialogTitle className={dashboardTaskTitleClass}>
+              New sales order
+            </DialogTitle>
+            <DialogDescription className={dashboardTaskDetailClass}>
+              Start with customer, blanks/garments, events, and mockups — finish
+              shipping and details on the order page.
+            </DialogDescription>
+          </DialogHeader>
 
         <div className="shrink-0 border-b border-[#ebebeb] px-5 py-3">
           <nav className="grid grid-cols-4 gap-1.5">
@@ -363,13 +406,42 @@ export function NewOrderDialog({
 
           {step === 1 && (
             <div className="space-y-4">
-              <Field label="Customer" htmlFor="new-order-customer">
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <Label
+                    htmlFor="new-order-customer"
+                    className="text-[13px] font-medium text-[#303030]"
+                  >
+                    Customer
+                  </Label>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      dashboardGhostButtonClass,
+                      "h-8 gap-1.5 px-2.5 text-[12px] font-medium text-[#2c6ecb] hover:bg-[#f4f7fd] hover:text-[#2c6ecb]"
+                    )}
+                    onClick={() => setAddCustomerOpen(true)}
+                  >
+                    <UserPlus className="size-3.5" />
+                    New customer
+                  </Button>
+                </div>
                 <Select
                   value={form.customerId || null}
                   items={customerSelectItems}
-                  onValueChange={(value) =>
-                    patchForm({ customerId: value ?? "" })
-                  }
+                  onValueChange={(value) => {
+                    const customerId = value ?? "";
+                    const nextCustomer = customers.find(
+                      (entry) => entry.id === customerId
+                    );
+                    patchForm({
+                      customerId,
+                      subCustomerId: "",
+                      salesRepId: nextCustomer?.salesRepId ?? "",
+                    });
+                  }}
                 >
                   <SelectTrigger
                     id="new-order-customer"
@@ -385,7 +457,13 @@ export function NewOrderDialog({
                     ))}
                   </SelectContent>
                 </Select>
-              </Field>
+                {!selectedCustomer ? (
+                  <p className={dashboardTaskDetailClass}>
+                    Walk-in or new account? Add them here and we&apos;ll select
+                    them for this order.
+                  </p>
+                ) : null}
+              </div>
 
               {selectedCustomer && (
                 <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-4 py-3 text-sm">
@@ -401,12 +479,64 @@ export function NewOrderDialog({
                 </div>
               )}
 
+              {subCustomerOptions.length > 0 ? (
+                <Field label="End business (optional)" htmlFor="new-order-sub-customer">
+                  <Select
+                    value={form.subCustomerId || "none"}
+                    onValueChange={(value) =>
+                      patchForm({
+                        subCustomerId:
+                          value === "none" || !value ? "" : value,
+                      })
+                    }
+                  >
+                    <SelectTrigger
+                      id="new-order-sub-customer"
+                      className={cn(dashboardControlClass, "h-10 w-full")}
+                    >
+                      <LabeledSelectValue
+                        value={form.subCustomerId || "none"}
+                        options={subCustomerSelectItems}
+                        placeholder="General account order (no specific business)"
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">General account order</SelectItem>
+                      {subCustomerOptions.map((entry) => (
+                        <SelectItem key={entry.id} value={entry.id}>
+                          {entry.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className={cn("mt-1.5", dashboardTaskDetailClass)}>
+                    Tag this order to a specific brand or business under the
+                    account. Ship-to options will use that business&apos;s saved
+                    addresses.
+                  </p>
+                </Field>
+              ) : null}
+
               <OrderCustomLabelField
                 orderNumber={previewOrderNumber}
                 value={form.customLabel ?? ""}
                 onChange={(customLabel) => patchForm({ customLabel })}
                 id="new-order-custom-label"
               />
+
+              <Field label="Sales rep (optional)" htmlFor="new-order-sales-rep">
+                <StaffRepSelect
+                  id="new-order-sales-rep"
+                  value={form.salesRepId || null}
+                  onChange={(salesRepId) =>
+                    patchForm({ salesRepId: salesRepId ?? "" })
+                  }
+                />
+                <p className={cn("mt-1.5", dashboardTaskDetailClass)}>
+                  Order notifications go to this rep. Defaults from the customer
+                  account when set.
+                </p>
+              </Field>
             </div>
           )}
 
@@ -566,7 +696,17 @@ export function NewOrderDialog({
           </div>
         </div>
       </DialogContent>
-    </Dialog>
+      </Dialog>
+
+      <AddCustomerDialog
+        open={addCustomerOpen}
+        onOpenChange={setAddCustomerOpen}
+        onCreate={handleCreateCustomer}
+        title="Add customer for this order"
+        description="Create the account now — we'll select them on this order as soon as you save."
+        submitLabel="Save & select"
+      />
+    </>
   );
 }
 

@@ -27,6 +27,7 @@ import {
 } from "@/lib/event-basket";
 import { getDueDateUrgency } from "@/lib/order-health";
 import { formatProductionEventsToSchedule } from "@/lib/terminology";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 
 export type DashboardAttentionKind =
   | "schedule"
@@ -73,6 +74,7 @@ export type TodayFloorItem = {
   runId?: string;
   orderId: string;
   orderNumber: string;
+  orderCustomLabel?: string;
   customerName: string;
   machineId: string;
   machineName: string;
@@ -256,9 +258,11 @@ export function computeDashboardInsights({
   const blockById = new Map(
     activeScheduleBlocks.map((block) => [block.id, block])
   );
+  const orderById = new Map(operationalOrders.map((order) => [order.id, order]));
 
   const runningFloor: TodayFloorItem[] = runningRuns.map((run) => {
     const block = blockById.get(run.scheduleBlockId);
+    const order = block ? orderById.get(block.orderId) : undefined;
     const machine = machineById.get(run.machineId);
     const start = block ? parseISO(block.startAt) : null;
     const end = block ? parseISO(block.endAt) : null;
@@ -272,6 +276,7 @@ export function computeDashboardInsights({
       machineId: run.machineId,
       machineColor: machine?.color,
       orderNumber: block?.orderNumber ?? "—",
+      orderCustomLabel: block?.customLabel ?? order?.customLabel,
       customerName: block?.customerName ?? "",
       jobName: block?.jobName ?? "Production",
       imprintLabel: block?.imprintLabel ?? "In progress",
@@ -293,6 +298,7 @@ export function computeDashboardInsights({
     .filter((block) => !runningBlockIds.has(block.id))
     .map((block) => {
       const machine = machineById.get(block.machineId);
+      const order = orderById.get(block.orderId);
       const start = parseISO(block.startAt);
       const end = parseISO(block.endAt);
       return {
@@ -304,6 +310,7 @@ export function computeDashboardInsights({
         machineId: block.machineId,
         machineColor: machine?.color,
         orderNumber: block.orderNumber,
+        orderCustomLabel: block.customLabel ?? order?.customLabel,
         customerName: block.customerName,
         jobName: block.jobName,
         imprintLabel: block.imprintLabel,
@@ -327,6 +334,7 @@ export function computeDashboardInsights({
 
   const tomorrowFloor: TodayFloorItem[] = blocksTomorrow.map((block) => {
     const machine = machineById.get(block.machineId);
+    const order = orderById.get(block.orderId);
     const start = parseISO(block.startAt);
     const end = parseISO(block.endAt);
     return {
@@ -338,6 +346,7 @@ export function computeDashboardInsights({
       machineId: block.machineId,
       machineColor: machine?.color,
       orderNumber: block.orderNumber,
+      orderCustomLabel: block.customLabel ?? order?.customLabel,
       customerName: block.customerName,
       jobName: block.jobName,
       imprintLabel: block.imprintLabel,
@@ -411,7 +420,7 @@ export function computeDashboardInsights({
       label: `${overdueOrders.length} order${overdueOrders.length !== 1 ? "s" : ""} past in-hands`,
       detail: overdueOrders
         .slice(0, 3)
-        .map((order) => order.number)
+        .map((order) => formatOrderDisplayLine(order))
         .join(", "),
       href: "/app/orders",
       tone: "critical",
@@ -436,7 +445,7 @@ export function computeDashboardInsights({
       label: `${readyToShipOrders.length} order${readyToShipOrders.length !== 1 ? "s" : ""} ready to ship`,
       detail: readyToShipOrders
         .slice(0, 3)
-        .map((order) => order.number)
+        .map((order) => formatOrderDisplayLine(order))
         .join(", "),
       href: "/app/orders",
       tone: "default",

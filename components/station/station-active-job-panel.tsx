@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { Job, JobImprint, Order, ScheduleBlock, StationJobRun } from "@/types";
 import { formatJobBarcode, formatRunElapsed } from "@/lib/station-runs";
+import { formatScheduleBlockDisplayLine } from "@/lib/order-display";
 import { machineColorStyles } from "@/lib/machine-styles";
 import {
   dashboardCardClass,
@@ -79,7 +80,7 @@ export function StationActiveJobPanel({
             </p>
             <div className="mt-1 flex items-center gap-2">
               <h2 className="text-lg font-semibold text-[#303030]">
-                {block.orderNumber}
+                {formatScheduleBlockDisplayLine(block, order)}
               </h2>
               <Button
                 type="button"
@@ -87,7 +88,7 @@ export function StationActiveJobPanel({
                 size="icon-sm"
                 className="rounded-lg text-[#616161] hover:bg-[#f4f7fd] hover:text-[#2c6ecb]"
                 onClick={onOpenOrder}
-                aria-label={`View ${block.orderNumber} event details`}
+                aria-label={`View ${formatScheduleBlockDisplayLine(block, order)} event details`}
               >
                 <Info className="size-4" />
               </Button>

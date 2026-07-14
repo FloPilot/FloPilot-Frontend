@@ -30,7 +30,7 @@ export function OrderCustomLabelField({
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="e.g. LEGENDS SPIRIT OF DRIVING"
+        placeholder="e.g. CUSTOM NAME"
         className={cn(dashboardControlClass, "h-10 rounded-lg")}
         maxLength={120}
       />
@@ -51,12 +51,15 @@ export function OrderCustomLabelField({
 export function OrderCustomLabelEditor({
   order,
   onSave,
+  className,
 }: {
   order: { id: string; number: string; customLabel?: string };
   onSave: (customLabel: string) => Promise<void | unknown>;
+  className?: string;
 }) {
   const [draft, setDraft] = useState(order.customLabel ?? "");
   const [saving, setSaving] = useState(false);
+  const [focused, setFocused] = useState(false);
 
   useEffect(() => {
     setDraft(order.customLabel ?? "");
@@ -75,35 +78,41 @@ export function OrderCustomLabelEditor({
     }
   };
 
+  const hasValue = Boolean(draft.trim());
+
   return (
-    <div className="max-w-xl space-y-1.5">
+    <div className={cn("min-w-0 w-[min(100%,20rem)] sm:w-[22rem]", className)}>
       <Label htmlFor={`order-custom-label-${order.id}`} className="sr-only">
         Custom order name
       </Label>
-      <Input
+      <input
         id={`order-custom-label-${order.id}`}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => void saveIfChanged()}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          void saveIfChanged();
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.preventDefault();
-            void saveIfChanged();
+            (event.target as HTMLInputElement).blur();
           }
         }}
-        placeholder="Add a custom order name (optional)"
+        placeholder="Custom order name (optional)"
         disabled={saving}
-        className={cn(
-          dashboardControlClass,
-          "h-9 rounded-lg text-[13px] placeholder:text-[#a8a8a8]"
-        )}
         maxLength={120}
+        className={cn(
+          "h-8 w-full rounded-md border bg-transparent px-2.5 text-[13px] font-medium outline-none transition-colors",
+          "placeholder:font-normal placeholder:text-[#b0b0b0]",
+          focused || hasValue
+            ? "border-[#d8d8d8] text-[#303030]"
+            : "border-[#ebebeb] text-[#8a8a8a] hover:border-[#d8d8d8]",
+          "focus:border-[#c4d7f2] focus:bg-white focus:text-[#303030] focus:ring-2 focus:ring-[#2c6ecb]/10",
+          saving && "opacity-60"
+        )}
       />
-      <p className="text-[12px] text-[#8a8a8a]">
-        {saving
-          ? "Saving…"
-          : "Used on the calendar by default when scheduling events."}
-      </p>
     </div>
   );
 }

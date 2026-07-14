@@ -4,12 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookMarked,
   CheckCircle2,
-  FileImage,
-  Loader2,
   RotateCcw,
-  Upload,
 } from "lucide-react";
-import { MockupPreview } from "@/components/orders/artwork/mockup-preview";
+import { ProofSlidesEditor } from "@/components/orders/artwork/proof-slides-gallery";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
 import { ImprintInkColorsEditor } from "@/components/orders/imprint-ink-colors-editor";
@@ -31,7 +28,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { readImagePreviewDataUrl } from "@/lib/artwork-preview";
 import { ARTWORK_ATTACHABLE_KINDS } from "@/lib/create-order";
 import {
   EMPTY_INK_COLORS,
@@ -267,14 +263,10 @@ export function ImprintDesignCard({
     updateImprintNotes,
     updateImprintInkColors,
     linkImprintArtworkFromFile,
-    uploadArtworkVersion,
     setArtworkStatus,
   } = useSchedule();
   const { settings, isAdmin, updateSettings } = useShopSettings();
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadHint, setUploadHint] = useState<string | null>(null);
   const [addingCustomInkType, setAddingCustomInkType] = useState(false);
   const [addingCustomDtfImprintArea, setAddingCustomDtfImprintArea] =
     useState(false);
@@ -478,35 +470,6 @@ export function ImprintDesignCard({
     [saveNotes, settings.productionDefaults]
   );
 
-  const handleMockupUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    setUploadHint(null);
-    try {
-      const { previewUrl, error, compressed } =
-        await readImagePreviewDataUrl(file);
-      await uploadArtworkVersion(
-        order.id,
-        job.id,
-        imprint.id,
-        file.name,
-        imprint.label,
-        "mockup",
-        previewUrl || undefined
-      );
-      if (error) setUploadHint(error);
-      else if (compressed)
-        setUploadHint("Mockup saved with compressed preview.");
-      else if (previewUrl) setUploadHint("Mockup saved with preview.");
-      else setUploadHint("Mockup saved — filename only.");
-    } finally {
-      setUploading(false);
-      e.target.value = "";
-    }
-  };
-
   return (
     <article
       className={cn(
@@ -543,42 +506,20 @@ export function ImprintDesignCard({
         )}
       >
         <div className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-              <FileImage className="size-3.5" />
-              Mockup
+          {!isFinishing ? (
+            <ProofSlidesEditor
+              orderId={order.id}
+              job={job}
+              imprint={imprint}
+              readOnly={readOnly}
+              compact={compact}
+              pinned={highlighted}
+            />
+          ) : (
+            <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-8 text-center text-sm text-[#8a8a8a]">
+              Finishing step — no proof images
             </div>
-            {!readOnly && !isFinishing ? (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  className="hidden"
-                  accept=".png,.jpg,.jpeg,.webp,.gif,.pdf"
-                  onChange={handleMockupUpload}
-                />
-                <Button
-                  type="button"
-                  disabled={uploading}
-                  className={cn(dashboardControlClass, "h-8 text-[12px]")}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  {uploading ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Upload className="size-3.5" />
-                  )}
-                  Upload mockup
-                </Button>
-              </>
-            ) : null}
-          </div>
-
-          <MockupPreview
-            entry={{ job, imprint }}
-            compact={compact}
-            pinned={highlighted}
-          />
+          )}
 
           {!isFinishing && !readOnly ? (
             <div
@@ -643,14 +584,13 @@ export function ImprintDesignCard({
             </div>
           ) : null}
 
-          {uploadHint ? (
-            <p className="text-[11px] text-[#8a8a8a]">{uploadHint}</p>
-          ) : (
+          {!isFinishing ? (
             <p className="text-[11px] text-[#8a8a8a]">
-              PNG or JPG under 600 KB shows an inline preview on the order and
-              in customer messages.
+              Add multiple images per location — mockup, logo, references. Drag
+              the grip handle to reorder, same as ink colors. PNG or JPG under
+              600 KB shows inline previews in customer emails and the portal.
             </p>
-          )}
+          ) : null}
 
           {!isFinishing && (
             <div className="space-y-1.5">

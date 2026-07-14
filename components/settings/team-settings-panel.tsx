@@ -55,6 +55,11 @@ import {
   STAFF_ROLE_OPTIONS,
   type StaffRole,
 } from "@/lib/staff-roles";
+import {
+  normalizeStaffTags,
+  STAFF_TAG_OPTIONS,
+  staffTagLabel,
+} from "@/lib/staff-tags";
 import { cn } from "@/lib/utils";
 
 function RoleBadge({ role }: { role: StaffRole }) {
@@ -99,6 +104,7 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
   const [editRole, setEditRole] = useState<StaffRole>("production");
   const [editAccess, setEditAccess] = useState<StaffAccess | null>(null);
+  const [editTags, setEditTags] = useState<string[]>([]);
   const [savingAccess, setSavingAccess] = useState(false);
 
   const loadTeam = useCallback(async () => {
@@ -156,6 +162,7 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
     setEditMember(member);
     setEditRole(member.role);
     setEditAccess(member.access ?? null);
+    setEditTags(normalizeStaffTags(member.tags));
   };
 
   const handleSaveAccess = async () => {
@@ -168,11 +175,16 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
       await updateTeamMember(token, editMember.id, {
         role: editRole,
         access: editAccess,
+        tags: editTags,
       });
       setEditMember(null);
       await loadTeam();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not update access");
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not update access"
+      );
     } finally {
       setSavingAccess(false);
     }
@@ -282,6 +294,15 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                       )}
                     </p>
                     <RoleBadge role={member.role} />
+                    {normalizeStaffTags(member.tags).map((tag) => (
+                      <Badge
+                        key={tag}
+                        variant="outline"
+                        className="rounded-md border-[#dbe6ff] bg-[#f4f7ff] px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide text-[#2c6ecb]"
+                      >
+                        {staffTagLabel(tag)}
+                      </Badge>
+                    ))}
                   </div>
                   <p className="truncate text-xs text-brand-muted">{member.email}</p>
                   {member.role !== "admin" && (
@@ -537,6 +558,43 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                 value={editAccess}
                 onChange={setEditAccess}
               />
+              <div className="space-y-2">
+                <Label>Tags</Label>
+                <p className="text-xs text-brand-muted">
+                  Tag teammates for filtering and assignment pickers. Sales rep
+                  tags appear in order rep dropdowns.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {STAFF_TAG_OPTIONS.map((option) => {
+                    const checked = editTags.includes(option.id);
+                    return (
+                      <label
+                        key={option.id}
+                        className={cn(
+                          "inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm",
+                          checked
+                            ? "border-[#2c6ecb]/30 bg-[#f4f7fd] text-[#2c6ecb]"
+                            : "border-border/60 bg-white text-brand-ink"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setEditTags((current) =>
+                              checked
+                                ? current.filter((tag) => tag !== option.id)
+                                : normalizeStaffTags([...current, option.id])
+                            );
+                          }}
+                          className="size-4 rounded border-[#c9c9c9]"
+                        />
+                        {option.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
           <DialogFooter>

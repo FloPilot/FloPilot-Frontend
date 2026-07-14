@@ -5,9 +5,11 @@ import { BarChart3 } from "lucide-react";
 import { ReportDialog } from "@/components/reports/report-dialog";
 import {
   getReportsForContext,
-  type CustomerDetailReportData,
-  type CustomersListReportData,
-} from "@/lib/reports/customer-reports";
+} from "@/lib/reports/registry";
+import type {
+  CustomerDetailReportData,
+  CustomersListReportData,
+} from "@/lib/reports/shop-report-data";
 import { dashboardControlClass } from "@/lib/dashboard-styles";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";

@@ -40,6 +40,7 @@ export type UnscheduledEvent = {
   key: string;
   orderId: string;
   orderNumber: string;
+  orderCustomLabel?: string;
   customerId: string;
   customerName: string;
   jobId: string;
@@ -97,6 +98,7 @@ export type EventBasketSort =
 export type EventBasketGroup = {
   orderId: string;
   orderNumber: string;
+  orderCustomLabel?: string;
   customerId: string;
   customerName: string;
   rush: boolean;
@@ -186,6 +188,7 @@ export function getUnscheduledEvents(
       key: schedulableJobKey(job.orderId, job.jobId, job.imprintId),
       orderId: job.orderId,
       orderNumber: job.orderNumber,
+      orderCustomLabel: job.orderCustomLabel,
       customerId: order.customerId,
       customerName: job.customerName,
       jobId: job.jobId,
@@ -356,6 +359,7 @@ export function groupUnscheduledEventsByOrder(
     byOrder.set(event.orderId, {
       orderId: event.orderId,
       orderNumber: event.orderNumber,
+      orderCustomLabel: event.orderCustomLabel,
       customerId: event.customerId,
       customerName: event.customerName,
       rush: event.rush,
@@ -420,6 +424,7 @@ export {
 export type SchedulingQueueOrder = {
   orderId: string;
   orderNumber: string;
+  orderCustomLabel?: string;
   customerId: string;
   customerName: string;
   rush: boolean;
@@ -456,6 +461,7 @@ export function buildSchedulingQueueOrders(
     return {
       orderId: group.orderId,
       orderNumber: group.orderNumber,
+      orderCustomLabel: group.orderCustomLabel,
       customerId: group.customerId,
       customerName: group.customerName,
       rush: group.rush,

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { CalendarDays, ChevronRight, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { TodayFloorItem } from "@/lib/dashboard-insights";
+import { formatOrderRef } from "@/lib/order-display";
 import {
   dashboardCardClass,
   dashboardPanelHeaderClass,
@@ -40,7 +41,7 @@ function FloorRow({ item }: { item: TodayFloorItem }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-sm font-medium text-brand-ink group-hover:text-brand-primary">
-            {item.orderNumber}
+            {formatOrderRef(item)}
           </span>
           {isRunning && (
             <span className="inline-flex items-center gap-1 rounded-sm bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">

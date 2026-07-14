@@ -1,5 +1,6 @@
 import { addDays, format } from "date-fns";
 import { computeEstimateTotals } from "@/lib/order-estimate";
+import { findSubCustomer } from "@/lib/sub-customers";
 import {
   resolvePrintLocationLabel,
   type ShopProductionDefaults,
@@ -184,6 +185,8 @@ export const ARTWORK_ATTACHABLE_KINDS: OrderFileKind[] = [
 
 export type NewOrderFormInput = {
   customerId: string;
+  /** End business under a broker/contractor account */
+  subCustomerId?: string;
   lineItems: NewOrderLineItemInput[];
   blankSource?: BlankSource;
   jobs: NewOrderJobInput[];
@@ -192,6 +195,8 @@ export type NewOrderFormInput = {
   rush: boolean;
   /** Optional label shown as "SO-1234 — your label" on orders and calendar */
   customLabel?: string;
+  /** Assigned sales rep — defaults from customer when unset */
+  salesRepId?: string;
 };
 
 export function createEmptyNewOrderJob(
@@ -214,6 +219,7 @@ export function createEmptyNewOrderForm(
 ): NewOrderFormInput {
   return {
     customerId,
+    subCustomerId: "",
     lineItems: [],
     blankSource: undefined,
     jobs: [],
@@ -221,6 +227,7 @@ export function createEmptyNewOrderForm(
     inHandsDate: format(addDays(new Date(), 21), "yyyy-MM-dd"),
     rush: false,
     customLabel: "",
+    salesRepId: "",
   };
 }
 
@@ -609,6 +616,9 @@ export function buildOrderFromForm(
   }
 
   const orderFiles: OrderFile[] = [];
+  const selectedSubCustomer = form.subCustomerId
+    ? findSubCustomer(customer, form.subCustomerId)
+    : undefined;
 
   return {
     id: `ord-${suffix}`,
@@ -618,6 +628,8 @@ export function buildOrderFromForm(
     customerId: customer.id,
     customerName: customer.name,
     company: customer.company,
+    subCustomerId: selectedSubCustomer?.id,
+    subCustomerName: selectedSubCustomer?.name,
     createdAt: now,
     inHandsDate: form.inHandsDate,
     subtotal,
@@ -627,6 +639,7 @@ export function buildOrderFromForm(
     balance: total,
     rush: form.rush,
     customLabel: form.customLabel?.trim() || undefined,
+    salesRepId: form.salesRepId?.trim() || undefined,
     garments: hasProducts
       ? {
           status: "waiting",

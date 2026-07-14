@@ -78,6 +78,11 @@ export type SupplierSizeSku = {
   saleExpiration?: string | null;
   mapPrice: number | null;
   retailPrice: number | null;
+  /**
+   * Stable blank cost for quotes/orders — standard piece price, not sale.
+   * Prefer this over customerPrice / salePrice when setting line item unitCost.
+   */
+  standardUnitPrice?: number;
   caseQty: number;
   unitWeight?: number | null;
   countryOfOrigin?: string;
@@ -108,6 +113,8 @@ export type SupplierStylePricing = {
   customerPriceMax: number | null;
   piecePriceMin: number | null;
   piecePriceMax: number | null;
+  standardUnitPriceMin?: number | null;
+  standardUnitPriceMax?: number | null;
 };
 
 export type SupplierStyleDetail = SupplierStyleSummary & {

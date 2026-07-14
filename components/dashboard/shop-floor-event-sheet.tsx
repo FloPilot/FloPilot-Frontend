@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { TodayFloorItem } from "@/lib/dashboard-insights";
+import { formatOrderRef } from "@/lib/order-display";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -124,7 +125,7 @@ export function ShopFloorEventSheet({
         <DialogHeader className="border-b border-[#ebebeb] bg-[#fafafa] px-6 py-5 text-left">
           <div className="flex flex-wrap items-start gap-2 pr-6">
             <DialogTitle className="text-xl font-bold tracking-tight text-[#303030]">
-              {item.orderNumber}
+              {formatOrderRef(item)}
             </DialogTitle>
             <span
               className={cn(

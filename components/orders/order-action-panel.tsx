@@ -63,7 +63,7 @@ export function OrderActionPanel({
   const { getCustomerById } = useSchedule();
   const customer = getCustomerById(order.customerId);
   const pricingMatrix = useMemo(
-    () => resolveEffectivePricingMatrix(settings.pricingMatrix, customer, order),
+    () => resolveEffectivePricingMatrix(settings, customer, order),
     [settings.pricingMatrix, customer, order]
   );
   const financials = useMemo(

@@ -24,7 +24,8 @@ import { isOrderFulfillmentReady } from "@/lib/order-shipping";
 import { getOrderProductionSteps } from "@/lib/order-production";
 import { isHistoricalOrder } from "@/lib/order-list-filters";
 import { resolveProductionEvent } from "@/lib/production-event-status";
-import { computeReceivingCheckpoints, blanksColumnLabel } from "@/lib/order-receiving-checkpoints";
+import { computeReceivingCheckpoints, blanksColumnLabel, getOrderScreenFiles } from "@/lib/order-receiving-checkpoints";
+import { orderHasScreenPrintEvents } from "@/lib/order-materials";
 
 export type CheckpointRollupStatus =
   | "done"
@@ -38,6 +39,7 @@ export type OrderCheckpoint = {
     | "artwork"
     | "ink"
     | "screens"
+    | "screen_files"
     | "blanks"
     | "dtf_transfers"
     | "blank_source"
@@ -167,9 +169,9 @@ function orderStatusNextStep(order: Order): string {
     case "awaiting_approval":
       return "Customer reviewing estimate and proofs";
     case "approved":
-      return "Approved — move into production and confirm receiving";
+      return "Ready for scheduling — put events on the calendar";
     case "in_production":
-      return "In production — finish receiving checklist and schedule";
+      return "In production — finish receiving and run the floor";
     case "ready_to_ship":
       return "Production done — ready to ship";
     case "shipped":
@@ -267,6 +269,13 @@ function deriveNextStep({
       : `Art not approved on ${artPending} decorations`;
   }
 
+  if (
+    orderHasScreenPrintEvents(order) &&
+    getOrderScreenFiles(order).length === 0
+  ) {
+    return "Upload screen files on the Screens tab";
+  }
+
   if (hasPendingGarments && isQuoteApproved(order)) {
     return (
       describePendingGarmentReceiving(order, blanksColumnLabel(order).toLowerCase()) ??
@@ -298,8 +307,8 @@ function deriveNextStep({
   const unscheduled = scheduleProgress.total - scheduleProgress.scheduled;
   if (unscheduled > 0) {
     return unscheduled === 1
-      ? "One decoration still needs to be scheduled"
-      : `${unscheduled} decorations still need scheduling`;
+      ? "One decoration ready for scheduling"
+      : `${unscheduled} decorations ready for scheduling`;
   }
 
   if (runningCount > 0) {
@@ -309,7 +318,7 @@ function deriveNextStep({
   }
 
   if (completedCount === eventCount) {
-    return "All decorations finished";
+    return "All decorations completed";
   }
 
   if (scheduleProgress.scheduled > 0) {
@@ -509,13 +518,13 @@ export function computeOrderListSummary(
               : "pending",
       detail:
         completedCount === eventCount
-          ? "Done"
+          ? "Completed"
           : runningCount > 0
             ? "Running"
             : `${completedCount}/${eventCount}`,
       title:
         completedCount === eventCount
-          ? "All decorations finished"
+          ? "All decorations completed"
           : runningCount > 0
             ? `${runningCount} decoration${runningCount !== 1 ? "s" : ""} running now`
             : `${completedCount} of ${eventCount} decorations finished`,

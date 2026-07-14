@@ -45,7 +45,7 @@ export const DEPARTMENT_DEFINITIONS: DepartmentDefinition[] = [
     label: "Screens",
     shortLabel: "Screens",
     description:
-      "Screen burning and separations — aim to finish about five days before the run is scheduled.",
+      "Screen burning and separations — work appears after events are scheduled, about five days before the run.",
     icon: Layers,
     moduleKey: "productionTasks",
     href: `${DEPARTMENTS_BASE}/screens`,
@@ -54,7 +54,7 @@ export const DEPARTMENT_DEFINITIONS: DepartmentDefinition[] = [
     slug: "inks",
     label: "Inks",
     shortLabel: "Inks",
-    description: "Mix and stage ink colors for each screen-print location.",
+    description: "Mix and stage ink colors for scheduled screen-print locations.",
     icon: Droplets,
     moduleKey: "productionTasks",
     href: `${DEPARTMENTS_BASE}/inks`,

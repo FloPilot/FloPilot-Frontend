@@ -10,6 +10,7 @@ import {
 } from "@/lib/ink-prep";
 import { isArchivedOrder } from "@/lib/order-archive";
 import { buildReceivingQueue } from "@/lib/receiving-queue";
+import { getOrderScreenFiles } from "@/lib/order-receiving-checkpoints";
 import {
   getInkPrepLines,
   getScreenSetupLine,
@@ -29,6 +30,32 @@ export type PrepScheduleHint = {
   earliestScheduledAt: string;
   suggestedBy: string;
 };
+
+export function orderHasScheduledScreenPrint(
+  orderId: string,
+  scheduleBlocks: ScheduleBlock[]
+): boolean {
+  return scheduleBlocks.some(
+    (block) =>
+      block.orderId === orderId &&
+      block.jobId &&
+      block.imprintId
+  );
+}
+
+export function imprintHasSchedule(
+  orderId: string,
+  jobId: string,
+  imprintId: string,
+  scheduleBlocks: ScheduleBlock[]
+): boolean {
+  return scheduleBlocks.some(
+    (block) =>
+      block.orderId === orderId &&
+      block.jobId === jobId &&
+      block.imprintId === imprintId
+  );
+}
 
 export function computePrepScheduleHint(
   scheduleBlocks: ScheduleBlock[],
@@ -86,6 +113,8 @@ export type ScreenQueueEntry = {
   screenPrintCount: number;
   scheduleHint: PrepScheduleHint | null;
   prepDueAt?: string;
+  hasProductionFiles: boolean;
+  productionFileCount: number;
 };
 
 export function collectScreenQueue(
@@ -96,6 +125,7 @@ export function collectScreenQueue(
 
   for (const order of orders) {
     if (!isActiveProductionOrder(order)) continue;
+    if (!orderHasScheduledScreenPrint(order.id, scheduleBlocks)) continue;
 
     const hasScreenPrint = order.jobs.some(
       (job) =>
@@ -114,6 +144,7 @@ export function collectScreenQueue(
         job.imprints.filter((imp) => imp.decoration === "screen_print").length,
       0
     );
+    const productionFiles = getOrderScreenFiles(order);
 
     const scheduleHint = computePrepScheduleHint(scheduleBlocks, order.id, {
       jobId: undefined,
@@ -126,6 +157,8 @@ export function collectScreenQueue(
       screenPrintCount,
       scheduleHint,
       prepDueAt: screenLine.prepDueAt,
+      hasProductionFiles: productionFiles.length > 0,
+      productionFileCount: productionFiles.length,
     });
   }
 
@@ -172,6 +205,16 @@ export function collectInkQueue(
 
     for (const line of inkLines) {
       if (!line.jobId || !line.imprintId) continue;
+      if (
+        !imprintHasSchedule(
+          order.id,
+          line.jobId,
+          line.imprintId,
+          scheduleBlocks
+        )
+      ) {
+        continue;
+      }
 
       const step = getOrderProductionSteps(order).find(
         (entry) =>

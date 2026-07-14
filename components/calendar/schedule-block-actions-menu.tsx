@@ -9,6 +9,7 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
+import { ScheduleBlockOrderLine } from "@/components/orders/order-display-line";
 import type { Machine, ScheduleBlock } from "@/types";
 import { machineColorStyles } from "@/lib/machine-styles";
 import { cn } from "@/lib/utils";
@@ -120,7 +121,7 @@ export function ScheduleBlockActionsMenu({
               role="menu"
             >
               <p className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-brand-muted">
-                {block.orderNumber}
+                <ScheduleBlockOrderLine block={block} />
               </p>
               <p className="px-2 pb-2 text-xs text-brand-muted truncate">
                 {block.imprintLabel}

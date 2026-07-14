@@ -35,7 +35,7 @@ function StepStatusBadge({
         variant="outline"
         className="border-amber-200 bg-amber-50 text-amber-900"
       >
-        Not scheduled
+        Ready for scheduling
       </Badge>
     );
   }

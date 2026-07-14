@@ -37,6 +37,7 @@ import {
   type SchedulingQueueOrder,
 } from "@/lib/event-basket";
 import { decorationLabel, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine, formatOrderRef } from "@/lib/order-display";
 import type { HealthStatus } from "@/lib/order-health";
 import { eventsLabel, formatEventXOfY, formatMoreEvents } from "@/lib/terminology";
 import { cn } from "@/lib/utils";
@@ -141,7 +142,7 @@ function QueueOrderRow({
                 href={`/app/orders/${item.orderId}`}
                 className="text-[13px] font-semibold text-[#303030] hover:text-[#2c6ecb] hover:underline"
               >
-                {item.orderNumber}
+                {formatOrderRef(item)}
               </Link>
               <span className="truncate text-[13px] text-[#616161]">
                 {item.customerName}
@@ -289,7 +290,7 @@ export function EventBasketPanel({
                     href={`/app/orders/${order.id}`}
                     className="font-medium hover:underline"
                   >
-                    {order.number}
+                    {formatOrderDisplayLine(order)}
                   </Link>
                   {" — "}
                   {reason}
@@ -336,7 +337,7 @@ export function EventBasketPanel({
               </span>
             </h2>
             <p className="mt-0.5 text-[13px] text-[#616161]">
-              One event at a time — schedule the next one for each order.
+              Approved orders appear here — schedule the next event for each.
             </p>
           </div>
         </div>

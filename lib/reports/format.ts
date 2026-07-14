@@ -4,7 +4,7 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   draft: "Draft",
   quote_sent: "Quote Sent",
   awaiting_approval: "Awaiting Approval",
-  approved: "Approved",
+  approved: "Ready to Schedule",
   in_production: "In Production",
   ready_to_ship: "Ready to Ship",
   shipped: "Shipped",

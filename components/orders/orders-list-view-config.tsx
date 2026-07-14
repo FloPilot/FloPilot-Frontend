@@ -67,8 +67,11 @@ import {
 import {
   DEFAULT_ORDERS_LIST_COLUMNS,
   getOrdersListColumnDef,
+  MAX_ORDERS_LIST_COLUMN_LABEL_LENGTH,
+  normalizeOrdersListColumnLabels,
   normalizeOrdersListColumns,
   resolveActiveOrdersListColumns,
+  resolveOrdersListColumnLabel,
   ORDERS_LIST_COLUMN_DEFS,
   ORDERS_LIST_COLUMN_GROUP_LABELS,
   type OrderListViewRecord,
@@ -102,6 +105,14 @@ const PREVIEW_CHECKPOINTS: Partial<Record<OrdersListColumnId, OrderCheckpoint>> 
       status: "done",
       detail: "Ready",
       title: "Ready",
+    },
+    screen_files: {
+      key: "screen_files",
+      label: "Screen files",
+      shortLabel: "Files",
+      status: "pending",
+      detail: "Not uploaded",
+      title: "Not uploaded",
     },
     screens: {
       key: "screens",
@@ -173,6 +184,7 @@ const PREVIEW_ROWS: Partial<Record<OrdersListColumnId, [ReactNode, ReactNode]>> 
       <p className="truncate text-[12px] text-[#616161]">Sam Rivera</p>
     </div>,
   ],
+  sales_rep: ["Alex Morgan", "Jordan Lee"],
   in_hands: ["Jul 18, 2026", "Jul 22, 2026"],
   created: ["Jun 12, 2026", "Jun 8, 2026"],
   total: [
@@ -238,7 +250,13 @@ function previewCell(columnId: OrdersListColumnId, rowIndex: 0 | 1): ReactNode {
   return <span className="text-[13px] text-[#8a8a8a]">—</span>;
 }
 
-function OrdersListViewPreview({ columns }: { columns: OrdersListColumnId[] }) {
+function OrdersListViewPreview({
+  columns,
+  columnLabels,
+}: {
+  columns: OrdersListColumnId[];
+  columnLabels?: Partial<Record<OrdersListColumnId, string>>;
+}) {
   const minWidth = Math.max(640, columns.length * 104);
 
   return (
@@ -248,7 +266,7 @@ function OrdersListViewPreview({ columns }: { columns: OrdersListColumnId[] }) {
         <div>
           <p className="text-[13px] font-semibold text-[#303030]">Preview</p>
           <p className="text-[12px] text-[#616161]">
-            Sample rows update as you add, remove, or reorder columns.
+            Sample rows update as you add, remove, reorder, or rename columns.
           </p>
         </div>
       </div>
@@ -271,7 +289,7 @@ function OrdersListViewPreview({ columns }: { columns: OrdersListColumnId[] }) {
                       className="px-3 py-2.5 text-[12px] font-medium whitespace-nowrap text-[#616161]"
                       style={{ minWidth: def?.minWidth }}
                     >
-                      {def?.label ?? columnId}
+                      {resolveOrdersListColumnLabel(columnId, columnLabels)}
                     </th>
                   );
                 })}
@@ -308,6 +326,8 @@ function ColumnOrderRowContent({
   columnId,
   index,
   locked,
+  label,
+  onLabelChange,
   onRemove,
   dragHandleProps,
   isDragging,
@@ -315,12 +335,17 @@ function ColumnOrderRowContent({
   columnId: OrdersListColumnId;
   index: number;
   locked: boolean;
+  label: string;
+  onLabelChange: (columnId: OrdersListColumnId, label: string) => void;
   onRemove: (columnId: OrdersListColumnId) => void;
   dragHandleProps?: Record<string, unknown>;
   isDragging?: boolean;
 }) {
   const def = getOrdersListColumnDef(columnId);
   if (!def) return null;
+  const isRenamed =
+    Boolean(label.trim()) &&
+    label.trim().toLowerCase() !== def.label.trim().toLowerCase();
 
   return (
     <>
@@ -343,13 +368,24 @@ function ColumnOrderRowContent({
       <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-[#f6f6f7] text-[11px] font-semibold tabular-nums text-[#8a8a8a]">
         {index + 1}
       </span>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-1.5">
-          <p className="text-[13px] font-medium text-[#303030]">{def.label}</p>
-          {locked ? <Lock className="size-3 text-[#b5b5b5]" /> : null}
+          <Input
+            value={label}
+            onChange={(event) => onLabelChange(columnId, event.target.value)}
+            placeholder={def.label}
+            maxLength={MAX_ORDERS_LIST_COLUMN_LABEL_LENGTH}
+            className={cn(
+              dashboardControlClass,
+              "h-8 rounded-md text-[13px] font-medium"
+            )}
+            aria-label={`Column name for ${def.label}`}
+          />
+          {locked ? <Lock className="size-3 shrink-0 text-[#b5b5b5]" /> : null}
         </div>
         <p className="text-[11px] text-[#8a8a8a]">
           {ORDERS_LIST_COLUMN_GROUP_LABELS[def.group]}
+          {isRenamed ? ` · Default: ${def.label}` : ""}
         </p>
       </div>
       {!locked ? (
@@ -369,10 +405,14 @@ function ColumnOrderRowContent({
 function PinnedColumnRow({
   columnId,
   index,
+  label,
+  onLabelChange,
   onRemove,
 }: {
   columnId: OrdersListColumnId;
   index: number;
+  label: string;
+  onLabelChange: (columnId: OrdersListColumnId, label: string) => void;
   onRemove: (columnId: OrdersListColumnId) => void;
 }) {
   return (
@@ -381,6 +421,8 @@ function PinnedColumnRow({
         columnId={columnId}
         index={index}
         locked
+        label={label}
+        onLabelChange={onLabelChange}
         onRemove={onRemove}
       />
     </div>
@@ -390,10 +432,14 @@ function PinnedColumnRow({
 function SortableColumnRow({
   columnId,
   index,
+  label,
+  onLabelChange,
   onRemove,
 }: {
   columnId: OrdersListColumnId;
   index: number;
+  label: string;
+  onLabelChange: (columnId: OrdersListColumnId, label: string) => void;
   onRemove: (columnId: OrdersListColumnId) => void;
 }) {
   const {
@@ -425,6 +471,8 @@ function SortableColumnRow({
         columnId={columnId}
         index={index}
         locked={false}
+        label={label}
+        onLabelChange={onLabelChange}
         onRemove={onRemove}
         dragHandleProps={{ ...listeners, ...attributes }}
         isDragging={isDragging}
@@ -436,6 +484,10 @@ function SortableColumnRow({
 type OrdersListViewConfigProps = {
   columns: OrdersListColumnId[];
   onColumnsChange: (columns: OrdersListColumnId[]) => void;
+  columnLabels: Partial<Record<OrdersListColumnId, string>>;
+  onColumnLabelsChange: (
+    labels: Partial<Record<OrdersListColumnId, string>>
+  ) => void;
   activeViewId: string | null;
   onActiveViewChange: (viewId: string | null) => void;
 };
@@ -443,6 +495,8 @@ type OrdersListViewConfigProps = {
 export function OrdersListViewConfig({
   columns,
   onColumnsChange,
+  columnLabels,
+  onColumnLabelsChange,
   activeViewId,
   onActiveViewChange,
 }: OrdersListViewConfigProps) {
@@ -451,10 +505,14 @@ export function OrdersListViewConfig({
   const [loading, setLoading] = useState(true);
   const [editorOpen, setEditorOpen] = useState(false);
   const [draftColumns, setDraftColumns] = useState<OrdersListColumnId[]>(columns);
+  const [draftColumnLabels, setDraftColumnLabels] = useState<
+    Partial<Record<OrdersListColumnId, string>>
+  >({});
   const [viewName, setViewName] = useState("");
   const [shareWithTeam, setShareWithTeam] = useState(false);
   const [editingViewId, setEditingViewId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [switchingView, setSwitchingView] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const sortableColumnIds = useMemo(
@@ -480,8 +538,17 @@ export function OrdersListViewConfig({
       onColumnsChange(
         resolveActiveOrdersListColumns(data.activeViewId, data.activeColumns)
       );
+      onColumnLabelsChange(
+        data.activeViewId
+          ? normalizeOrdersListColumnLabels(
+              data.activeColumnLabels,
+              data.activeColumns
+            )
+          : {}
+      );
     } catch {
       onColumnsChange(normalizeOrdersListColumns(DEFAULT_ORDERS_LIST_COLUMNS));
+      onColumnLabelsChange({});
     } finally {
       setLoading(false);
     }
@@ -515,12 +582,20 @@ export function OrdersListViewConfig({
   const openEditor = (view?: OrderListViewRecord | null) => {
     setError(null);
     if (view?.isOwner) {
-      setDraftColumns(normalizeOrdersListColumns(view.columns));
+      const nextColumns = normalizeOrdersListColumns(view.columns);
+      setDraftColumns(nextColumns);
+      setDraftColumnLabels(
+        normalizeOrdersListColumnLabels(view.columnLabels, nextColumns)
+      );
       setViewName(view.name);
       setShareWithTeam(view.shared);
       setEditingViewId(view.id);
     } else {
-      setDraftColumns(normalizeOrdersListColumns(columns));
+      const nextColumns = normalizeOrdersListColumns(columns);
+      setDraftColumns(nextColumns);
+      setDraftColumnLabels(
+        normalizeOrdersListColumnLabels(columnLabels, nextColumns)
+      );
       setViewName(view ? `${view.name} copy` : "");
       setShareWithTeam(false);
       setEditingViewId(null);
@@ -555,32 +630,112 @@ export function OrdersListViewConfig({
   const removeColumn = (columnId: OrdersListColumnId) => {
     if (columnId === "order") return;
     setDraftColumns((current) => current.filter((id) => id !== columnId));
+    setDraftColumnLabels((current) => {
+      if (!(columnId in current)) return current;
+      const next = { ...current };
+      delete next[columnId];
+      return next;
+    });
+  };
+
+  const setColumnLabel = (columnId: OrdersListColumnId, label: string) => {
+    setDraftColumnLabels((current) => {
+      const next = { ...current };
+      const trimmed = label.slice(0, MAX_ORDERS_LIST_COLUMN_LABEL_LENGTH);
+      if (!trimmed.trim()) {
+        delete next[columnId];
+      } else {
+        next[columnId] = trimmed;
+      }
+      return next;
+    });
+  };
+
+  const draftLabelFor = (columnId: OrdersListColumnId) => {
+    const custom = draftColumnLabels[columnId];
+    if (custom !== undefined) return custom;
+    return getOrdersListColumnDef(columnId)?.label ?? columnId;
   };
 
   const handleSelectView = async (value: string) => {
-    setError(null);
-    if (value === "default") {
-      const token = await getIdToken();
-      if (!token) return;
-      const result = await setActiveOrderListView(token, null);
+    if (switchingView) return;
+
+    const previousViewId = activeViewId;
+    const previousColumns = columns;
+    const previousLabels = columnLabels;
+
+    const applyDefault = () => {
       onActiveViewChange(null);
-      onColumnsChange(resolveActiveOrdersListColumns(null, result.activeColumns));
+      onColumnsChange(resolveActiveOrdersListColumns(null));
+      onColumnLabelsChange({});
+    };
+
+    const applyView = (view: OrderListViewRecord) => {
+      const nextColumns = normalizeOrdersListColumns(view.columns);
+      onActiveViewChange(view.id);
+      onColumnsChange(nextColumns);
+      onColumnLabelsChange(
+        normalizeOrdersListColumnLabels(view.columnLabels, nextColumns)
+      );
+    };
+
+    setError(null);
+
+    if (value === "default") {
+      if (activeViewId === null) return;
+      applyDefault();
+      setSwitchingView(true);
+      try {
+        const token = await getIdToken();
+        if (!token) throw new Error("You must be signed in to switch views.");
+        await setActiveOrderListView(token, null);
+      } catch (err) {
+        onActiveViewChange(previousViewId);
+        onColumnsChange(previousColumns);
+        onColumnLabelsChange(previousLabels);
+        setError(
+          err instanceof Error ? err.message : "Could not switch to Default view"
+        );
+      } finally {
+        setSwitchingView(false);
+      }
       return;
     }
 
     const view = views.find((entry) => entry.id === value);
-    if (!view) return;
+    if (!view || view.id === activeViewId) return;
 
-    const token = await getIdToken();
-    if (!token) return;
-    const result = await setActiveOrderListView(token, view.id);
-    onActiveViewChange(result.activeViewId);
-    onColumnsChange(normalizeOrdersListColumns(result.activeColumns));
+    applyView(view);
+    setSwitchingView(true);
+    try {
+      const token = await getIdToken();
+      if (!token) throw new Error("You must be signed in to switch views.");
+      const result = await setActiveOrderListView(token, view.id);
+      onActiveViewChange(result.activeViewId);
+      const nextColumns = normalizeOrdersListColumns(result.activeColumns);
+      onColumnsChange(nextColumns);
+      onColumnLabelsChange(
+        normalizeOrdersListColumnLabels(
+          result.activeColumnLabels ?? view.columnLabels,
+          nextColumns
+        )
+      );
+    } catch (err) {
+      onActiveViewChange(previousViewId);
+      onColumnsChange(previousColumns);
+      onColumnLabelsChange(previousLabels);
+      setError(err instanceof Error ? err.message : "Could not switch views");
+    } finally {
+      setSwitchingView(false);
+    }
   };
 
   const handleApplyWithoutSaving = () => {
     const next = normalizeOrdersListColumns(draftColumns);
     onColumnsChange(next);
+    onColumnLabelsChange(
+      normalizeOrdersListColumnLabels(draftColumnLabels, next)
+    );
     onActiveViewChange(null);
     setEditorOpen(false);
   };
@@ -592,10 +747,17 @@ export function OrdersListViewConfig({
       const token = await getIdToken();
       if (!token) return;
 
+      const nextColumns = normalizeOrdersListColumns(draftColumns);
+      const nextLabels = normalizeOrdersListColumnLabels(
+        draftColumnLabels,
+        nextColumns
+      );
+
       const { view } = await saveOrderListView(token, {
         id: editingViewId || undefined,
         name: viewName.trim() || "My view",
-        columns: draftColumns,
+        columns: nextColumns,
+        columnLabels: nextLabels,
         shared: shareWithTeam,
       });
 
@@ -607,6 +769,12 @@ export function OrdersListViewConfig({
       const active = await setActiveOrderListView(token, view.id);
       onActiveViewChange(active.activeViewId);
       onColumnsChange(normalizeOrdersListColumns(active.activeColumns));
+      onColumnLabelsChange(
+        normalizeOrdersListColumnLabels(
+          active.activeColumnLabels ?? view.columnLabels,
+          active.activeColumns
+        )
+      );
       setEditorOpen(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save view");
@@ -628,6 +796,7 @@ export function OrdersListViewConfig({
         const reset = await setActiveOrderListView(token, null);
         onActiveViewChange(null);
         onColumnsChange(resolveActiveOrdersListColumns(null, reset.activeColumns));
+        onColumnLabelsChange({});
       }
       setEditorOpen(false);
     } catch (err) {
@@ -642,59 +811,80 @@ export function OrdersListViewConfig({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2">
-        <Select
-          value={selectValue}
-          onValueChange={(value) => {
-            if (value) void handleSelectView(value);
-          }}
-          disabled={loading}
-        >
-          <SelectTrigger
-            className={cn(dashboardControlClass, "h-9 min-w-[180px] justify-between")}
+      <div className="flex flex-col items-end gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={selectValue}
+            onValueChange={(value) => {
+              if (value) void handleSelectView(value);
+            }}
+            disabled={loading || switchingView || saving}
           >
-            <span className="flex items-center gap-2 truncate">
-              <Columns3 className="size-3.5 shrink-0 text-[#616161]" />
-              <SelectValue placeholder="Select view">{selectLabel}</SelectValue>
-            </span>
-          </SelectTrigger>
-          <SelectContent alignItemWithTrigger={false} side="bottom" sideOffset={4}>
-            <SelectItem value="default">Default view</SelectItem>
-            {myViews.length > 0 ? (
-              <SelectGroup>
-                <SelectLabel>My views</SelectLabel>
-                {myViews.map((view) => (
-                  <SelectItem key={view.id} value={view.id}>
-                    {view.name}
-                    {view.shared ? " · Shared" : ""}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ) : null}
-            {teamViews.length > 0 ? (
-              <SelectGroup>
-                <SelectLabel>Team views</SelectLabel>
-                {teamViews.map((view) => (
-                  <SelectItem key={view.id} value={view.id}>
-                    {view.name}
-                    {view.ownerName ? ` · ${view.ownerName}` : ""}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ) : null}
-          </SelectContent>
-        </Select>
+            <SelectTrigger
+              className={cn(
+                dashboardControlClass,
+                "h-9 min-w-[180px] justify-between"
+              )}
+            >
+              <span className="flex items-center gap-2 truncate">
+                {switchingView ? (
+                  <Loader2 className="size-3.5 shrink-0 animate-spin text-[#2c6ecb]" />
+                ) : (
+                  <Columns3 className="size-3.5 shrink-0 text-[#616161]" />
+                )}
+                <SelectValue placeholder="Select view">
+                  {switchingView ? `Switching to ${selectLabel}…` : selectLabel}
+                </SelectValue>
+              </span>
+            </SelectTrigger>
+            <SelectContent
+              alignItemWithTrigger={false}
+              side="bottom"
+              sideOffset={4}
+            >
+              <SelectItem value="default">Default view</SelectItem>
+              {myViews.length > 0 ? (
+                <SelectGroup>
+                  <SelectLabel>My views</SelectLabel>
+                  {myViews.map((view) => (
+                    <SelectItem key={view.id} value={view.id}>
+                      {view.name}
+                      {view.shared ? " · Shared" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ) : null}
+              {teamViews.length > 0 ? (
+                <SelectGroup>
+                  <SelectLabel>Team views</SelectLabel>
+                  {teamViews.map((view) => (
+                    <SelectItem key={view.id} value={view.id}>
+                      {view.name}
+                      {view.ownerName ? ` · ${view.ownerName}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ) : null}
+            </SelectContent>
+          </Select>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={cn(dashboardControlClass, "h-9")}
-          onClick={() => openEditor(activeView?.isOwner ? activeView : null)}
-        >
-          <Columns3 className="size-3.5" />
-          Customize view
-        </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className={cn(dashboardControlClass, "h-9")}
+            disabled={loading || switchingView}
+            onClick={() => openEditor(activeView?.isOwner ? activeView : null)}
+          >
+            <Columns3 className="size-3.5" />
+            Customize view
+          </Button>
+        </div>
+        {error && !editorOpen ? (
+          <p className="max-w-[280px] text-right text-[12px] text-[#b42318]">
+            {error}
+          </p>
+        ) : null}
       </div>
 
       <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
@@ -704,23 +894,26 @@ export function OrdersListViewConfig({
               Customize view
             </DialogTitle>
             <DialogDescription className="max-w-2xl text-[13px] leading-relaxed text-[#616161]">
-              Choose which columns appear, drag them into the order you want,
-              and save layouts for yourself or your team.
+              Choose columns, drag to reorder, and rename headers for this view
+              — for example Screen files → PROD FILES.
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6 sm:px-8">
-            <OrdersListViewPreview columns={draftColumns} />
+            <OrdersListViewPreview
+              columns={draftColumns}
+              columnLabels={draftColumnLabels}
+            />
 
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
               <section className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <p className="text-[13px] font-semibold text-[#303030]">
-                      Column order
+                      Column order & names
                     </p>
                     <p className="text-[12px] text-[#616161]">
-                      Drag to reorder. Order stays pinned first.
+                      Drag to reorder. Edit the name field to rename a header.
                     </p>
                   </div>
                   <span className="rounded-full bg-[#f1f1f1] px-2.5 py-1 text-[11px] font-medium text-[#616161]">
@@ -744,6 +937,8 @@ export function OrdersListViewConfig({
                       <PinnedColumnRow
                         columnId="order"
                         index={0}
+                        label={draftLabelFor("order")}
+                        onLabelChange={setColumnLabel}
                         onRemove={removeColumn}
                       />
                     ) : null}
@@ -757,6 +952,8 @@ export function OrdersListViewConfig({
                           key={columnId}
                           columnId={columnId}
                           index={index + 1}
+                          label={draftLabelFor(columnId)}
+                          onLabelChange={setColumnLabel}
                           onRemove={removeColumn}
                         />
                       ))}

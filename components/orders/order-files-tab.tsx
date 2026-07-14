@@ -28,6 +28,7 @@ import {
   dashboardPrimaryButtonClass,
 } from "@/lib/dashboard-styles";
 import { decorationLabel, formatDateTime } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { collectOrderMockups, type MockupEntry } from "@/lib/job-imprints";
 import {
   buildOrderFileList,
@@ -510,7 +511,7 @@ export function OrderFilesTab({
             <CardDescription>
               {category === "all"
                 ? "Every document tied to this order — artwork, mockups, POs, and more."
-                : `Files in this category for ${order.number}.`}
+                : `Files in this category for ${formatOrderDisplayLine(order)}.`}
             </CardDescription>
           </CardHeader>
           <CardContent>

@@ -1,4 +1,5 @@
 import { SHIPPING_METHODS } from "@/lib/create-order";
+import { resolveSubCustomerShippingLocations } from "@/lib/sub-customers";
 import { lineItemPieceCount } from "@/lib/line-items";
 import type {
   Customer,
@@ -165,9 +166,19 @@ export function shippingMethodLabel(methodKey?: string, fallback = "UPS Ground")
 }
 
 export function resolveCustomerShippingLocations(
-  customer: Customer | undefined
+  customer: Customer | undefined,
+  options?: { subCustomerId?: string | null }
 ): CustomerShippingLocation[] {
   if (!customer) return [];
+
+  if (options?.subCustomerId) {
+    const subLocations = resolveSubCustomerShippingLocations(
+      customer,
+      options.subCustomerId
+    );
+    if (subLocations.length > 0) return subLocations;
+  }
+
   if (customer.shippingLocations?.length) {
     return [...customer.shippingLocations].sort((a, b) => {
       if (a.isDefault === b.isDefault) return 0;

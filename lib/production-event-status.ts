@@ -14,6 +14,7 @@ import { materialsRequiredForImprint, resolveOrderMaterials } from "@/lib/order-
 import { getDecorationPrepSteps } from "@/lib/decoration-workflow";
 import { decorationLabel, formatDate } from "@/lib/format";
 import { findScheduleBlockForStep, formatScheduleBlockSummary } from "@/lib/order-production";
+import { getOrderScreenFiles } from "@/lib/order-receiving-checkpoints";
 import { getRunForBlock } from "@/lib/station-runs";
 import type { ShopTaskWorkflowStatus } from "@/lib/shop-tasks";
 
@@ -227,6 +228,28 @@ function computeStatus({
     }
   }
 
+  if (
+    scheduleBlock &&
+    imprint.decoration === "screen_print" &&
+    getOrderScreenFiles(order).length === 0
+  ) {
+    return {
+      status: "blocked",
+      phase: "Waiting on production files",
+    };
+  }
+
+  if (prepPhase) {
+    return { status: "needs_attention", phase: prepPhase };
+  }
+
+  for (const config of getPrepCheckpointsForDecoration(imprint.decoration)) {
+    const value = checkpoints[config.key];
+    if (value === "pending") {
+      return { status: "needs_attention", phase: config.label };
+    }
+  }
+
   if (scheduleBlock) {
     if (!run || run.status === "upcoming") {
       return {
@@ -236,12 +259,8 @@ function computeStatus({
     }
   }
 
-  if (prepPhase) {
-    return { status: "needs_attention", phase: prepPhase };
-  }
-
   if (!scheduleBlock) {
-    return { status: "needs_attention", phase: "Ready to schedule" };
+    return { status: "needs_attention", phase: "Ready for scheduling" };
   }
 
   return { status: "needs_attention", phase: "Waiting to start" };
@@ -274,7 +293,7 @@ export function resolveProductionEvent({
   if (run?.status === "finished") {
     return {
       status: "completed",
-      phase: "Production complete",
+      phase: "Completed",
       assignee: workflow?.assignee,
       onHold: Boolean(workflow?.onHold),
       blockedReason: workflow?.blockedReason,

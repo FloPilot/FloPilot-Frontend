@@ -14,6 +14,7 @@ import type {
   ProductionPipelineSnapshot,
 } from "@/lib/dashboard-production";
 import { PRODUCTION_PIPELINE_COLUMNS } from "@/lib/production-board";
+import { formatOrderDisplayLine, formatOrderRef } from "@/lib/order-display";
 import { cn } from "@/lib/utils";
 import type { Task, TaskStatus } from "@/types";
 
@@ -97,7 +98,7 @@ function PipelineTaskRow({ task }: { task: Task }) {
           </span>
         </div>
         <p className={cn("mt-1", dashboardTaskDetailClass)}>
-          {task.orderNumber} · {task.customerName} · {task.department}
+          {formatOrderRef(task)} · {task.customerName} · {task.department}
         </p>
       </div>
       <ChevronRight className="mt-1 size-4 shrink-0 text-[#616161] opacity-60 group-hover:opacity-100" />
@@ -123,7 +124,7 @@ function ActiveOrderRow({ order }: { order: ActiveProductionOrder }) {
     >
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <p className={dashboardTaskTitleClass}>{order.number}</p>
+          <p className={dashboardTaskTitleClass}>{formatOrderDisplayLine(order)}</p>
           <OrderStatusBadge status={order.status} />
         </div>
         <p className={cn("mt-1", dashboardTaskDetailClass)}>

@@ -23,9 +23,25 @@ export type ReviewProof = {
     status: "pending" | "approved" | "revision_requested";
     previewUrl?: string;
     mockupLabel?: string;
+    proofSlides?: import("@/types").ProofSlide[];
+    uploadedAt?: string;
     revisionNotes?: import("@/types").RevisionNote[];
   };
-  inkColors: { name: string; pmsCode?: string }[];
+  notes?: {
+    dimensions?: string;
+    placement?: string;
+    inkType?: string;
+    flashCount?: number;
+    instructions?: string;
+  };
+  inkColors: {
+    name?: string;
+    pmsCode?: string;
+    mesh?: number;
+    squeegee?: string;
+    transferType?: string;
+    isFlash?: boolean;
+  }[];
 };
 
 export type ReviewEstimateRow = {

@@ -24,6 +24,7 @@ import {
   dashboardValueClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { formatOrderDisplayLine, formatOrderRef } from "@/lib/order-display";
 import { cn } from "@/lib/utils";
 
 function StatusBadge({ status }: { status: string }) {
@@ -67,7 +68,7 @@ function AttentionCard({
           {item.type === "estimate" ? "Estimate" : "Artwork approval"}
         </p>
         <p className="mt-1 truncate text-[14px] font-semibold text-[#303030]">
-          {item.orderNumber} · {item.title}
+          {formatOrderRef(item)} · {item.title}
         </p>
         <p className="mt-0.5 text-[12px] text-[#616161]">{item.detail}</p>
         {item.inHandsDate ? (
@@ -99,7 +100,7 @@ function OrderRow({
       className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_auto] items-center gap-3 border-b border-[#f1f1f1] px-4 py-3.5 text-[13px] transition-colors last:border-b-0 hover:bg-[#fafafa]"
     >
       <div>
-        <p className="font-semibold text-[#303030]">{order.number}</p>
+        <p className="font-semibold text-[#303030]">{formatOrderDisplayLine(order)}</p>
         {order.needsApproval ? (
           <p className="mt-0.5 text-[11px] font-medium text-[#8a6116]">
             Needs your review

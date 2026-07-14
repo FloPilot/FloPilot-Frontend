@@ -34,6 +34,7 @@ import {
   SCHEDULE_CHIP_BOX_PADDING,
   type ScheduleBlockProductionStatus,
 } from "@/lib/schedule-block-display";
+import { formatScheduleBlockDisplayLine } from "@/lib/order-display";
 import { getBlocksForMachine } from "@/lib/station-utils";
 import {
   blockTimelinePosition,
@@ -309,6 +310,10 @@ function TimelineContextBlock({
   machine: Machine;
   lane: BlockLane;
 }) {
+  const { activeOrders } = useSchedule();
+  const order = activeOrders.find((entry) => entry.id === block.orderId);
+  const orderTitle = formatScheduleBlockDisplayLine(block, order);
+
   const { topPx, heightPx } = blockTimelinePosition(block, machine);
   const horizontal = getTimelineBlockHorizontalStyle(lane);
 
@@ -326,7 +331,7 @@ function TimelineContextBlock({
         "flex flex-col items-start justify-start",
         getScheduleBlockEventClasses(blockCustomer, { muted: true })
       )}
-      title={`${block.orderNumber} · other order`}
+      title={`${orderTitle} · other order`}
     >
       <ScheduleChipContent
         block={block}

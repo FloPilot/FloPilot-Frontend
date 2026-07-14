@@ -4,7 +4,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   draft: "Draft",
   quote_sent: "Quote sent",
   awaiting_approval: "Awaiting approval",
-  approved: "Approved",
+  approved: "Ready for scheduling",
   in_production: "In production",
   ready_to_ship: "Ready to ship",
   shipped: "Shipped",
@@ -18,11 +18,11 @@ export const ORDER_STATUS_DESCRIPTIONS: Record<OrderStatus, string> = {
   quote_sent:
     "Estimate shared — send proofs and wait for the customer to approve both.",
   awaiting_approval:
-    "Customer is reviewing the estimate and proofs. When both are approved, the order moves to production.",
+    "Customer is reviewing the estimate and proofs. When both are approved, the order is ready for scheduling.",
   approved:
-    "Legacy status — estimate and proofs approved; receiving and scheduling happen in production.",
+    "Estimate and proofs approved — schedule production events on the calendar.",
   in_production:
-    "Approved and live — confirm receiving checklist, schedule events, and run the floor.",
+    "On the floor — finish receiving, run scheduled events, and complete production.",
   ready_to_ship: "Production is complete — pack and ship or schedule pickup.",
   shipped: "Order has left the shop.",
   completed: "Order is closed out.",
@@ -65,7 +65,7 @@ export function getStatusTransitionLabel(
   const labels: Partial<Record<OrderStatus, string>> = {
     quote_sent: "Mark quote sent",
     awaiting_approval: "Mark awaiting approval",
-    approved: "Mark approved",
+    approved: "Mark ready for scheduling",
     in_production: "Start production",
     ready_to_ship: "Mark ready to ship",
     shipped: "Mark shipped",

@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { listDesigns } from "@/lib/api";
 import { decorationLabel } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { dashboardPrimaryButtonClass } from "@/lib/dashboard-styles";
 import { getOrderProductionSteps } from "@/lib/order-production";
 import type { Order, SavedDesign } from "@/types";
@@ -88,7 +89,7 @@ export function ApplyDesignDialog({
         <DialogHeader>
           <DialogTitle>Apply from library</DialogTitle>
           <DialogDescription>
-            Pull a saved design onto a decoration location for {order.number}.
+            Pull a saved design onto a decoration location for {formatOrderDisplayLine(order)}.
           </DialogDescription>
         </DialogHeader>
 
