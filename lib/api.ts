@@ -121,8 +121,12 @@ export type UserTenantSummary = {
   tenantId: string;
   userId: string;
   name: string;
+  /** Staff member display name on this shop (used to prefill create-shop) */
+  memberName?: string;
   slug: string;
   logoUrl: string;
+  /** Brand accent for initials avatar when no logo is set */
+  primaryColor?: string;
   role: StaffRole;
 };
 
@@ -384,10 +388,16 @@ export async function registerShop(
   token: string,
   body: { shopName: string; slug?: string; adminName?: string }
 ) {
-  return callApi<{ tenantId: string; tenant: unknown; user: unknown }>(
-    "registerTenant",
-    { method: "POST", body, token }
-  );
+  return callApi<{
+    tenantId: string;
+    tenant: unknown;
+    user: { id?: string; name?: string; email?: string; role?: StaffRole };
+    message?: string;
+  }>("registerTenant", {
+    method: "POST",
+    body,
+    token,
+  });
 }
 
 // ─── Support / feedback tickets ─────────────────────────────────────────────

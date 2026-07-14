@@ -1,10 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { Boxes } from "lucide-react";
 import { FloPilotMarkBadge } from "@/components/branding/flopilot-mark";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { getShopInitials } from "@/lib/shop-initials";
 import { getDisplayShopName } from "@/lib/tenant-branding";
 import { cn } from "@/lib/utils";
 
@@ -22,8 +22,9 @@ export function ShopBrandMark({
   const tenantName =
     profile?.type === "staff" ? profile.tenant.name : undefined;
   const displayName = getDisplayShopName(settings.shopName, tenantName);
-  const { logoUrl, logoDisplay } = settings.branding;
+  const { logoUrl, logoDisplay, primaryColor } = settings.branding;
   const useFullLogo = logoDisplay === "full" && Boolean(logoUrl);
+  const initials = getShopInitials(displayName);
 
   const onDark = tone === "dark";
 
@@ -53,10 +54,14 @@ export function ShopBrandMark({
     <div className={cn("flex items-center gap-3 min-w-0", className)}>
       <div
         className={cn(
-          "relative flex shrink-0 items-center justify-center overflow-hidden rounded-md text-white",
-          onDark ? "bg-white/10" : "bg-brand-primary",
-          compact ? "size-8" : "size-9"
+          "relative flex shrink-0 items-center justify-center overflow-hidden rounded-md font-semibold text-white",
+          compact ? "size-8 text-[11px]" : "size-9 text-xs"
         )}
+        style={
+          logoUrl
+            ? undefined
+            : { backgroundColor: primaryColor || "var(--brand-primary)" }
+        }
       >
         {logoUrl ? (
           <Image
@@ -67,7 +72,7 @@ export function ShopBrandMark({
             className="object-contain bg-white p-0.5"
           />
         ) : (
-          <Boxes className={compact ? "size-4" : "size-5"} />
+          <span aria-hidden>{initials}</span>
         )}
       </div>
       {!compact && (

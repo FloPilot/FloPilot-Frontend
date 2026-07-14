@@ -458,24 +458,20 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                     <SelectTrigger className="h-11 w-full rounded-xl">
                       <LabeledSelectValue
                         value={inviteRole}
-                        options={STAFF_ROLE_OPTIONS.filter(
-                          (option) => option.value !== "admin"
-                        )}
+                        options={STAFF_ROLE_OPTIONS}
                       />
                     </SelectTrigger>
                     <SelectContent>
-                      {STAFF_ROLE_OPTIONS.filter((option) => option.value !== "admin").map(
-                        (option) => (
-                          <SelectItem key={option.value} value={option.value}>
-                            <div>
-                              <span className="font-medium">{option.label}</span>
-                              <span className="block text-xs text-brand-muted">
-                                {option.description}
-                              </span>
-                            </div>
-                          </SelectItem>
-                        )
-                      )}
+                      {STAFF_ROLE_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          <div>
+                            <span className="font-medium">{option.label}</span>
+                            <span className="block text-xs text-brand-muted">
+                              {option.description}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -547,7 +543,12 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                   <SelectContent>
                     {STAFF_ROLE_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
-                        {option.label}
+                        <div>
+                          <span className="font-medium">{option.label}</span>
+                          <span className="block text-xs text-brand-muted">
+                            {option.description}
+                          </span>
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>

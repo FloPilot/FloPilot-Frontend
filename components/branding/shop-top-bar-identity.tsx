@@ -4,7 +4,6 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Boxes,
   Check,
   Loader2,
   LogOut,
@@ -22,55 +21,57 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { listUserTenants, type UserTenantSummary } from "@/lib/api";
-import { getDisplayShopName } from "@/lib/tenant-branding";
+import {
+  persistStaffDisplayName,
+  pickStaffDisplayName,
+} from "@/lib/staff-display-name";
+import { getShopInitials } from "@/lib/shop-initials";
+import {
+  DEFAULT_PRIMARY_COLOR,
+  getDisplayShopName,
+} from "@/lib/tenant-branding";
 import { cn } from "@/lib/utils";
-
-function getInitials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() || "")
-    .join("");
-}
 
 function ShopAvatar({
   name,
   logoUrl,
+  brandColor,
   size = "md",
   className,
 }: {
   name: string;
   logoUrl?: string;
+  brandColor?: string;
   size?: "sm" | "md" | "trigger";
   className?: string;
 }) {
   const dimension =
     size === "sm" ? "size-7" : size === "trigger" ? "size-[26px]" : "size-8";
+  const initials = getShopInitials(name);
+  const background = brandColor?.trim() || DEFAULT_PRIMARY_COLOR;
 
   return (
     <span
       className={cn(
-        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-[7px] bg-white text-[#303030] shadow-[0_0_0_1px_rgba(255,255,255,0.12),0_1px_2px_rgba(0,0,0,0.35)]",
+        "relative flex shrink-0 items-center justify-center overflow-hidden rounded-[7px] font-semibold text-white shadow-[0_0_0_1px_rgba(255,255,255,0.12),0_1px_2px_rgba(0,0,0,0.35)]",
+        size === "sm" ? "text-[10px]" : "text-[11px]",
         dimension,
         className
       )}
+      style={logoUrl ? undefined : { backgroundColor: background }}
     >
       {logoUrl ? (
-        <Image
-          src={logoUrl}
-          alt=""
-          fill
-          unoptimized
-          className="object-contain p-0.5"
-        />
+        <span className="absolute inset-0 bg-white">
+          <Image
+            src={logoUrl}
+            alt=""
+            fill
+            unoptimized
+            className="object-contain p-0.5"
+          />
+        </span>
       ) : (
-        <Boxes
-          className={
-            size === "sm" ? "size-3" : size === "trigger" ? "size-3.5" : "size-3.5"
-          }
-          strokeWidth={1.75}
-        />
+        <span aria-hidden>{initials}</span>
       )}
     </span>
   );
@@ -84,7 +85,7 @@ function UserAvatar({ name, className }: { name: string; className?: string }) {
         className
       )}
     >
-      {getInitials(name) || "?"}
+      {getShopInitials(name)}
     </span>
   );
 }
@@ -111,7 +112,12 @@ function ShopSwitcherRow({
         switching && !active && "opacity-60"
       )}
     >
-      <ShopAvatar name={shop.name} logoUrl={shop.logoUrl} size="sm" />
+      <ShopAvatar
+        name={shop.name}
+        logoUrl={shop.logoUrl}
+        brandColor={shop.primaryColor}
+        size="sm"
+      />
       <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#303030]">
         {shop.name}
       </span>
@@ -140,10 +146,18 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
   const activeTenantId =
     profile?.type === "staff" ? profile.tenant.id : null;
   const displayName = getDisplayShopName(settings.shopName, tenantName);
-  const { logoUrl } = settings.branding;
+  const { logoUrl, primaryColor } = settings.branding;
   const userName = profile?.type === "staff" ? profile.user.name : null;
   const userEmail =
     profile?.type === "staff" ? profile.user.email : user?.email || null;
+
+  useEffect(() => {
+    const cached = pickStaffDisplayName(
+      userName,
+      ...tenants.map((shop) => shop.memberName)
+    );
+    if (cached) persistStaffDisplayName(cached);
+  }, [userName, tenants]);
 
   const currentShop = useMemo((): UserTenantSummary | null => {
     if (profile?.type !== "staff" || !activeTenantId || !tenantName) {
@@ -153,11 +167,13 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
       tenantId: activeTenantId,
       userId: profile.user.id,
       name: displayName,
+      memberName: profile.user.name,
       slug: profile.tenant.slug,
       logoUrl,
+      primaryColor,
       role: profile.user.role,
     };
-  }, [profile, activeTenantId, tenantName, displayName, logoUrl]);
+  }, [profile, activeTenantId, tenantName, displayName, logoUrl, primaryColor]);
 
   const displayShops = useMemo(() => {
     const byId = new Map<string, UserTenantSummary>();
@@ -218,7 +234,12 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
           className
         )}
       >
-        <ShopAvatar name={displayName} logoUrl={logoUrl} size="trigger" />
+        <ShopAvatar
+          name={displayName}
+          logoUrl={logoUrl}
+          brandColor={primaryColor}
+          size="trigger"
+        />
         <span className="hidden min-w-0 truncate text-[13px] font-medium text-[#e3e3e3] sm:block">
           {displayName}
         </span>

@@ -30,6 +30,10 @@ import {
   type ShopSettings,
 } from "@/lib/shop-settings";
 import { brandSurfaceFromPrimary } from "@/lib/tenant-branding";
+import {
+  greetingFirstName,
+  readStaffDisplayName,
+} from "@/lib/staff-display-name";
 import { cn } from "@/lib/utils";
 
 const STEPS = [
@@ -58,8 +62,12 @@ export function BrandOnboardingWizard({
 
   const step = STEPS[stepIndex].id;
   const userEmail = profile?.type === "staff" ? profile.user.email : "";
-  const adminName =
+  const accountName =
     profile?.type === "staff" ? profile.user.name?.trim() : "";
+  const welcomeName = greetingFirstName(
+    accountName,
+    readStaffDisplayName()
+  );
 
   useEffect(() => {
     setDraft((current) => ({
@@ -80,9 +88,9 @@ export function BrandOnboardingWizard({
     switch (step) {
       case "welcome":
         return {
-          title: adminName
-            ? `Welcome, ${adminName.split(" ")[0]}`
-            : "Welcome to FloPilot",
+          title: welcomeName
+            ? `Welcome, ${welcomeName}`
+            : `Welcome to ${draft.shopName || "FloPilot"}`,
           description: `Let's set up ${draft.shopName || "your shop"} in a few quick steps — logo, colors, and contact details so your workspace feels like home.`,
         };
       case "profile":
@@ -106,7 +114,7 @@ export function BrandOnboardingWizard({
       default:
         return { title: "", description: "" };
     }
-  }, [step, adminName, draft.shopName]);
+  }, [step, welcomeName, draft.shopName]);
 
   async function finishOnboarding() {
     setSaving(true);
