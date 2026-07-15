@@ -4,8 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Building2,
+  Calculator,
   DollarSign,
   Factory,
+  FileText,
   MessageSquarePlus,
   Package,
   Palette,
@@ -49,6 +51,16 @@ const GROUPS: SettingsNavGroup[] = [
     label: "Appearance",
     items: [
       { href: "/app/settings/appearance", label: "Branding & logo", icon: Palette },
+    ],
+  },
+  {
+    label: "Documents",
+    items: [
+      {
+        href: "/app/settings/documents/estimates",
+        label: "Estimates",
+        icon: FileText,
+      },
     ],
   },
   {
@@ -119,6 +131,12 @@ const GROUPS: SettingsNavGroup[] = [
         label: "Suppliers",
         icon: Plug,
         badge: "Partial",
+        exact: true,
+      },
+      {
+        href: "/app/settings/integrations/accounting",
+        label: "Accounting",
+        icon: Calculator,
       },
     ],
   },

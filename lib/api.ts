@@ -182,15 +182,26 @@ export async function fetchSupplierIntegrations(token: string) {
   );
 }
 
-export async function verifySsActivewearIntegration(token: string) {
+export async function verifySupplierIntegration(
+  token: string,
+  provider: import("@/lib/supplier-integrations").SupplierProviderId
+) {
   return callApi<{ integration: import("@/lib/supplier-integrations").SupplierIntegration }>(
     "verifySupplierIntegration",
     {
       method: "POST",
-      body: { provider: "ssActivewear" },
+      body: { provider },
       token,
     }
   );
+}
+
+export async function verifySsActivewearIntegration(token: string) {
+  return verifySupplierIntegration(token, "ssActivewear");
+}
+
+export async function verifySanMarIntegration(token: string) {
+  return verifySupplierIntegration(token, "sanMar");
 }
 
 export async function connectSsActivewearIntegration(
@@ -199,6 +210,25 @@ export async function connectSsActivewearIntegration(
 ) {
   return callApi<{ integration: import("@/lib/supplier-integrations").SupplierIntegration }>(
     "connectSsActivewearIntegration",
+    {
+      method: "POST",
+      body: payload,
+      token,
+    }
+  );
+}
+
+export async function connectSanMarIntegration(
+  token: string,
+  payload: {
+    customerNumber: string;
+    username: string;
+    password: string;
+    useTest?: boolean;
+  }
+) {
+  return callApi<{ integration: import("@/lib/supplier-integrations").SupplierIntegration }>(
+    "connectSanMarIntegration",
     {
       method: "POST",
       body: payload,
@@ -219,6 +249,99 @@ export async function disconnectSupplierIntegration(
       token,
     }
   );
+}
+
+// ─── Accounting / QuickBooks ────────────────────────────────────────────────
+
+export async function fetchAccountingIntegrations(token: string) {
+  return callApi<{
+    integrations: import("@/lib/accounting-integrations").AccountingIntegration[];
+    appConfigured: boolean;
+    environment: "sandbox" | "production";
+  }>("getAccountingIntegrations", { token });
+}
+
+export async function startQuickBooksOAuth(token: string) {
+  return callApi<{ authorizeUrl: string; redirectUri: string }>(
+    "startQuickBooksOAuth",
+    { method: "POST", token, body: {} }
+  );
+}
+
+export async function completeQuickBooksOAuth(
+  token: string,
+  input: { code: string; state: string; realmId: string }
+) {
+  return callApi<{
+    integration: import("@/lib/accounting-integrations").AccountingIntegration;
+  }>("completeQuickBooksOAuth", {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
+export async function verifyQuickBooks(token: string) {
+  return callApi<{
+    integration: import("@/lib/accounting-integrations").AccountingIntegration;
+  }>("verifyQuickBooks", { method: "POST", token, body: {} });
+}
+
+export async function disconnectQuickBooks(token: string) {
+  return callApi<{
+    integration: import("@/lib/accounting-integrations").AccountingIntegration;
+  }>("disconnectQuickBooks", { method: "POST", token, body: {} });
+}
+
+export async function updateQuickBooksSettings(
+  token: string,
+  settings: Partial<import("@/lib/accounting-integrations").QuickBooksSettings>
+) {
+  return callApi<{
+    integration: import("@/lib/accounting-integrations").AccountingIntegration;
+  }>("updateQuickBooksSettings", {
+    method: "POST",
+    token,
+    body: settings,
+  });
+}
+
+export async function listQuickBooksItems(token: string) {
+  return callApi<{
+    items: import("@/lib/accounting-integrations").QuickBooksCatalogItem[];
+    companyName?: string | null;
+    realmId?: string;
+  }>("listQuickBooksItems", { token });
+}
+
+export async function pushOrderToQuickBooks(
+  token: string,
+  input: {
+    orderId: string;
+    documentType?: import("@/lib/accounting-integrations").QuickBooksDocumentType;
+    documentTypes?: import("@/lib/accounting-integrations").QuickBooksDocumentType[];
+  }
+) {
+  return callApi<{
+    order: import("@/types").Order;
+    results: Array<{
+      documentType: import("@/lib/accounting-integrations").QuickBooksDocumentType;
+      action: "created" | "updated";
+      quickbooksId: string;
+      docNumber: string;
+      totalAmt?: number;
+    }>;
+    documentType: import("@/lib/accounting-integrations").QuickBooksDocumentType;
+    action: "created" | "updated";
+    quickbooksId: string;
+    docNumber: string;
+    totalAmt?: number;
+    customerName?: string;
+  }>("pushOrderToQuickBooks", {
+    method: "POST",
+    token,
+    body: input,
+  });
 }
 
 export async function searchSupplierCatalog(
@@ -653,6 +776,53 @@ export async function setActiveOrderListView(
   }>("setActiveOrderListView", {
     method: "POST",
     body: { viewId },
+    token,
+  });
+}
+
+// ─── Dashboard views ─────────────────────────────────────────────────────────
+
+export async function fetchDashboardViews(token: string) {
+  return callApi<import("@/lib/dashboard-layout").DashboardViewsState>(
+    "getDashboardViews",
+    { token }
+  );
+}
+
+export async function saveDashboardView(
+  token: string,
+  body: {
+    id?: string;
+    name: string;
+    layout: import("@/lib/dashboard-layout").DashboardWidgetId[];
+    shared?: boolean;
+  }
+) {
+  return callApi<{ view: import("@/lib/dashboard-layout").DashboardViewRecord }>(
+    "saveDashboardView",
+    { method: "POST", body, token }
+  );
+}
+
+export async function deleteDashboardView(token: string, viewId: string) {
+  return callApi<{ ok: boolean }>("deleteDashboardView", {
+    method: "POST",
+    body: { viewId },
+    token,
+  });
+}
+
+export async function setActiveDashboardView(
+  token: string,
+  viewId: string | null,
+  layout?: import("@/lib/dashboard-layout").DashboardWidgetId[]
+) {
+  return callApi<{
+    activeViewId: string | null;
+    activeLayout: import("@/lib/dashboard-layout").DashboardWidgetId[];
+  }>("setActiveDashboardView", {
+    method: "POST",
+    body: { viewId, ...(layout !== undefined ? { layout } : {}) },
     token,
   });
 }

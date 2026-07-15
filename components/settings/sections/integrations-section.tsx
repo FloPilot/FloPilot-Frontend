@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   AlertCircle,
   Boxes,
@@ -30,13 +31,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  connectSanMarIntegration,
   connectSsActivewearIntegration,
   disconnectSupplierIntegration,
   fetchSupplierIntegrations,
-  verifySsActivewearIntegration,
+  verifySupplierIntegration,
 } from "@/lib/api";
 import {
-  isSsIntegrationUsable,
+  isSupplierIntegrationUsable,
   type SupplierIntegration,
   type SupplierProviderId,
 } from "@/lib/supplier-integrations";
@@ -57,9 +59,10 @@ const SUPPLIER_CARDS: SupplierCardConfig[] = [
     available: true,
   },
   {
+    provider: "sanMar",
     name: "SanMar",
     description: "Pull blanks, live inventory, and net pricing into orders.",
-    available: false,
+    available: true,
   },
   {
     name: "SLC Activewear",
@@ -107,21 +110,43 @@ function formatTimestamp(value?: string | null) {
   }
 }
 
+function upsertIntegration(
+  current: SupplierIntegration[],
+  next: SupplierIntegration
+) {
+  const others = current.filter((entry) => entry.provider !== next.provider);
+  return [...others, next];
+}
+
 export function IntegrationsSection() {
   const { getIdToken } = useAuth();
   const [integrations, setIntegrations] = useState<SupplierIntegration[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogProvider, setDialogProvider] =
+    useState<SupplierProviderId | null>(null);
   const [saving, setSaving] = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [verifying, setVerifying] = useState(false);
+  const [disconnectingProvider, setDisconnectingProvider] =
+    useState<SupplierProviderId | null>(null);
+  const [verifyingProvider, setVerifyingProvider] =
+    useState<SupplierProviderId | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // S&S fields
   const [accountNumber, setAccountNumber] = useState("");
   const [apiKey, setApiKey] = useState("");
 
+  // SanMar fields
+  const [customerNumber, setCustomerNumber] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+
   const ssIntegration = useMemo(
     () => integrations.find((entry) => entry.provider === "ssActivewear"),
+    [integrations]
+  );
+  const sanMarIntegration = useMemo(
+    () => integrations.find((entry) => entry.provider === "sanMar"),
     [integrations]
   );
 
@@ -145,30 +170,38 @@ export function IntegrationsSection() {
   }, [loadIntegrations]);
 
   useEffect(() => {
-    if (loading || verifying) return;
-    if (!ssIntegration || !isSsIntegrationUsable(ssIntegration)) return;
-    if (ssIntegration.status !== "error") return;
+    if (loading || verifyingProvider) return;
+
+    const errored = [ssIntegration, sanMarIntegration].filter(
+      (entry) =>
+        entry &&
+        isSupplierIntegrationUsable(entry) &&
+        entry.status === "error"
+    ) as SupplierIntegration[];
+
+    if (errored.length === 0) return;
 
     let cancelled = false;
 
     async function autoVerify() {
-      setVerifying(true);
-      try {
-        const token = await getIdToken();
-        if (!token || cancelled) return;
-        const { integration } = await verifySsActivewearIntegration(token);
-        if (!cancelled) {
-          setIntegrations((current) => {
-            const others = current.filter(
-              (entry) => entry.provider !== "ssActivewear"
-            );
-            return [...others, integration];
-          });
+      for (const entry of errored) {
+        const provider = entry.provider as SupplierProviderId;
+        setVerifyingProvider(provider);
+        try {
+          const token = await getIdToken();
+          if (!token || cancelled) return;
+          const { integration } = await verifySupplierIntegration(
+            token,
+            provider
+          );
+          if (!cancelled) {
+            setIntegrations((current) => upsertIntegration(current, integration));
+          }
+        } catch {
+          // Keep showing the stored error until the user retries manually.
+        } finally {
+          if (!cancelled) setVerifyingProvider(null);
         }
-      } catch {
-        // Keep showing the stored error until the user retries manually.
-      } finally {
-        if (!cancelled) setVerifying(false);
       }
     }
 
@@ -176,87 +209,97 @@ export function IntegrationsSection() {
     return () => {
       cancelled = true;
     };
-  }, [loading, verifying, ssIntegration, getIdToken]);
+  }, [loading, verifyingProvider, ssIntegration, sanMarIntegration, getIdToken]);
 
-  const openConnectDialog = () => {
-    setAccountNumber(ssIntegration?.accountNumber || "");
-    setApiKey("");
+  const openConnectDialog = (provider: SupplierProviderId) => {
     setFormError(null);
-    setDialogOpen(true);
+    setDialogProvider(provider);
+    if (provider === "ssActivewear") {
+      setAccountNumber(ssIntegration?.accountNumber || "");
+      setApiKey("");
+    } else {
+      setCustomerNumber(sanMarIntegration?.customerNumber || "");
+      setUsername(sanMarIntegration?.username || "");
+      setPassword("");
+    }
   };
 
   const handleConnect = async () => {
+    if (!dialogProvider) return;
     setSaving(true);
     setFormError(null);
     try {
       const token = await getIdToken();
       if (!token) return;
 
-      const { integration } = await connectSsActivewearIntegration(token, {
-        accountNumber: accountNumber.trim(),
-        apiKey: apiKey.trim(),
-      });
+      const { integration } =
+        dialogProvider === "ssActivewear"
+          ? await connectSsActivewearIntegration(token, {
+              accountNumber: accountNumber.trim(),
+              apiKey: apiKey.trim(),
+            })
+          : await connectSanMarIntegration(token, {
+              customerNumber: customerNumber.trim(),
+              username: username.trim(),
+              password: password.trim(),
+            });
 
-      setIntegrations((current) => {
-        const others = current.filter((entry) => entry.provider !== "ssActivewear");
-        return [...others, integration];
-      });
-      setDialogOpen(false);
+      setIntegrations((current) => upsertIntegration(current, integration));
+      setDialogProvider(null);
       setApiKey("");
+      setPassword("");
     } catch (err) {
       setFormError(
-        err instanceof Error ? err.message : "Could not connect S&S Activewear"
+        err instanceof Error
+          ? err.message
+          : `Could not connect ${dialogProvider === "sanMar" ? "SanMar" : "S&S Activewear"}`
       );
     } finally {
       setSaving(false);
     }
   };
 
-  const handleVerify = async () => {
-    setVerifying(true);
+  const handleVerify = async (provider: SupplierProviderId) => {
+    setVerifyingProvider(provider);
     setError(null);
     try {
       const token = await getIdToken();
       if (!token) return;
-
-      const { integration } = await verifySsActivewearIntegration(token);
-      setIntegrations((current) => {
-        const others = current.filter((entry) => entry.provider !== "ssActivewear");
-        return [...others, integration];
-      });
+      const { integration } = await verifySupplierIntegration(token, provider);
+      setIntegrations((current) => upsertIntegration(current, integration));
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not verify S&S Activewear"
+        err instanceof Error ? err.message : "Could not verify integration"
       );
     } finally {
-      setVerifying(false);
+      setVerifyingProvider(null);
     }
   };
 
-  const handleDisconnect = async () => {
-    setDisconnecting(true);
+  const handleDisconnect = async (provider: SupplierProviderId) => {
+    setDisconnectingProvider(provider);
     setError(null);
     try {
       const token = await getIdToken();
       if (!token) return;
-
       const { integration } = await disconnectSupplierIntegration(
         token,
-        "ssActivewear"
+        provider
       );
-
-      setIntegrations((current) => {
-        const others = current.filter((entry) => entry.provider !== "ssActivewear");
-        return [...others, integration];
-      });
+      setIntegrations((current) => upsertIntegration(current, integration));
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not disconnect S&S Activewear"
+        err instanceof Error ? err.message : "Could not disconnect integration"
       );
     } finally {
-      setDisconnecting(false);
+      setDisconnectingProvider(null);
     }
   };
+
+  const connectDisabled =
+    dialogProvider === "ssActivewear"
+      ? !accountNumber.trim() || !apiKey.trim()
+      : !customerNumber.trim() || !username.trim() || !password.trim();
 
   return (
     <SettingsMain>
@@ -272,8 +315,7 @@ export function IntegrationsSection() {
         <div className="flex items-start gap-3 rounded-lg border border-[#dbe6ff] bg-[#f4f7ff] px-4 py-3 text-[13px] text-[#3a4a6b]">
           <Plug className="mt-0.5 size-4 shrink-0 text-brand-primary" />
           <p>
-            S&amp;S Activewear is live. Connect your API username and API
-            password from{" "}
+            S&amp;S and SanMar are live. S&amp;S uses API credentials from{" "}
             <a
               className="inline-flex items-center gap-1 font-medium text-brand-primary"
               href="https://www.ssactivewear.com/myaccount/"
@@ -282,8 +324,23 @@ export function IntegrationsSection() {
             >
               My Account
               <ExternalLink className="size-3" />
+            </a>
+            . SanMar uses your SanMar.com login after web services access is
+            enabled — email{" "}
+            <a
+              className="font-medium text-brand-primary"
+              href="mailto:sanmarintegrations@sanmar.com"
+            >
+              sanmarintegrations@sanmar.com
             </a>{" "}
-            to pull styles, your customer pricing, and warehouse stock.
+            if you haven’t been onboarded yet. For QuickBooks, use{" "}
+            <Link
+              href="/app/settings/integrations/accounting"
+              className="font-medium text-brand-primary hover:underline"
+            >
+              Accounting
+            </Link>
+            .
           </p>
         </div>
 
@@ -301,14 +358,19 @@ export function IntegrationsSection() {
             : undefined;
           const badge = statusBadge(integration);
           const BadgeIcon = badge.icon;
-          const isSs = supplier.provider === "ssActivewear";
+          const provider = supplier.provider;
+          const usable =
+            provider != null && isSupplierIntegrationUsable(integration, provider);
+          const verifying = provider != null && verifyingProvider === provider;
+          const disconnecting =
+            provider != null && disconnectingProvider === provider;
 
           return (
             <div
               key={supplier.name}
               className={cn(
                 "flex flex-col justify-between gap-4 rounded-lg border px-4 py-4",
-                isSs && isSsIntegrationUsable(integration)
+                usable
                   ? "border-[#cfe0d4] bg-[#f8fcf9]"
                   : "border-dashed border-[#d4d4d4] bg-[#fafafa]"
               )}
@@ -325,7 +387,8 @@ export function IntegrationsSection() {
                     <p className="mt-0.5 text-xs leading-relaxed text-[#616161]">
                       {supplier.description}
                     </p>
-                    {isSs && integration?.accountNumber ? (
+                    {provider === "ssActivewear" &&
+                    integration?.accountNumber ? (
                       <p className="mt-2 text-[11px] text-[#616161]">
                         API Username {integration.accountNumber}
                         {integration.lastVerifiedAt
@@ -333,7 +396,21 @@ export function IntegrationsSection() {
                           : null}
                       </p>
                     ) : null}
-                    {isSs && integration?.lastError ? (
+                    {provider === "sanMar" &&
+                    (integration?.customerNumber || integration?.username) ? (
+                      <p className="mt-2 text-[11px] text-[#616161]">
+                        {integration.customerNumber
+                          ? `Customer #${integration.customerNumber}`
+                          : null}
+                        {integration.username
+                          ? `${integration.customerNumber ? " · " : ""}${integration.username}`
+                          : null}
+                        {integration.lastVerifiedAt
+                          ? ` · Verified ${formatTimestamp(integration.lastVerifiedAt)}`
+                          : null}
+                      </p>
+                    ) : null}
+                    {usable && integration?.lastError ? (
                       <p className="mt-1 text-[11px] text-[#b42318]">
                         {integration.lastError}
                       </p>
@@ -347,17 +424,17 @@ export function IntegrationsSection() {
                   )}
                 >
                   <BadgeIcon className="size-3" />
-                  {loading && isSs ? "Loading" : badge.label}
+                  {loading && provider ? "Loading" : badge.label}
                 </span>
               </div>
 
-              {supplier.available ? (
+              {supplier.available && provider ? (
                 <div className="flex flex-wrap gap-2">
-                  {isSs && isSsIntegrationUsable(integration) ? (
+                  {usable ? (
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => void handleVerify()}
+                      onClick={() => void handleVerify(provider)}
                       disabled={verifying}
                     >
                       {verifying ? (
@@ -370,16 +447,14 @@ export function IntegrationsSection() {
                       )}
                     </Button>
                   ) : null}
-                  <Button size="sm" onClick={openConnectDialog}>
-                    {isSsIntegrationUsable(integration)
-                      ? "Update credentials"
-                      : "Connect"}
+                  <Button size="sm" onClick={() => openConnectDialog(provider)}>
+                    {usable ? "Update credentials" : "Connect"}
                   </Button>
-                  {isSsIntegrationUsable(integration) ? (
+                  {usable ? (
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => void handleDisconnect()}
+                      onClick={() => void handleDisconnect(provider)}
                       disabled={disconnecting}
                     >
                       {disconnecting ? (
@@ -417,51 +492,115 @@ export function IntegrationsSection() {
         </div>
       </SettingsPanel>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={Boolean(dialogProvider)}
+        onOpenChange={(open) => !open && setDialogProvider(null)}
+      >
         <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Connect S&amp;S Activewear</DialogTitle>
-            <DialogDescription>
-              Enter the API username and API password from your S&amp;S My
-              Account page. Credentials are encrypted and only used server-side
-              to fetch your catalog and pricing.
-            </DialogDescription>
-          </DialogHeader>
+          {dialogProvider === "ssActivewear" ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Connect S&amp;S Activewear</DialogTitle>
+                <DialogDescription>
+                  Enter the API username and API password from your S&amp;S My
+                  Account page. Credentials are encrypted and only used
+                  server-side to fetch your catalog and pricing.
+                </DialogDescription>
+              </DialogHeader>
 
-          <div className="space-y-4 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="ss-account-number">API Username</Label>
-              <Input
-                id="ss-account-number"
-                value={accountNumber}
-                onChange={(event) => setAccountNumber(event.target.value)}
-                placeholder="Your S&S API Username"
-                autoComplete="off"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="ss-api-key">API Password</Label>
-              <Input
-                id="ss-api-key"
-                type="password"
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder="Your S&S API key"
-                autoComplete="new-password"
-              />
-            </div>
-            {formError ? (
-              <p className="text-sm text-[#b42318]">{formError}</p>
-            ) : null}
-          </div>
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="ss-account-number">API Username</Label>
+                  <Input
+                    id="ss-account-number"
+                    value={accountNumber}
+                    onChange={(event) => setAccountNumber(event.target.value)}
+                    placeholder="Your S&S API Username"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="ss-api-key">API Password</Label>
+                  <Input
+                    id="ss-api-key"
+                    type="password"
+                    value={apiKey}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    placeholder="Your S&S API key"
+                    autoComplete="new-password"
+                  />
+                </div>
+                {formError ? (
+                  <p className="text-sm text-[#b42318]">{formError}</p>
+                ) : null}
+              </div>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>Connect SanMar</DialogTitle>
+                <DialogDescription>
+                  Use your SanMar customer number plus the SanMar.com username
+                  and password for an account that has web services access.
+                  Request access from{" "}
+                  <a
+                    className="font-medium text-brand-primary"
+                    href="mailto:sanmarintegrations@sanmar.com"
+                  >
+                    sanmarintegrations@sanmar.com
+                  </a>{" "}
+                  if needed. Credentials are encrypted server-side.
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 py-2">
+                <div className="space-y-2">
+                  <Label htmlFor="sanmar-customer-number">
+                    SanMar customer number
+                  </Label>
+                  <Input
+                    id="sanmar-customer-number"
+                    value={customerNumber}
+                    onChange={(event) => setCustomerNumber(event.target.value)}
+                    placeholder="e.g. 123456"
+                    autoComplete="off"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="sanmar-username">SanMar.com username</Label>
+                  <Input
+                    id="sanmar-username"
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    placeholder="Your SanMar.com login"
+                    autoComplete="username"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="sanmar-password">SanMar.com password</Label>
+                  <Input
+                    id="sanmar-password"
+                    type="password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Your SanMar.com password"
+                    autoComplete="current-password"
+                  />
+                </div>
+                {formError ? (
+                  <p className="text-sm text-[#b42318]">{formError}</p>
+                ) : null}
+              </div>
+            </>
+          )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setDialogProvider(null)}>
               Cancel
             </Button>
             <Button
               onClick={() => void handleConnect()}
-              disabled={saving || !accountNumber.trim() || !apiKey.trim()}
+              disabled={saving || connectDisabled}
             >
               {saving ? (
                 <>

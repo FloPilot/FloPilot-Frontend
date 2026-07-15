@@ -27,31 +27,45 @@ import {
 } from "@/lib/dashboard-styles";
 import { formatCurrency } from "@/lib/format";
 import {
-  buildLineItemFromSsSelection,
-  existingSsSizesOnOrder,
+  buildLineItemFromSupplierSelection,
+  existingSupplierSizesOnOrder,
   priceForSku,
 } from "@/lib/supplier-line-items";
 import type {
   SupplierBrand,
   SupplierColorVariant,
+  SupplierProviderId,
   SupplierStyleDetail,
   SupplierStyleSummary,
 } from "@/lib/supplier-integrations";
+import { supplierProviderLabel } from "@/lib/supplier-integrations";
 import type { LineItem } from "@/types";
 import { cn } from "@/lib/utils";
 
 type View = "search" | "detail";
 
-const QUICK_BRAND_HINTS = [
-  "Gildan",
-  "Comfort Colors",
-  "Bella + Canvas",
-  "Next Level",
-  "Hanes",
-  "Champion",
-  "Port & Company",
-  "Sport-Tek",
-];
+const QUICK_BRAND_HINTS_BY_PROVIDER: Record<SupplierProviderId, string[]> = {
+  ssActivewear: [
+    "Gildan",
+    "Comfort Colors",
+    "Bella + Canvas",
+    "Next Level",
+    "Hanes",
+    "Champion",
+    "Port & Company",
+    "Sport-Tek",
+  ],
+  sanMar: [
+    "Port & Company",
+    "Port Authority",
+    "District",
+    "Sport-Tek",
+    "Nike",
+    "OGIO",
+    "Eddie Bauer",
+    "Bella+Canvas",
+  ],
+};
 
 function stockTone(qty: number): string {
   if (qty <= 0) return "text-[#b42318]";
@@ -140,12 +154,16 @@ export function AddSsBlankPanel({
   lineItems,
   onAdd,
   saving,
+  provider = "ssActivewear",
 }: {
   lineItems: LineItem[];
   onAdd: (item: LineItem) => Promise<void>;
   saving: boolean;
+  provider?: SupplierProviderId;
 }) {
   const { getIdToken } = useAuth();
+  const providerLabel = supplierProviderLabel(provider);
+  const quickBrandHints = QUICK_BRAND_HINTS_BY_PROVIDER[provider];
   const inputRef = useRef<HTMLInputElement>(null);
   const [view, setView] = useState<View>("search");
   const [query, setQuery] = useState("");
@@ -158,7 +176,7 @@ export function AddSsBlankPanel({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [results, setResults] = useState<SupplierStyleSummary[]>([]);
 
-  const [loadingStyleId, setLoadingStyleId] = useState<number | null>(null);
+  const [loadingStyleKey, setLoadingStyleKey] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [styleDetail, setStyleDetail] = useState<SupplierStyleDetail | null>(
     null
@@ -180,7 +198,7 @@ export function AddSsBlankPanel({
       try {
         const token = await getIdToken();
         if (!token || cancelled) return;
-        const { brands: next } = await fetchSupplierBrands(token);
+        const { brands: next } = await fetchSupplierBrands(token, provider);
         if (!cancelled) setBrands(next);
       } catch {
         if (!cancelled) setBrands([]);
@@ -193,7 +211,7 @@ export function AddSsBlankPanel({
     return () => {
       cancelled = true;
     };
-  }, [getIdToken]);
+  }, [getIdToken, provider]);
 
   const shouldSearch = debouncedQuery.length >= 2 || Boolean(brandFilter);
 
@@ -216,6 +234,7 @@ export function AddSsBlankPanel({
           token,
           debouncedQuery,
           {
+            provider,
             brand: brandFilter || undefined,
             limit: 50,
           }
@@ -237,7 +256,7 @@ export function AddSsBlankPanel({
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery, brandFilter, getIdToken, shouldSearch]);
+  }, [debouncedQuery, brandFilter, getIdToken, shouldSearch, provider]);
 
   const brandChipOptions = useMemo(() => {
     const normalized = debouncedQuery.toLowerCase();
@@ -245,7 +264,7 @@ export function AddSsBlankPanel({
       ? brands.filter((brand) => brand.name.toLowerCase().includes(normalized))
       : brands;
 
-    const quickMatches = QUICK_BRAND_HINTS.map((hint) =>
+    const quickMatches = quickBrandHints.map((hint) =>
       brands.find((brand) => brand.name.toLowerCase() === hint.toLowerCase())
     ).filter((brand): brand is SupplierBrand => Boolean(brand));
 
@@ -255,7 +274,7 @@ export function AddSsBlankPanel({
     }
 
     return Array.from(merged.values()).slice(0, 12);
-  }, [brands, debouncedQuery]);
+  }, [brands, debouncedQuery, quickBrandHints]);
 
   const filteredBrandMenu = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -270,30 +289,38 @@ export function AddSsBlankPanel({
 
   const existingOnOrder = useMemo(() => {
     if (!styleDetail || !selectedColor) return {};
-    return existingSsSizesOnOrder(
+    return existingSupplierSizesOnOrder(
       lineItems,
+      provider,
       styleDetail.partNumber,
       selectedColor.colorCode
     );
-  }, [lineItems, selectedColor, styleDetail]);
+  }, [lineItems, provider, selectedColor, styleDetail]);
 
   const loadStyle = useCallback(
     async (style: SupplierStyleSummary) => {
-      if (style.styleId == null) {
+      const styleKey =
+        style.partNumber ||
+        (style.styleId != null ? String(style.styleId) : "");
+      if (!styleKey) {
         setDetailError("This style is missing a catalog ID. Try searching again.");
         return;
       }
 
       setDetailError(null);
       setSubmitError(null);
-      setLoadingStyleId(style.styleId);
+      setLoadingStyleKey(styleKey);
       try {
         const token = await getIdToken();
         if (!token) return;
-        const { style: detail } = await fetchSupplierStyleDetail(token, style);
+        const { style: detail } = await fetchSupplierStyleDetail(
+          token,
+          style,
+          provider
+        );
         if (!detail.colors?.length) {
           throw new Error(
-            "This style has no available colors on your S&S account."
+            `This style has no available colors on your ${providerLabel} account.`
           );
         }
         setStyleDetail(detail);
@@ -305,10 +332,10 @@ export function AddSsBlankPanel({
           err instanceof Error ? err.message : "Could not load style"
         );
       } finally {
-        setLoadingStyleId(null);
+        setLoadingStyleKey(null);
       }
     },
-    [getIdToken]
+    [getIdToken, provider, providerLabel]
   );
 
   useEffect(() => {
@@ -342,7 +369,8 @@ export function AddSsBlankPanel({
     if (!styleDetail || !selectedColor) return;
     setSubmitError(null);
 
-    const item = buildLineItemFromSsSelection(
+    const item = buildLineItemFromSupplierSelection(
+      provider,
       styleDetail,
       selectedColor,
       quantities
@@ -577,8 +605,8 @@ export function AddSsBlankPanel({
               </p>
               <p className="mx-auto mt-2 max-w-md text-[13px] text-[#616161]">
                 {debouncedQuery
-                  ? `Nothing matched "${debouncedQuery}"${brandFilter ? ` in ${brandFilter}` : ""}. Try a style number like 1717 or 2000.`
-                  : `No styles are available for ${brandFilter || "this brand"} on your S&S account.`}
+                  ? `Nothing matched "${debouncedQuery}"${brandFilter ? ` in ${brandFilter}` : ""}. Try a style number like ${provider === "sanMar" ? "PC61 or K500" : "1717 or 2000"}.`
+                  : `No styles are available for ${brandFilter || "this brand"} on your ${providerLabel} account.`}
               </p>
               {brandFilter ? (
                 <Button
@@ -599,14 +627,19 @@ export function AddSsBlankPanel({
                 </p>
               ) : null}
               <div className="scrollbar-none max-h-[min(42vh,420px)] space-y-2 overflow-y-auto overscroll-contain pr-1">
-                {results.map((style) => (
-                  <StyleResultRow
-                    key={`${style.styleId ?? "x"}-${style.brandName}-${style.styleName}`}
-                    style={style}
-                    loading={loadingStyleId === style.styleId}
-                    onSelect={() => void loadStyle(style)}
-                  />
-                ))}
+                {results.map((style) => {
+                  const styleKey =
+                    style.partNumber ||
+                    (style.styleId != null ? String(style.styleId) : "");
+                  return (
+                    <StyleResultRow
+                      key={`${styleKey}-${style.brandName}-${style.styleName}`}
+                      style={style}
+                      loading={loadingStyleKey === styleKey}
+                      onSelect={() => void loadStyle(style)}
+                    />
+                  );
+                })}
               </div>
             </>
           )}

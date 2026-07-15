@@ -13,22 +13,25 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function groupEstimateSections(totals: EstimateTotals): EstimateSection[] {
+export function groupEstimateSections(
+  totals: EstimateTotals,
+  sectionOrder?: string[]
+): EstimateSection[] {
   const garmentRows = totals.rows.filter((row) => row.kind === "garment");
   const matrixDecorationRows = totals.rows.filter(
     (row) => row.kind === "decoration"
   );
   const feeRows = totals.rows.filter((row) => row.kind === "fee");
 
-  const sections: EstimateSection[] = [];
+  const byKey: Record<string, EstimateSection> = {};
 
   if (garmentRows.length > 0) {
-    sections.push({
+    byKey.garments = {
       key: "garments",
       label: "Garments",
       rows: garmentRows,
       subtotal: totals.garmentSubtotal,
-    });
+    };
   }
 
   const decorationFeeRows = feeRows.filter(
@@ -36,7 +39,7 @@ export function groupEstimateSections(totals: EstimateTotals): EstimateSection[]
   );
   const decorationRows = [...matrixDecorationRows, ...decorationFeeRows];
   if (decorationRows.length > 0) {
-    sections.push({
+    byKey.decoration = {
       key: "decoration",
       label: "Decoration",
       rows: decorationRows,
@@ -44,21 +47,28 @@ export function groupEstimateSections(totals: EstimateTotals): EstimateSection[]
         totals.decorationSubtotal +
           decorationFeeRows.reduce((sum, row) => sum + row.lineTotal, 0)
       ),
-    });
+    };
   }
 
   for (const category of ["setup", "finishing", "other"] as OrderEstimateFeeCategory[]) {
     const rows = feeRows.filter((row) => row.feeCategory === category);
     if (rows.length === 0) continue;
-    sections.push({
+    byKey[category] = {
       key: category,
       label: feeCategoryLabel(category),
       rows,
       subtotal: round2(rows.reduce((sum, row) => sum + row.lineTotal, 0)),
-    });
+    };
   }
 
-  return sections;
+  const order =
+    Array.isArray(sectionOrder) && sectionOrder.length > 0
+      ? sectionOrder
+      : ["garments", "decoration", "setup", "finishing", "other"];
+
+  return order
+    .map((key) => byKey[key])
+    .filter((section): section is EstimateSection => Boolean(section));
 }
 
 export type ReviewEstimateRow = {

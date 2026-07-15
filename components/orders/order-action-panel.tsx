@@ -43,6 +43,7 @@ import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { DecorationTypePill } from "@/components/orders/decoration-type-pill";
 import { CustomerPortalActions } from "@/components/orders/customer-review-preview-modal";
+import { OrderQuickBooksPanel } from "@/components/orders/order-quickbooks-panel";
 
 export function OrderActionPanel({
   order,
@@ -263,6 +264,8 @@ export function OrderActionPanel({
           />
         </div>
       </section>
+
+      <OrderQuickBooksPanel order={order} />
     </aside>
   );
 }
