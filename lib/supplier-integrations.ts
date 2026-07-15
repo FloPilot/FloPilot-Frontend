@@ -1,4 +1,4 @@
-export type SupplierProviderId = "ssActivewear";
+export type SupplierProviderId = "ssActivewear" | "sanMar";
 
 export type SupplierIntegrationStatus =
   | "connected"
@@ -18,6 +18,8 @@ export type SupplierIntegration = {
   description?: string;
   status: SupplierIntegrationStatus;
   accountNumber?: string;
+  customerNumber?: string;
+  username?: string;
   connectedAt?: string | null;
   lastVerifiedAt?: string | null;
   connectedBy?: string | null;
@@ -29,7 +31,7 @@ export type SupplierIntegration = {
 
 export type SupplierStyleSummary = {
   provider: SupplierProviderId;
-  styleId: number | null;
+  styleId: number | string | null;
   partNumber: string;
   brandName: string;
   styleName: string;
@@ -124,21 +126,41 @@ export type SupplierStyleDetail = SupplierStyleSummary & {
   pricing: SupplierStylePricing;
 };
 
+export function isSupplierIntegrationUsable(
+  integration?: SupplierIntegration | null,
+  provider?: SupplierProviderId
+): boolean {
+  if (!integration?.hasCredentials) return false;
+  if (integration.status === "disconnected") return false;
+  if (provider && integration.provider !== provider) return false;
+  return true;
+}
+
 export function isSsIntegrationUsable(
   integration?: SupplierIntegration | null
 ): boolean {
-  return (
-    integration?.provider === "ssActivewear" &&
-    integration.hasCredentials === true &&
-    integration.status !== "disconnected"
-  );
+  return isSupplierIntegrationUsable(integration, "ssActivewear");
 }
 
-/** Preferred S&S style lookup ref — styleId and brand+name are reliable; partNumber is not. */
+export function isSanMarIntegrationUsable(
+  integration?: SupplierIntegration | null
+): boolean {
+  return isSupplierIntegrationUsable(integration, "sanMar");
+}
+
+/** Preferred style lookup ref — S&S prefers styleId; SanMar prefers style/part number. */
 export function supplierStyleRef(style: SupplierStyleSummary): string {
+  if (style.provider === "sanMar") {
+    return style.partNumber?.trim() || String(style.styleId ?? "") || style.styleName?.trim() || "";
+  }
   if (style.styleId != null) return String(style.styleId);
   const brand = style.brandName?.trim();
   const name = style.styleName?.trim();
   if (brand && name) return `${brand} ${name}`;
   return style.partNumber?.trim() || name || "";
+}
+
+export function supplierProviderLabel(provider: SupplierProviderId): string {
+  if (provider === "sanMar") return "SanMar";
+  return "S&S";
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
+import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { formatCurrency } from "@/lib/format";
 import {
   groupEstimateSections,
@@ -200,7 +201,11 @@ export function StaffEstimateBreakdownTable({
 }: {
   totals: EstimateTotals;
 }) {
-  const sections = groupEstimateSections(totals);
+  const { settings } = useShopSettings();
+  const sections = groupEstimateSections(
+    totals,
+    settings.estimateDocument?.lineItemSections
+  );
 
   return (
     <div className="overflow-hidden rounded-lg border border-[#ebebeb]">

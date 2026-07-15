@@ -1,17 +1,27 @@
 import { createLineItemId } from "@/lib/line-items";
 import type {
   SupplierColorVariant,
+  SupplierProviderId,
   SupplierSizeSku,
   SupplierStyleDetail,
 } from "@/lib/supplier-integrations";
 import type { LineItem, SizeBreakdown } from "@/types";
 
 export const SS_PRODUCT_KEY_PREFIX = "ss:";
+export const SANMAR_PRODUCT_KEY_PREFIX = "sm:";
+
+export function productKeyPrefixForProvider(
+  provider: SupplierProviderId
+): string {
+  return provider === "sanMar" ? SANMAR_PRODUCT_KEY_PREFIX : SS_PRODUCT_KEY_PREFIX;
+}
 
 export function isSupplierLineItem(item: LineItem): boolean {
   return (
     item.supplier === "ssActivewear" ||
-    Boolean(item.productKey?.startsWith(SS_PRODUCT_KEY_PREFIX))
+    item.supplier === "sanMar" ||
+    Boolean(item.productKey?.startsWith(SS_PRODUCT_KEY_PREFIX)) ||
+    Boolean(item.productKey?.startsWith(SANMAR_PRODUCT_KEY_PREFIX))
   );
 }
 
@@ -23,8 +33,22 @@ export function ssColorKey(colorCode: string): string {
   return `${SS_PRODUCT_KEY_PREFIX}${colorCode}`;
 }
 
+export function supplierProductKey(
+  provider: SupplierProviderId,
+  partNumber: string
+): string {
+  return `${productKeyPrefixForProvider(provider)}${partNumber}`;
+}
+
+export function supplierColorKey(
+  provider: SupplierProviderId,
+  colorCode: string
+): string {
+  return `${productKeyPrefixForProvider(provider)}${colorCode}`;
+}
+
 /**
- * Blank unit cost for quotes/orders from an S&S SKU.
+ * Blank unit cost for quotes/orders from a supplier SKU.
  * Uses standard piece pricing (not sale / promo) so estimates stay stable
  * while waiting for customer approval.
  */
@@ -41,7 +65,8 @@ export function priceForSku(sku: SupplierSizeSku): number {
   return 0;
 }
 
-export function buildLineItemFromSsSelection(
+export function buildLineItemFromSupplierSelection(
+  provider: SupplierProviderId,
   style: SupplierStyleDetail,
   color: SupplierColorVariant,
   quantities: Record<string, number>
@@ -71,12 +96,25 @@ export function buildLineItemFromSsSelection(
     color: color.colorName,
     sizes,
     unitCost,
-    productKey: ssProductKey(style.partNumber),
-    colorKey: ssColorKey(color.colorCode),
-    supplier: "ssActivewear",
+    productKey: supplierProductKey(provider, style.partNumber),
+    colorKey: supplierColorKey(provider, color.colorCode),
+    supplier: provider,
     supplierPartNumber: style.partNumber,
     supplierStyleId: style.styleId,
   };
+}
+
+export function buildLineItemFromSsSelection(
+  style: SupplierStyleDetail,
+  color: SupplierColorVariant,
+  quantities: Record<string, number>
+): LineItem | null {
+  return buildLineItemFromSupplierSelection(
+    "ssActivewear",
+    style,
+    color,
+    quantities
+  );
 }
 
 export function rebuildSupplierLineItemQuantity(
@@ -103,13 +141,14 @@ export function rebuildSupplierLineItemQuantity(
   };
 }
 
-export function existingSsSizesOnOrder(
+export function existingSupplierSizesOnOrder(
   lineItems: LineItem[],
+  provider: SupplierProviderId,
   partNumber: string,
   colorCode: string
 ): Record<string, number> {
-  const productKey = ssProductKey(partNumber);
-  const colorKey = ssColorKey(colorCode);
+  const productKey = supplierProductKey(provider, partNumber);
+  const colorKey = supplierColorKey(provider, colorCode);
   const totals: Record<string, number> = {};
 
   for (const item of lineItems) {
@@ -120,4 +159,17 @@ export function existingSsSizesOnOrder(
   }
 
   return totals;
+}
+
+export function existingSsSizesOnOrder(
+  lineItems: LineItem[],
+  partNumber: string,
+  colorCode: string
+): Record<string, number> {
+  return existingSupplierSizesOnOrder(
+    lineItems,
+    "ssActivewear",
+    partNumber,
+    colorCode
+  );
 }

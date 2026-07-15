@@ -24,7 +24,10 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { fetchSupplierIntegrations } from "@/lib/api";
-import { isSsIntegrationUsable } from "@/lib/supplier-integrations";
+import {
+  isSanMarIntegrationUsable,
+  isSsIntegrationUsable,
+} from "@/lib/supplier-integrations";
 import {
   createLineItemDraftId,
   draftLineItemsToLineItems,
@@ -61,7 +64,7 @@ import type { BlankSource, LineItem, Order } from "@/types";
 import { cn } from "@/lib/utils";
 
 type SizeRecord = Record<(typeof NEW_ORDER_SIZES)[number], number>;
-type AddSource = "manual" | "ss";
+type AddSource = "manual" | "ss" | "sanmar";
 
 function emptySizes(): SizeRecord {
   return { S: 0, M: 0, L: 0, XL: 0 };
@@ -99,19 +102,21 @@ function existingSizesOnOrder(
 function SourceTabs({
   source,
   ssConnected,
+  sanMarConnected,
   onChange,
 }: {
   source: AddSource;
   ssConnected: boolean;
+  sanMarConnected: boolean;
   onChange: (source: AddSource) => void;
 }) {
   return (
-    <div className="flex gap-1 rounded-lg border border-[#ebebeb] bg-[#f6f6f7] p-1">
+    <div className="flex flex-wrap gap-1 rounded-lg border border-[#ebebeb] bg-[#f6f6f7] p-1">
       <button
         type="button"
         onClick={() => onChange("manual")}
         className={cn(
-          "flex-1 rounded-md px-3 py-2 text-[13px] font-medium transition-colors",
+          "min-w-[7rem] flex-1 rounded-md px-3 py-2 text-[13px] font-medium transition-colors",
           source === "manual"
             ? "bg-white text-[#303030] shadow-sm"
             : "text-[#616161] hover:text-[#303030]"
@@ -123,14 +128,31 @@ function SourceTabs({
         type="button"
         onClick={() => onChange("ss")}
         className={cn(
-          "flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-[13px] font-medium transition-colors",
+          "flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-[13px] font-medium transition-colors",
           source === "ss"
             ? "bg-white text-[#303030] shadow-sm"
             : "text-[#616161] hover:text-[#303030]"
         )}
       >
-        S&amp;S Activewear
+        S&amp;S
         {ssConnected ? (
+          <span className="rounded bg-[#e8f5ee] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#0d5c2e]">
+            Live
+          </span>
+        ) : null}
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("sanmar")}
+        className={cn(
+          "flex min-w-[7rem] flex-1 items-center justify-center gap-2 rounded-md px-3 py-2 text-[13px] font-medium transition-colors",
+          source === "sanmar"
+            ? "bg-white text-[#303030] shadow-sm"
+            : "text-[#616161] hover:text-[#303030]"
+        )}
+      >
+        SanMar
+        {sanMarConnected ? (
           <span className="rounded bg-[#e8f5ee] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#0d5c2e]">
             Live
           </span>
@@ -175,6 +197,7 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
   const { addOrderLineItem } = useSchedule();
   const [source, setSource] = useState<AddSource>("manual");
   const [ssConnected, setSsConnected] = useState(false);
+  const [sanMarConnected, setSanMarConnected] = useState(false);
   const [loadingIntegrations, setLoadingIntegrations] = useState(false);
   const [productKey, setProductKey] =
     useState<(typeof NEW_ORDER_PRODUCTS)[number]["key"]>("g64000");
@@ -216,14 +239,20 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
         const ssEntry = integrations.find(
           (entry) => entry.provider === "ssActivewear"
         );
-        const connected = isSsIntegrationUsable(ssEntry);
+        const sanMarEntry = integrations.find(
+          (entry) => entry.provider === "sanMar"
+        );
+        const ssOk = isSsIntegrationUsable(ssEntry);
+        const sanMarOk = isSanMarIntegrationUsable(sanMarEntry);
         if (!cancelled) {
-          setSsConnected(connected);
-          setSource(connected ? "ss" : "manual");
+          setSsConnected(ssOk);
+          setSanMarConnected(sanMarOk);
+          setSource(ssOk ? "ss" : sanMarOk ? "sanmar" : "manual");
         }
       } catch {
         if (!cancelled) {
           setSsConnected(false);
+          setSanMarConnected(false);
           setSource("manual");
         }
       } finally {
@@ -272,7 +301,7 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
       deriveCustomerUnitPriceFromMarkup(3.85, shopDefaultMarkup).toFixed(2)
     );
     setError(null);
-    setSource(ssConnected ? "ss" : "manual");
+    setSource(ssConnected ? "ss" : sanMarConnected ? "sanmar" : "manual");
   };
 
   const blankPricingFields = () => {
@@ -402,7 +431,7 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
         showCloseButton
         className={cn(
           "flex h-[min(90vh,820px)] max-h-[min(90vh,820px)] flex-col gap-0 overflow-hidden p-0",
-          source === "ss" ? "sm:max-w-4xl" : "sm:max-w-3xl"
+          source === "ss" || source === "sanmar" ? "sm:max-w-4xl" : "sm:max-w-3xl"
         )}
       >
         <DialogHeader className="shrink-0 border-b border-[#ebebeb] px-5 py-4">
@@ -410,6 +439,8 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
           <p className={dashboardTaskDetailClass}>
             {source === "ss"
               ? "Search the S&S catalog with your account pricing and live inventory."
+              : source === "sanmar"
+                ? "Search SanMar by style number or brand with your net pricing and inventory."
               : "Choose a catalog blank, set quantities by size, and confirm cost."}
             {source === "manual" && hasExistingOnOrder
               ? " On order shows what is already on this order for the selected product and color."
@@ -420,7 +451,9 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
         <div
           className={cn(
             "min-h-0 flex-1",
-            source === "ss" && ssConnected && !loadingIntegrations
+            ((source === "ss" && ssConnected) ||
+              (source === "sanmar" && sanMarConnected)) &&
+              !loadingIntegrations
               ? "flex flex-col gap-3 overflow-hidden px-5 py-4"
               : "overflow-y-auto px-5 py-4"
           )}
@@ -429,6 +462,7 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
             <SourceTabs
               source={source}
               ssConnected={ssConnected}
+              sanMarConnected={sanMarConnected}
               onChange={setSource}
             />
           </div>
@@ -438,10 +472,11 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
               <Loader2 className="size-4 animate-spin" />
               Checking supplier connections…
             </div>
-          ) : source === "ss" ? (
-            ssConnected ? (
+          ) : source === "ss" || source === "sanmar" ? (
+            (source === "ss" ? ssConnected : sanMarConnected) ? (
               <div className="min-h-0 flex-1">
                 <AddSsBlankPanel
+                  provider={source === "sanmar" ? "sanMar" : "ssActivewear"}
                   lineItems={contextLineItems}
                   saving={saving}
                   onAdd={submitSsItem}
@@ -450,11 +485,14 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
             ) : (
               <div className="rounded-lg border border-dashed border-[#d4d4d4] px-6 py-10 text-center">
                 <p className="text-[14px] font-semibold text-[#303030]">
-                  Connect S&amp;S Activewear first
+                  {source === "sanmar"
+                    ? "Connect SanMar first"
+                    : "Connect S&S Activewear first"}
                 </p>
                 <p className="mx-auto mt-2 max-w-sm text-[13px] text-[#616161]">
-                  Add your S&amp;S API credentials in Settings to search styles,
-                  see live stock, and pull your customer pricing into orders.
+                  {source === "sanmar"
+                    ? "Add your SanMar customer number and SanMar.com login in Settings after web services access is enabled."
+                    : "Add your S&S API credentials in Settings to search styles, see live stock, and pull your customer pricing into orders."}
                 </p>
                 <Link
                   href="/app/settings/integrations"

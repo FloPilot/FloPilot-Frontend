@@ -1195,6 +1195,11 @@ export function OrderMaterialsPanel({
                                   S&amp;S
                                 </span>
                               ) : null}
+                              {lineItem?.supplier === "sanMar" ? (
+                                <span className="rounded bg-[#eef1ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">
+                                  SanMar
+                                </span>
+                              ) : null}
                             </p>
                           ) : null}
                         </td>

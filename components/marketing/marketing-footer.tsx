@@ -98,10 +98,16 @@ export function MarketingFooter() {
             © {year} {PLATFORM_NAME}. All rights reserved.
           </p>
           <div className="flex gap-6 text-xs text-white/35">
-            <Link href="/faq" className="transition-colors hover:text-white/60">
+            <Link
+              href="/privacy"
+              className="transition-colors hover:text-white/60"
+            >
               Privacy
             </Link>
-            <Link href="/faq" className="transition-colors hover:text-white/60">
+            <Link
+              href="/terms"
+              className="transition-colors hover:text-white/60"
+            >
               Terms
             </Link>
           </div>

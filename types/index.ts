@@ -207,7 +207,7 @@ export interface SizeBreakdown {
   quantity: number;
 }
 
-export type LineItemSupplier = "ssActivewear";
+export type LineItemSupplier = "ssActivewear" | "sanMar";
 
 export interface LineItem {
   id: string;
@@ -226,7 +226,7 @@ export interface LineItem {
   /** Supplier catalog when blank was added from an integration */
   supplier?: LineItemSupplier;
   supplierPartNumber?: string;
-  supplierStyleId?: number | null;
+  supplierStyleId?: number | string | null;
 }
 
 export type ImprintLocationKey = string;
@@ -627,6 +627,22 @@ export interface Order {
   /** Assigned sales rep — receives order notifications */
   salesRepId?: string;
   salesRepName?: string;
+  /** QuickBooks Online sync metadata for this order */
+  quickbooks?: OrderQuickBooksSync;
+}
+
+/** Last known QuickBooks sync state for an order */
+export interface OrderQuickBooksSync {
+  realmId?: string;
+  companyName?: string;
+  customerId?: string;
+  estimateId?: string;
+  estimateDocNumber?: string;
+  invoiceId?: string;
+  invoiceDocNumber?: string;
+  lastSyncedAt?: string;
+  lastDocType?: "estimate" | "invoice";
+  lastError?: string | null;
 }
 
 /** Reusable decoration spec saved from an order imprint */
