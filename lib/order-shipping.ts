@@ -1,6 +1,10 @@
 import { SHIPPING_METHODS } from "@/lib/create-order";
 import { resolveSubCustomerShippingLocations } from "@/lib/sub-customers";
 import { lineItemPieceCount } from "@/lib/line-items";
+import {
+  mergeOrderProducedGoods,
+  orderWithProducedQuantities,
+} from "@/lib/order-produced-goods";
 import type {
   Customer,
   CustomerShippingLocation,
@@ -222,8 +226,34 @@ export function shipmentPieceCount(shipment: Shipment): number {
   );
 }
 
+/**
+ * Shipping / pickup allocation uses produced counts so shops ship or
+ * hand off what was actually made (defaults to ordered when not recorded).
+ */
+export function fulfillmentLineItems(order: Order): LineItem[] {
+  return orderWithProducedQuantities(order).lineItems ?? [];
+}
+
+export function fulfillableQtyForSize(
+  order: Order,
+  lineItemId: string,
+  size: string
+): number {
+  const produced = mergeOrderProducedGoods(order);
+  const line = produced.lines.find(
+    (entry) => entry.lineItemId === lineItemId && entry.size === size
+  );
+  if (line) return Math.max(0, Math.floor(line.producedQty || 0));
+
+  const item = order.lineItems.find((entry) => entry.id === lineItemId);
+  return item?.sizes.find((row) => row.size === size)?.quantity ?? 0;
+}
+
 export function orderShippingPieceCount(order: Order): number {
-  return order.lineItems.reduce((sum, item) => sum + lineItemPieceCount(item), 0);
+  return fulfillmentLineItems(order).reduce(
+    (sum, item) => sum + lineItemPieceCount(item),
+    0
+  );
 }
 
 export function allocatedPiecesByLineItem(
@@ -248,6 +278,7 @@ export function allocatedPiecesByLineItem(
 }
 
 export function getRemainingQty(
+  order: Order,
   lineItem: LineItem,
   shipments: Shipment[],
   excludeShipmentId?: string
@@ -255,9 +286,15 @@ export function getRemainingQty(
   const allocated = allocatedPiecesByLineItem(shipments, excludeShipmentId);
   const sizeMap = allocated.get(lineItem.id) ?? new Map<string, number>();
   const remaining = new Map<string, number>();
+  const fulfillableItem =
+    fulfillmentLineItems(order).find((item) => item.id === lineItem.id) ??
+    lineItem;
 
-  for (const row of lineItem.sizes) {
-    remaining.set(row.size, Math.max(0, row.quantity - (sizeMap.get(row.size) ?? 0)));
+  for (const row of fulfillableItem.sizes) {
+    remaining.set(
+      row.size,
+      Math.max(0, row.quantity - (sizeMap.get(row.size) ?? 0))
+    );
   }
 
   return remaining;
@@ -414,9 +451,9 @@ export function buildAllocationsFromRemaining(
   shipments: Shipment[],
   shipmentId: string
 ): ShipmentAllocation[] {
-  return order.lineItems
+  return fulfillmentLineItems(order)
     .map((item) => {
-      const remaining = getRemainingQty(item, shipments, shipmentId);
+      const remaining = getRemainingQty(order, item, shipments, shipmentId);
       const sizes = [...remaining.entries()]
         .filter(([, qty]) => qty > 0)
         .map(([size, quantity]) => ({ size, quantity }));
@@ -431,12 +468,16 @@ export function totalHandlingCost(shipments: Shipment[]): number {
 }
 
 export function getShipmentAllocationRow(
+  order: Order,
   lineItem: LineItem,
   shipments: Shipment[],
   shipmentId: string,
   size: string
 ): {
+  /** Ordered qty on the estimate / blanks line. */
   ordered: number;
+  /** Produced qty used for shipping / pickup caps. */
+  produced: number;
   /** Pieces still open to assign on this shipment (excludes ship-here qty). */
   available: number;
   /** Max allowed in ship-here for this size on this shipment. */
@@ -445,25 +486,30 @@ export function getShipmentAllocationRow(
 } {
   const ordered =
     lineItem.sizes.find((row) => row.size === size)?.quantity ?? 0;
-  const remaining = getRemainingQty(lineItem, shipments, shipmentId);
+  const produced = fulfillableQtyForSize(order, lineItem.id, size);
+  const remaining = getRemainingQty(order, lineItem, shipments, shipmentId);
   const remainingForSize = remaining.get(size) ?? 0;
   const shipment = shipments.find((entry) => entry.id === shipmentId);
   const shipHere =
     shipment?.allocations
       ?.find((allocation) => allocation.lineItemId === lineItem.id)
       ?.sizes.find((row) => row.size === size)?.quantity ?? 0;
-  const maxShipHere = Math.min(ordered, remainingForSize);
+  const maxShipHere = remainingForSize;
   const available = Math.max(0, maxShipHere - shipHere);
 
-  return { ordered, available, maxShipHere, shipHere };
+  return { ordered, produced, available, maxShipHere, shipHere };
 }
 
 export function sizesForAllocation(
+  order: Order,
   lineItem: LineItem,
   allocation: ShipmentAllocation | undefined
 ): SizeBreakdown[] {
   const bySize = new Map(allocation?.sizes.map((row) => [row.size, row.quantity]));
-  return lineItem.sizes.map((row) => ({
+  const fulfillableItem =
+    fulfillmentLineItems(order).find((item) => item.id === lineItem.id) ??
+    lineItem;
+  return fulfillableItem.sizes.map((row) => ({
     size: row.size,
     quantity: bySize.get(row.size) ?? 0,
   }));

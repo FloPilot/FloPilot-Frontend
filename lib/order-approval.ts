@@ -21,6 +21,8 @@ export function isQuoteApproved(order: Order): boolean {
     "in_production",
     "ready_to_ship",
     "shipped",
+    "ready_to_invoice",
+    "invoice_sent",
     "completed",
   ].includes(order.status);
 }
@@ -34,6 +36,8 @@ export function isInProductionPhase(order: Order): boolean {
     "in_production",
     "ready_to_ship",
     "shipped",
+    "ready_to_invoice",
+    "invoice_sent",
     "completed",
   ].includes(order.status);
 }

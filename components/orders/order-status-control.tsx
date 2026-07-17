@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Loader2 } from "lucide-react";
+import { Check, ChevronDown, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { OrderStatusBadge } from "@/components/status-badges";
 import {
@@ -14,8 +14,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { dashboardControlClass } from "@/lib/dashboard-styles";
 import {
-  getStaffStatusTransitions,
-  getStatusTransitionLabel,
+  ORDER_STATUS_ORDER,
+  orderStatusLabel,
+  orderStatusesForFulfillment,
 } from "@/lib/order-status";
 import type { OrderStatus } from "@/types";
 import { cn } from "@/lib/utils";
@@ -25,16 +26,18 @@ export function OrderStatusControl({
   disabled,
   compact,
   fullWidth,
+  willCall,
   onStatusChange,
 }: {
   status: OrderStatus;
   disabled?: boolean;
   compact?: boolean;
   fullWidth?: boolean;
+  willCall?: boolean;
   onStatusChange: (next: OrderStatus) => Promise<void> | void;
 }) {
   const [pending, setPending] = useState(false);
-  const transitions = getStaffStatusTransitions(status);
+  const statuses = orderStatusesForFulfillment(willCall);
 
   const handleSelect = async (next: OrderStatus) => {
     if (next === status || pending) return;
@@ -63,30 +66,41 @@ export function OrderStatusControl({
         {pending ? (
           <Loader2 className="size-3.5 animate-spin text-[#8a8a8a]" />
         ) : (
-          <OrderStatusBadge status={status} />
+          <OrderStatusBadge status={status} willCall={willCall} />
         )}
-        {!disabled && transitions.length > 0 && (
+        {!disabled ? (
           <ChevronDown className="size-3.5 shrink-0 text-[#8a8a8a]" />
-        )}
+        ) : null}
       </DropdownMenuTrigger>
-      {transitions.length > 0 && (
+      {!disabled ? (
         <DropdownMenuContent align="start" className="w-56">
           <DropdownMenuGroup>
             <DropdownMenuLabel className="text-xs font-normal text-[#8a8a8a]">
               Update status
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {transitions.map((next) => (
-              <DropdownMenuItem
-                key={next}
-                onClick={() => void handleSelect(next)}
-              >
-                {getStatusTransitionLabel(status, next)}
-              </DropdownMenuItem>
-            ))}
+            {statuses.map((next) => {
+              const selected = next === status;
+              return (
+                <DropdownMenuItem
+                  key={next}
+                  disabled={selected || pending}
+                  onClick={() => void handleSelect(next)}
+                  className={cn(
+                    "flex items-center justify-between gap-2",
+                    selected && "bg-[#f6f6f7] font-medium text-[#303030]"
+                  )}
+                >
+                  <span>{orderStatusLabel(next, { willCall })}</span>
+                  {selected ? (
+                    <Check className="size-3.5 shrink-0 text-brand-primary" />
+                  ) : null}
+                </DropdownMenuItem>
+              );
+            })}
           </DropdownMenuGroup>
         </DropdownMenuContent>
-      )}
+      ) : null}
     </DropdownMenu>
   );
 }

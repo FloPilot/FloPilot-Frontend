@@ -66,8 +66,10 @@ import {
   sendOrderMessage as apiSendOrderMessage,
   sendProofToCustomer as apiSendProofToCustomer,
   sendProofsAndEstimate as apiSendProofsAndEstimate,
+  sendInvoice as apiSendInvoice,
   previewOrderDocument as apiPreviewOrderDocument,
   type OrderDocumentScope,
+  updateOrderProducedGoods as apiUpdateOrderProducedGoods,
   setArtworkStatus as apiSetArtworkStatus,
   addArtworkProofNote as apiAddArtworkProofNote,
   approveOrderEstimate as apiApproveOrderEstimate,
@@ -256,6 +258,10 @@ type ScheduleContextValue = {
     orderId: string,
     materials: import("@/types").OrderMaterials
   ) => Promise<Order>;
+  updateOrderProducedGoods: (
+    orderId: string,
+    producedGoods: import("@/types").OrderProducedGoods
+  ) => Promise<Order>;
   createDesignFromImprint: (
     orderId: string,
     jobId: string,
@@ -297,6 +303,7 @@ type ScheduleContextValue = {
   sendProofsAndEstimate: (
     orderId: string
   ) => Promise<{ sent: boolean; to: string }>;
+  sendInvoice: (orderId: string) => Promise<{ sent: boolean; to: string }>;
   previewOrderDocument: (
     orderId: string,
     scope?: OrderDocumentScope
@@ -305,6 +312,10 @@ type ScheduleContextValue = {
     orderId: string,
     status: import("@/types").OrderStatus
   ) => Promise<void>;
+  updateOrderPayment: (
+    orderId: string,
+    payment: { paid: number; balance: number }
+  ) => Promise<Order>;
   setOrderRush: (orderId: string, rush: boolean) => Promise<void>;
   updateOrderCustomLabel: (
     orderId: string,
@@ -1295,6 +1306,25 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateOrderProducedGoods = useCallback(
+    async (
+      orderId: string,
+      producedGoods: import("@/types").OrderProducedGoods
+    ) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { order } = await apiUpdateOrderProducedGoods(
+        token,
+        orderId,
+        producedGoods
+      );
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const createDesignFromImprint = useCallback(
     async (
       orderId: string,
@@ -1437,6 +1467,18 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken]
   );
 
+  const sendInvoice = useCallback(
+    async (orderId: string) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("You need to be signed in to send invoices.");
+
+      const { order, email } = await apiSendInvoice(token, orderId);
+      applyOrderUpdate(order);
+      return email;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const updateOrderStatus = useCallback(
     async (orderId: string, status: Order["status"]) => {
       const token = await getIdToken();
@@ -1444,6 +1486,23 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
       const { order } = await apiUpdateOrder(token, orderId, { status });
       applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderPayment = useCallback(
+    async (orderId: string, payment: { paid: number; balance: number }) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to record a payment.");
+      }
+
+      const { order } = await apiUpdateOrder(token, orderId, {
+        paid: payment.paid,
+        balance: payment.balance,
+      });
+      applyOrderUpdate(order);
+      return order;
     },
     [getIdToken, applyOrderUpdate]
   );
@@ -1871,6 +1930,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateProofSlides,
       updateOrderGarments,
       updateOrderMaterials,
+      updateOrderProducedGoods,
       createDesignFromImprint,
       applyDesignToOrder,
       addOrderFile,
@@ -1879,8 +1939,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       addInternalNote,
       sendProofToCustomer,
       sendProofsAndEstimate,
+      sendInvoice,
       previewOrderDocument,
       updateOrderStatus,
+      updateOrderPayment,
       setOrderRush,
       updateOrderCustomLabel,
       updateOrderEndBusiness,
@@ -1954,6 +2016,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateProofSlides,
       updateOrderGarments,
       updateOrderMaterials,
+      updateOrderProducedGoods,
       createDesignFromImprint,
       applyDesignToOrder,
       addOrderFile,
@@ -1962,8 +2025,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       addInternalNote,
       sendProofToCustomer,
       sendProofsAndEstimate,
+      sendInvoice,
       previewOrderDocument,
       updateOrderStatus,
+      updateOrderPayment,
       setOrderRush,
       updateOrderCustomLabel,
       updateOrderEndBusiness,

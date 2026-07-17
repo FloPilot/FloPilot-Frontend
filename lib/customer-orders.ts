@@ -114,6 +114,8 @@ export const ORDER_STATUS_FILTER_OPTIONS: {
   { value: "approved", label: "Ready for scheduling" },
   { value: "quote_sent", label: "Quote sent" },
   { value: "awaiting_approval", label: "Awaiting approval" },
+  { value: "ready_to_invoice", label: "Ready to invoice" },
+  { value: "invoice_sent", label: "Invoice sent" },
   { value: "completed", label: "Completed" },
   { value: "shipped", label: "Shipped" },
 ];

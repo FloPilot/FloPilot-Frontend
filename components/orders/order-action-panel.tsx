@@ -35,6 +35,7 @@ import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
 import { resolveOrderFinancials } from "@/lib/order-estimate";
 import { getOrderDecorationSummary } from "@/lib/order-decoration-summary";
 import { getOrderPaymentDisplay } from "@/lib/order-payment";
+import { isWillCallOrder } from "@/lib/order-shipping";
 import type { OrderListSummary } from "@/lib/order-list-summary";
 import { getArtworkApprovalSummary } from "@/lib/order-health";
 import type { Order } from "@/types";
@@ -78,6 +79,7 @@ export function OrderActionPanel({
   const artworkSummary = getArtworkApprovalSummary(order);
   const paymentDisplay = getOrderPaymentDisplay(paymentOrder);
   const decorationSummary = getOrderDecorationSummary(order);
+  const willCall = isWillCallOrder(order.shipping, order.shipments ?? []);
   const actions = buildOrderSuggestedActions({
     order,
     summary,
@@ -100,11 +102,12 @@ export function OrderActionPanel({
             <OrderStatusControl
               status={order.status}
               fullWidth
+              willCall={willCall}
               onStatusChange={onStatusChange}
             />
           </div>
           <p className={cn("mt-2.5", dashboardTaskDetailClass)}>
-            {orderStatusHint(order.status)}
+            {orderStatusHint(order.status, { willCall })}
           </p>
         </div>
 

@@ -16,6 +16,8 @@ const INVOICED_ORDER_STATUSES: OrderStatus[] = [
   "in_production",
   "ready_to_ship",
   "shipped",
+  "ready_to_invoice",
+  "invoice_sent",
   "completed",
 ];
 

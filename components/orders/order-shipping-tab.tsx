@@ -40,6 +40,11 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency } from "@/lib/format";
+import {
+  countProducedPieces,
+  hasProducedGoodsVariance,
+  mergeOrderProducedGoods,
+} from "@/lib/order-produced-goods";
 import { lineItemPieceCount } from "@/lib/line-items";
 import {
   buildAllocationsFromRemaining,
@@ -50,6 +55,7 @@ import {
   formatLineItemLabel,
   formatLocationSelectLabel,
   formatShipmentDestination,
+  fulfillmentLineItems,
   fulfillmentProgress,
   fulfillmentStatusLabel,
   getRemainingQty,
@@ -61,6 +67,7 @@ import {
   locationById,
   normalizeShipmentForSave,
   orderShippingPieceCount,
+  fulfillableQtyForSize,
   resolveCustomerShippingLocations,
   resolveShipToSelectLabel,
   statusOptionsForShipment,
@@ -164,6 +171,13 @@ export function OrderShippingTab({ order }: { order: Order }) {
   const handlingTotal = totalHandlingCost(shipments);
   const willCallMode = isWillCallOrder(settings, shipments);
   const fulfillment = fulfillmentProgress(shipments);
+  const produced = useMemo(() => mergeOrderProducedGoods(order), [order]);
+  const producedPieces = countProducedPieces(produced);
+  const producedVaries = hasProducedGoodsVariance(produced);
+  const fulfillableItems = useMemo(
+    () => fulfillmentLineItems(order),
+    [order]
+  );
   const readyToInvoice =
     fulfillment.allComplete &&
     unallocatedPieces === 0 &&
@@ -177,20 +191,37 @@ export function OrderShippingTab({ order }: { order: Order }) {
     );
   }, [shipments, settings, order.shipments, order.shipping]);
 
-  const handleSave = async () => {
+  const handleSave = async (overrideShipments?: Shipment[]) => {
     setSaving(true);
     setSavedFlash(false);
     try {
-      const normalized = shipments.map(normalizeShipmentForSave);
+      const source = Array.isArray(overrideShipments)
+        ? overrideShipments
+        : shipments;
+      const normalized = source.map(normalizeShipmentForSave);
       await updateOrderShipments(order.id, normalized, {
         ...settings,
         updatedAt: new Date().toISOString(),
       });
+      if (Array.isArray(overrideShipments)) {
+        setShipments(normalized);
+      }
       setSavedFlash(true);
       window.setTimeout(() => setSavedFlash(false), 2000);
     } finally {
       setSaving(false);
     }
+  };
+
+  const markShipmentFulfilled = async (
+    shipmentId: string,
+    status: "picked_up" | "delivered"
+  ) => {
+    const next = shipments.map((shipment) =>
+      shipment.id === shipmentId ? { ...shipment, status } : shipment
+    );
+    setShipments(next);
+    await handleSave(next);
   };
 
   const addShipment = () => {
@@ -382,13 +413,9 @@ export function OrderShippingTab({ order }: { order: Order }) {
         const lineItem = order.lineItems.find((item) => item.id === lineItemId);
         if (!lineItem) return shipment;
 
-        const remaining = getRemainingQty(lineItem, current, shipmentId);
-        const orderedQty =
-          lineItem.sizes.find((row) => row.size === size)?.quantity ?? 0;
-        const maxQty = Math.min(
-          orderedQty,
-          remaining.get(size) ?? 0
-        );
+        const remaining = getRemainingQty(order, lineItem, current, shipmentId);
+        const producedQty = fulfillableQtyForSize(order, lineItemId, size);
+        const maxQty = Math.min(producedQty, remaining.get(size) ?? 0);
         const nextQty = Math.max(0, Math.min(maxQty, quantity));
 
         const allocations = [...(shipment.allocations ?? [])];
@@ -456,7 +483,9 @@ export function OrderShippingTab({ order }: { order: Order }) {
             saving={saving}
             isDirty={isDirty}
             savedFlash={savedFlash}
-            onSave={handleSave}
+            onSave={() => {
+              void handleSave();
+            }}
           />
         </div>
 
@@ -512,18 +541,26 @@ export function OrderShippingTab({ order }: { order: Order }) {
                 </p>
               </div>
               {readyToInvoice ? (
-                <span className="rounded-full bg-[#0d5c2e] px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
-                  Ready to invoice
+                <span className="inline-flex rounded-md border border-[#86d4a8] bg-[#e8f5ee] px-2.5 py-1 text-[11px] font-semibold text-[#0d5c2e]">
+                  {willCallMode ? "Picked up" : "Delivered"}
                 </span>
               ) : null}
             </div>
           </div>
         ) : null}
 
-        <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="space-y-4">
+        <div
+          className={cn(
+            "grid gap-4 p-4 sm:p-5",
+            !willCallMode &&
+              customer &&
+              !order.subCustomerId &&
+              "lg:grid-cols-[minmax(0,1fr)_280px]"
+          )}
+        >
+          <div className="min-w-0 space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
                   {willCallMode ? "Fulfillment method" : "Default carrier"}
                 </Label>
@@ -550,26 +587,36 @@ export function OrderShippingTab({ order }: { order: Order }) {
                 </Select>
               </div>
 
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
                   Allocation
                 </Label>
-                <div className={cn(shippingControlClass, "cursor-default hover:bg-white")}>
+                <div
+                  className={cn(
+                    shippingControlClass,
+                    "w-full cursor-default hover:bg-white"
+                  )}
+                >
                   <span className="truncate text-[13px] font-medium text-[#303030]">
                     {allocatedPieces} / {totalPieces} pieces assigned
                   </span>
                   {unallocatedPieces > 0 ? (
-                    <span className="shrink-0 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold leading-none text-amber-800">
+                    <span className="shrink-0 rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold leading-none text-amber-800">
                       {unallocatedPieces} open
                     </span>
                   ) : totalPieces > 0 ? (
-                    <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold leading-none text-emerald-700">
+                    <span className="shrink-0 rounded-md bg-[#e8f5ee] px-2 py-0.5 text-[11px] font-semibold leading-none text-[#0d5c2e]">
                       Fully assigned
                     </span>
                   ) : (
                     <span className="shrink-0 text-[12px] text-[#8a8a8a]">—</span>
                   )}
                 </div>
+                {producedVaries ? (
+                  <p className="text-[12px] leading-snug text-[#616161]">
+                    Based on {producedPieces} produced pcs (differs from ordered).
+                  </p>
+                ) : null}
               </div>
             </div>
 
@@ -587,7 +634,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                 }
                 placeholder="Blind ship, reference PO on label, split by store number…"
                 rows={3}
-                className="min-h-[88px] resize-none rounded-lg border-[#e3e3e3]"
+                className="min-h-[88px] w-full resize-none rounded-lg border-[#e3e3e3]"
               />
             </div>
           </div>
@@ -741,15 +788,16 @@ export function OrderShippingTab({ order }: { order: Order }) {
                       <Button
                         type="button"
                         size="sm"
+                        disabled={saving}
                         className={cn(
                           dashboardPrimaryButtonClass,
                           "h-8 rounded-lg px-3 text-[12px]"
                         )}
                         onClick={() =>
-                          updateShipment(shipment.id, { status: "picked_up" })
+                          void markShipmentFulfilled(shipment.id, "picked_up")
                         }
                       >
-                        Mark picked up
+                        {saving ? "Saving…" : "Mark picked up"}
                       </Button>
                     ) : null}
                     {!isComplete && !isPickup ? (
@@ -757,15 +805,16 @@ export function OrderShippingTab({ order }: { order: Order }) {
                         type="button"
                         size="sm"
                         variant="outline"
+                        disabled={saving}
                         className={cn(
                           dashboardControlClass,
                           "h-8 rounded-lg px-3 text-[12px]"
                         )}
                         onClick={() =>
-                          updateShipment(shipment.id, { status: "delivered" })
+                          void markShipmentFulfilled(shipment.id, "delivered")
                         }
                       >
-                        Mark delivered
+                        {saving ? "Saving…" : "Mark delivered"}
                       </Button>
                     ) : null}
                     <button
@@ -1098,6 +1147,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                             (entry) => entry.lineItemId === item.id
                           );
                           const allocationSizes = sizesForAllocation(
+                            order,
                             item,
                             allocation
                           );
@@ -1105,6 +1155,12 @@ export function OrderShippingTab({ order }: { order: Order }) {
                             (sum, row) => sum + row.quantity,
                             0
                           );
+                          const producedForItem =
+                            fulfillableItems.find(
+                              (entry) => entry.id === item.id
+                            ) ?? item;
+                          const producedPieceCount =
+                            lineItemPieceCount(producedForItem);
 
                           return (
                             <div
@@ -1117,7 +1173,11 @@ export function OrderShippingTab({ order }: { order: Order }) {
                                     {formatLineItemLabel(item)}
                                   </p>
                                   <p className="mt-0.5 text-[12px] text-[#616161]">
-                                    {lineItemPieceCount(item)} pieces on order
+                                    {producedPieceCount} pieces produced
+                                    {producedPieceCount !==
+                                    lineItemPieceCount(item)
+                                      ? ` · ${lineItemPieceCount(item)} ordered`
+                                      : ""}
                                   </p>
                                 </div>
                                 <div className="text-right">
@@ -1144,7 +1204,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                                         Size
                                       </th>
                                       <th className="px-4 py-2.5 text-left">
-                                        Ordered
+                                        Produced
                                       </th>
                                       <th className="px-4 py-2.5 text-left">
                                         Available
@@ -1159,13 +1219,14 @@ export function OrderShippingTab({ order }: { order: Order }) {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {item.sizes.map((sizeRow) => {
+                                    {producedForItem.sizes.map((sizeRow) => {
                                       const {
-                                        ordered,
+                                        produced: producedQty,
                                         available,
                                         maxShipHere,
                                         shipHere,
                                       } = getShipmentAllocationRow(
+                                        order,
                                         item,
                                         shipments,
                                         shipment.id,
@@ -1184,7 +1245,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                                             {sizeRow.size}
                                           </td>
                                           <td className="px-4 py-3 tabular-nums text-[#616161]">
-                                            {ordered}
+                                            {producedQty}
                                           </td>
                                           <td className="px-4 py-3 tabular-nums text-[#616161]">
                                             {available}
@@ -1197,7 +1258,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                                                 max={maxShipHere}
                                                 value={shipHere || ""}
                                                 placeholder="0"
-                                                disabled={ordered === 0}
+                                                disabled={producedQty === 0}
                                                 onChange={(event) =>
                                                   updateAllocationQty(
                                                     shipment.id,
@@ -1251,7 +1312,9 @@ export function OrderShippingTab({ order }: { order: Order }) {
                     saving={saving}
                     isDirty={isDirty}
                     savedFlash={savedFlash}
-                    onSave={handleSave}
+                    onSave={() => {
+              void handleSave();
+            }}
                     className="border-t border-[#ebebeb] pt-4"
                   />
                 </div>
@@ -1310,7 +1373,9 @@ export function OrderShippingTab({ order }: { order: Order }) {
             saving={saving}
             isDirty={isDirty}
             savedFlash={savedFlash}
-            onSave={handleSave}
+            onSave={() => {
+              void handleSave();
+            }}
             className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-4 py-3"
           />
         </div>
@@ -1329,8 +1394,9 @@ export function OrderShippingTab({ order }: { order: Order }) {
                 All goods {willCallMode ? "picked up" : "delivered"}
               </p>
               <p className="mt-0.5 text-[13px] text-[#303030]">
-                Every piece is assigned and fulfillment is complete — this
-                order is ready to invoice.
+                Every piece is assigned and fulfillment is complete. Marking
+                the last pickup or delivery automatically sets the order to
+                Ready to invoice.
               </p>
             </div>
           </div>

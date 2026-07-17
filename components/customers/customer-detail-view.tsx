@@ -64,6 +64,7 @@ import { isArchivedOrder } from "@/lib/order-archive";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { formatOrderDisplayLine } from "@/lib/order-display";
 import { resolveOrderFinancialsInContext, buildOrderFinancialsMap, type OrderFinancials } from "@/lib/order-financial-context";
+import { isWillCallOrder } from "@/lib/order-shipping";
 import type { Order, OrderStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -794,7 +795,10 @@ function OrderHistoryRow({
           <span className="font-semibold text-[#303030] transition-colors group-hover:text-[#2c6ecb]">
             {formatOrderDisplayLine(order)}
           </span>
-          <OrderStatusBadge status={order.status} />
+          <OrderStatusBadge
+            status={order.status}
+            willCall={isWillCallOrder(order.shipping, order.shipments ?? [])}
+          />
           {order.rush ? <RushBadge /> : null}
           {archived ? (
             <span className="inline-flex items-center gap-1 rounded-sm bg-[#f1f1f1] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161]">

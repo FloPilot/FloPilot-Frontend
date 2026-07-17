@@ -26,6 +26,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { schedulableJobKey } from "@/lib/job-imprints";
 import { formatOrderDisplayLine, formatOrderRef, formatOrderNumberWithLabel } from "@/lib/order-display";
+import { isWillCallOrder } from "@/lib/order-shipping";
 import {
   dashboardControlClass,
   dashboardInsetSurfaceClass,
@@ -553,6 +554,10 @@ export function ScheduleJobDialog({
                               <td className="px-3 py-2.5 align-top">
                                 <OrderStatusBadge
                                   status={order.status}
+                                  willCall={isWillCallOrder(
+                                    order.shipping,
+                                    order.shipments ?? []
+                                  )}
                                   className="text-[11px] font-medium"
                                 />
                               </td>

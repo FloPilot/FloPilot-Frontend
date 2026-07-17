@@ -57,6 +57,15 @@ export function computeMaterialLineStatus(
   return "waiting";
 }
 
+/** Extra pieces received beyond the ordered / expected qty */
+export function garmentReceiveOverage(line: OrderMaterialLine): number {
+  return Math.max(0, (line.receivedQty || 0) - (line.expectedQty || 0));
+}
+
+export function isGarmentOverReceived(line: OrderMaterialLine): boolean {
+  return line.kind === "garments" && garmentReceiveOverage(line) > 0;
+}
+
 export function isGarmentLineOpen(line: OrderMaterialLine): boolean {
   return line.kind === "garments" && line.receivedQty < line.expectedQty;
 }
@@ -453,7 +462,8 @@ export function applyGarmentLineReceive(
     updatedAt: now,
     lines: materials.lines.map((line) => {
       if (line.id !== lineId || line.kind !== "garments") return line;
-      const qty = Math.min(Math.max(0, receivedQty), line.expectedQty);
+      // Allow over-receipt — shops often get more blanks than ordered
+      const qty = Math.max(0, Math.floor(receivedQty));
       const status = computeMaterialLineStatus(line.expectedQty, qty);
       return {
         ...line,

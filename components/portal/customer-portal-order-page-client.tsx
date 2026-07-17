@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { CustomerPortalOrderView } from "@/components/portal/customer-portal-order-view";
 
 export function CustomerPortalOrderPageClient({
@@ -7,5 +8,15 @@ export function CustomerPortalOrderPageClient({
 }: {
   orderId: string;
 }) {
-  return <CustomerPortalOrderView orderId={orderId} />;
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center text-[14px] text-[#616161]">
+          Loading order…
+        </div>
+      }
+    >
+      <CustomerPortalOrderView orderId={orderId} />
+    </Suspense>
+  );
 }

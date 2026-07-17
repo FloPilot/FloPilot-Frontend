@@ -33,6 +33,12 @@ export function LoginForm() {
     try {
       if (mode === "signup") {
         await signUp(email, password);
+        const me = await refreshProfile(true);
+        // Existing shop membership (e.g. invited before completing UI): skip create-shop
+        if (me?.type === "staff") {
+          router.push(next);
+          return;
+        }
         router.push("/register-shop");
         return;
       }
@@ -45,13 +51,15 @@ export function LoginForm() {
         return;
       }
 
-      if (me.type === "none" && me.needsRegistration) {
-        router.push("/register-shop");
-      } else if (me.type === "staff") {
+      if (me.type === "staff") {
         router.push(next);
-      } else {
-        setError("This account does not have staff access to a shop workspace.");
+        return;
       }
+
+      // Sign-in never opens create-shop — that flow is for Create account only.
+      setError(
+        "We couldn’t find a shop linked to this account. Use Create account if you’re new, or ask your shop admin for an invite."
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {

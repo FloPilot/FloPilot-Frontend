@@ -3,6 +3,8 @@ import type { Order, OrderStatus } from "@/types";
 const LOCKED_BLANK_EDIT_STATUSES: OrderStatus[] = [
   "ready_to_ship",
   "shipped",
+  "ready_to_invoice",
+  "invoice_sent",
   "completed",
 ];
 

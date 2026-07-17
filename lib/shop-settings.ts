@@ -8,6 +8,11 @@ import {
   normalizeEstimateDocument,
   type EstimateDocumentSettings,
 } from "@/lib/estimate-document";
+import {
+  DEFAULT_INVOICE_DOCUMENT,
+  normalizeInvoiceDocument,
+  type InvoiceDocumentSettings,
+} from "@/lib/invoice-document";
 import type { DecorationType } from "@/types";
 import type { LucideIcon } from "lucide-react";
 
@@ -188,6 +193,8 @@ export type ShopSettings = {
   companyProfile: CompanyProfile;
   /** Shop-wide estimate PDF layout, line-item groups, and terms. */
   estimateDocument: EstimateDocumentSettings;
+  /** Shop-wide invoice PDF layout, line-item groups, and terms. */
+  invoiceDocument: InvoiceDocumentSettings;
   /** Legacy/default view of shop pricing — kept in sync with the default rate sheet. */
   pricingMatrix: PricingMatrix;
   /** Named shop pricing sheets staff can choose on an order. */
@@ -271,6 +278,7 @@ export const DEFAULT_SHOP_SETTINGS: ShopSettings = {
     address: { ...DEFAULT_COMPANY_ADDRESS },
   },
   estimateDocument: { ...DEFAULT_ESTIMATE_DOCUMENT },
+  invoiceDocument: { ...DEFAULT_INVOICE_DOCUMENT },
   pricingMatrix: { enabled: false, methods: [], blankMarkupPercent: 0 },
   pricingRateSheets: [
     {
@@ -1242,6 +1250,7 @@ export function normalizeShopSettings(raw?: Partial<ShopSettings> | null): ShopS
     branding: normalizeTenantBranding(input.branding),
     companyProfile: normalizeCompanyProfile(input.companyProfile),
     estimateDocument: normalizeEstimateDocument(input.estimateDocument),
+    invoiceDocument: normalizeInvoiceDocument(input.invoiceDocument),
     pricingMatrix: syncedMatrix,
     pricingRateSheets,
     productionDefaults: normalizeProductionDefaults(input.productionDefaults),
