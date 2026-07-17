@@ -1,19 +1,22 @@
 "use client";
 
-import { useMemo } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { RevisionNotesPanel } from "@/components/orders/revision-notes-panel";
 import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
 import {
+  dashboardControlClass,
   dashboardInsetSurfaceClass,
+  dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency, formatDate } from "@/lib/format";
 import {
   computeEstimateTotals,
+  computeInvoiceTotals,
   type EstimateRow,
   type EstimateTotals,
 } from "@/lib/order-estimate";
@@ -22,8 +25,10 @@ import {
   getOrderPaymentDisplay,
   orderPaymentHealthStatus,
 } from "@/lib/order-payment";
+import { canTransitionOrderStatus } from "@/lib/order-status";
 import type { Order } from "@/types";
 import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
 
 function paymentStatusClass(
   health: ReturnType<typeof orderPaymentHealthStatus>
@@ -118,25 +123,19 @@ function EstimateBreakdownTable({ totals }: { totals: EstimateTotals }) {
             <TotalsLine label="Subtotal" value={formatCurrency(totals.subtotal)} />
             <TotalsLine label={taxLabel} value={formatCurrency(totals.tax)} />
             <TotalsLine
-              label="Order total"
+              label="Total"
               value={formatCurrency(totals.total)}
               strong
             />
-            {totals.paid > 0 ? (
-              <TotalsLine
-                label="Paid"
-                value={`−${formatCurrency(totals.paid)}`}
-                valueClassName="text-[#0d5c2e]"
-              />
-            ) : null}
-            {totals.balance > 0 ? (
-              <TotalsLine
-                label="Balance due"
-                value={formatCurrency(totals.balance)}
-                strong
-                valueClassName="text-[#8a6116]"
-              />
-            ) : null}
+            <TotalsLine label="Paid" value={formatCurrency(totals.paid)} />
+            <TotalsLine
+              label="Balance due"
+              value={formatCurrency(totals.balance)}
+              strong
+              valueClassName={
+                totals.balance > 0 ? "text-[#8f1f1f]" : "text-[#0d5c2e]"
+              }
+            />
           </tfoot>
         </table>
       </div>
@@ -146,31 +145,33 @@ function EstimateBreakdownTable({ totals }: { totals: EstimateTotals }) {
 
 function EstimateRowLine({
   row,
-  highlight = false,
+  highlight,
 }: {
   row: EstimateRow;
   highlight?: boolean;
 }) {
   return (
-    <tr
-      className={cn(
-        "border-b border-[#ebebeb] last:border-0",
-        highlight && "bg-[#fafcff]"
-      )}
-    >
-      <td className="px-4 py-3">
-        <p className="font-medium text-[#303030]">{row.description}</p>
+    <tr className="border-b border-[#ebebeb]">
+      <td className="px-4 py-2.5">
+        <p
+          className={cn(
+            "font-medium text-[#303030]",
+            highlight && "text-[#2c6ecb]"
+          )}
+        >
+          {row.description}
+        </p>
         {row.detail ? (
           <p className="mt-0.5 text-[12px] text-[#8a8a8a]">{row.detail}</p>
         ) : null}
       </td>
-      <td className="px-3 py-3 text-right tabular-nums text-[#303030]">
+      <td className="px-3 py-2.5 text-right tabular-nums text-[#303030]">
         {row.qty}
       </td>
-      <td className="px-3 py-3 text-right tabular-nums text-[#616161]">
+      <td className="px-3 py-2.5 text-right tabular-nums text-[#616161]">
         {formatCurrency(row.unitCost)}
       </td>
-      <td className="px-4 py-3 text-right font-medium tabular-nums text-[#303030]">
+      <td className="px-4 py-2.5 text-right font-medium tabular-nums text-[#303030]">
         {formatCurrency(row.lineTotal)}
       </td>
     </tr>
@@ -180,7 +181,7 @@ function EstimateRowLine({
 function TotalsLine({
   label,
   value,
-  strong = false,
+  strong,
   valueClassName,
 }: {
   label: string;
@@ -189,7 +190,7 @@ function TotalsLine({
   valueClassName?: string;
 }) {
   return (
-    <tr className="border-t border-[#ebebeb] first:border-t-0">
+    <tr className="border-t border-[#ebebeb]">
       <td
         colSpan={3}
         className={cn(
@@ -212,18 +213,36 @@ function TotalsLine({
   );
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
   const { settings } = useShopSettings();
-  const { getCustomerById, approveOrderEstimate } = useSchedule();
+  const {
+    getCustomerById,
+    approveOrderEstimate,
+    updateOrderStatus,
+    updateOrderPayment,
+  } = useSchedule();
   const customer = getCustomerById(order.customerId);
   const quoteApproved = isQuoteApproved(order);
   const pricingMatrix = useMemo(
     () => resolveEffectivePricingMatrix(settings, customer, order),
     [settings.pricingMatrix, customer, order]
   );
+  const useInvoiceTotals =
+    order.status === "ready_to_invoice" ||
+    order.status === "invoice_sent" ||
+    order.status === "completed" ||
+    Boolean(order.invoice?.sentAt);
+
   const totals = useMemo(
-    () => computeEstimateTotals(order, settings.taxRate, pricingMatrix, customer),
-    [order, settings.taxRate, pricingMatrix, customer]
+    () =>
+      useInvoiceTotals
+        ? computeInvoiceTotals(order, settings.taxRate, pricingMatrix, customer)
+        : computeEstimateTotals(order, settings.taxRate, pricingMatrix, customer),
+    [order, settings.taxRate, pricingMatrix, customer, useInvoiceTotals]
   );
 
   const paymentDisplay = useMemo(() => {
@@ -235,6 +254,71 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
     });
   }, [order, totals]);
 
+  const [amountDraft, setAmountDraft] = useState(
+    totals.balance > 0 ? totals.balance.toFixed(2) : ""
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const canComplete = canTransitionOrderStatus(order.status, "completed");
+  const isPaid = totals.balance <= 0 && totals.total > 0;
+  const showPaymentActions =
+    order.status === "ready_to_invoice" ||
+    order.status === "invoice_sent" ||
+    order.status === "shipped" ||
+    order.status === "completed" ||
+    Boolean(order.invoice?.sentAt) ||
+    totals.paid > 0 ||
+    totals.balance > 0;
+
+  const applyPayment = async (paidTotal: number, markCompleted: boolean) => {
+    setSaving(true);
+    setError(null);
+    try {
+      const paid = round2(Math.max(0, paidTotal));
+      const balance = round2(Math.max(0, totals.total - paid));
+      await updateOrderPayment(order.id, { paid, balance });
+      if (markCompleted && balance <= 0 && canComplete) {
+        await updateOrderStatus(order.id, "completed");
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not record payment"
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRecordAmount = async () => {
+    const parsed = Number(amountDraft);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setError("Enter a payment amount greater than zero.");
+      return;
+    }
+    const nextPaid = round2((order.paid || 0) + parsed);
+    await applyPayment(Math.min(nextPaid, totals.total), false);
+  };
+
+  const handlePaidInFull = async (markCompleted: boolean) => {
+    await applyPayment(totals.total, markCompleted);
+  };
+
+  const handleMarkCompleted = async () => {
+    if (!canComplete) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await updateOrderStatus(order.id, "completed");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not complete the order"
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -243,9 +327,9 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
             Payment status
           </h3>
           <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-            Totals are calculated from garment costs, decoration pricing, and
-            shop tax — the same breakdown your customer sees on the review
-            link.
+            {useInvoiceTotals
+              ? "Invoice totals use produced quantities. Record payments here, then mark the order completed when paid."
+              : "Totals are calculated from garment costs, decoration pricing, and shop tax — the same breakdown your customer sees on the review link."}
           </p>
         </div>
         <span
@@ -260,6 +344,85 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
 
       {paymentDisplay.detail ? (
         <p className="text-[13px] text-[#616161]">{paymentDisplay.detail}</p>
+      ) : null}
+
+      {showPaymentActions ? (
+        <div className={cn(dashboardInsetSurfaceClass, "space-y-3 p-4")}>
+          <div>
+            <p className="text-[13px] font-semibold text-[#303030]">
+              Record payment
+            </p>
+            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+              Mark money received against this order. When the balance is
+              cleared, complete the order to close it out.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[140px] flex-1">
+              <label className="text-[12px] font-medium text-[#616161]">
+                Amount
+              </label>
+              <div className="relative mt-1">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[13px] text-[#8a8a8a]">
+                  $
+                </span>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={amountDraft}
+                  disabled={saving || isPaid}
+                  onChange={(event) => setAmountDraft(event.target.value)}
+                  className="h-9 rounded-lg border-[#e3e3e3] pl-7 text-[13px]"
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              disabled={saving || isPaid}
+              onClick={() => void handleRecordAmount()}
+              className={cn(
+                dashboardControlClass,
+                "h-9 px-3 text-[13px] disabled:opacity-60"
+              )}
+            >
+              {saving ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              Apply payment
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={saving || isPaid || totals.total <= 0}
+              onClick={() => void handlePaidInFull(false)}
+              className={cn(
+                dashboardControlClass,
+                "h-9 px-3 text-[13px] disabled:opacity-60"
+              )}
+            >
+              Mark paid in full
+            </button>
+            <button
+              type="button"
+              disabled={saving || totals.total <= 0 || !canComplete}
+              onClick={() =>
+                void (isPaid ? handleMarkCompleted() : handlePaidInFull(true))
+              }
+              className={cn(
+                dashboardPrimaryButtonClass,
+                "h-9 px-3 text-[13px] disabled:opacity-60"
+              )}
+            >
+              {isPaid ? "Mark order completed" : "Mark paid & complete"}
+            </button>
+          </div>
+
+          {error ? (
+            <p className="text-[12px] font-medium text-[#b42318]">{error}</p>
+          ) : null}
+        </div>
       ) : null}
 
       {quoteApproved ? (
@@ -298,7 +461,7 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
 
       <div className="space-y-2">
         <h3 className="text-[13px] font-semibold text-[#303030]">
-          Estimate breakdown
+          {useInvoiceTotals ? "Invoice breakdown" : "Estimate breakdown"}
         </h3>
         <EstimateBreakdownTable totals={totals} />
       </div>

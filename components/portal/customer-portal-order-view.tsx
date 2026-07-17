@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2, RefreshCw } from "lucide-react";
 import { CustomerReviewFlow } from "@/components/review/customer-review-flow";
+import { CustomerPortalInvoicePanel } from "@/components/portal/customer-portal-invoice-panel";
 import { useCustomerPortal } from "@/components/portal/customer-portal-provider";
 import {
   fetchCustomerPortalOrder,
@@ -12,19 +14,31 @@ import {
   portalStatusTone,
   reactivatePortalUrl,
   type CustomerPortalOrderSession,
+  type PortalInvoiceSummary,
 } from "@/lib/customer-portal-api";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { formatOrderDisplayLine } from "@/lib/order-display";
 import { groupReviewEstimateSections } from "@/lib/estimate-breakdown";
 import { cn } from "@/lib/utils";
 
+function isInvoiceSummary(
+  invoice: CustomerPortalOrderSession["invoice"]
+): invoice is PortalInvoiceSummary {
+  return Boolean(invoice && "available" in invoice && invoice.available);
+}
+
 export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
   const { token, accent, refresh: refreshDashboard } = useCustomerPortal();
+  const searchParams = useSearchParams();
+  const focusInvoice = searchParams.get("view") === "invoice";
   const [session, setSession] = useState<CustomerPortalOrderSession | null>(
     null
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<"review" | "invoice">(
+    focusInvoice ? "invoice" : "review"
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -32,6 +46,13 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
     try {
       const data = await fetchCustomerPortalOrder(token, orderId);
       setSession(data);
+      if (
+        focusInvoice ||
+        data.order?.status === "invoice_sent" ||
+        data.order?.status === "completed"
+      ) {
+        setActiveView("invoice");
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Could not load this order."
@@ -39,7 +60,7 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [token, orderId]);
+  }, [token, orderId, focusInvoice]);
 
   useEffect(() => {
     void load();
@@ -99,6 +120,7 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
 
   const status = session.order.status;
   const tone = portalStatusTone(status);
+  const invoice = isInvoiceSummary(session.invoice) ? session.invoice : null;
   const estimate = session.estimate;
   const estimateSections = estimate
     ? groupReviewEstimateSections({
@@ -110,6 +132,13 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
   const needsAction =
     !session.order.quoteApproved ||
     (session.proofs || []).some((proof) => proof.artwork.status !== "approved");
+  const sidebarTotals = estimate;
+  const sidebarTitle = "Order summary";
+  const amountDue = sidebarTotals
+    ? sidebarTotals.balance > 0
+      ? sidebarTotals.balance
+      : sidebarTotals.total
+    : 0;
 
   return (
     <div className="space-y-5">
@@ -142,8 +171,66 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
         </span>
       </div>
 
+      {invoice ? (
+        <div className="inline-flex rounded-xl border border-[#e3e3e3] bg-white p-1 shadow-sm">
+          <button
+            type="button"
+            onClick={() => setActiveView("invoice")}
+            className={cn(
+              "rounded-lg px-4 py-2 text-[13px] font-semibold transition-colors",
+              activeView === "invoice"
+                ? "text-white"
+                : "text-[#616161] hover:bg-[#fafafa]"
+            )}
+            style={
+              activeView === "invoice" ? { backgroundColor: accent } : undefined
+            }
+          >
+            Invoice
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView("review")}
+            className={cn(
+              "rounded-lg px-4 py-2 text-[13px] font-semibold transition-colors",
+              activeView === "review"
+                ? "text-white"
+                : "text-[#616161] hover:bg-[#fafafa]"
+            )}
+            style={
+              activeView === "review" ? { backgroundColor: accent } : undefined
+            }
+          >
+            Estimate & proofs
+          </button>
+        </div>
+      ) : null}
+
+      {invoice && activeView === "invoice" ? (
+        <CustomerPortalInvoicePanel
+          invoice={invoice}
+          accent={accent}
+          shopEmail={session.shop?.email}
+          shopName={session.shop?.name}
+          highlight={focusInvoice}
+        />
+      ) : null}
+
+      {activeView === "review" ? (
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <div className="min-w-0">
+        <div className="min-w-0 space-y-4">
+          {invoice ? (
+            <div className="rounded-2xl border border-[#ebebeb] bg-white px-4 py-3 shadow-sm">
+              <p className="text-[12px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                Estimate & proofs
+              </p>
+              <p className="mt-1 text-[13px] text-[#616161]">
+                Your approved estimate and artwork stay available below for
+                reference. Use the Invoice tab to view final billing.
+              </p>
+            </div>
+          ) : null}
+
           <CustomerReviewFlow
             key={orderId}
             portalToken={token}
@@ -165,18 +252,15 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
               className="px-4 py-3 text-[13px] font-semibold text-white"
               style={{ backgroundColor: accent }}
             >
-              Order summary
+              {sidebarTitle}
             </div>
             <div className="space-y-2.5 bg-white p-4 text-[13px]">
               {estimate?.rateSheetName && !estimate.usingShopPricing ? (
                 <p className="rounded-lg bg-[#f4f7fd] px-3 py-2 text-[12px] font-medium text-[#2c6ecb]">
                   Pricing sheet: {estimate.rateSheetName}
                 </p>
-              ) : estimate?.usingShopPricing && estimate.hasNegotiatedPricing ? (
-                <p className="rounded-lg bg-[#fafafa] px-3 py-2 text-[12px] text-[#616161]">
-                  Shop standard pricing
-                </p>
               ) : null}
+
               {estimateSections.length > 1
                 ? estimateSections.map((section) => (
                     <div key={section.key} className="flex justify-between gap-3">
@@ -187,36 +271,45 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
                     </div>
                   ))
                 : null}
+
               <div className="flex justify-between gap-3">
                 <span className="text-[#616161]">Subtotal</span>
                 <span className="font-medium tabular-nums text-[#303030]">
-                  {formatCurrency(estimate?.subtotal ?? 0)}
+                  {formatCurrency(sidebarTotals?.subtotal ?? 0)}
                 </span>
               </div>
               <div className="flex justify-between gap-3">
                 <span className="text-[#616161]">Tax</span>
                 <span className="font-medium tabular-nums text-[#303030]">
-                  {formatCurrency(estimate?.tax ?? 0)}
+                  {formatCurrency(sidebarTotals?.tax ?? 0)}
                 </span>
               </div>
               <div className="flex justify-between gap-3 border-t border-[#f1f1f1] pt-2.5">
-                <span className="font-semibold text-[#303030]">Total</span>
+                <span className="font-semibold text-[#303030]">
+                  Total
+                </span>
                 <span className="font-semibold tabular-nums text-[#303030]">
-                  {formatCurrency(estimate?.total ?? 0)}
+                  {formatCurrency(sidebarTotals?.total ?? 0)}
                 </span>
               </div>
               <div className="flex justify-between gap-3">
                 <span className="text-[#616161]">Paid</span>
                 <span className="font-medium tabular-nums text-[#303030]">
-                  {formatCurrency(estimate?.paid ?? 0)}
+                  {formatCurrency(sidebarTotals?.paid ?? 0)}
                 </span>
               </div>
               <div className="flex justify-between gap-3">
-                <span className="text-[#616161]">Balance due</span>
-                <span className="font-semibold tabular-nums text-[#303030]">
-                  {formatCurrency(estimate?.balance ?? 0)}
+                <span className="font-semibold text-[#303030]">
+                  Balance due
+                </span>
+                <span
+                  className="font-semibold tabular-nums"
+                  style={{ color: accent }}
+                >
+                  {formatCurrency(amountDue)}
                 </span>
               </div>
+
             </div>
           </section>
 
@@ -231,13 +324,15 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
                   : "One or more proofs still need your approval."}
               </p>
             </section>
-          ) : (
+          ) : null}
+
+          {!needsAction ? (
             <section className="rounded-2xl border border-[#cdeccd] bg-[#f1faf1] p-4">
               <p className="text-[13px] font-medium text-[#0d5c2e]">
                 Estimate and proofs approved — thank you!
               </p>
             </section>
-          )}
+          ) : null}
 
           {session.shop?.email ? (
             <p className="text-center text-[12px] text-[#8a8a8a]">
@@ -253,6 +348,7 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
           ) : null}
         </aside>
       </div>
+      ) : null}
     </div>
   );
 }

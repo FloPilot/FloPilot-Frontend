@@ -23,6 +23,7 @@ import {
 } from "@/lib/dashboard-styles";
 import type { SchedulingQueueOrder } from "@/lib/event-basket";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { isWillCallOrder } from "@/lib/order-shipping";
 import {
   buildReceivingQueue,
   receivingQueueStats,
@@ -375,7 +376,13 @@ export function DashboardShippingWidget({ orders }: { orders: Order[] }) {
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <OrderStatusBadge status={row.order.status} />
+                  <OrderStatusBadge
+                    status={row.order.status}
+                    willCall={isWillCallOrder(
+                      row.order.shipping,
+                      row.order.shipments ?? []
+                    )}
+                  />
                   <p className="mt-1 text-[11px] text-[#616161]">
                     {formatDate(row.order.inHandsDate)}
                   </p>

@@ -9,7 +9,7 @@ import type {
 } from "@/lib/customer-review-api";
 
 export type PortalAttentionItem = {
-  type: "estimate" | "artwork";
+  type: "estimate" | "artwork" | "invoice";
   orderId: string;
   orderNumber: string;
   orderCustomLabel?: string;
@@ -29,6 +29,7 @@ export type PortalOrderSummary = {
   inHandsDate: string | null;
   quoteApproved: boolean;
   proofsSentAt: string | null;
+  invoiceSentAt?: string | null;
   pendingProofCount: number;
   needsApproval: boolean;
   total: number;
@@ -64,6 +65,26 @@ export type CustomerPortalDashboard = {
 export type CustomerPortalOrderSession = CustomerReviewSession & {
   portalHomeUrl?: string;
   portalExpiresAt?: string | null;
+  invoice?: PortalInvoiceSummary | { available: false };
+};
+
+export type PortalInvoiceSummary = {
+  available: true;
+  sentAt?: string | null;
+  sentTo?: string | null;
+  rows: import("@/lib/customer-review-api").ReviewEstimateRow[];
+  garmentSubtotal: number;
+  decorationSubtotal: number;
+  feesSubtotal?: number;
+  subtotal: number;
+  tax: number;
+  taxRate: number;
+  total: number;
+  paid: number;
+  balance: number;
+  producedPieces: number;
+  orderedPieces: number;
+  hasVariance: boolean;
 };
 
 export type CustomerPortalProfile = {
@@ -177,8 +198,18 @@ export function portalHomePath(token: string) {
   return `/portal/c/${encodeURIComponent(token)}`;
 }
 
-export function portalOrderPath(token: string, orderId: string) {
-  return `/portal/c/${encodeURIComponent(token)}/orders/${encodeURIComponent(orderId)}`;
+export function portalOrderPath(
+  token: string,
+  orderId: string,
+  options?: { view?: string; focus?: string }
+) {
+  let path = `/portal/c/${encodeURIComponent(token)}/orders/${encodeURIComponent(orderId)}`;
+  const params = new URLSearchParams();
+  if (options?.view) params.set("view", options.view);
+  if (options?.focus) params.set("focus", options.focus);
+  const qs = params.toString();
+  if (qs) path += `?${qs}`;
+  return path;
 }
 
 export function portalPricingPath(token: string) {
@@ -234,6 +265,8 @@ export const PORTAL_STATUS_LABELS: Record<string, string> = {
   in_production: "In production",
   ready_to_ship: "Ready to ship",
   shipped: "Shipped",
+  ready_to_invoice: "Invoice ready",
+  invoice_sent: "Invoice sent",
   completed: "Completed",
 };
 
@@ -246,8 +279,14 @@ export function portalStatusTone(
 ): "neutral" | "warning" | "success" | "info" {
   if (status === "awaiting_approval" || status === "quote_sent") return "warning";
   if (status === "in_production" || status === "approved") return "info";
-  if (status === "ready_to_ship" || status === "shipped" || status === "completed") {
+  if (
+    status === "ready_to_ship" ||
+    status === "shipped" ||
+    status === "invoice_sent" ||
+    status === "completed"
+  ) {
     return "success";
   }
+  if (status === "ready_to_invoice") return "warning";
   return "neutral";
 }

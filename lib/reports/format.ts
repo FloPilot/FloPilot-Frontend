@@ -8,6 +8,8 @@ const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   in_production: "In Production",
   ready_to_ship: "Ready to Ship",
   shipped: "Shipped",
+  ready_to_invoice: "Ready to Invoice",
+  invoice_sent: "Invoice Sent",
   completed: "Completed",
 };
 

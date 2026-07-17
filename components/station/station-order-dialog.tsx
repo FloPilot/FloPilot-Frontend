@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { OrderStatusBadge, RushBadge } from "@/components/status-badges";
+import { isWillCallOrder } from "@/lib/order-shipping";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -477,7 +478,13 @@ export function StationOrderDialog({
                   </DialogDescription>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <OrderStatusBadge status={order.status} />
+                  <OrderStatusBadge
+                    status={order.status}
+                    willCall={isWillCallOrder(
+                      order.shipping,
+                      order.shipments ?? []
+                    )}
+                  />
                   {order.rush && <RushBadge />}
                 </div>
               </div>

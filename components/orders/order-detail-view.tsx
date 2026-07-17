@@ -9,6 +9,11 @@ import { OrderDesignTab } from "@/components/orders/order-design-tab";
 import { OrderArtworkApprovalPanel } from "@/components/orders/order-artwork-approval-panel";
 import { OrderFilesTab } from "@/components/orders/order-files-tab";
 import { OrderEstimateTab } from "@/components/orders/order-estimate-tab";
+import { OrderInvoiceTab } from "@/components/orders/order-invoice-tab";
+import {
+  OrderProducedGoodsCallout,
+  OrderProducedGoodsPanel,
+} from "@/components/orders/order-produced-goods-panel";
 import { OrderShippingTab } from "@/components/orders/order-shipping-tab";
 import { OrderActivityFeed } from "@/components/orders/order-activity-feed";
 import { OrderActionPanel } from "@/components/orders/order-action-panel";
@@ -346,6 +351,10 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
         }
       />
 
+      {activeTab !== "produced_goods" && activeTab !== "invoice" ? (
+        <OrderProducedGoodsCallout order={order} />
+      ) : null}
+
       {actionToast ? (
         <div
           className={cn(
@@ -520,7 +529,13 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
             </div>
           ) : null}
 
+          {activeTab === "produced_goods" ? (
+            <OrderProducedGoodsPanel order={order} />
+          ) : null}
+
           {activeTab === "shipping" ? <OrderShippingTab order={order} /> : null}
+
+          {activeTab === "invoice" ? <OrderInvoiceTab order={order} /> : null}
 
           {activeTab === "activity" ? (
             <section className={dashboardCardClass}>

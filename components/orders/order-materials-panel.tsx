@@ -40,10 +40,12 @@ import {
   computeMaterialLineStatus,
   countExpectedGarmentPieces,
   GARMENT_RECEIVE_STATUS_STYLES,
+  garmentReceiveOverage,
   getDtfReceivingLines,
   getGarmentReceivingLines,
   getInkPrepLines,
   getScreenSetupLine,
+  isGarmentOverReceived,
   mergeOrderMaterials,
   materialStatusLabel,
 } from "@/lib/order-materials";
@@ -142,32 +144,41 @@ function MarkupPercentInput({
 }: {
   value: number;
   disabled?: boolean;
-  onSave: (markupPercent: number) => void;
+  onSave: (markupPercent: number) => void | Promise<void>;
 }) {
   const [draft, setDraft] = useState(String(value || ""));
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setDraft(String(value || ""));
   }, [value]);
 
-  const commit = () => {
+  const commit = async () => {
+    if (saving) return;
     const parsed = normalizeMarkupPercent(Number(draft) || 0);
     setDraft(String(parsed));
-    if (parsed !== value) {
-      onSave(parsed);
+    if (parsed === value) return;
+
+    setSaving(true);
+    try {
+      await onSave(parsed);
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-end gap-1">
+    <div className="flex items-center justify-end gap-1.5">
       <Input
         type="number"
         min={0}
         step="0.1"
         value={draft}
-        disabled={disabled}
+        disabled={disabled || saving}
         onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
+        onBlur={() => {
+          void commit();
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.currentTarget.blur();
@@ -176,6 +187,14 @@ function MarkupPercentInput({
         className="h-8 w-[72px] rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums"
       />
       <span className="text-[12px] text-[#8a8a8a]">%</span>
+      {saving ? (
+        <Loader2
+          className="size-3.5 shrink-0 animate-spin text-brand-primary"
+          aria-label="Saving markup"
+        />
+      ) : (
+        <span className="size-3.5 shrink-0" aria-hidden />
+      )}
     </div>
   );
 }
@@ -270,11 +289,23 @@ function rebuildLineItemQuantity(
   };
 }
 
-function ReceivingStatusPill({ status }: { status: OrderMaterialLine["status"] }) {
+function ReceivingStatusPill({
+  line,
+}: {
+  line: Pick<OrderMaterialLine, "status" | "kind" | "receivedQty" | "expectedQty">;
+}) {
+  if (isGarmentOverReceived(line as OrderMaterialLine)) {
+    return (
+      <span className="inline-flex rounded-md bg-[#fffbeb] px-2 py-0.5 text-[11px] font-medium text-amber-900">
+        Over (+{garmentReceiveOverage(line as OrderMaterialLine)})
+      </span>
+    );
+  }
+
   const tone =
-    status === "received"
+    line.status === "received"
       ? "bg-[#e8f5ee] text-[#0d5c2e]"
-      : status === "partial"
+      : line.status === "partial"
         ? "bg-[#fde2e2] text-[#8f1f1f]"
         : "bg-[#fde2e2] text-[#8f1f1f]";
 
@@ -285,7 +316,7 @@ function ReceivingStatusPill({ status }: { status: OrderMaterialLine["status"] }
         tone
       )}
     >
-      {materialStatusLabel(status)}
+      {materialStatusLabel(line.status)}
     </span>
   );
 }
@@ -308,44 +339,53 @@ function QtyReceivedInput({
   const commit = () => {
     const parsed = Number(value);
     const receivedQty =
-      Number.isFinite(parsed) && parsed >= 0
-        ? Math.min(Math.floor(parsed), line.expectedQty)
-        : 0;
+      Number.isFinite(parsed) && parsed >= 0 ? Math.max(0, Math.floor(parsed)) : 0;
     setValue(String(receivedQty));
     if (receivedQty !== line.receivedQty) {
       onSave(receivedQty);
     }
   };
 
+  const overage = garmentReceiveOverage(line);
+
   return (
-    <div className="flex items-center justify-end gap-1.5">
-      <Input
-        type="number"
-        min={0}
-        max={line.expectedQty}
-        value={value}
-        disabled={saving}
-        onChange={(event) => setValue(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.currentTarget.blur();
-          }
-        }}
-        className="h-8 w-[72px] rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums"
-      />
-      <Button
-        type="button"
-        variant="outline"
-        disabled={saving || line.receivedQty >= line.expectedQty}
-        className={cn(dashboardControlClass, "h-8 px-2 text-[11px]")}
-        onClick={() => {
-          setValue(String(line.expectedQty));
-          onSave(line.expectedQty);
-        }}
-      >
-        All
-      </Button>
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center justify-end gap-1.5">
+        <Input
+          type="number"
+          min={0}
+          value={value}
+          disabled={saving}
+          onChange={(event) => setValue(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            }
+          }}
+          className={cn(
+            "h-8 w-[72px] rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums",
+            overage > 0 && "border-amber-300 bg-[#fffbeb]"
+          )}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          disabled={saving || line.receivedQty === line.expectedQty}
+          className={cn(dashboardControlClass, "h-8 px-2 text-[11px]")}
+          onClick={() => {
+            setValue(String(line.expectedQty));
+            onSave(line.expectedQty);
+          }}
+        >
+          All
+        </Button>
+      </div>
+      {overage > 0 ? (
+        <span className="text-[10px] font-medium text-amber-800">
+          +{overage} over
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -420,7 +460,7 @@ function ScreenSetupRow({
           {done ? "Updating…" : "Marking burned…"}
         </span>
       ) : (
-        <ReceivingStatusPill status={line.status} />
+        <ReceivingStatusPill line={line} />
       )}
     </button>
   );
@@ -960,7 +1000,7 @@ export function OrderMaterialsPanel({
   const updateLine = (lineId: string, receivedQty: number) => {
     const lines = materials.lines.map((line) => {
       if (line.id !== lineId) return line;
-      const nextQty = Math.min(Math.max(0, receivedQty), line.expectedQty);
+      const nextQty = Math.max(0, Math.floor(receivedQty));
       return {
         ...line,
         receivedQty: nextQty,
@@ -1299,7 +1339,7 @@ export function OrderMaterialsPanel({
                       </>
                     ) : null}
                     <td className="px-3 py-3 text-right">
-                      <ReceivingStatusPill status={line.status} />
+                      <ReceivingStatusPill line={line} />
                     </td>
                     {canEditBlanks ? (
                       <td className="px-2 py-3 text-center">
@@ -1526,6 +1566,17 @@ export function OrderMaterialsPanel({
                     )
                   )}
                 </div>
+              </div>
+            ) : null}
+
+            {garmentLines.some((line) => isGarmentOverReceived(line)) ? (
+              <div className="rounded-lg border border-amber-300 bg-[#fffbeb] px-3 py-2.5 text-[13px] text-amber-950">
+                <p className="font-semibold">Received more than ordered</p>
+                <p className="mt-0.5 text-[12px] text-amber-900/90">
+                  Extra blanks are OK — enter the full qty received so inventory
+                  and the floor stay accurate. Produced goods (after print) are
+                  tracked separately on the Produced goods tab.
+                </p>
               </div>
             ) : null}
 
@@ -1759,7 +1810,7 @@ export function OrderMaterialsPanel({
                           />
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <ReceivingStatusPill status={line.status} />
+                          <ReceivingStatusPill line={line} />
                         </td>
                       </tr>
                     ))}

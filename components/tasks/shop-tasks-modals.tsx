@@ -15,6 +15,7 @@ import type { SchedulingQueueOrder } from "@/lib/event-basket";
 import { decorationLabel, formatDate } from "@/lib/format";
 import { formatOrderDisplayLine, formatOrderRef } from "@/lib/order-display";
 import type { HealthStatus } from "@/lib/order-health";
+import { isWillCallOrder } from "@/lib/order-shipping";
 import {
   eventsToScheduleLabel,
   formatEventXOfY,
@@ -61,7 +62,10 @@ function OrderAttentionRow({
             <span className="text-[15px] font-semibold text-[#303030] hover:text-brand-primary">
               {formatOrderDisplayLine(order)}
             </span>
-            <OrderStatusBadge status={order.status} />
+            <OrderStatusBadge
+              status={order.status}
+              willCall={isWillCallOrder(order.shipping, order.shipments ?? [])}
+            />
             {order.rush && <RushBadge />}
           </div>
           <p className={cn("mt-1", dashboardTaskDetailClass)}>

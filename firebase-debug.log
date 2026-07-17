@@ -121,3 +121,47 @@ For CI servers and headless environments, generate a new token with firebase log
     at async Command.actionFn (/opt/homebrew/lib/node_modules/firebase-tools/lib/commands/apps-sdkconfig.js:51:22)
 [error] 
 [error] Error: Failed to list Firebase WEB apps. See firebase-debug.log for more info.
+[debug] [2026-07-16T22:57:25.198Z] ----------------------------------------------------------------------
+[debug] [2026-07-16T22:57:25.200Z] Command:       /opt/homebrew/Cellar/node/24.8.0/bin/node /opt/homebrew/bin/firebase projects:list --json
+[debug] [2026-07-16T22:57:25.200Z] CLI Version:   14.17.0
+[debug] [2026-07-16T22:57:25.200Z] Platform:      darwin
+[debug] [2026-07-16T22:57:25.200Z] Node Version:  v24.8.0
+[debug] [2026-07-16T22:57:25.200Z] Time:          Thu Jul 16 2026 15:57:25 GMT-0700 (Pacific Daylight Time)
+[debug] [2026-07-16T22:57:25.200Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-07-16T22:57:25.201Z] >>> [apiv2][query] GET https://firebase-public.firebaseio.com/cli.json [none]
+[debug] [2026-07-16T22:57:25.216Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-07-16T22:57:25.216Z] > authorizing via signed-in user (info@necti.io)
+[debug] [2026-07-16T22:57:25.218Z] Checked if tokens are valid: false, expires at: 1782081285979
+[debug] [2026-07-16T22:57:25.218Z] Checked if tokens are valid: false, expires at: 1782081285979
+[debug] [2026-07-16T22:57:25.218Z] > refreshing access token with scopes: []
+[debug] [2026-07-16T22:57:25.219Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-07-16T22:57:25.219Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-07-16T22:57:25.345Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 400
+[debug] [2026-07-16T22:57:25.345Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[error] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[error] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[debug] [2026-07-16T22:57:25.345Z] Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+[debug] [2026-07-16T22:57:25.346Z] FirebaseError: Authentication Error: Your credentials are no longer valid. Please run firebase login --reauth
+
+For CI servers and headless environments, generate a new token with firebase login:ci
+    at invalidCredentialError (/opt/homebrew/lib/node_modules/firebase-tools/lib/auth.js:167:12)
+    at refreshTokens (/opt/homebrew/lib/node_modules/firebase-tools/lib/auth.js:591:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async getAccessToken (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:42:18)
+    at async Client.addAuthHeader (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:169:21)
+    at async Client.request (/opt/homebrew/lib/node_modules/firebase-tools/lib/apiv2.js:120:34)
+    at async getProjectPage (/opt/homebrew/lib/node_modules/firebase-tools/lib/management/projects.js:267:17)
+    at async getFirebaseProjectPage (/opt/homebrew/lib/node_modules/firebase-tools/lib/management/projects.js:284:23)
+    at async listFirebaseProjects (/opt/homebrew/lib/node_modules/firebase-tools/lib/management/projects.js:315:29)
+    at async Command.actionFn (/opt/homebrew/lib/node_modules/firebase-tools/lib/commands/projects-list.js:51:20)
+[error] 
+[error] Error: Failed to list Firebase projects. See firebase-debug.log for more info.
+[debug] [2026-07-16T22:57:25.382Z] <<< [apiv2][status] GET https://firebase-public.firebaseio.com/cli.json 200
+[debug] [2026-07-16T22:57:25.382Z] <<< [apiv2][body] GET https://firebase-public.firebaseio.com/cli.json {"cloudBuildErrorAfter":1594252800000,"cloudBuildWarnAfter":1590019200000,"defaultNode10After":1594252800000,"minVersion":"3.0.5","node8DeploysDisabledAfter":1613390400000,"node8RuntimeDisabledAfter":1615809600000,"node8WarnAfter":1600128000000}

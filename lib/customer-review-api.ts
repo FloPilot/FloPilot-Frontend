@@ -68,11 +68,13 @@ export type CustomerReviewSession = {
   order?: {
     id: string;
     number: string;
+    customLabel?: string;
     inHandsDate: string;
     status: string;
     quoteApproved: boolean;
     quoteApprovedAt?: string;
     proofsSentAt?: string;
+    invoiceSentAt?: string | null;
     iteration: number;
     reviewExpiresAt?: string;
   };

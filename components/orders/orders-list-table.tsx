@@ -27,6 +27,7 @@ import {
   type OrdersListColumnId,
 } from "@/lib/order-list-columns";
 import type { OrderListSummary } from "@/lib/order-list-summary";
+import { isWillCallOrder } from "@/lib/order-shipping";
 import type { Customer, Order } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -265,6 +266,7 @@ function OrdersListCell({
       return (
         <OrderStatusBadge
           status={order.status}
+          willCall={isWillCallOrder(order.shipping, order.shipments ?? [])}
           className="text-[11px] font-medium"
         />
       );

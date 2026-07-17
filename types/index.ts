@@ -6,6 +6,8 @@ export type OrderStatus =
   | "in_production"
   | "ready_to_ship"
   | "shipped"
+  | "ready_to_invoice"
+  | "invoice_sent"
   | "completed";
 
 export type TaskStatus = "pending" | "in_progress" | "blocked" | "done";
@@ -348,6 +350,44 @@ export interface OrderMaterials {
   updatedAt?: string;
 }
 
+/** Per size row of finished goods after production */
+export type ProducedGoodsLineStatus = "pending" | "recorded";
+
+export interface OrderProducedGoodsLine {
+  id: string;
+  lineItemId: string;
+  size: string;
+  productName?: string;
+  brand?: string;
+  color?: string;
+  orderedQty: number;
+  producedQty: number;
+  status: ProducedGoodsLineStatus;
+  notes?: string;
+  updatedAt?: string;
+  recordedBy?: string;
+  recordedAt?: string;
+}
+
+export interface OrderProducedGoods {
+  lines: OrderProducedGoodsLine[];
+  notes?: string;
+  updatedAt?: string;
+  confirmedAt?: string;
+  confirmedBy?: string;
+}
+
+/** In-app invoice send / snapshot metadata (separate from QuickBooks) */
+export interface OrderInvoiceMeta {
+  sentAt?: string;
+  sentTo?: string;
+  lastPreviewedAt?: string;
+  /** Totals captured when the invoice was last sent */
+  subtotal?: number;
+  tax?: number;
+  total?: number;
+}
+
 /** @deprecated Prefer order.materials — kept for backward compatibility */
 export interface OrderGarments {
   status: GarmentReceiveStatus;
@@ -600,6 +640,8 @@ export interface Order {
   garments?: OrderGarments;
   /** Garments, DTF transfers, and other inbound materials */
   materials?: OrderMaterials;
+  /** Finished piece counts after production (may differ from ordered) */
+  producedGoods?: OrderProducedGoods;
   lineItems: LineItem[];
   jobs: Job[];
   shipments: Shipment[];
@@ -627,6 +669,8 @@ export interface Order {
   /** Assigned sales rep — receives order notifications */
   salesRepId?: string;
   salesRepName?: string;
+  /** In-app invoice (PDF) metadata — QuickBooks remains optional separately */
+  invoice?: OrderInvoiceMeta;
   /** QuickBooks Online sync metadata for this order */
   quickbooks?: OrderQuickBooksSync;
 }

@@ -55,6 +55,8 @@ export const ORDER_STATUS_OPTIONS: { value: OrderStatus; label: string }[] = [
   { value: "in_production", label: "In production" },
   { value: "ready_to_ship", label: "Ready to ship" },
   { value: "shipped", label: "Shipped" },
+  { value: "ready_to_invoice", label: "Ready to invoice" },
+  { value: "invoice_sent", label: "Invoice sent" },
   { value: "completed", label: "Completed" },
 ];
 

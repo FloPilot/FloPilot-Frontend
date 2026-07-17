@@ -81,17 +81,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const resolveStaffSession = useCallback(
     async (token: string, generation: number) => {
       let me = await fetchMe(token);
-      if (me.type === "none" && !me.needsRegistration) {
-        const { tenants } = await listUserTenants(token);
-        if (tenants.length > 0) {
-          await apiSwitchTenant(token, tenants[0].tenantId);
-          const activeUser = user ?? getFirebaseAuth().currentUser;
-          const refreshedToken = await activeUser?.getIdToken(true);
-          if (refreshedToken) {
-            me = await fetchMe(refreshedToken);
+
+      // Always try binding an existing shop membership before treating the
+      // user as a new registrant — getMe can report needsRegistration when
+      // custom claims are stale even though listUserTenants has shops.
+      if (me.type === "none") {
+        try {
+          let { tenants } = await listUserTenants(token);
+          if (tenants.length === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 400));
+            ({ tenants } = await listUserTenants(token));
           }
+          if (tenants.length > 0) {
+            await apiSwitchTenant(token, tenants[0].tenantId);
+            const activeUser = user ?? getFirebaseAuth().currentUser;
+            const refreshedToken = await activeUser?.getIdToken(true);
+            if (refreshedToken) {
+              me = await fetchMe(refreshedToken);
+            }
+          }
+        } catch {
+          // Keep original getMe result if tenant lookup fails.
         }
       }
+
       applyProfile(me, generation);
       return me;
     },

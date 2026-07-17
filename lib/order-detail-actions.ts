@@ -1,7 +1,8 @@
 import type { OrderListSummary } from "@/lib/order-list-summary";
 import { isInProductionPhase } from "@/lib/order-approval";
 import { allMaterialsReceived } from "@/lib/order-materials";
-import { ORDER_STATUS_DESCRIPTIONS } from "@/lib/order-status";
+import { orderStatusDescription } from "@/lib/order-status";
+import { isWillCallOrder } from "@/lib/order-shipping";
 import { getArtworkApprovalSummary } from "@/lib/order-health";
 import type { Order, OrderStatus } from "@/types";
 
@@ -104,10 +105,15 @@ export function buildOrderSuggestedActions({
     summary.completedCount === summary.eventCount &&
     summary.eventCount > 0
   ) {
+    const willCall = isWillCallOrder(order.shipping, order.shipments ?? []);
     actions.push({
       id: "mark_ready_to_ship",
-      label: "Mark ready to ship",
-      description: "All decorations completed — pack it up",
+      label: willCall
+        ? "Mark waiting for customer pickup"
+        : "Mark ready to ship",
+      description: willCall
+        ? "All decorations completed — ready for customer pickup"
+        : "All decorations completed — pack it up",
       emphasis: "primary",
     });
   }
@@ -151,6 +157,9 @@ export function getPrimaryStatusAction(
   return actions.find((action) => action.emphasis === "primary" && !action.disabled);
 }
 
-export function orderStatusHint(status: OrderStatus): string {
-  return ORDER_STATUS_DESCRIPTIONS[status];
+export function orderStatusHint(
+  status: OrderStatus,
+  options?: { willCall?: boolean }
+): string {
+  return orderStatusDescription(status, options);
 }

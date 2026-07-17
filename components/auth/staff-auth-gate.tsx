@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
 
 export function StaffAuthGate({ children }: { children: React.ReactNode }) {
-  const { user, profile, loading, configured } = useAuth();
+  const { user, profile, loading, configured, refreshProfile } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const recoveryAttempted = useRef(false);
 
   useEffect(() => {
     if (loading) return;
@@ -20,13 +21,29 @@ export function StaffAuthGate({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (profile?.type === "staff") {
+      recoveryAttempted.current = false;
+      return;
+    }
+
     if (!profile || profile.type === "none") {
+      // Re-resolve tenants once — stale claims can look like "needs registration".
+      if (!recoveryAttempted.current) {
+        recoveryAttempted.current = true;
+        void refreshProfile(true).then((me) => {
+          if (me?.type === "staff") return;
+          if (me?.type === "none" && me.needsRegistration) {
+            router.replace("/register-shop");
+          }
+        });
+        return;
+      }
+
       if (profile?.needsRegistration) {
         router.replace("/register-shop");
       }
-      return;
     }
-  }, [user, profile, loading, configured, router, pathname]);
+  }, [user, profile, loading, configured, router, pathname, refreshProfile]);
 
   if (!configured) {
     return (

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { MockupPreview } from "@/components/orders/artwork/mockup-preview";
 import { EventReadinessPanel } from "@/components/orders/event-readiness-panel";
+import { OrderProducedGoodsPanel } from "@/components/orders/order-produced-goods-panel";
 import { FlowStepList } from "@/components/calendar/order-production-flow";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { RushBadge } from "@/components/status-badges";
@@ -200,6 +201,8 @@ export function ProductionEventSheet({
 
   const showArtworkBanner =
     imprint.artwork.name !== "n/a" && imprint.decoration !== "finishing";
+  const isFinishingEvent =
+    imprint.decoration === "finishing" || job.kind === "finishing";
 
   const closeAndOpenTab = (tab: OrderDetailTab) => {
     onOpenChange(false);
@@ -287,6 +290,10 @@ export function ProductionEventSheet({
               />
             </div>
           </div>
+
+          {isFinishingEvent ? (
+            <OrderProducedGoodsPanel order={order} compact />
+          ) : null}
 
           <div className={cn(dashboardCardClass, "overflow-hidden")}>
             <div className="border-b border-[#ebebeb] bg-[#fafafa] px-4 py-3">

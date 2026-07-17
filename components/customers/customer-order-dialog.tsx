@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { formatOrderDisplayLine } from "@/lib/order-display";
+import { isWillCallOrder } from "@/lib/order-shipping";
 import { resolveOrderFinancialsInContext } from "@/lib/order-financial-context";
 import { formatOrderBalanceLabel } from "@/lib/order-payment";
 import { countScheduledSteps } from "@/lib/order-production";
@@ -84,7 +85,10 @@ export function CustomerOrderDialog({
                 {order.company} · Created {formatDate(order.createdAt)}
               </DialogDescription>
             </div>
-            <OrderStatusBadge status={order.status} />
+            <OrderStatusBadge
+              status={order.status}
+              willCall={isWillCallOrder(order.shipping, order.shipments ?? [])}
+            />
           </div>
         </DialogHeader>
 

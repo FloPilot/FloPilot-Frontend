@@ -60,17 +60,32 @@ const SAMPLE_ROWS: Record<
   ],
 };
 
-function MetaBlock({ align = "right" }: { align?: "left" | "right" }) {
+function MetaBlock({
+  align = "right",
+  kind = "estimate",
+}: {
+  align?: "left" | "right";
+  kind?: "estimate" | "invoice";
+}) {
+  const isInvoice = kind === "invoice";
   return (
     <div className={cn("shrink-0", align === "right" ? "text-right" : "text-left")}>
       <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-[#616161]">
-        Estimate
+        {isInvoice ? "Invoice" : "Estimate"}
       </p>
       <p className="text-[14px] font-bold leading-tight">SO-1042</p>
       <p className="mt-0.5 text-[11px] font-semibold leading-snug text-[#303030]">
         Blue Hoodie
       </p>
       <p className="mt-1 text-[10px] text-[#616161]">
+        {isInvoice ? (
+          <>
+            Order: SO-1042
+            <br />
+            Estimate: SO-1042
+            <br />
+          </>
+        ) : null}
         Date: Mar 12, 2026
         <br />
         In hands: Mar 28, 2026
@@ -87,6 +102,7 @@ export function EstimateDocumentPreview({
   addressLines,
   primaryColor,
   logoUrl,
+  kind = "estimate",
 }: {
   document: EstimateDocumentSettings;
   shopName: string;
@@ -95,6 +111,7 @@ export function EstimateDocumentPreview({
   addressLines: string[];
   primaryColor: string;
   logoUrl?: string;
+  kind?: "estimate" | "invoice";
 }) {
   const accent = /^#[0-9A-Fa-f]{6}$/.test(primaryColor)
     ? primaryColor
@@ -151,7 +168,7 @@ export function EstimateDocumentPreview({
                 .join(" · ")}
             </p>
           </div>
-          <MetaBlock />
+          <MetaBlock kind={kind} />
         </div>
       );
     }
@@ -171,7 +188,7 @@ export function EstimateDocumentPreview({
               <p className="text-[15px] font-bold tracking-tight">{name}</p>
             )}
           </div>
-          <MetaBlock />
+          <MetaBlock kind={kind} />
         </div>
 
         {style === "branded" && contactBits.length > 0 ? (

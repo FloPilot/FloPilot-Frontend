@@ -64,6 +64,7 @@ import {
 } from "@/lib/dashboard-styles";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { formatOrderDisplayLine } from "@/lib/order-display";
+import { isWillCallOrder } from "@/lib/order-shipping";
 import { cn } from "@/lib/utils";
 import type { DashboardAttentionItem } from "@/lib/dashboard-insights";
 
@@ -435,7 +436,13 @@ export function ShopDashboard() {
                         </td>
                         <td className="px-3 py-2.5">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <OrderStatusBadge status={order.status} />
+                            <OrderStatusBadge
+                              status={order.status}
+                              willCall={isWillCallOrder(
+                                order.shipping,
+                                order.shipments ?? []
+                              )}
+                            />
                             {order.rush && <RushBadge />}
                           </div>
                         </td>

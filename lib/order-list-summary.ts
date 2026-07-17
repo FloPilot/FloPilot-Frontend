@@ -175,7 +175,11 @@ function orderStatusNextStep(order: Order): string {
     case "ready_to_ship":
       return "Production done — ready to ship";
     case "shipped":
-      return "Shipped to customer";
+      return "Shipped — mark delivered when received";
+    case "ready_to_invoice":
+      return "Ready to invoice — send bill and collect payment";
+    case "invoice_sent":
+      return "Invoice sent — waiting for payment";
     case "completed":
       return "Order complete";
     default:
@@ -220,6 +224,14 @@ function deriveNextStep({
 
   if (order.status === "ready_to_ship") {
     return "Ready to ship — production is done";
+  }
+
+  if (order.status === "ready_to_invoice") {
+    return "Ready to invoice — send bill and collect payment";
+  }
+
+  if (order.status === "invoice_sent") {
+    return "Invoice sent — waiting for payment";
   }
 
   if (

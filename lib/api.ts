@@ -11,10 +11,9 @@ import type { ReportDateRange } from "@/lib/reports/report-date-range";
 import type { SavedCustomReport } from "@/lib/reports/custom-report-builder";
 
 export function getApiBaseUrl() {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL;
-  if (!base) {
-    throw new Error("NEXT_PUBLIC_API_BASE_URL is not set in .env.local");
-  }
+  const base =
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    "https://us-central1-flopilot-499021.cloudfunctions.net";
   return base.replace(/\/$/, "");
 }
 
@@ -105,7 +104,7 @@ export type MeResponse = (
     }
   | {
       type: "none";
-      needsRegistration: true;
+      needsRegistration: boolean;
       email: string;
       name?: string;
     }
@@ -182,26 +181,27 @@ export async function fetchSupplierIntegrations(token: string) {
   );
 }
 
-export async function verifySupplierIntegration(
-  token: string,
-  provider: import("@/lib/supplier-integrations").SupplierProviderId
-) {
+export async function verifySsActivewearIntegration(token: string) {
   return callApi<{ integration: import("@/lib/supplier-integrations").SupplierIntegration }>(
-    "verifySupplierIntegration",
-    {
-      method: "POST",
-      body: { provider },
-      token,
-    }
+    "verifySsActivewearIntegration",
+    { method: "POST", body: {}, token }
   );
 }
 
-export async function verifySsActivewearIntegration(token: string) {
-  return verifySupplierIntegration(token, "ssActivewear");
+/** @deprecated Use verifySsActivewearIntegration */
+export async function verifySupplierIntegration(
+  token: string,
+  provider: import("@/lib/supplier-integrations").SupplierProviderId = "ssActivewear"
+) {
+  if (provider === "sanMar") return verifySanMarIntegration(token);
+  return verifySsActivewearIntegration(token);
 }
 
 export async function verifySanMarIntegration(token: string) {
-  return verifySupplierIntegration(token, "sanMar");
+  return callApi<{ integration: import("@/lib/supplier-integrations").SupplierIntegration }>(
+    "verifySanMarIntegration",
+    { method: "POST", body: {}, token }
+  );
 }
 
 export async function connectSsActivewearIntegration(
@@ -237,18 +237,26 @@ export async function connectSanMarIntegration(
   );
 }
 
+export async function disconnectSsActivewearIntegration(token: string) {
+  return callApi<{ integration: import("@/lib/supplier-integrations").SupplierIntegration }>(
+    "disconnectSsActivewearIntegration",
+    { method: "POST", body: {}, token }
+  );
+}
+
+export async function disconnectSanMarIntegration(token: string) {
+  return callApi<{ integration: import("@/lib/supplier-integrations").SupplierIntegration }>(
+    "disconnectSanMarIntegration",
+    { method: "POST", body: {}, token }
+  );
+}
+
 export async function disconnectSupplierIntegration(
   token: string,
   provider: import("@/lib/supplier-integrations").SupplierProviderId
 ) {
-  return callApi<{ integration: import("@/lib/supplier-integrations").SupplierIntegration }>(
-    "disconnectSupplierIntegration",
-    {
-      method: "POST",
-      body: { provider },
-      token,
-    }
-  );
+  if (provider === "sanMar") return disconnectSanMarIntegration(token);
+  return disconnectSsActivewearIntegration(token);
 }
 
 // ─── Accounting / QuickBooks ────────────────────────────────────────────────
@@ -354,15 +362,16 @@ export async function searchSupplierCatalog(
   } = {}
 ) {
   const provider = options.provider ?? "ssActivewear";
+  const fn =
+    provider === "sanMar" ? "searchSanMarCatalog" : "searchSupplierCatalog";
   return callApi<{
     provider: string;
     query: string;
     brand: string | null;
     results: import("@/lib/supplier-integrations").SupplierStyleSummary[];
-  }>("searchSupplierCatalog", {
+  }>(fn, {
     token,
     query: {
-      provider,
       q: query,
       brand: options.brand || undefined,
       limit: options.limit != null ? String(options.limit) : undefined,
@@ -374,13 +383,11 @@ export async function fetchSupplierBrands(
   token: string,
   provider: import("@/lib/supplier-integrations").SupplierProviderId = "ssActivewear"
 ) {
+  const fn = provider === "sanMar" ? "listSanMarBrands" : "listSupplierBrands";
   return callApi<{
     provider: string;
     brands: import("@/lib/supplier-integrations").SupplierBrand[];
-  }>("listSupplierBrands", {
-    token,
-    query: { provider },
-  });
+  }>(fn, { token });
 }
 
 export async function fetchSupplierStyleDetail(
@@ -388,13 +395,14 @@ export async function fetchSupplierStyleDetail(
   style: import("@/lib/supplier-integrations").SupplierStyleSummary,
   provider: import("@/lib/supplier-integrations").SupplierProviderId = "ssActivewear"
 ) {
+  const fn =
+    provider === "sanMar" ? "getSanMarStyleDetail" : "getSupplierStyleDetail";
   return callApi<{
     provider: string;
     style: import("@/lib/supplier-integrations").SupplierStyleDetail;
-  }>("getSupplierStyleDetail", {
+  }>(fn, {
     token,
     query: {
-      provider,
       styleRef: supplierStyleRef(style),
       styleId: style.styleId != null ? String(style.styleId) : undefined,
       brandName: style.brandName || undefined,
@@ -1210,6 +1218,29 @@ export async function updateOrderMaterials(
   });
 }
 
+export async function updateOrderProducedGoods(
+  token: string,
+  orderId: string,
+  producedGoods: import("@/types").OrderProducedGoods
+) {
+  return callApi<{ order: Order }>("updateOrderProducedGoods", {
+    method: "POST",
+    body: { orderId, producedGoods },
+    token,
+  });
+}
+
+export async function sendInvoice(token: string, orderId: string) {
+  return callApi<{
+    order: Order;
+    email: { sent: boolean; to: string };
+  }>("sendInvoice", {
+    method: "POST",
+    token,
+    body: { orderId },
+  });
+}
+
 export async function listDesigns(
   token: string,
   query?: { customerId?: string; search?: string }
@@ -1354,7 +1385,7 @@ export async function getOrderCustomerPortalLink(
   });
 }
 
-export type OrderDocumentScope = "all" | "estimate" | "proofs";
+export type OrderDocumentScope = "all" | "estimate" | "proofs" | "invoice";
 
 export async function previewOrderDocument(
   token: string,

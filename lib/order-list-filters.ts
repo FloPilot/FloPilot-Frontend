@@ -14,9 +14,14 @@ export const ACTIVE_ORDER_STATUSES: OrderStatus[] = [
   "approved",
   "in_production",
   "ready_to_ship",
+  "ready_to_invoice",
+  "invoice_sent",
 ];
 
-export const HISTORICAL_ORDER_STATUSES: OrderStatus[] = ["shipped", "completed"];
+export const HISTORICAL_ORDER_STATUSES: OrderStatus[] = [
+  "shipped",
+  "completed",
+];
 
 /** @deprecated Use isHistoricalOrder */
 export const PREVIOUS_ORDER_STATUSES = HISTORICAL_ORDER_STATUSES;

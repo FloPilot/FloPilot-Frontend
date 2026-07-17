@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   BookOpen,
   CheckCircle2,
-  ExternalLink,
   Loader2,
   RefreshCw,
   Send,
@@ -192,43 +190,9 @@ export function OrderQuickBooksPanel({
     }
   };
 
-  if (loading) {
-    return (
-      <section className={cn(dashboardCardClass, "px-4 py-4")}>
-        <div className="flex items-center gap-2 text-sm text-[#616161]">
-          <Loader2 className="size-4 animate-spin" />
-          Checking QuickBooks…
-        </div>
-      </section>
-    );
-  }
-
-  if (!connected) {
-    return (
-      <section className={cn(dashboardCardClass, "px-4 py-4")}>
-        <div className="flex items-start gap-3">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#eef6f0] text-[#2d6a4f]">
-            <BookOpen className="size-4" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-[13px] font-semibold text-[#303030]">
-              QuickBooks
-            </p>
-            <p className={cn(dashboardTaskDetailClass, "mt-0.5")}>
-              Connect Accounting to push this order as an estimate or invoice.
-            </p>
-            <Link
-              href="/app/settings/integrations/accounting"
-              className="mt-2 inline-flex items-center gap-1 text-[12px] font-medium text-[#2c6ecb] hover:underline"
-            >
-              Open Accounting settings
-              <ExternalLink className="size-3" />
-            </Link>
-          </div>
-        </div>
-      </section>
-    );
-  }
+  // Keep order screens focused unless this shop has explicitly connected
+  // QuickBooks. Settings remains the single place to discover/connect it.
+  if (loading || !connected) return null;
 
   const hasSyncedDocs = Boolean(sync?.estimateId || sync?.invoiceId);
 

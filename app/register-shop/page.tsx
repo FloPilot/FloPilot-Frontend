@@ -70,7 +70,7 @@ async function resolveAccountAdminName({
 }
 
 function RegisterShopForm() {
-  const { user, profile, getIdToken, refreshProfile } = useAuth();
+  const { user, profile, getIdToken, refreshProfile, switchShop } = useAuth();
   const router = useRouter();
 
   const [shopName, setShopName] = useState("");
@@ -78,6 +78,7 @@ function RegisterShopForm() {
   const [slugTouched, setSlugTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [checkingExisting, setCheckingExisting] = useState(true);
 
   const suggestedSlug = useMemo(() => slugifyShopName(shopName), [shopName]);
 
@@ -86,6 +87,53 @@ function RegisterShopForm() {
       router.replace("/login?next=/register-shop");
     }
   }, [user, router]);
+
+  // Existing members should never see create-shop — send them into their workspace.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function redirectIfAlreadyInShop() {
+      if (!user) {
+        setCheckingExisting(false);
+        return;
+      }
+
+      try {
+        if (profile?.type === "staff") {
+          router.replace("/app/dashboard");
+          return;
+        }
+
+        const me = await refreshProfile(true);
+        if (cancelled) return;
+        if (me?.type === "staff") {
+          router.replace("/app/dashboard");
+          return;
+        }
+
+        const token = await getIdToken(true);
+        if (!token || cancelled) return;
+        const { tenants } = await listUserTenants(token);
+        if (cancelled) return;
+        if (tenants.length > 0) {
+          if (switchShop) {
+            await switchShop(tenants[0].tenantId);
+          }
+          router.replace("/app/dashboard");
+          return;
+        }
+      } catch {
+        /* show form if lookup fails */
+      } finally {
+        if (!cancelled) setCheckingExisting(false);
+      }
+    }
+
+    void redirectIfAlreadyInShop();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, profile?.type, refreshProfile, getIdToken, router, switchShop]);
 
   useEffect(() => {
     if (slugTouched) return;
@@ -132,10 +180,10 @@ function RegisterShopForm() {
     }
   }
 
-  if (!user) {
+  if (!user || checkingExisting) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white text-sm text-brand-muted">
-        Redirecting to sign in…
+        {!user ? "Redirecting to sign in…" : "Checking your workspace…"}
       </div>
     );
   }

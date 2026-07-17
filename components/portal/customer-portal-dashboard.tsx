@@ -56,6 +56,8 @@ function AttentionCard({
   const href =
     item.type === "artwork" && item.jobId && item.imprintId
       ? `${portalOrderPath(token, item.orderId)}?focus=${encodeURIComponent(`${item.jobId}:${item.imprintId}`)}`
+      : item.type === "invoice"
+        ? portalOrderPath(token, item.orderId, { view: "invoice" })
       : portalOrderPath(token, item.orderId);
 
   return (
@@ -65,7 +67,11 @@ function AttentionCard({
     >
       <div className="min-w-0">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a6116]">
-          {item.type === "estimate" ? "Estimate" : "Artwork approval"}
+          {item.type === "estimate"
+            ? "Estimate"
+            : item.type === "invoice"
+              ? "Invoice"
+              : "Artwork approval"}
         </p>
         <p className="mt-1 truncate text-[14px] font-semibold text-[#303030]">
           {formatOrderRef(item)} · {item.title}
@@ -96,7 +102,9 @@ function OrderRow({
 }) {
   return (
     <Link
-      href={portalOrderPath(token, order.id)}
+      href={portalOrderPath(token, order.id, {
+        view: order.invoiceSentAt ? "invoice" : undefined,
+      })}
       className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_auto] items-center gap-3 border-b border-[#f1f1f1] px-4 py-3.5 text-[13px] transition-colors last:border-b-0 hover:bg-[#fafafa]"
     >
       <div>
@@ -104,6 +112,10 @@ function OrderRow({
         {order.needsApproval ? (
           <p className="mt-0.5 text-[11px] font-medium text-[#8a6116]">
             Needs your review
+          </p>
+        ) : order.invoiceSentAt ? (
+          <p className="mt-0.5 text-[11px] font-medium text-[#2c6ecb]">
+            Invoice available
           </p>
         ) : null}
       </div>
@@ -186,7 +198,8 @@ export function CustomerPortalDashboardView() {
           Welcome back{dashboard?.customer?.name ? `, ${dashboard.customer.name.split(" ")[0]}` : ""}
         </h1>
         <p className="mt-1 max-w-2xl text-[14px] text-[#616161]">
-          Track orders, review proofs, and approve estimates — all in one place.
+          Track orders, review proofs, approve estimates, and view invoices — all
+          in one place.
         </p>
       </div>
 
@@ -246,7 +259,8 @@ export function CustomerPortalDashboardView() {
                 Your orders
               </h2>
               <p className="text-[12px] text-[#8a8a8a]">
-                Click an order to review proofs, approve estimates, or message the shop.
+                Click an order to review proofs, approve estimates, view invoices,
+                or message the shop.
               </p>
             </div>
           </div>

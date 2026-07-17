@@ -10,6 +10,11 @@ import {
   resolveLineItemCustomerUnitPrice,
   shouldShowBlankPricing,
 } from "@/lib/blank-pricing";
+import {
+  mergeOrderProducedGoods,
+  orderWithProducedQuantities,
+  producedGoodsAreRecorded,
+} from "@/lib/order-produced-goods";
 
 export type EstimateRowKind = "garment" | "decoration" | "fee";
 
@@ -234,4 +239,28 @@ export function resolveOrderFinancials(
     paid: totals.paid,
     balance: totals.balance,
   };
+}
+
+/**
+ * Invoice totals using produced goods quantities.
+ * Garment and decoration lines scale with produced pcs; setup-style fees stay as estimate.
+ */
+export function computeInvoiceTotals(
+  order: Order,
+  taxRate: number,
+  pricingMatrix?: PricingMatrix,
+  customer?: Customer | null
+): EstimateTotals {
+  const billingOrder = orderWithProducedQuantities(order);
+  return computeEstimateTotals(
+    billingOrder,
+    taxRate,
+    pricingMatrix,
+    customer
+  );
+}
+
+export function invoiceReadyForBilling(order: Order): boolean {
+  const produced = mergeOrderProducedGoods(order);
+  return produced.lines.length > 0 && producedGoodsAreRecorded(produced);
 }
