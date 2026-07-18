@@ -74,7 +74,10 @@ export function ScreensDepartmentPanel() {
     [filtered]
   );
 
-  const saveScreenPrepDue = async (orderId: string, prepDueAt: string) => {
+  const saveScreenPrepDue = async (
+    orderId: string,
+    prepDueAt: string | undefined
+  ) => {
     const order = orders.find((entry) => entry.id === orderId);
     if (!order) return;
     setSavingId(orderId);

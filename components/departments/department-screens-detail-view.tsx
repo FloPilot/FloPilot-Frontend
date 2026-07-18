@@ -162,7 +162,7 @@ export function DepartmentScreensDetailView({ orderId }: { orderId: string }) {
     }
   };
 
-  const saveScreenPrepDue = async (value: string) => {
+  const saveScreenPrepDue = async (value: string | undefined) => {
     if (!order || !materials || !screenLine) return;
     setSaving(true);
     try {
