@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeft, Layers3, Loader2, RefreshCw } from "lucide-react";
 import { CustomerReviewFlow } from "@/components/review/customer-review-flow";
 import { CustomerPortalInvoicePanel } from "@/components/portal/customer-portal-invoice-panel";
 import { useCustomerPortal } from "@/components/portal/customer-portal-provider";
 import {
   fetchCustomerPortalOrder,
   portalHomePath,
+  portalOrderPath,
   portalStatusLabel,
   portalStatusTone,
   reactivatePortalUrl,
@@ -171,6 +172,50 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
         </span>
       </div>
 
+      {session.order.productionRun?.members?.length ? (
+        <section className="overflow-hidden rounded-2xl border border-[#d7e7dc] bg-white shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f4faf6] px-4 py-3 sm:px-5">
+            <div className="flex items-center gap-2">
+              <Layers3 className="size-4 text-[#2d6a4f]" />
+              <div>
+                <p className="text-[13px] font-semibold text-[#245c3c]">
+                  Produced as a multi-job run
+                </p>
+                <p className="text-[12px] text-[#52705d]">
+                  These orders run together to qualify for combined-quantity
+                  pricing.
+                </p>
+              </div>
+            </div>
+            <p className="text-[14px] font-semibold tabular-nums text-[#245c3c]">
+              {session.order.productionRun.combinedQuantity.toLocaleString()} pcs
+              combined
+            </p>
+          </div>
+          <div className="divide-y divide-[#f0f0f0]">
+            {session.order.productionRun.members.map((member) => (
+              <div
+                key={member.orderId}
+                className="flex items-center justify-between gap-3 px-4 py-2.5 text-[12px] sm:px-5"
+              >
+                <Link
+                  href={portalOrderPath(token, member.orderId)}
+                  className="min-w-0 truncate font-medium hover:underline"
+                  style={{ color: accent }}
+                >
+                  {member.orderNumber}
+                  {member.customLabel ? ` — ${member.customLabel}` : ""}
+                  {member.orderId === orderId ? " (this order)" : ""}
+                </Link>
+                <span className="shrink-0 tabular-nums text-[#616161]">
+                  {member.quantity.toLocaleString()} pcs
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       {invoice ? (
         <div className="inline-flex rounded-xl border border-[#e3e3e3] bg-white p-1 shadow-sm">
           <button
@@ -213,6 +258,7 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
           shopEmail={session.shop?.email}
           shopName={session.shop?.name}
           highlight={focusInvoice}
+          productionRun={session.order.productionRun}
         />
       ) : null}
 

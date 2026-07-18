@@ -160,6 +160,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
   const {
     getOrderById,
     getCustomerById,
+    orders,
     scheduleBlocks,
     machines,
     jobRuns,
@@ -169,6 +170,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     updateOrderCustomLabel,
     updateOrderEndBusiness,
     updateOrderSalesRep,
+    updateOrderProductionRun,
     sendProofsAndEstimate,
     shopDataLoading,
   } = useSchedule();
@@ -345,6 +347,10 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
         }
         onSalesRepSave={(salesRepId) =>
           updateOrderSalesRep(order.id, salesRepId)
+        }
+        orders={orders}
+        onProductionRunSave={(linkedOrderIds) =>
+          updateOrderProductionRun(order.id, linkedOrderIds)
         }
         onCustomLabelSave={(customLabel) =>
           updateOrderCustomLabel(order.id, customLabel)

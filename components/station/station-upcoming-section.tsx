@@ -84,41 +84,43 @@ export function StationUpcomingSection({
         </div>
       </div>
 
-      {upcoming.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-6 py-12 text-center">
-          <p className="text-sm text-[#616161]">
-            Schedule work from the{" "}
-            <span className="font-medium text-[#2c6ecb]">
-              production calendar
-            </span>
-            .
-          </p>
-        </div>
-      ) : view === "list" ? (
-        <div className="space-y-6">
-          {grouped.map((group) => (
-            <div key={group.label}>
-              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#616161]">
-                {group.label}
-              </h3>
-              <div className="space-y-3">
-                {group.items.map(({ block, run }) => (
-                  <div key={block.id} className="relative">
-                    <div className="absolute right-3.5 top-3.5 z-10">
-                      <StationRunStatusBadge status={run.status} />
+      {view === "list" ? (
+        upcoming.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-6 py-12 text-center">
+            <p className="text-sm text-[#616161]">
+              Schedule work from the{" "}
+              <span className="font-medium text-[#2c6ecb]">
+                production calendar
+              </span>
+              .
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {grouped.map((group) => (
+              <div key={group.label}>
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#616161]">
+                  {group.label}
+                </h3>
+                <div className="space-y-3">
+                  {group.items.map(({ block, run }) => (
+                    <div key={block.id} className="relative">
+                      <div className="absolute right-3.5 top-3.5 z-10">
+                        <StationRunStatusBadge status={run.status} />
+                      </div>
+                      <StationJobCard
+                        block={block}
+                        color={machine.color}
+                        onOpenOrder={onOpenOrder}
+                        onEditSchedule={onEditSchedule}
+                      />
                     </div>
-                    <StationJobCard
-                      block={block}
-                      color={machine.color}
-                      onOpenOrder={onOpenOrder}
-                      onEditSchedule={onEditSchedule}
-                    />
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )
       ) : (
         <div className={dashboardCardClass}>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebebeb] px-4 py-3 sm:px-5">

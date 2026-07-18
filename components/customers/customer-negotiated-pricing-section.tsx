@@ -23,6 +23,7 @@ import {
   rateSheetSummary,
   sortRateSheets,
 } from "@/lib/customer-pricing";
+import { syncLocationBundleInMethods } from "@/lib/pricing-location-bundle";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -122,6 +123,7 @@ export function CustomerNegotiatedPricingSection({
       ...sheetDraft,
       name: trimmedName,
       notes: sheetDraft.notes?.trim() || "",
+      methods: syncLocationBundleInMethods(sheetDraft.methods ?? []),
       updatedAt: new Date().toISOString(),
     };
 

@@ -11,8 +11,16 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  LabeledSelectValue,
 } from "@/components/ui/select";
 import { parsePricingCsv, type ParsedPricingGrid } from "@/lib/pricing-csv";
+import {
+  isLocationsMetaColumn,
+  resolveIncludedLocations,
+  resolveLocationChargeMode,
+  syncLocationBundleToMethod,
+  type LocationChargeMode,
+} from "@/lib/pricing-location-bundle";
 import { DECORATION_TYPE_OPTIONS, decorationLabel } from "@/lib/format";
 import {
   inferPricingDecorationType,
@@ -21,6 +29,14 @@ import {
 } from "@/lib/shop-settings";
 import type { DecorationType } from "@/types";
 import { cn } from "@/lib/utils";
+
+const LOCATION_CHARGE_OPTIONS: {
+  value: LocationChargeMode;
+  label: string;
+}[] = [
+  { value: "per_imprint", label: "Charge each location separately" },
+  { value: "bundled", label: "Up to N locations in one charge" },
+];
 
 function newMethodId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -68,6 +84,14 @@ export function PricingMatrixEditor({
       ...value,
       methods: value.methods.map((method) =>
         method.id === id ? { ...method, ...patch } : method
+      ),
+    });
+
+  const replaceMethod = (id: string, next: PricingMethod) =>
+    onChange({
+      ...value,
+      methods: value.methods.map((method) =>
+        method.id === id ? next : method
       ),
     });
 
@@ -298,8 +322,10 @@ export function PricingMatrixEditor({
         <Info className="mt-0.5 size-4 shrink-0 text-brand-primary" />
         <p>
           Upload a CSV where the first column is quantity and each remaining
-          column is a price option (for example, number of print colors). The
-          highest tier whose minimum quantity is met is used.
+          column is a price option (for example, number of print colors). A
+          column named Locations is read as included print-location count, not
+          a dollar price. The highest tier whose minimum quantity is met is
+          used.
         </p>
       </div>
 
@@ -443,6 +469,87 @@ export function PricingMatrixEditor({
                     />
                   </div>
                 </div>
+
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label>Location pricing</Label>
+                    <Select
+                      value={resolveLocationChargeMode(method)}
+                      disabled={disabled}
+                      onValueChange={(next) => {
+                        const mode = next as LocationChargeMode;
+                        const included =
+                          resolveIncludedLocations(method) ?? 3;
+                        replaceMethod(
+                          method.id,
+                          syncLocationBundleToMethod(method, mode, included)
+                        );
+                      }}
+                    >
+                      <SelectTrigger className="h-9">
+                        <LabeledSelectValue
+                          value={resolveLocationChargeMode(method)}
+                          options={LOCATION_CHARGE_OPTIONS}
+                          placeholder="Location pricing"
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LOCATION_CHARGE_OPTIONS.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-[11px] leading-relaxed text-[#8a8a8a]">
+                      Use bundled when a negotiated rate includes multiple
+                      print locations (e.g. front, back, and neck label) as
+                      one decoration charge on the estimate.
+                    </p>
+                  </div>
+                  {resolveLocationChargeMode(method) === "bundled" ? (
+                    <div className="space-y-2">
+                      <Label>Locations included</Label>
+                      <Input
+                        type="number"
+                        min={1}
+                        max={12}
+                        value={resolveIncludedLocations(method) ?? 3}
+                        disabled={disabled}
+                        onChange={(event) => {
+                          const included = Math.max(
+                            1,
+                            Math.min(12, Number(event.target.value) || 1)
+                          );
+                          replaceMethod(
+                            method.id,
+                            syncLocationBundleToMethod(
+                              method,
+                              "bundled",
+                              included
+                            )
+                          );
+                        }}
+                        className="h-9"
+                      />
+                      <p className="text-[11px] text-[#8a8a8a]">
+                        Extra locations beyond this still bill separately.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+
+                {method.columns.some(isLocationsMetaColumn) ? (
+                  <div className="flex gap-2.5 rounded-lg border border-[#c4d7f2] bg-[#f4f7fd] px-3.5 py-3 text-[12px] leading-relaxed text-[#315f9e]">
+                    <Info className="mt-0.5 size-4 shrink-0" />
+                    <p>
+                      A <span className="font-semibold">Locations</span> column
+                      stores the included count (not a dollar price) so this
+                      setting saves with the sheet. Leave it in place when using
+                      bundled location pricing.
+                    </p>
+                  </div>
+                ) : null}
 
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">

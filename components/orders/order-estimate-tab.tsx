@@ -22,6 +22,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { decorationLabel, formatCurrency } from "@/lib/format";
+import { isLocationsMetaColumn } from "@/lib/pricing-location-bundle";
 import { formatOrderDisplayLine } from "@/lib/order-display";
 import {
   customerHasNegotiatedPricing,
@@ -224,7 +225,10 @@ export function OrderEstimateTab({ order }: { order: Order }) {
 
         <div className="space-y-4 p-4 sm:p-5">
           <OrderEstimatePricingPanel order={order} customer={customer} />
-          <StaffEstimateBreakdownTable totals={totals} />
+          <StaffEstimateBreakdownTable
+            totals={totals}
+            productionRun={order.productionRun}
+          />
         </div>
       </section>
 
@@ -471,10 +475,14 @@ function EstimateDataRow({
         {row.qty}
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-[#616161]">
-        {formatCurrency(row.unitCost)}
+        {row.includedInBundle ? "—" : formatCurrency(row.unitCost)}
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums font-medium text-[#303030]">
-        {formatCurrency(row.lineTotal)}
+        {row.includedInBundle ? (
+          <span className="font-normal text-[#8a8a8a]">Included</span>
+        ) : (
+          formatCurrency(row.lineTotal)
+        )}
       </td>
     </tr>
   );
@@ -587,13 +595,17 @@ function DtfCostBreakdown({
                   <div className="flex justify-between gap-3">
                     <dt>Per piece</dt>
                     <dd className={cn("font-semibold tabular-nums", accent.priceText)}>
-                      {formatCurrency(entry.unitPrice)}
+                      {entry.bundledIncluded
+                        ? "Included"
+                        : formatCurrency(entry.unitPrice)}
                     </dd>
                   </div>
                   <div className="flex justify-between gap-3 border-t border-[#f0f0f0] pt-1.5">
                     <dt className="font-medium text-[#303030]">Line total</dt>
                     <dd className="font-semibold tabular-nums text-[#303030]">
-                      {formatCurrency(lineTotal)}
+                      {entry.bundledIncluded
+                        ? "—"
+                        : formatCurrency(lineTotal)}
                     </dd>
                   </div>
                 </dl>
@@ -696,13 +708,21 @@ function AppliedPricingCallout({
             </div>
             <p className="mt-1.5 text-[12px] text-[#616161]">
               {formatPricingHighlightSummary(entry)} ·{" "}
-              <span className={cn("font-semibold", accent.priceText)}>
-                {formatCurrency(entry.unitPrice)}
-              </span>{" "}
-              / pc
+              {entry.bundledIncluded ? (
+                <span className="font-semibold text-[#8a8a8a]">Included</span>
+              ) : (
+                <>
+                  <span className={cn("font-semibold", accent.priceText)}>
+                    {formatCurrency(entry.unitPrice)}
+                  </span>{" "}
+                  / pc
+                </>
+              )}
             </p>
             <p className="mt-0.5 text-[11px] text-[#8a8a8a]">
-              {entry.methodName} · {entry.qtyLabel} tier · {entry.columnLabel}
+              {entry.bundledIncluded
+                ? `${entry.methodName} · included in location rate`
+                : `${entry.methodName} · ${entry.qtyLabel} tier · ${entry.columnLabel}`}
             </p>
           </div>
           );
@@ -812,13 +832,15 @@ function PricingMethodTable({
                     </span>
                   ) : null}
                 </td>
-                {method.columns.map((_, colIdx) => {
+                {method.columns.map((col, colIdx) => {
                   const stepIndices = getStepIndices(rowIdx, colIdx);
                   const active = stepIndices.length > 0;
                   const multi = stepIndices.length > 1;
                   const accent = active
                     ? getPricingStepAccent(stepIndices[0])
                     : null;
+                  const isLocationsCol = isLocationsMetaColumn(col);
+                  const cellValue = row.prices[colIdx] ?? 0;
                   return (
                     <td
                       key={colIdx}
@@ -852,7 +874,9 @@ function PricingMethodTable({
                           ))}
                         </div>
                       ) : null}
-                      {formatCurrency(row.prices[colIdx] ?? 0)}
+                      {isLocationsCol
+                        ? String(Math.floor(Number(cellValue) || 0))
+                        : formatCurrency(cellValue)}
                     </td>
                   );
                 })}

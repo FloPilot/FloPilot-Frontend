@@ -31,6 +31,7 @@ import {
   shopRateSheetSummary,
   sortShopRateSheets,
 } from "@/lib/shop-pricing";
+import { syncLocationBundleInMethods } from "@/lib/pricing-location-bundle";
 import {
   matrixFromShopPricingRateSheet,
   normalizeShopPricingRateSheetList,
@@ -124,6 +125,7 @@ export function PricingSection() {
       ...sheetDraft,
       name: trimmedName,
       notes: sheetDraft.notes?.trim() || "",
+      methods: syncLocationBundleInMethods(sheetDraft.methods ?? []),
       updatedAt: new Date().toISOString(),
     };
 

@@ -255,7 +255,10 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
         </div>
 
         <div className="space-y-4 p-4 sm:p-5">
-          <StaffEstimateBreakdownTable totals={invoiceTotals} />
+          <StaffEstimateBreakdownTable
+            totals={invoiceTotals}
+            productionRun={order.productionRun}
+          />
         </div>
       </section>
 

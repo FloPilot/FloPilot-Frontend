@@ -22,7 +22,8 @@ import { cn } from "@/lib/utils";
 
 export function DepartmentsOverview() {
   const { settings } = useShopSettings();
-  const { orders, scheduleBlocks, productionBoardTasks } = useSchedule();
+  const { orders, scheduleBlocks, productionBoardTasks, machines, jobRuns } =
+    useSchedule();
 
   const counts = useMemo(
     () =>
@@ -30,8 +31,10 @@ export function DepartmentsOverview() {
         orders,
         scheduleBlocks,
         productionBoardTasks,
+        machines,
+        jobRuns,
       }),
-    [orders, scheduleBlocks, productionBoardTasks]
+    [orders, scheduleBlocks, productionBoardTasks, machines, jobRuns]
   );
 
   const visibleDepartments = DEPARTMENT_DEFINITIONS.filter(
@@ -47,7 +50,7 @@ export function DepartmentsOverview() {
   return (
     <DepartmentsShell
       title="Department overview"
-      description="Each department has its own queue — artwork proofs, screen burning, ink prep, finishing, and receiving. Open a tab to work through what's waiting."
+      description="Each department has its own queue — artwork, screens, inks, production stations, finishing, and receiving. Open a tab to work through what's waiting."
     >
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {visibleDepartments.map((dept) => {

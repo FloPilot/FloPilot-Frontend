@@ -332,6 +332,30 @@ export function getScreenSetupLine(
   return materials.lines.find((line) => line.kind === "screen_setup");
 }
 
+/** Mark the screen_setup line burned / not burned. */
+export function withScreenSetupBurnStatus(
+  materials: OrderMaterials,
+  burned: boolean
+): OrderMaterials {
+  const screenLine = getScreenSetupLine(materials);
+  if (!screenLine) return materials;
+  return {
+    ...materials,
+    lines: materials.lines.map((line) =>
+      line.id === screenLine.id
+        ? {
+            ...line,
+            expectedQty: 1,
+            receivedQty: burned ? 1 : 0,
+            status: burned
+              ? ("received" as const)
+              : ("waiting" as const),
+          }
+        : line
+    ),
+  };
+}
+
 export function getInkPrepLines(
   materials: OrderMaterials
 ): OrderMaterialLine[] {

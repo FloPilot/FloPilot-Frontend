@@ -10,7 +10,14 @@ import {
 } from "@/lib/estimate-breakdown";
 import type { EstimateTotals } from "@/lib/order-estimate";
 import { feeCategoryLabel } from "@/lib/estimate-fee-categories";
+import { productionRunMemberLabel } from "@/lib/order-production-run";
+import type { OrderProductionRun } from "@/types";
 import { cn } from "@/lib/utils";
+
+type ProductionRunSummary = Pick<
+  OrderProductionRun,
+  "id" | "members" | "combinedQuantity"
+>;
 
 function SectionHeader({
   label,
@@ -64,6 +71,7 @@ function DataRow({
   badge,
   compact,
   highlight,
+  includedInBundle,
 }: {
   description: string;
   detail?: string;
@@ -73,6 +81,7 @@ function DataRow({
   badge?: string;
   compact?: boolean;
   highlight?: boolean;
+  includedInBundle?: boolean;
 }) {
   return (
     <tr
@@ -103,10 +112,14 @@ function DataRow({
       ) : null}
       <td className="px-3 py-2.5 text-right tabular-nums text-[#303030]">{qty}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-[#616161]">
-        {formatCurrency(unitCost)}
+        {includedInBundle ? "—" : formatCurrency(unitCost)}
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums font-medium text-[#303030]">
-        {formatCurrency(lineTotal)}
+        {includedInBundle ? (
+          <span className="font-normal text-[#8a8a8a]">Included</span>
+        ) : (
+          formatCurrency(lineTotal)
+        )}
       </td>
     </tr>
   );
@@ -198,8 +211,10 @@ function TotalsFooter({
 
 export function StaffEstimateBreakdownTable({
   totals,
+  productionRun,
 }: {
   totals: EstimateTotals;
+  productionRun?: ProductionRunSummary;
 }) {
   const { settings } = useShopSettings();
   const sections = groupEstimateSections(
@@ -220,6 +235,9 @@ export function StaffEstimateBreakdownTable({
           </tr>
         </thead>
         <tbody>
+          {productionRun?.members && productionRun.members.length > 1 ? (
+            <ProductionRunRows productionRun={productionRun} />
+          ) : null}
           {sections.length > 0 ? (
             sections.map((section) => (
               <SectionRows key={section.key} section={section} />
@@ -248,6 +266,63 @@ export function StaffEstimateBreakdownTable({
   );
 }
 
+function ProductionRunRows({
+  productionRun,
+  compact = false,
+}: {
+  productionRun: ProductionRunSummary;
+  compact?: boolean;
+}) {
+  return (
+    <>
+      <tr className="border-t border-[#cfe3d6] bg-[#f4faf6]">
+        <td
+          colSpan={compact ? 1 : 2}
+          className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[#245c3c]"
+        >
+          Multi-job run
+          <span className="ml-2 font-normal normal-case tracking-normal text-[#52705d]">
+            Combined quantity sets the unit-price tier
+          </span>
+        </td>
+        <td
+          colSpan={3}
+          className="px-3 py-2 text-right text-[11px] font-semibold tabular-nums text-[#245c3c]"
+        >
+          {productionRun.combinedQuantity.toLocaleString()} pcs combined
+        </td>
+      </tr>
+      {productionRun.members.map((member) => (
+        <tr
+          key={member.orderId}
+          className="border-t border-[#e4eee7] bg-[#fbfdfb] align-top"
+        >
+          <td className="px-3 py-2.5">
+            <p className="font-medium text-[#303030]">
+              {productionRunMemberLabel(member)}
+            </p>
+            {compact ? (
+              <p className="text-[11px] text-[#6b7d70]">
+                Included in combined pricing quantity
+              </p>
+            ) : null}
+          </td>
+          {!compact ? (
+            <td className="hidden px-3 py-2.5 text-[12px] text-[#6b7d70] sm:table-cell">
+              Included in combined pricing quantity
+            </td>
+          ) : null}
+          <td className="px-3 py-2.5 text-right tabular-nums text-[#303030]">
+            {member.quantity.toLocaleString()}
+          </td>
+          <td className="px-3 py-2.5 text-right text-[#a0a0a0]">—</td>
+          <td className="px-3 py-2.5 text-right text-[#a0a0a0]">—</td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
 function SectionRows({
   section,
 }: {
@@ -264,8 +339,11 @@ function SectionRows({
           qty={row.qty}
           unitCost={row.unitCost}
           lineTotal={row.lineTotal}
+          includedInBundle={row.includedInBundle}
           badge={
-            row.kind === "fee" && row.feeCategory
+            row.kind === "decoration" && row.detail.includes("combined pcs")
+              ? "Combined tier"
+              : row.kind === "fee" && row.feeCategory
               ? feeCategoryLabel(row.feeCategory)
               : undefined
           }
@@ -287,6 +365,7 @@ export function CustomerEstimateBreakdownTable({
   paid,
   balance,
   accentColor,
+  productionRun,
 }: {
   rows: ReviewEstimateRow[];
   garmentSubtotal: number;
@@ -298,6 +377,7 @@ export function CustomerEstimateBreakdownTable({
   paid: number;
   balance: number;
   accentColor?: string;
+  productionRun?: ProductionRunSummary;
 }) {
   const sections = groupReviewEstimateSections({
     rows,
@@ -317,6 +397,9 @@ export function CustomerEstimateBreakdownTable({
           </tr>
         </thead>
         <tbody>
+          {productionRun?.members && productionRun.members.length > 1 ? (
+            <ProductionRunRows productionRun={productionRun} compact />
+          ) : null}
           {sections.map((section) => (
             <Fragment key={section.key}>
               <SectionHeader
@@ -332,8 +415,12 @@ export function CustomerEstimateBreakdownTable({
                   qty={row.qty}
                   unitCost={row.unitCost}
                   lineTotal={row.lineTotal}
+                  includedInBundle={row.includedInBundle}
                   badge={
-                    row.kind === "fee" && row.feeCategory
+                    row.kind === "decoration" &&
+                    row.detail.includes("combined pcs")
+                      ? "Combined tier"
+                      : row.kind === "fee" && row.feeCategory
                       ? feeCategoryLabel(row.feeCategory)
                       : undefined
                   }

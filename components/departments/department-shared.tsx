@@ -80,7 +80,9 @@ export function PrepScheduleLabels({
   prepDueAt?: string;
   complete?: boolean;
 }) {
-  const targetDate = prepDueAt ?? scheduleHint?.suggestedBy;
+  const targetDate = scheduleHint
+    ? prepDueAt ?? scheduleHint.suggestedBy
+    : undefined;
   const overdue = isPrepDateOverdue(targetDate, Boolean(complete));
   const dueSoon = isPrepDateDueSoon(targetDate, Boolean(complete));
 
@@ -97,7 +99,10 @@ export function PrepScheduleLabels({
           ) : null}
         </span>
       ) : (
-        <span className="text-[#8a8a8a]">Scheduled — prep deadline will appear here</span>
+        <span className="inline-flex items-center gap-1 text-[#8a8a8a]">
+          <CalendarDays className="size-3.5" />
+          Not scheduled · no prep deadline or urgency yet
+        </span>
       )}
       {targetDate && !complete ? (
         <span
@@ -220,7 +225,11 @@ export function DepartmentQueueCard({
         {meta ? <div className="mt-2">{meta}</div> : null}
       </div>
       {actions ? (
-        <div className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center">
+        <div
+          className="flex shrink-0 flex-col items-end gap-2 sm:flex-row sm:items-center"
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
           {actions}
         </div>
       ) : null}
@@ -235,9 +244,20 @@ export function DepartmentQueueCard({
 
   if (onClick) {
     return (
-      <button type="button" onClick={onClick} className={className}>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onClick();
+          }
+        }}
+        className={className}
+      >
         {body}
-      </button>
+      </div>
     );
   }
 

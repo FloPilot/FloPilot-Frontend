@@ -1,11 +1,17 @@
 import { decorationLabel } from "@/lib/format";
 import { lineItemPieceCount } from "@/lib/order-estimate";
 import {
+  priceColumnIndexes,
+  resolveIncludedLocations,
+  resolveLocationChargeMode,
+} from "@/lib/pricing-location-bundle";
+import {
   inferPricingDecorationType,
   type PricingMatrix,
   type PricingMethod,
 } from "@/lib/shop-settings";
 import type { DecorationType, Job, JobImprint, Order } from "@/types";
+import { productionRunTierQuantity } from "@/lib/order-production-run";
 
 export type PricingColumnMode = "color" | "size";
 
@@ -17,6 +23,8 @@ export type PricingMatrixHighlight = {
   rowIndex: number;
   colIndex: number;
   pieceCount: number;
+  /** Quantity used to choose the matrix tier; may include linked orders. */
+  tierPieceCount: number;
   colorCount: number;
   unitPrice: number;
   qtyLabel: string;
@@ -28,6 +36,11 @@ export type PricingMatrixHighlight = {
   columnMode: PricingColumnMode;
   /** Print size for DTF / size-tier pricing */
   sizeLabel?: string;
+  /** When multiple locations share one charge */
+  bundledLocationCount?: number;
+  bundledImprintLabels?: string[];
+  /** True when this imprint is covered by another line's location bundle charge */
+  bundledIncluded?: boolean;
 };
 
 export type PricingStepAccent = {
@@ -142,10 +155,13 @@ function imprintSizeLabel(imprint: JobImprint): string | undefined {
 }
 
 function resolveSizeColumn(method: PricingMethod, imprint: JobImprint): number {
+  const priceCols = priceColumnIndexes(method);
+  if (priceCols.length === 0) return 0;
+
   const dimensions = imprint.notes?.dimensions?.trim();
-  if (dimensions && method.columns.length > 1) {
+  if (dimensions && priceCols.length > 1) {
     const key = normalizeSizeKey(dimensions);
-    for (let i = 0; i < method.columns.length; i += 1) {
+    for (const i of priceCols) {
       const colKey = normalizeSizeKey(method.columns[i]);
       if (colKey && (colKey.includes(key) || key.includes(colKey))) return i;
     }
@@ -154,7 +170,7 @@ function resolveSizeColumn(method: PricingMethod, imprint: JobImprint): number {
       /(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i
     );
     if (dimMatch) {
-      for (let i = 0; i < method.columns.length; i += 1) {
+      for (const i of priceCols) {
         const colMatch = method.columns[i].match(
           /(\d+(?:\.\d+)?)\s*[x×]\s*(\d+(?:\.\d+)?)/i
         );
@@ -169,10 +185,10 @@ function resolveSizeColumn(method: PricingMethod, imprint: JobImprint): number {
     }
   }
 
-  const priceIdx = method.columns.findIndex((col) =>
-    /^price$/i.test(col.trim())
+  const priceIdx = priceCols.find((i) =>
+    /^price$/i.test(method.columns[i].trim())
   );
-  return priceIdx >= 0 ? priceIdx : 0;
+  return priceIdx ?? priceCols[0];
 }
 
 function normalizeName(value: string): string {
@@ -193,11 +209,22 @@ function isDtfPricingMethod(method: PricingMethod): boolean {
 export function formatPricingHighlightDetail(
   entry: PricingMatrixHighlight
 ): string {
+  const tierPrefix =
+    entry.tierPieceCount > entry.pieceCount
+      ? `${entry.tierPieceCount} combined pcs · `
+      : "";
+  if (entry.bundledIncluded) {
+    return `${entry.methodName} · included in location rate`;
+  }
+  const bundlePrefix =
+    entry.bundledLocationCount && entry.bundledLocationCount > 1
+      ? `up to ${entry.bundledLocationCount} locations · `
+      : "";
   if (entry.columnMode === "size") {
     const size = entry.sizeLabel || entry.columnLabel;
-    return `${entry.methodName} · ${entry.qtyLabel} tier · ${size}`;
+    return `${entry.methodName} · ${bundlePrefix}${tierPrefix}${entry.qtyLabel} tier · ${size}`;
   }
-  return `${entry.methodName} · ${entry.qtyLabel} tier · ${entry.columnLabel}`;
+  return `${entry.methodName} · ${bundlePrefix}${tierPrefix}${entry.qtyLabel} tier · ${entry.columnLabel}`;
 }
 
 export function formatPricingHighlightSummary(
@@ -265,14 +292,17 @@ function parseColumnColorCount(column: string): number | null {
 }
 
 function resolveColorColumn(method: PricingMethod, colorCount: number): number {
-  if (method.columns.length === 1) return 0;
+  const priceCols = priceColumnIndexes(method);
+  if (priceCols.length === 0) return 0;
+  if (priceCols.length === 1) return priceCols[0];
 
-  for (let i = 0; i < method.columns.length; i += 1) {
+  for (const i of priceCols) {
     const parsed = parseColumnColorCount(method.columns[i]);
     if (parsed === colorCount) return i;
   }
 
-  return Math.min(Math.max(colorCount - 1, 0), method.columns.length - 1);
+  const mapped = Math.min(Math.max(colorCount - 1, 0), priceCols.length - 1);
+  return priceCols[mapped];
 }
 
 /** Highest quantity tier whose minimum is met by piece count. */
@@ -339,23 +369,49 @@ export function resolveOrderPricingHighlights(
   }
 
   const methods = matrix.methods.filter((m) => m.rows.length > 0);
+  const imprintEntries = decorationImprints(order);
 
-  for (const { job, imprint } of decorationImprints(order)) {
+  type GroupEntry = { job: Job; imprint: JobImprint; method: PricingMethod };
+  const groups = new Map<string, GroupEntry[]>();
+
+  for (const { job, imprint } of imprintEntries) {
     const method = findPricingMethod(methods, imprint.decoration);
     if (!method) continue;
+    const list = groups.get(method.id) ?? [];
+    list.push({ job, imprint, method });
+    groups.set(method.id, list);
+  }
 
-    const pieceCount = pieceCountForJob(order, job);
-    const colorCount = imprintColorCount(imprint);
-    const rowIndex = resolveQtyRowIndex(method, pieceCount);
-    if (rowIndex === null) continue;
+  const pushHighlight = (
+    method: PricingMethod,
+    opts: {
+      job: Job;
+      imprint: JobImprint;
+      pieceCount: number;
+      colorCount: number;
+      imprintLabel: string;
+      bundledLocationCount?: number;
+      bundledImprintLabels?: string[];
+      bundledIncluded?: boolean;
+      sizeImprint?: JobImprint;
+      /** Override matrix cell price (e.g. $0 for included locations). */
+      unitPriceOverride?: number;
+    }
+  ) => {
+    const tierPieceCount = productionRunTierQuantity(order);
+    const rowIndex = resolveQtyRowIndex(method, tierPieceCount);
+    if (rowIndex === null) return;
 
-    const columnMode = pricingColumnMode(imprint.decoration);
+    const columnMode = pricingColumnMode(opts.imprint.decoration);
     const colIndex =
       columnMode === "size"
-        ? resolveSizeColumn(method, imprint)
-        : resolveColorColumn(method, colorCount);
+        ? resolveSizeColumn(method, opts.sizeImprint ?? opts.imprint)
+        : resolveColorColumn(method, opts.colorCount);
     const row = method.rows[rowIndex];
-    const unitPrice = row.prices[colIndex] ?? 0;
+    const unitPrice =
+      typeof opts.unitPriceOverride === "number"
+        ? opts.unitPriceOverride
+        : (row.prices[colIndex] ?? 0);
     const columnLabel = method.columns[colIndex] ?? `Column ${colIndex + 1}`;
 
     appliedMethodIds.add(method.id);
@@ -376,21 +432,88 @@ export function resolveOrderPricingHighlights(
       methodName: method.name,
       rowIndex,
       colIndex,
-      pieceCount,
-      colorCount,
+      pieceCount: opts.pieceCount,
+      tierPieceCount,
+      colorCount: opts.colorCount,
       unitPrice,
       qtyLabel: `${row.minQty}+`,
       columnLabel,
-      imprintLabel: imprint.label,
-      jobName: job.name,
-      decoration: decorationLabel(imprint.decoration),
-      decorationKey: imprint.decoration,
+      imprintLabel: opts.imprintLabel,
+      jobName: opts.job.name,
+      decoration: decorationLabel(opts.imprint.decoration),
+      decorationKey: opts.imprint.decoration,
       columnMode,
       sizeLabel:
         columnMode === "size"
-          ? imprintSizeLabel(imprint) || columnLabel
+          ? imprintSizeLabel(opts.sizeImprint ?? opts.imprint) || columnLabel
           : undefined,
+      bundledLocationCount: opts.bundledLocationCount,
+      bundledImprintLabels: opts.bundledImprintLabels,
+      bundledIncluded: opts.bundledIncluded,
     });
+  };
+
+  for (const group of groups.values()) {
+    if (group.length === 0) continue;
+    const method = group[0].method;
+    const mode = resolveLocationChargeMode(method);
+    const included = resolveIncludedLocations(method) ?? 1;
+
+    if (mode !== "bundled" || included <= 1 || group.length === 1) {
+      for (const entry of group) {
+        pushHighlight(method, {
+          job: entry.job,
+          imprint: entry.imprint,
+          pieceCount: pieceCountForJob(order, entry.job),
+          colorCount: imprintColorCount(entry.imprint),
+          imprintLabel: entry.imprint.label,
+        });
+      }
+      continue;
+    }
+
+    const bundled = group.slice(0, included);
+    const extras = group.slice(included);
+    const labels = bundled.map((entry) => entry.imprint.label);
+    const colorCount = Math.max(
+      ...bundled.map((entry) => imprintColorCount(entry.imprint))
+    );
+    // Prefer the imprint with the highest color (or first) for size-column match.
+    const primary =
+      bundled.reduce((best, entry) =>
+        imprintColorCount(entry.imprint) > imprintColorCount(best.imprint)
+          ? entry
+          : best
+      ) ?? bundled[0];
+
+    // Keep each event as its own line; only the first carries the unit price.
+    bundled.forEach((entry, index) => {
+      const isCharge = index === 0;
+      pushHighlight(method, {
+        job: entry.job,
+        imprint: entry.imprint,
+        pieceCount: pieceCountForJob(order, entry.job),
+        colorCount: isCharge
+          ? colorCount
+          : imprintColorCount(entry.imprint),
+        imprintLabel: entry.imprint.label,
+        bundledLocationCount: bundled.length,
+        bundledImprintLabels: labels,
+        bundledIncluded: !isCharge,
+        sizeImprint: isCharge ? primary.imprint : entry.imprint,
+        unitPriceOverride: isCharge ? undefined : 0,
+      });
+    });
+
+    for (const entry of extras) {
+      pushHighlight(method, {
+        job: entry.job,
+        imprint: entry.imprint,
+        pieceCount: pieceCountForJob(order, entry.job),
+        colorCount: imprintColorCount(entry.imprint),
+        imprintLabel: entry.imprint.label,
+      });
+    }
   }
 
   return { highlights, cellsByMethod, appliedMethodIds };

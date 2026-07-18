@@ -51,6 +51,7 @@ export type ReviewEstimateRow = {
   qty: number;
   unitCost: number;
   lineTotal: number;
+  includedInBundle?: boolean;
   feeCategory?: "setup" | "decoration" | "finishing" | "other";
 };
 
@@ -75,6 +76,11 @@ export type CustomerReviewSession = {
     quoteApprovedAt?: string;
     proofsSentAt?: string;
     invoiceSentAt?: string | null;
+    productionRun?: {
+      id: string;
+      combinedQuantity: number;
+      members: import("@/types").OrderProductionRunMember[];
+    };
     iteration: number;
     reviewExpiresAt?: string;
   };

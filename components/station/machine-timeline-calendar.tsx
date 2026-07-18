@@ -3,7 +3,6 @@
 import { useMemo, useRef, useState, useCallback, type CSSProperties } from "react";
 import {
   DndContext,
-  DragOverlay,
   PointerSensor,
   pointerWithin,
   useDraggable,
@@ -11,6 +10,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
 import {
@@ -46,6 +46,7 @@ import {
   isMachineOpenOnDay,
   rescheduleBlockOnTimeline,
   resizeBlockOnTimeline,
+  snapHeightPx,
   snapTopPx,
   TIMELINE_ROW_HEIGHT_PX,
   TIMELINE_SLOT_MINUTES,
@@ -64,6 +65,16 @@ const TIMELINE_BLOCK_INSET_PX = 6;
 const TIMELINE_BLOCK_LANE_GAP_PX = 2;
 
 type BlockLane = { index: number; total: number };
+
+type TimelineDragPreview = {
+  blockId: string;
+  dayKey: string;
+  topPx: number;
+  heightPx: number;
+  valid: boolean;
+  startAt: string;
+  endAt: string;
+};
 
 function computeBlockLanes(blocks: ScheduleBlock[]): Map<string, BlockLane> {
   const map = new Map<string, BlockLane>();
@@ -196,18 +207,19 @@ function TimelineDraggableBlock({
 
     const onMove = (ev: PointerEvent) => {
       const dy = ev.clientY - startY;
-      setResizeHeightPx(Math.max(TIMELINE_ROW_HEIGHT_PX, base + dy));
+      setResizeHeightPx(snapHeightPx(base + dy));
     };
     const onUp = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       const dy = ev.clientY - startY;
-      const finalHeight = Math.max(TIMELINE_ROW_HEIGHT_PX, base + dy);
-      setResizeHeightPx(null);
+      const finalHeight = snapHeightPx(base + dy);
       onResize(finalHeight);
-      window.setTimeout(() => {
+      // Keep preview until the optimistic schedule update lands, then clear.
+      window.requestAnimationFrame(() => {
+        setResizeHeightPx(null);
         resizingRef.current = false;
-      }, 0);
+      });
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -297,6 +309,61 @@ function TimelineDraggableBlock({
   return blockButton;
 }
 
+function TimelineDragGhost({
+  block,
+  blockCustomer,
+  productionStatus,
+  topPx,
+  heightPx,
+  valid,
+  startAt,
+  endAt,
+}: {
+  block: ScheduleBlock;
+  blockCustomer: ScheduleBlockCustomerPresentation;
+  productionStatus?: ScheduleBlockProductionStatus;
+  topPx: number;
+  heightPx: number;
+  valid: boolean;
+  startAt: string;
+  endAt: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "absolute z-30 pointer-events-none overflow-hidden rounded-md border text-left min-w-0 box-border shadow-md",
+        SCHEDULE_CHIP_BOX_PADDING,
+        "flex flex-col items-start justify-start",
+        valid
+          ? cn(
+              getScheduleBlockEventClasses(blockCustomer, { productionStatus }),
+              "ring-2 ring-inset ring-brand-primary/45"
+            )
+          : overlapBlockStyles
+      )}
+      style={{
+        top: topPx,
+        height: Math.max(heightPx, TIMELINE_ROW_HEIGHT_PX * 2),
+        left: `${TIMELINE_BLOCK_INSET_PX}px`,
+        width: `calc(100% - ${TIMELINE_BLOCK_INSET_PX * 2}px)`,
+      }}
+      aria-hidden
+    >
+      <ScheduleChipContent
+        block={block}
+        blockCustomer={blockCustomer}
+        productionStatus={productionStatus}
+        showDragHint={false}
+      />
+      <p className="mt-auto w-full pt-1 text-[10px] font-semibold tabular-nums opacity-80">
+        {format(parseISO(startAt), "h:mm a")} –{" "}
+        {format(parseISO(endAt), "h:mm a")}
+        {!valid ? " · Invalid" : ""}
+      </p>
+    </div>
+  );
+}
+
 function TimelineContextBlock({
   block,
   blockCustomer,
@@ -352,6 +419,10 @@ function TimelineDayColumn({
   showShopContext,
   machines,
   enableBlockActions,
+  dragPreview,
+  dragPreviewBlock,
+  dragPreviewCustomer,
+  dragPreviewStatus,
   onEditBlock,
   onViewOrderBlock,
   onMoveBlockToMachine,
@@ -371,6 +442,10 @@ function TimelineDayColumn({
   showShopContext?: boolean;
   machines?: Machine[];
   enableBlockActions?: boolean;
+  dragPreview?: TimelineDragPreview | null;
+  dragPreviewBlock?: ScheduleBlock;
+  dragPreviewCustomer?: ScheduleBlockCustomerPresentation;
+  dragPreviewStatus?: ScheduleBlockProductionStatus;
   onEditBlock: (block: ScheduleBlock) => void;
   onViewOrderBlock?: (block: ScheduleBlock) => void;
   onMoveBlockToMachine?: (
@@ -415,6 +490,13 @@ function TimelineDayColumn({
     () => computeBlockLanes(displayBlocks),
     [displayBlocks]
   );
+
+  const dayKey = startOfDay(day).toISOString();
+  const showGhost =
+    dragPreview &&
+    dragPreviewBlock &&
+    dragPreviewCustomer &&
+    dragPreview.dayKey === dayKey;
 
   return (
     <div
@@ -506,6 +588,19 @@ function TimelineDayColumn({
           />
         );
       })}
+
+      {showGhost ? (
+        <TimelineDragGhost
+          block={dragPreviewBlock}
+          blockCustomer={dragPreviewCustomer}
+          productionStatus={dragPreviewStatus}
+          topPx={dragPreview.topPx}
+          heightPx={dragPreview.heightPx}
+          valid={dragPreview.valid}
+          startAt={dragPreview.startAt}
+          endAt={dragPreview.endAt}
+        />
+      ) : null}
     </div>
   );
 }
@@ -551,7 +646,10 @@ export function MachineTimelineCalendar({
     removeScheduleBlock,
   } = useSchedule();
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOriginTop, setDragOriginTop] = useState(0);
+  const dragOriginTopRef = useRef(0);
+  const [dragPreview, setDragPreview] = useState<TimelineDragPreview | null>(
+    null
+  );
 
   const showShopContext = Boolean(highlightOrderId && !orderOnlyView);
 
@@ -639,55 +737,116 @@ export function MachineTimelineCalendar({
     ? resolveBlockProductionStatus(draggingBlock)
     : undefined;
 
-  const draggingHasOverlap = useMemo(() => {
-    if (!draggingBlock) return false;
-    const dayKey = startOfDay(parseISO(draggingBlock.startAt)).toISOString();
-    const dayBlocks = blocksByDay.allMap.get(dayKey) ?? [];
-    return dayBlocks.some(
-      (b) =>
-        b.id !== draggingBlock.id &&
-        scheduleBlocksOverlap(b, draggingBlock)
-    );
-  }, [draggingBlock, blocksByDay]);
+  const buildDragPreview = useCallback(
+    (
+      block: ScheduleBlock,
+      day: Date,
+      deltaY: number,
+      originTop: number
+    ): TimelineDragPreview => {
+      const { heightPx } = blockTimelinePosition(block, machine);
+      const rawTop = snapTopPx(originTop + deltaY, heightPx, machine);
+      const updated = rescheduleBlockOnTimeline(block, day, rawTop, machine);
+      const dayKey = startOfDay(day).toISOString();
 
-  const draggingOutsideHours = useMemo(() => {
-    if (!draggingBlock) return false;
-    return getOutsideHoursBlockIds(machine, [draggingBlock]).has(draggingBlock.id);
-  }, [draggingBlock, machine]);
+      if (updated) {
+        const pos = blockTimelinePosition(
+          { ...block, ...updated },
+          machine
+        );
+        return {
+          blockId: block.id,
+          dayKey,
+          topPx: pos.topPx,
+          heightPx: pos.heightPx,
+          valid: true,
+          startAt: updated.startAt,
+          endAt: updated.endAt,
+        };
+      }
 
-  const draggingHasConflict = blockHasSchedulingConflict(
-    draggingHasOverlap,
-    draggingOutsideHours
+      return {
+        blockId: block.id,
+        dayKey,
+        topPx: rawTop,
+        heightPx,
+        valid: false,
+        startAt: block.startAt,
+        endAt: block.endAt,
+      };
+    },
+    [machine]
   );
 
   const handleDragStart = (event: DragStartEvent) => {
     const block = draggableBlocks.find((b) => b.id === event.active.id);
     if (!block) return;
+    const originTop = blockTimelinePosition(block, machine).topPx;
+    dragOriginTopRef.current = originTop;
     setDraggingId(String(event.active.id));
-    setDragOriginTop(blockTimelinePosition(block, machine).topPx);
+    setDragPreview(
+      buildDragPreview(block, startOfDay(parseISO(block.startAt)), 0, originTop)
+    );
+  };
+
+  const handleDragMove = (event: DragMoveEvent) => {
+    const { active, over, delta } = event;
+    const block = draggableBlocks.find((b) => b.id === active.id);
+    if (!block) return;
+
+    const target = over ? parseCalendarCellDropId(over.id) : null;
+    const day =
+      target && target.machineId === machine.id
+        ? target.day
+        : startOfDay(parseISO(block.startAt));
+
+    setDragPreview(
+      buildDragPreview(block, day, delta.y, dragOriginTopRef.current)
+    );
+  };
+
+  const clearDragState = () => {
+    setDraggingId(null);
+    setDragPreview(null);
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
-    setDraggingId(null);
     const { active, over, delta } = event;
-    if (!over) return;
-
     const block = draggableBlocks.find((b) => b.id === active.id);
-    const target = parseCalendarCellDropId(over.id);
-    if (!block || !target || target.machineId !== machine.id) return;
+    const preview = dragPreview;
+    clearDragState();
+
+    if (!block) return;
+
+    const target = over ? parseCalendarCellDropId(over.id) : null;
+    const day =
+      target && target.machineId === machine.id
+        ? target.day
+        : preview
+          ? parseISO(preview.dayKey)
+          : startOfDay(parseISO(block.startAt));
+
+    if (!target || target.machineId !== machine.id) {
+      // Dropped outside a valid day column — keep original placement.
+      return;
+    }
 
     const { heightPx } = blockTimelinePosition(block, machine);
-    const newTopPx = snapTopPx(dragOriginTop + delta.y, heightPx, machine);
-
-    const updated = rescheduleBlockOnTimeline(
-      block,
-      target.day,
-      newTopPx,
+    const newTopPx = snapTopPx(
+      dragOriginTopRef.current + delta.y,
+      heightPx,
       machine
     );
-    if (updated) {
-      updateScheduleBlock(block.id, updated);
-    }
+    const updated = rescheduleBlockOnTimeline(block, day, newTopPx, machine);
+    if (!updated) return;
+
+    const sameSlot =
+      updated.startAt === block.startAt &&
+      updated.endAt === block.endAt &&
+      updated.machineId === block.machineId;
+    if (sameSlot) return;
+
+    void updateScheduleBlock(block.id, updated);
   };
 
   const handleMoveBlockToMachine = (
@@ -698,14 +857,14 @@ export function MachineTimelineCalendar({
     if (!targetMachine) return false;
     const updated = moveBlockToMachine(block, targetMachine);
     if (!updated) return false;
-    updateScheduleBlock(block.id, updated);
+    void updateScheduleBlock(block.id, updated);
     onBlockMoved?.(targetMachineId);
     return true;
   };
 
   const handleResizeBlock = (block: ScheduleBlock, newHeightPx: number) => {
     const updated = resizeBlockOnTimeline(block, newHeightPx, machine);
-    if (updated) updateScheduleBlock(block.id, updated);
+    if (updated) void updateScheduleBlock(block.id, updated);
   };
 
   const handleRemoveBlock = (block: ScheduleBlock) => {
@@ -724,8 +883,9 @@ export function MachineTimelineCalendar({
       sensors={sensors}
       collisionDetection={pointerWithin}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragEnd={handleDragEnd}
-      onDragCancel={() => setDraggingId(null)}
+      onDragCancel={clearDragState}
     >
       {!embedded && (
         <p className="text-xs text-brand-muted mb-3">
@@ -817,6 +977,10 @@ export function MachineTimelineCalendar({
                 showShopContext={showShopContext}
                 machines={machines}
                 enableBlockActions={enableBlockActions}
+                dragPreview={dragPreview}
+                dragPreviewBlock={draggingBlock}
+                dragPreviewCustomer={draggingBlockCustomer}
+                dragPreviewStatus={draggingProductionStatus}
                 onEditBlock={(block) => handleEditBlock?.(block)}
                 onViewOrderBlock={onViewOrderBlock}
                 onMoveBlockToMachine={handleMoveBlockToMachine}
@@ -830,39 +994,6 @@ export function MachineTimelineCalendar({
           </div>
         </div>
       </div>
-
-      <DragOverlay dropAnimation={{ duration: 180, easing: "ease-out" }}>
-        {draggingBlock && draggingBlockCustomer ? (
-          <div
-            className={cn(
-              "flex w-[120px] flex-col items-start justify-start rounded-lg border shadow-lg",
-              SCHEDULE_CHIP_BOX_PADDING,
-              draggingHasConflict
-                ? overlapBlockStyles
-                : [
-                    ...getScheduleBlockEventClasses(draggingBlockCustomer, {
-                      productionStatus: draggingProductionStatus,
-                    }),
-                    "ring-2 ring-inset ring-brand-primary/30",
-                  ]
-            )}
-            style={{
-              height: Math.max(
-                blockTimelinePosition(draggingBlock, machine).heightPx,
-                TIMELINE_ROW_HEIGHT_PX * 2
-              ),
-            }}
-          >
-            <ScheduleChipContent
-              block={draggingBlock}
-              blockCustomer={draggingBlockCustomer}
-              productionStatus={draggingProductionStatus}
-              hasOverlap={draggingHasOverlap}
-              outsideHours={draggingOutsideHours}
-            />
-          </div>
-        ) : null}
-      </DragOverlay>
     </DndContext>
   );
 }

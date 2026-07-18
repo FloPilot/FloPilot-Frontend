@@ -76,7 +76,7 @@ function labelForCheckpoint(checkpoint: OrderCheckpoint): string {
   if (key === "ink") {
     if (status === "done") return "Ready";
     if (status === "in_progress") return "Partial";
-    return "Pending";
+    return "Not Ready";
   }
 
   if (key === "screens") {

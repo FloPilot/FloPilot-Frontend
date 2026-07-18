@@ -32,12 +32,15 @@ export function DepartmentsShell({
 }) {
   const pathname = usePathname();
   const { settings } = useShopSettings();
-  const { orders, scheduleBlocks, productionBoardTasks } = useSchedule();
+  const { orders, scheduleBlocks, productionBoardTasks, machines, jobRuns } =
+    useSchedule();
 
   const counts = departmentQueueCounts({
     orders,
     scheduleBlocks,
     productionBoardTasks,
+    machines,
+    jobRuns,
   });
 
   const visibleDepartments = DEPARTMENT_DEFINITIONS.filter(

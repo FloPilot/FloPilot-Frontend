@@ -879,6 +879,21 @@ export async function updateOrder(
   });
 }
 
+export async function updateOrderProductionRun(
+  token: string,
+  orderId: string,
+  linkedOrderIds: string[]
+) {
+  return callApi<{ order: Order; orders: Order[] }>(
+    "updateOrderProductionRun",
+    {
+      method: "POST",
+      body: { orderId, linkedOrderIds },
+      token,
+    }
+  );
+}
+
 export async function reorderOrder(token: string, orderId: string) {
   return callApi<{ id: string; number: string; order: Order }>("reorderOrder", {
     method: "POST",

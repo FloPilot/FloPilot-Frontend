@@ -606,6 +606,20 @@ export interface Message {
   imprintId?: string;
 }
 
+export interface OrderProductionRunMember {
+  orderId: string;
+  orderNumber: string;
+  customLabel?: string;
+  quantity: number;
+}
+
+export interface OrderProductionRun {
+  id: string;
+  members: OrderProductionRunMember[];
+  combinedQuantity: number;
+  updatedAt: string;
+}
+
 export interface Order {
   id: string;
   number: string;
@@ -669,6 +683,8 @@ export interface Order {
   /** Assigned sales rep — receives order notifications */
   salesRepId?: string;
   salesRepName?: string;
+  /** Orders produced together; combined qty selects the shared pricing tier. */
+  productionRun?: OrderProductionRun;
   /** In-app invoice (PDF) metadata — QuickBooks remains optional separately */
   invoice?: OrderInvoiceMeta;
   /** QuickBooks Online sync metadata for this order */
@@ -826,6 +842,9 @@ export interface ScheduleBlock {
   notes?: string;
   /** Optional shop label shown after order number on the calendar, e.g. "CUSTOM NAME" */
   customLabel?: string;
+  /** Links adjacent calendar events created from the same multi-job run. */
+  productionRunId?: string;
+  productionRunOrderCount?: number;
 }
 
 /** Floor execution state for a scheduled slot on one machine */

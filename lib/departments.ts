@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Droplets,
+  Factory,
   Layers,
   PackageOpen,
   Palette,
@@ -14,6 +15,7 @@ export const DEPARTMENT_SLUGS = [
   "artwork",
   "screens",
   "inks",
+  "production",
   "finishing",
   "receiving",
 ] as const;
@@ -45,7 +47,7 @@ export const DEPARTMENT_DEFINITIONS: DepartmentDefinition[] = [
     label: "Screens",
     shortLabel: "Screens",
     description:
-      "Screen burning and separations — work appears after events are scheduled, about five days before the run.",
+      "Screen burning and separations, prioritized five days before scheduled runs.",
     icon: Layers,
     moduleKey: "productionTasks",
     href: `${DEPARTMENTS_BASE}/screens`,
@@ -54,10 +56,20 @@ export const DEPARTMENT_DEFINITIONS: DepartmentDefinition[] = [
     slug: "inks",
     label: "Inks",
     shortLabel: "Inks",
-    description: "Mix and stage ink colors for scheduled screen-print locations.",
+    description: "Mix and stage ink colors, prioritized by scheduled run dates.",
     icon: Droplets,
     moduleKey: "productionTasks",
     href: `${DEPARTMENTS_BASE}/inks`,
+  },
+  {
+    slug: "production",
+    label: "Production",
+    shortLabel: "Press",
+    description:
+      "Floor stations — what's running, what's queued, and jobs that still need closing.",
+    icon: Factory,
+    moduleKey: "machines",
+    href: `${DEPARTMENTS_BASE}/production`,
   },
   {
     slug: "finishing",
@@ -104,10 +116,55 @@ export function departmentArtworkProofHref(
   return `${base}?${params.toString()}`;
 }
 
+export function departmentScreensHref(orderId: string): string {
+  return `${DEPARTMENTS_BASE}/screens/${orderId}`;
+}
+
+export function departmentInksHref(
+  orderId: string,
+  jobId?: string,
+  imprintId?: string
+): string {
+  const base = `${DEPARTMENTS_BASE}/inks/${orderId}`;
+  if (!jobId || !imprintId) return base;
+  const params = new URLSearchParams({ job: jobId, imprint: imprintId });
+  return `${base}?${params.toString()}`;
+}
+
+export function departmentProductionMachineHref(machineId: string): string {
+  return `${DEPARTMENTS_BASE}/production/${machineId}`;
+}
+
 export function isDepartmentArtworkProofPath(pathname: string): boolean {
-  return pathname.startsWith(`${DEPARTMENTS_BASE}/artwork/`) &&
+  return (
+    pathname.startsWith(`${DEPARTMENTS_BASE}/artwork/`) &&
     pathname !== `${DEPARTMENTS_BASE}/artwork` &&
-    !pathname.startsWith(`${DEPARTMENTS_BASE}/artwork?`);
+    !pathname.startsWith(`${DEPARTMENTS_BASE}/artwork?`)
+  );
+}
+
+export function isDepartmentScreensPath(pathname: string): boolean {
+  return (
+    pathname.startsWith(`${DEPARTMENTS_BASE}/screens/`) &&
+    pathname !== `${DEPARTMENTS_BASE}/screens` &&
+    !pathname.startsWith(`${DEPARTMENTS_BASE}/screens?`)
+  );
+}
+
+export function isDepartmentInksPath(pathname: string): boolean {
+  return (
+    pathname.startsWith(`${DEPARTMENTS_BASE}/inks/`) &&
+    pathname !== `${DEPARTMENTS_BASE}/inks` &&
+    !pathname.startsWith(`${DEPARTMENTS_BASE}/inks?`)
+  );
+}
+
+export function isDepartmentProductionPath(pathname: string): boolean {
+  return (
+    pathname.startsWith(`${DEPARTMENTS_BASE}/production/`) &&
+    pathname !== `${DEPARTMENTS_BASE}/production` &&
+    !pathname.startsWith(`${DEPARTMENTS_BASE}/production?`)
+  );
 }
 
 export function isDepartmentsSection(pathname: string): boolean {

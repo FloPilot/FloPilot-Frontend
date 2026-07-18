@@ -169,10 +169,14 @@ function EstimateRowLine({
         {row.qty}
       </td>
       <td className="px-3 py-2.5 text-right tabular-nums text-[#616161]">
-        {formatCurrency(row.unitCost)}
+        {row.includedInBundle ? "—" : formatCurrency(row.unitCost)}
       </td>
       <td className="px-4 py-2.5 text-right font-medium tabular-nums text-[#303030]">
-        {formatCurrency(row.lineTotal)}
+        {row.includedInBundle ? (
+          <span className="font-normal text-[#8a8a8a]">Included</span>
+        ) : (
+          formatCurrency(row.lineTotal)
+        )}
       </td>
     </tr>
   );
