@@ -250,11 +250,15 @@ export function DashboardDepartmentLoadWidget({
   orders,
   scheduleBlocks,
   productionBoardTasks,
+  machines,
+  jobRuns,
   isModuleEnabled,
 }: {
   orders: Order[];
   scheduleBlocks: ScheduleBlock[];
   productionBoardTasks: Task[];
+  machines?: import("@/types").Machine[];
+  jobRuns?: import("@/types").StationJobRun[];
   isModuleEnabled: (key: ShopModuleKey) => boolean;
 }) {
   const counts = useMemo(
@@ -263,8 +267,10 @@ export function DashboardDepartmentLoadWidget({
         orders,
         scheduleBlocks,
         productionBoardTasks,
+        machines,
+        jobRuns,
       }),
-    [orders, scheduleBlocks, productionBoardTasks]
+    [orders, scheduleBlocks, productionBoardTasks, machines, jobRuns]
   );
 
   const departments = DEPARTMENT_DEFINITIONS.filter(
@@ -282,7 +288,7 @@ export function DashboardDepartmentLoadWidget({
       }
       action={<ViewLink href="/app/departments" label="Overview" />}
     >
-      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {departments.map((dept) => {
           const Icon = dept.icon;
           const count = counts[dept.slug];

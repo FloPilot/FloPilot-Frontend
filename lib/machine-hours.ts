@@ -132,6 +132,12 @@ export function snapTopPx(
   return Math.max(0, Math.min(snapped, totalHeightPx - blockHeightPx));
 }
 
+/** Snap a resize height to the timeline slot grid. */
+export function snapHeightPx(heightPx: number): number {
+  const slotPx = TIMELINE_ROW_HEIGHT_PX;
+  return Math.max(slotPx, Math.round(heightPx / slotPx) * slotPx);
+}
+
 export function topPxToDate(day: Date, topPx: number, machine: Machine): Date {
   const { displayStartHour } = getMachineTimelineDisplayRange(machine);
   const pxPerMin = TIMELINE_ROW_HEIGHT_PX / TIMELINE_SLOT_MINUTES;

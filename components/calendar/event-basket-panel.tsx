@@ -7,11 +7,13 @@ import {
   ChevronDown,
   ChevronRight,
   Inbox,
+  Layers3,
 } from "lucide-react";
 import {
   FlowProgressDots,
   FlowStepList,
 } from "@/components/calendar/order-production-flow";
+import { ProductionRunGroup } from "@/components/production-run-group";
 import {
   Select,
   SelectContent,
@@ -43,6 +45,10 @@ import { eventsLabel, formatEventXOfY, formatMoreEvents } from "@/lib/terminolog
 import { cn } from "@/lib/utils";
 
 type QueueFilter = "ready" | "all" | "rush" | "overdue";
+
+type QueueOrderCluster =
+  | { type: "run"; runId: string; items: SchedulingQueueOrder[] }
+  | { type: "single"; item: SchedulingQueueOrder };
 
 const SORT_OPTIONS: { value: EventBasketSort; label: string }[] = [
   { value: "urgency", label: "Urgency" },
@@ -98,6 +104,40 @@ function sortQueueOrders(
   }
 }
 
+function clusterQueueOrders(
+  items: SchedulingQueueOrder[]
+): QueueOrderCluster[] {
+  const runBuckets = new Map<string, SchedulingQueueOrder[]>();
+  const sequence: Array<{ kind: "run" | "single"; key: string }> = [];
+
+  for (const item of items) {
+    const runId = item.productionRunId;
+    if (!runId) {
+      sequence.push({ kind: "single", key: item.orderId });
+      continue;
+    }
+    if (!runBuckets.has(runId)) {
+      runBuckets.set(runId, []);
+      sequence.push({ kind: "run", key: runId });
+    }
+    runBuckets.get(runId)!.push(item);
+  }
+
+  return sequence.map((entry) => {
+    if (entry.kind === "single") {
+      return {
+        type: "single" as const,
+        item: items.find((item) => item.orderId === entry.key)!,
+      };
+    }
+    return {
+      type: "run" as const,
+      runId: entry.key,
+      items: runBuckets.get(entry.key) ?? [],
+    };
+  });
+}
+
 function QueueOrderRow({
   item,
   onSchedule,
@@ -148,6 +188,15 @@ function QueueOrderRow({
                 {item.customerName}
               </span>
               {item.rush && <RushBadge />}
+              {item.productionRunId ? (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#b8cceb] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#315f9e]"
+                  title={`${item.productionRunOrderCount ?? 2} orders running together`}
+                >
+                  <Layers3 className="size-3" />
+                  Run {item.productionRunOrderCount ?? 2}
+                </span>
+              ) : null}
             </div>
 
             {next ? (
@@ -254,6 +303,11 @@ export function EventBasketPanel({
     }
     return sortQueueOrders(list, sort);
   }, [queueOrders, filter, sort]);
+
+  const visibleClusters = useMemo(
+    () => clusterQueueOrders(visibleOrders),
+    [visibleOrders]
+  );
 
   const readyCount = queueOrders.filter((item) => item.nextEvent).length;
   const blockedOrders = useMemo(
@@ -425,14 +479,36 @@ export function EventBasketPanel({
               )}
             </div>
           ) : (
-            <div className="max-h-[min(420px,50vh)] space-y-2 overflow-y-auto pr-0.5">
-              {visibleOrders.map((item) => (
-                <QueueOrderRow
-                  key={item.orderId}
-                  item={item}
-                  onSchedule={onScheduleEvent}
-                />
-              ))}
+            <div className="max-h-[min(420px,50vh)] space-y-2 overflow-y-auto pb-3 pr-1">
+              {visibleClusters.map((cluster) => {
+                if (cluster.type === "single") {
+                  return (
+                    <QueueOrderRow
+                      key={cluster.item.orderId}
+                      item={cluster.item}
+                      onSchedule={onScheduleEvent}
+                    />
+                  );
+                }
+
+                return (
+                  <ProductionRunGroup
+                    key={cluster.runId}
+                    orderCount={
+                      cluster.items[0]?.productionRunOrderCount ??
+                      cluster.items.length
+                    }
+                  >
+                    {cluster.items.map((item) => (
+                      <QueueOrderRow
+                        key={item.orderId}
+                        item={item}
+                        onSchedule={onScheduleEvent}
+                      />
+                    ))}
+                  </ProductionRunGroup>
+                );
+              })}
             </div>
           )}
 

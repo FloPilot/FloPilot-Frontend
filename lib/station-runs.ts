@@ -1,4 +1,4 @@
-import { format, isAfter, parseISO, startOfDay } from "date-fns";
+import { format, isAfter, isBefore, parseISO, startOfDay } from "date-fns";
 import type { ScheduleBlock, StationJobRun, StationJobRunStatus } from "@/types";
 import { getBlocksForMachine } from "@/lib/station-utils";
 
@@ -25,13 +25,40 @@ export function parseJobBarcodeInput(raw: string): string {
 }
 
 export function buildInitialJobRuns(blocks: ScheduleBlock[]): StationJobRun[] {
-  return blocks.map((block) => ({
+  return blocks.map((block) => synthesizeUpcomingRun(block));
+}
+
+function synthesizeUpcomingRun(block: ScheduleBlock): StationJobRun {
+  return {
     id: `run-${block.id}`,
     scheduleBlockId: block.id,
     machineId: block.machineId,
-    status: "upcoming" as const,
+    status: "upcoming",
     notes: [],
-  }));
+  };
+}
+
+/**
+ * Keep real floor-run state from the server, but backfill any schedule block
+ * that is missing a job run so stations/machines stay in sync with the calendar.
+ */
+export function ensureJobRunsForBlocks(
+  blocks: ScheduleBlock[],
+  runs: StationJobRun[]
+): StationJobRun[] {
+  const byBlockId = new Map(
+    runs.map((run) => [run.scheduleBlockId, run] as const)
+  );
+  const ensured = blocks.map((block) => {
+    const existing = byBlockId.get(block.id);
+    if (!existing) return synthesizeUpcomingRun(block);
+    if (existing.machineId === block.machineId) return existing;
+    return { ...existing, machineId: block.machineId };
+  });
+
+  const blockIds = new Set(blocks.map((block) => block.id));
+  const orphans = runs.filter((run) => !blockIds.has(run.scheduleBlockId));
+  return [...ensured, ...orphans];
 }
 
 export function createDemoActiveRun(
@@ -93,12 +120,47 @@ export function getUpcomingRunsForMachine(
 
   return machineBlocks
     .map((block) => {
-      const run = getRunForBlock(runs, block.id);
-      if (!run || run.status !== "upcoming") return null;
+      const run =
+        getRunForBlock(runs, block.id) ?? synthesizeUpcomingRun(block);
+      if (run.status !== "upcoming") return null;
       if (!isAfter(parseISO(block.endAt), now)) return null;
       return { block, run };
     })
     .filter((x): x is { block: ScheduleBlock; run: StationJobRun } => x != null);
+}
+
+const STALE_INCOMPLETE_STATUSES: StationJobRunStatus[] = [
+  "upcoming",
+  "running",
+  "paused",
+];
+
+/**
+ * Jobs on this machine whose schedule window ended on a previous day but were
+ * never finished/cancelled — e.g. yesterday's run that nobody closed out.
+ */
+export function getStaleIncompleteRunsForMachine(
+  blocks: ScheduleBlock[],
+  runs: StationJobRun[],
+  machineId: string,
+  now: Date = new Date()
+): { block: ScheduleBlock; run: StationJobRun }[] {
+  const todayStart = startOfDay(now);
+  const machineBlocks = getBlocksForMachine(blocks, machineId);
+
+  return machineBlocks
+    .map((block) => {
+      const run =
+        getRunForBlock(runs, block.id) ?? synthesizeUpcomingRun(block);
+      if (!STALE_INCOMPLETE_STATUSES.includes(run.status)) return null;
+      if (!isBefore(parseISO(block.endAt), todayStart)) return null;
+      return { block, run };
+    })
+    .filter((x): x is { block: ScheduleBlock; run: StationJobRun } => x != null)
+    .sort(
+      (a, b) =>
+        parseISO(a.block.endAt).getTime() - parseISO(b.block.endAt).getTime()
+    );
 }
 
 export function findBlockByBarcodeOnMachine(

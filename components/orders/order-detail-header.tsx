@@ -5,6 +5,7 @@ import { ArrowRight } from "lucide-react";
 import { OrderCustomLabelEditor } from "@/components/orders/order-custom-label-field";
 import { OrderEndBusinessEditor } from "@/components/orders/order-end-business-editor";
 import { OrderSalesRepEditor } from "@/components/orders/order-sales-rep-editor";
+import { OrderProductionRunEditor } from "@/components/orders/order-production-run-editor";
 import { RushBadge } from "@/components/status-badges";
 import {
   dashboardControlClass,
@@ -35,6 +36,8 @@ export function OrderDetailHeader({
   subCustomers,
   onEndBusinessSave,
   onSalesRepSave,
+  orders,
+  onProductionRunSave,
 }: {
   order: Order;
   summary: OrderListSummary;
@@ -44,6 +47,8 @@ export function OrderDetailHeader({
   subCustomers?: SubCustomer[];
   onEndBusinessSave?: (subCustomerId: string | null) => Promise<void | Order>;
   onSalesRepSave?: (salesRepId: string | null) => Promise<void | Order>;
+  orders?: Order[];
+  onProductionRunSave?: (linkedOrderIds: string[]) => Promise<void | Order>;
 }) {
   const tabs = buildOrderDetailTabs(order);
   const showEndBusiness =
@@ -119,6 +124,13 @@ export function OrderDetailHeader({
           ) : null}
           {onSalesRepSave ? (
             <OrderSalesRepEditor order={order} onSave={onSalesRepSave} />
+          ) : null}
+          {orders && onProductionRunSave ? (
+            <OrderProductionRunEditor
+              order={order}
+              orders={orders}
+              onSave={onProductionRunSave}
+            />
           ) : null}
         </div>
       </div>

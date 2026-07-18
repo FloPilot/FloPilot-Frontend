@@ -3,6 +3,7 @@
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { format, parseISO } from "date-fns";
+import { Layers3 } from "lucide-react";
 import { CustomerBrandMark } from "@/components/customers/customer-brand-mark";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import type { ScheduleBlock } from "@/types";
@@ -18,6 +19,48 @@ import {
   type ScheduleBlockCustomerPresentation,
 } from "@/lib/schedule-block-customer";
 import { cn } from "@/lib/utils";
+
+export type CalendarDayBlockCluster =
+  | { type: "run"; runId: string; blocks: ScheduleBlock[] }
+  | { type: "single"; block: ScheduleBlock };
+
+/** Group same-day / same-machine multi-job run events so they can share a border. */
+export function clusterCalendarDayBlocks(
+  blocks: ScheduleBlock[]
+): CalendarDayBlockCluster[] {
+  const sorted = [...blocks].sort(
+    (a, b) => parseISO(a.startAt).getTime() - parseISO(b.startAt).getTime()
+  );
+  const runBuckets = new Map<string, ScheduleBlock[]>();
+  const sequence: Array<{ kind: "run" | "single"; key: string }> = [];
+
+  for (const block of sorted) {
+    const runId = block.productionRunId;
+    if (!runId) {
+      sequence.push({ kind: "single", key: block.id });
+      continue;
+    }
+    if (!runBuckets.has(runId)) {
+      runBuckets.set(runId, []);
+      sequence.push({ kind: "run", key: runId });
+    }
+    runBuckets.get(runId)!.push(block);
+  }
+
+  return sequence.map((item) => {
+    if (item.kind === "single") {
+      return {
+        type: "single" as const,
+        block: sorted.find((block) => block.id === item.key)!,
+      };
+    }
+    return {
+      type: "run" as const,
+      runId: item.key,
+      blocks: runBuckets.get(item.key) ?? [],
+    };
+  });
+}
 
 function ScheduleBlockOrderTitle({ block }: { block: ScheduleBlock }) {
   const { activeOrders } = useSchedule();
@@ -92,6 +135,15 @@ export function ScheduleChipContent({
         <p className="mt-1 text-[11px] truncate opacity-90 leading-tight">
           {block.imprintLabel}
         </p>
+        {block.productionRunId ? (
+          <p className="mt-1 inline-flex items-center gap-1 rounded-full border border-[#b8cceb] bg-white px-1.5 py-0.5 text-[9px] font-semibold text-[#315f9e]">
+            <Layers3 className="size-2.5" />
+            Run
+            {block.productionRunOrderCount
+              ? ` ${block.productionRunOrderCount}`
+              : ""}
+          </p>
+        ) : null}
         <p className="text-[10px] mt-1 opacity-75">
           {format(start, "h:mm a")} – {format(end, "h:mm a")}
         </p>
@@ -144,11 +196,12 @@ export function DraggableScheduleChip({
       data: { block, machineId: block.machineId },
     });
 
-  const style = transform
-    ? {
-        transform: CSS.Translate.toString(transform),
-      }
-    : undefined;
+  const style =
+    transform && !isDragging
+      ? {
+          transform: CSS.Translate.toString(transform),
+        }
+      : undefined;
 
   return (
     <button

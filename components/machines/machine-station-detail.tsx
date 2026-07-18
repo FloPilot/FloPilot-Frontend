@@ -19,6 +19,7 @@ import { StationBarcodeScan } from "@/components/station/station-barcode-scan";
 import { ReportIssueDialog } from "@/components/station/report-issue-dialog";
 import { StationOrderDialog } from "@/components/station/station-order-dialog";
 import { StationQueueDialog } from "@/components/station/station-queue-dialog";
+import { StationStaleJobBanner } from "@/components/station/station-stale-job-banner";
 import { StationUpcomingSection } from "@/components/station/station-upcoming-section";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ import {
   formatJobBarcode,
   formatRunElapsed,
   getActiveRunForMachine,
+  getStaleIncompleteRunsForMachine,
   getUpcomingRunsForMachine,
 } from "@/lib/station-runs";
 import { useStaffAccess } from "@/hooks/use-staff-access";
@@ -45,10 +47,20 @@ import {
 import type { ScheduleBlock } from "@/types";
 import { cn } from "@/lib/utils";
 
-export function MachineStationDetail({ machineId }: { machineId: string }) {
+export function MachineStationDetail({
+  machineId,
+  backHref = "/app/machines",
+  backLabel = "All machines",
+  hideSettings = false,
+}: {
+  machineId: string;
+  backHref?: string;
+  backLabel?: string;
+  hideSettings?: boolean;
+}) {
   const {
     machines,
-    scheduleBlocks,
+    activeScheduleBlocks: scheduleBlocks,
     issueReports,
     jobRuns,
     getOrderById,
@@ -125,6 +137,20 @@ export function MachineStationDetail({ machineId }: { machineId: string }) {
     [machine, scheduleBlocks, jobRuns]
   );
 
+  const staleIncomplete = useMemo(
+    () =>
+      machine
+        ? getStaleIncompleteRunsForMachine(
+            scheduleBlocks,
+            jobRuns,
+            machine.id
+          )
+        : [],
+    [machine, scheduleBlocks, jobRuns]
+  );
+  const staleJob = staleIncomplete[0];
+  const staleRemaining = Math.max(0, staleIncomplete.length - 1);
+
   const nextHintBarcode = upcoming[0]
     ? formatJobBarcode(upcoming[0].block.id)
     : formatJobBarcode("sched-m1-02");
@@ -140,9 +166,9 @@ export function MachineStationDetail({ machineId }: { machineId: string }) {
         <Button
           className={cn(dashboardControlClass, "mt-4 h-9")}
           nativeButton={false}
-          render={<Link href="/app/machines" />}
+          render={<Link href={backHref} />}
         >
-          Back to stations
+          {backLabel}
         </Button>
       </main>
     );
@@ -160,11 +186,11 @@ export function MachineStationDetail({ machineId }: { machineId: string }) {
       <main className="flex w-full flex-1 flex-col gap-5 p-4 sm:gap-6 sm:p-6 lg:p-8">
         <div className="flex flex-col gap-3">
           <Link
-            href="/app/machines"
+            href={backHref}
             className="inline-flex w-fit items-center gap-1 text-[13px] font-medium text-[#616161] transition-colors hover:text-[#303030]"
           >
             <ChevronLeft className="size-3.5" />
-            All machines
+            {backLabel}
           </Link>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
@@ -217,7 +243,7 @@ export function MachineStationDetail({ machineId }: { machineId: string }) {
                 <AlertTriangle className="size-3.5" />
                 Report issue
               </Button>
-              {canManageMachines && (
+              {!hideSettings && canManageMachines && (
                 <Button
                   type="button"
                   className={cn(
@@ -251,6 +277,18 @@ export function MachineStationDetail({ machineId }: { machineId: string }) {
             )}
           </div>
         )}
+
+        {staleJob ? (
+          <StationStaleJobBanner
+            block={staleJob.block}
+            run={staleJob.run}
+            remainingCount={staleRemaining}
+            onOpenOrder={() =>
+              openOrder(staleJob.block.orderId, staleJob.block)
+            }
+            onMarkComplete={() => finishJobRun(staleJob.run.id)}
+          />
+        ) : null}
 
         {/* Floor-first: the primary action leads the page */}
         {activeRun && activeBlock ? (

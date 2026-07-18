@@ -32,6 +32,8 @@ export type EstimateRow = {
   pricingStepIndex?: number;
   /** Short decoration label for matrix-matched rows */
   decorationType?: string;
+  /** Covered by another decoration line's bundled location charge */
+  includedInBundle?: boolean;
   source?: "auto" | "manual";
   contractFeeId?: string;
   feeCategory?: import("@/types").OrderEstimateFeeCategory;
@@ -148,6 +150,7 @@ function buildDecorationRows(
     lineTotal: round2(entry.unitPrice * entry.pieceCount),
     pricingStepIndex: entry.stepIndex,
     decorationType: entry.decoration,
+    ...(entry.bundledIncluded ? { includedInBundle: true } : {}),
   }));
 }
 

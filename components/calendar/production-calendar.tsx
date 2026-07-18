@@ -22,10 +22,12 @@ import {
 import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import {
+  clusterCalendarDayBlocks,
   DraggableScheduleChip,
   DroppableCalendarCell,
   ScheduleChipContent,
 } from "@/components/calendar/calendar-dnd";
+import { ProductionRunGroup } from "@/components/production-run-group";
 import { ScheduleJobDialog } from "@/components/calendar/schedule-job-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -323,7 +325,7 @@ export function ProductionCalendar({
       targetMachine
     );
     if (!updated) return;
-    updateScheduleBlock(block.id, updated);
+    void updateScheduleBlock(block.id, updated);
   };
 
   const handleDragCancel = () => {
@@ -544,62 +546,88 @@ export function ProductionCalendar({
                           isSameDay(parseISO(b.startAt), day)
                       )
                       .sort((a, b) => {
+                        const byStart =
+                          parseISO(a.startAt).getTime() -
+                          parseISO(b.startAt).getTime();
+                        if (byStart !== 0) return byStart;
                         if (!highlightOrderId) return 0;
                         const aMine = a.orderId === highlightOrderId ? 1 : 0;
                         const bMine = b.orderId === highlightOrderId ? 1 : 0;
                         return bMine - aMine;
                       });
+                    const dayClusters = clusterCalendarDayBlocks(dayBlocks);
                     const isToday = isSameDay(day, new Date());
                     const hasOwnBlock =
                       highlightOrderId &&
                       dayBlocks.some((b) => b.orderId === highlightOrderId);
 
+                    const renderBlockChip = (block: (typeof dayBlocks)[number]) => {
+                      const isThisOrder =
+                        highlightOrderId &&
+                        block.orderId === highlightOrderId;
+                      const contextOnly = showShopContext && !isThisOrder;
+                      const blockCustomer = resolveScheduleBlockCustomer(
+                        block,
+                        activeOrders,
+                        getCustomerById
+                      );
+                      const productionStatus =
+                        resolveScheduleBlockProductionStatus(
+                          block,
+                          jobRuns,
+                          activeOrders
+                        );
+
+                      return readOnly || contextOnly ? (
+                        <ScheduleChip
+                          key={block.id}
+                          block={block}
+                          blockCustomer={blockCustomer}
+                          productionStatus={productionStatus}
+                          readOnly={readOnly || contextOnly}
+                          contextOnly={contextOnly}
+                          highlighted={Boolean(isThisOrder)}
+                          onEdit={
+                            readOnly || contextOnly
+                              ? undefined
+                              : () => openEdit(block)
+                          }
+                          onView={
+                            readOnly ? onScheduleBlockClick : undefined
+                          }
+                        />
+                      ) : (
+                        <DraggableScheduleChip
+                          key={block.id}
+                          block={block}
+                          blockCustomer={blockCustomer}
+                          productionStatus={productionStatus}
+                          highlighted={Boolean(isThisOrder)}
+                          onEdit={() => openEdit(block)}
+                        />
+                      );
+                    };
+
                     const cellInner = (
                       <>
-                        {dayBlocks.map((block) => {
-                          const isThisOrder =
-                            highlightOrderId &&
-                            block.orderId === highlightOrderId;
-                          const contextOnly = showShopContext && !isThisOrder;
-                          const blockCustomer = resolveScheduleBlockCustomer(
-                            block,
-                            activeOrders,
-                            getCustomerById
-                          );
-                          const productionStatus =
-                            resolveScheduleBlockProductionStatus(
-                              block,
-                              jobRuns,
-                              activeOrders
-                            );
+                        {dayClusters.map((cluster) => {
+                          if (cluster.type === "single") {
+                            return renderBlockChip(cluster.block);
+                          }
 
-                          return readOnly || contextOnly ? (
-                            <ScheduleChip
-                              key={block.id}
-                              block={block}
-                              blockCustomer={blockCustomer}
-                              productionStatus={productionStatus}
-                              readOnly={readOnly || contextOnly}
-                              contextOnly={contextOnly}
-                              highlighted={Boolean(isThisOrder)}
-                              onEdit={
-                                readOnly || contextOnly
-                                  ? undefined
-                                  : () => openEdit(block)
-                              }
-                              onView={
-                                readOnly ? onScheduleBlockClick : undefined
-                              }
-                            />
-                          ) : (
-                            <DraggableScheduleChip
-                              key={block.id}
-                              block={block}
-                              blockCustomer={blockCustomer}
-                              productionStatus={productionStatus}
-                              highlighted={Boolean(isThisOrder)}
-                              onEdit={() => openEdit(block)}
-                            />
+                          const orderCount =
+                            cluster.blocks[0]?.productionRunOrderCount ??
+                            cluster.blocks.length;
+
+                          return (
+                            <ProductionRunGroup
+                              key={cluster.runId}
+                              orderCount={orderCount}
+                            >
+                              {cluster.blocks.map((block) =>
+                                renderBlockChip(block)
+                              )}
+                            </ProductionRunGroup>
                           );
                         })}
                         {!readOnly &&
@@ -685,7 +713,7 @@ export function ProductionCalendar({
           onDragCancel={handleDragCancel}
         >
           {calendarGrid}
-          <DragOverlay dropAnimation={{ duration: 200, easing: "ease-out" }}>
+          <DragOverlay dropAnimation={null}>
             {draggingBlock && draggingBlockCustomer ? (
               <div
                 className={cn(

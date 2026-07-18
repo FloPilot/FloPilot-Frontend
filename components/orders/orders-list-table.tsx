@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Layers3 } from "lucide-react";
 import {
   CheckpointStatusBadge,
   findCheckpoint,
@@ -39,18 +40,8 @@ function orderPieceCount(order: Order): number {
   );
 }
 
-function stickyOffset(
-  columnId: OrdersListColumnId,
-  columns: OrdersListColumnId[]
-): string | undefined {
+function stickyOffset(columnId: OrdersListColumnId): string | undefined {
   if (columnId === "order") return "0";
-  if (
-    columnId === "customer" &&
-    columns[0] === "order" &&
-    columns[1] === "customer"
-  ) {
-    return "132px";
-  }
   return undefined;
 }
 
@@ -314,6 +305,28 @@ export function OrdersListTable({
   }
 
   const minWidth = Math.max(720, columns.length * 108);
+  const groupedItems = (() => {
+    const byRun = new Map<string, Order[]>();
+    for (const order of items) {
+      if (!order.productionRun?.id) continue;
+      const group = byRun.get(order.productionRun.id) || [];
+      group.push(order);
+      byRun.set(order.productionRun.id, group);
+    }
+    const seenRuns = new Set<string>();
+    const result: Order[] = [];
+    for (const order of items) {
+      const runId = order.productionRun?.id;
+      if (!runId) {
+        result.push(order);
+        continue;
+      }
+      if (seenRuns.has(runId)) continue;
+      seenRuns.add(runId);
+      result.push(...(byRun.get(runId) || [order]));
+    }
+    return result;
+  })();
 
   return (
     <div className="mt-4 -mx-4 overflow-x-auto border-t border-[#ebebeb] sm:-mx-5">
@@ -322,7 +335,7 @@ export function OrdersListTable({
           <TableRow className="border-[#ebebeb] hover:bg-transparent">
             {columns.map((columnId) => {
               const def = getOrdersListColumnDef(columnId);
-              const stickyLeft = stickyOffset(columnId, columns);
+              const stickyLeft = stickyOffset(columnId);
               const label = resolveOrdersListColumnLabel(
                 columnId,
                 columnLabels,
@@ -351,7 +364,7 @@ export function OrdersListTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((order) => {
+          {groupedItems.map((order, orderIndex) => {
             const href = `/app/orders/${order.id}`;
             const summary = summaries.get(order.id);
             const checkpoints = summary?.checkpoints ?? [];
@@ -365,6 +378,13 @@ export function OrdersListTable({
                 balance: 0,
               } satisfies OrderFinancials);
             const customer = customersById.get(order.customerId);
+            const runId = order.productionRun?.id;
+            const isRunFirst =
+              Boolean(runId) &&
+              groupedItems[orderIndex - 1]?.productionRun?.id !== runId;
+            const isRunLast =
+              Boolean(runId) &&
+              groupedItems[orderIndex + 1]?.productionRun?.id !== runId;
 
             return (
               <TableRow
@@ -375,7 +395,10 @@ export function OrdersListTable({
                 className={cn(
                   "group cursor-pointer border-[#ebebeb] hover:bg-[#f6f6f7] focus-visible:bg-[#f6f6f7] focus-visible:outline-none",
                   order.rush &&
-                    "bg-[#fffdf5] hover:bg-[#f6f6f7] focus-visible:bg-[#f6f6f7]"
+                    "bg-[#fffdf5] hover:bg-[#f6f6f7] focus-visible:bg-[#f6f6f7]",
+                  order.productionRun &&
+                    "hover:bg-[#f6f6f7] focus-visible:bg-[#f6f6f7]",
+                  order.productionRun && isRunLast && "border-b-0"
                 )}
                 onClick={() => router.push(href)}
                 onKeyDown={(event) => {
@@ -387,8 +410,30 @@ export function OrdersListTable({
               >
                 {columns.map((columnId) => {
                   const def = getOrdersListColumnDef(columnId);
-                  const stickyLeft = stickyOffset(columnId, columns);
+                  const stickyLeft = stickyOffset(columnId);
                   const isOrderCell = columnId === "order";
+                  const isFirstColumn = columnId === columns[0];
+                  const isLastColumn =
+                    columnId === columns[columns.length - 1];
+                  const runEdgeShadows = order.productionRun
+                    ? [
+                        stickyLeft != null ? "1px 0 0 #ebebeb" : "",
+                        isRunFirst
+                          ? "inset 0 1px 0 rgba(44, 110, 203, 0.48)"
+                          : "",
+                        isRunLast
+                          ? "inset 0 -1px 0 rgba(44, 110, 203, 0.48)"
+                          : "",
+                        isFirstColumn
+                          ? "inset 1px 0 0 rgba(44, 110, 203, 0.48)"
+                          : "",
+                        isLastColumn
+                          ? "inset -1px 0 0 rgba(44, 110, 203, 0.48)"
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(", ")
+                    : undefined;
 
                   return (
                     <TableCell
@@ -398,6 +443,24 @@ export function OrdersListTable({
                         stickyLeft != null &&
                           "sticky z-10 bg-white shadow-[1px_0_0_#ebebeb]",
                         order.rush && stickyLeft != null && "bg-[#fffdf5]",
+                        order.productionRun &&
+                          "bg-white group-hover:bg-[#f6f6f7] group-focus-visible:bg-[#f6f6f7]",
+                        order.productionRun &&
+                          isRunFirst &&
+                          isFirstColumn &&
+                          "rounded-tl-lg",
+                        order.productionRun &&
+                          isRunFirst &&
+                          isLastColumn &&
+                          "rounded-tr-lg",
+                        order.productionRun &&
+                          isRunLast &&
+                          isFirstColumn &&
+                          "rounded-bl-lg",
+                        order.productionRun &&
+                          isRunLast &&
+                          isLastColumn &&
+                          "rounded-br-lg",
                         columnId === columns[columns.length - 1] &&
                           "pr-4 sm:pr-5",
                         columnId === columns[0] && "pl-4 sm:pl-5"
@@ -405,6 +468,9 @@ export function OrdersListTable({
                       style={{
                         minWidth: def?.minWidth,
                         ...(stickyLeft != null ? { left: stickyLeft } : {}),
+                        ...(runEdgeShadows
+                          ? { boxShadow: runEdgeShadows }
+                          : {}),
                       }}
                     >
                       {isOrderCell ? (
@@ -417,6 +483,15 @@ export function OrdersListTable({
                             {formatOrderDisplayLine(order)}
                           </Link>
                           {order.rush ? <RushBadge /> : null}
+                          {order.productionRun ? (
+                            <span
+                              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#b8cceb] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#315f9e]"
+                              title={`${order.productionRun.members.length} orders running together`}
+                            >
+                              <Layers3 className="size-3" />
+                              Run {order.productionRun.members.length}
+                            </span>
+                          ) : null}
                           {summary?.dueDays !== null &&
                           summary?.dueDays !== undefined &&
                           summary.dueDays < 0 ? (

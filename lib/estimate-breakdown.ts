@@ -78,6 +78,7 @@ export type ReviewEstimateRow = {
   qty: number;
   unitCost: number;
   lineTotal: number;
+  includedInBundle?: boolean;
   feeCategory?: OrderEstimateFeeCategory;
 };
 

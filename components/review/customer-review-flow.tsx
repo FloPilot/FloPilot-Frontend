@@ -742,6 +742,7 @@ function EstimateStep({
           paid={est.paid}
           balance={est.balance}
           accentColor="var(--review-accent)"
+          productionRun={session.order?.productionRun}
         />
       </div>
 

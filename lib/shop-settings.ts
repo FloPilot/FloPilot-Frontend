@@ -81,6 +81,14 @@ export type PricingMethod = {
   /** Column headers, e.g. ["1 COLOR", "2 COLOR"] or ["Price"]. */
   columns: string[];
   rows: PricingRow[];
+  /**
+   * How multiple print locations (imprints / production events) are charged.
+   * - per_imprint: each location gets its own matrix charge (default)
+   * - bundled: first `includedLocations` share one charge
+   */
+  locationChargeMode?: "per_imprint" | "bundled";
+  /** Max locations covered by one decoration charge when mode is bundled. */
+  includedLocations?: number;
 };
 
 export type PricingMatrix = {
@@ -552,6 +560,26 @@ export function normalizePricingMatrix(
           m.decorationType
         );
 
+        const includedRaw = Number(
+          (m as { includedLocations?: unknown }).includedLocations
+        );
+        const includedLocations =
+          Number.isFinite(includedRaw) && includedRaw > 0
+            ? Math.floor(includedRaw)
+            : undefined;
+        const locationChargeModeRaw = (
+          m as { locationChargeMode?: unknown }
+        ).locationChargeMode;
+        const locationChargeMode:
+          | "per_imprint"
+          | "bundled"
+          | undefined =
+          locationChargeModeRaw === "bundled"
+            ? "bundled"
+            : locationChargeModeRaw === "per_imprint"
+              ? "per_imprint"
+              : undefined;
+
         return {
           id: cleanStr(m.id, 64) || `method-${index}`,
           name,
@@ -560,6 +588,8 @@ export function normalizePricingMatrix(
           notes: cleanStr(m.notes, 280),
           columns,
           rows,
+          ...(locationChargeMode ? { locationChargeMode } : {}),
+          ...(includedLocations ? { includedLocations } : {}),
         };
       })
     : [];

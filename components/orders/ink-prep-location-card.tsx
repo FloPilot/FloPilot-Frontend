@@ -254,6 +254,7 @@ export function InkPrepLocationCard({
   onToggleColorPrep,
   onMarkAllPrep,
   onPersistInkColors,
+  defaultExpanded,
 }: {
   line: OrderMaterialLine;
   job: Job;
@@ -262,9 +263,12 @@ export function InkPrepLocationCard({
   onToggleColorPrep: (colorId: string, prepped: boolean) => void | Promise<void>;
   onMarkAllPrep: (prepped: boolean) => void | Promise<void>;
   onPersistInkColors: (inkColors: ImprintInkColor[]) => void | Promise<void>;
+  defaultExpanded?: boolean;
 }) {
   const { settings } = useShopSettings();
-  const [expanded, setExpanded] = useState(line.status !== "received");
+  const [expanded, setExpanded] = useState(
+    defaultExpanded ?? line.status !== "received"
+  );
   const [addingColor, setAddingColor] = useState(false);
   const [persisting, setPersisting] = useState(false);
   const [draftColors, setDraftColors] = useState(() => inkColorsForPrep(imprint));

@@ -104,7 +104,9 @@ function buildInkCheckpoint(order: Order): OrderCheckpoint {
     };
   }
 
-  const status = materialLinesToStatus(inkLines);
+  const materialStatus = materialLinesToStatus(inkLines);
+  const status: CheckpointRollupStatus =
+    materialStatus === "blocked" ? "pending" : materialStatus;
   const done = inkLines.filter((line) => line.status === "received").length;
 
   return {

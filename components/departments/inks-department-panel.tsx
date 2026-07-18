@@ -1,32 +1,44 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Droplets } from "lucide-react";
+import { Droplets, Layers3 } from "lucide-react";
 import {
   DepartmentCardTitle,
   DepartmentEmptyState,
   DepartmentMarkDoneButton,
-  DepartmentOrderLink,
   DepartmentQueueCard,
   PrepDueDateField,
   PrepScheduleLabels,
   departmentStatusPill,
 } from "@/components/departments/department-shared";
 import { DepartmentsShell } from "@/components/departments/departments-shell";
+import { ProductionRunGroup } from "@/components/production-run-group";
 import { useSchedule } from "@/components/providers/schedule-provider";
-import { collectInkQueue } from "@/lib/department-queues";
 import {
-  inkPrepLineMarkAll,
-  inkPrepLineFromColorToggle,
-} from "@/lib/ink-prep";
+  clusterInkQueueEntries,
+  collectInkQueue,
+  type InkQueueEntry,
+} from "@/lib/department-queues";
+import { departmentInksHref } from "@/lib/departments";
+import { inkPrepLineMarkAll } from "@/lib/ink-prep";
 import { mergeOrderMaterials } from "@/lib/order-materials";
 import { dashboardControlClass } from "@/lib/dashboard-styles";
 import { formatDate } from "@/lib/format";
+import { formatOrderDisplayLine } from "@/lib/order-display";
 import { cn } from "@/lib/utils";
 import { inkColorStableId } from "@/lib/imprint-design";
 
+type InkFilter = "pending" | "completed" | "all";
+
+const FILTERS: { value: InkFilter; label: string }[] = [
+  { value: "pending", label: "Pending" },
+  { value: "completed", label: "Completed" },
+  { value: "all", label: "All" },
+];
+
 export function InksDepartmentPanel() {
+  const router = useRouter();
   const {
     orders,
     scheduleBlocks,
@@ -34,10 +46,31 @@ export function InksDepartmentPanel() {
     updateOrderMaterials,
   } = useSchedule();
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<InkFilter>("pending");
 
   const entries = useMemo(
-    () => collectInkQueue(orders, scheduleBlocks),
+    () => collectInkQueue(orders, scheduleBlocks, { includeCompleted: true }),
     [orders, scheduleBlocks]
+  );
+
+  const pendingEntries = useMemo(
+    () => entries.filter((entry) => entry.line.status !== "received"),
+    [entries]
+  );
+  const completedEntries = useMemo(
+    () => entries.filter((entry) => entry.line.status === "received"),
+    [entries]
+  );
+
+  const filtered = useMemo(() => {
+    if (filter === "pending") return pendingEntries;
+    if (filter === "completed") return completedEntries;
+    return entries;
+  }, [completedEntries, entries, filter, pendingEntries]);
+
+  const clusters = useMemo(
+    () => clusterInkQueueEntries(filtered),
+    [filtered]
   );
 
   const saveInkLine = async (
@@ -66,149 +99,227 @@ export function InksDepartmentPanel() {
     }
   };
 
+  const renderCard = (entry: InkQueueEntry, runOrderCount?: number) => {
+    const customer = getCustomerById(entry.order.customerId);
+    const saving = savingId === `${entry.order.id}-${entry.line.id}`;
+    const done = entry.line.status === "received";
+    const { prepped, total } = entry.progress;
+    const detailHref = departmentInksHref(
+      entry.order.id,
+      entry.line.jobId,
+      entry.line.imprintId
+    );
+
+    return (
+      <DepartmentQueueCard
+        key={entry.line.id}
+        customerId={entry.order.customerId}
+        company={customer?.company ?? entry.order.company}
+        logoUrl={customer?.logoUrl}
+        accentColorKey={customer?.accentColorKey}
+        fallbackKey={entry.order.id}
+        rush={Boolean(entry.scheduleHint) && entry.order.rush}
+        onClick={() => router.push(detailHref)}
+        title={
+          <div className="flex flex-wrap items-center gap-2">
+            <DepartmentCardTitle>{entry.imprintLabel}</DepartmentCardTitle>
+            {departmentStatusPill(
+              done
+                ? "Completed"
+                : !entry.readyForPrep
+                  ? "Not Ready"
+                  : prepped > 0
+                    ? `${prepped}/${total} colors`
+                    : "Pending",
+              done
+                ? "success"
+                : !entry.readyForPrep
+                  ? "neutral"
+                  : prepped > 0
+                    ? "warning"
+                    : "neutral"
+            )}
+            {runOrderCount && runOrderCount > 1 ? (
+              <span className="inline-flex items-center gap-1 rounded-md border border-[#b8cceb] bg-[#f4f7fd] px-1.5 py-0.5 text-[10px] font-semibold text-[#315f9e]">
+                <Layers3 className="size-2.5" />
+                Run {runOrderCount}
+              </span>
+            ) : null}
+          </div>
+        }
+        subtitle={
+          <>
+            <span className="text-[13px] font-semibold text-[#303030]">
+              {formatOrderDisplayLine(entry.order)}
+            </span>
+            <span className="mx-1 text-[#c9cccf]">·</span>
+            {entry.jobName}
+          </>
+        }
+        meta={
+          <div className="space-y-2">
+            <PrepScheduleLabels
+              scheduleHint={entry.scheduleHint}
+              prepDueAt={entry.prepDueAt}
+              complete={done}
+            />
+            {entry.readinessReason ? (
+              <p className="rounded-lg border border-[#ebebeb] bg-[#f6f6f7] px-3 py-2 text-[12px] text-[#616161]">
+                <span className="font-semibold text-[#303030]">
+                  Not Ready:
+                </span>{" "}
+                {entry.readinessReason}
+              </p>
+            ) : null}
+            {entry.inkColors.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {entry.inkColors.map((color, index) => {
+                  const colorId = inkColorStableId(color, index);
+                  const isPrepped = (
+                    entry.line.preppedInkColorIds ?? []
+                  ).includes(colorId);
+                  return (
+                    <span
+                      key={colorId}
+                      className={cn(
+                        "rounded-md border px-2 py-1 text-[11px] font-medium",
+                        isPrepped
+                          ? "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]"
+                          : "border-[#e3e3e3] bg-white text-[#616161]"
+                      )}
+                    >
+                      {color.pmsCode || color.name || `Color ${index + 1}`}
+                    </span>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-[12px] text-[#8a8a8a]">
+                No ink colors defined yet — open to add them.
+              </p>
+            )}
+            <p className="text-[12px] text-[#616161]">
+              In hands {formatDate(entry.order.inHandsDate)}
+            </p>
+          </div>
+        }
+        actions={
+          <>
+            <PrepDueDateField
+              value={entry.prepDueAt}
+              disabled={saving}
+              onChange={(value) => {
+                void saveInkLine(
+                  entry.order.id,
+                  entry.line.id,
+                  (line) => ({ ...line, prepDueAt: value })
+                );
+              }}
+            />
+            <DepartmentMarkDoneButton
+              done={done}
+              saving={saving}
+              disabled={!entry.readyForPrep && !done}
+              doneLabel="All inks ready"
+              undoLabel="Reopen"
+              onClick={() => {
+                void saveInkLine(
+                  entry.order.id,
+                  entry.line.id,
+                  (line, imprint) =>
+                    inkPrepLineMarkAll(line, imprint, !done)
+                );
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => router.push(detailHref)}
+              className={cn(
+                dashboardControlClass,
+                "h-8 px-3 text-xs font-semibold"
+              )}
+            >
+              Open
+            </button>
+          </>
+        }
+      />
+    );
+  };
+
   return (
     <DepartmentsShell
       activeSlug="inks"
       title="Ink prep queue"
-      description="Mix and stage ink for scheduled screen-print locations. Each location appears here after its event is on the calendar."
+      description="Mix and stage ink for screen-print locations. Click a location to open PMS colors, adjust ink, and mark prep complete."
     >
-      {entries.length === 0 ? (
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {FILTERS.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            onClick={() => setFilter(item.value)}
+            className={cn(
+              dashboardControlClass,
+              "h-8 px-3 text-xs font-semibold",
+              filter === item.value
+                ? "border-[#2c6ecb] bg-[#f0f5ff] text-[#2c6ecb]"
+                : "text-[#303030]"
+            )}
+          >
+            {item.label}
+            {item.value === "pending" && pendingEntries.length > 0
+              ? ` (${pendingEntries.length})`
+              : null}
+            {item.value === "completed" && completedEntries.length > 0
+              ? ` (${completedEntries.length})`
+              : null}
+            {item.value === "all" && entries.length > 0
+              ? ` (${entries.length})`
+              : null}
+          </button>
+        ))}
+      </div>
+
+      {filtered.length === 0 ? (
         <DepartmentEmptyState
           icon={Droplets}
-          title="Ink prep is caught up"
-          description="When screen-print events are scheduled on the calendar, ink prep tasks show up here with a target date before the run."
+          title={
+            filter === "completed"
+              ? "No completed ink prep yet"
+              : filter === "all"
+                ? "No ink jobs yet"
+                : "Ink prep is caught up"
+          }
+          description={
+            filter === "completed"
+              ? "Locations marked ready will show up here."
+              : filter === "all"
+                ? "Approved screen-print locations with ink colors, or scheduled locations, appear here."
+                : "Approved screen-print locations with configured ink colors appear here, along with scheduled locations that still need their prerequisites."
+          }
         />
       ) : (
         <div className="space-y-2.5">
-          {entries.map((entry) => {
-            const customer = getCustomerById(entry.order.customerId);
-            const saving = savingId === `${entry.order.id}-${entry.line.id}`;
-            const done = entry.line.status === "received";
-            const { prepped, total } = entry.progress;
+          {clusters.map((cluster) => {
+            if (cluster.type === "single") {
+              const runCount =
+                cluster.entry.order.productionRun?.members.length ?? 0;
+              return renderCard(
+                cluster.entry,
+                runCount > 1 ? runCount : undefined
+              );
+            }
 
             return (
-              <DepartmentQueueCard
-                key={entry.line.id}
-                customerId={entry.order.customerId}
-                company={customer?.company ?? entry.order.company}
-                logoUrl={customer?.logoUrl}
-                accentColorKey={customer?.accentColorKey}
-                fallbackKey={entry.order.id}
-                rush={entry.order.rush}
-                title={
-                  <div className="flex flex-wrap items-center gap-2">
-                    <DepartmentCardTitle>{entry.imprintLabel}</DepartmentCardTitle>
-                    {departmentStatusPill(
-                      done
-                        ? "Ready"
-                        : prepped > 0
-                          ? `${prepped}/${total} colors`
-                          : "Not started",
-                      done ? "success" : prepped > 0 ? "warning" : "neutral"
-                    )}
-                  </div>
-                }
-                subtitle={
-                  <>
-                    <DepartmentOrderLink
-                      orderId={entry.order.id}
-                      orderNumber={entry.order.number}
-                      customLabel={entry.order.customLabel}
-                    />
-                    <span className="mx-1 text-[#c9cccf]">·</span>
-                    {entry.jobName}
-                  </>
-                }
-                meta={
-                  <div className="space-y-2">
-                    <PrepScheduleLabels
-                      scheduleHint={entry.scheduleHint}
-                      prepDueAt={entry.prepDueAt}
-                      complete={done}
-                    />
-                    {entry.inkColors.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {entry.inkColors.map((color, index) => {
-                          const colorId = inkColorStableId(color, index);
-                          const isPrepped = (
-                            entry.line.preppedInkColorIds ?? []
-                          ).includes(colorId);
-                          return (
-                            <button
-                              key={colorId}
-                              type="button"
-                              disabled={saving}
-                              onClick={() => {
-                                void saveInkLine(
-                                  entry.order.id,
-                                  entry.line.id,
-                                  (line, imprint) =>
-                                    inkPrepLineFromColorToggle(
-                                      line,
-                                      imprint,
-                                      colorId,
-                                      !isPrepped
-                                    )
-                                );
-                              }}
-                              className={cn(
-                                "rounded-md border px-2 py-1 text-[11px] font-medium transition-colors",
-                                isPrepped
-                                  ? "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]"
-                                  : "border-[#e3e3e3] bg-white text-[#616161] hover:border-[#c9cccf]"
-                              )}
-                            >
-                              {color.pmsCode || color.name || `Color ${index + 1}`}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="text-[12px] text-[#8a8a8a]">
-                        No ink colors defined yet — add them on the order.
-                      </p>
-                    )}
-                    <p className="text-[12px] text-[#616161]">
-                      In hands {formatDate(entry.order.inHandsDate)}
-                    </p>
-                  </div>
-                }
-                actions={
-                  <>
-                    <PrepDueDateField
-                      value={entry.prepDueAt}
-                      disabled={saving}
-                      onChange={(value) => {
-                        void saveInkLine(
-                          entry.order.id,
-                          entry.line.id,
-                          (line) => ({ ...line, prepDueAt: value })
-                        );
-                      }}
-                    />
-                    <DepartmentMarkDoneButton
-                      done={done}
-                      saving={saving}
-                      doneLabel="All inks ready"
-                      undoLabel="Reopen"
-                      onClick={() => {
-                        void saveInkLine(
-                          entry.order.id,
-                          entry.line.id,
-                          (line, imprint) =>
-                            inkPrepLineMarkAll(line, imprint, !done)
-                        );
-                      }}
-                    />
-                    <Link
-                      href={`/app/orders/${entry.order.id}?tab=materials`}
-                      className={cn(dashboardControlClass, "h-8 px-3 text-xs font-semibold")}
-                    >
-                      Order
-                    </Link>
-                  </>
-                }
-              />
+              <ProductionRunGroup
+                key={cluster.runId}
+                orderCount={cluster.orderCount}
+              >
+                {cluster.entries.map((entry) =>
+                  renderCard(entry, cluster.orderCount)
+                )}
+              </ProductionRunGroup>
             );
           })}
         </div>

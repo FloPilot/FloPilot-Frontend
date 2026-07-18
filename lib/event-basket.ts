@@ -443,6 +443,8 @@ export type SchedulingQueueOrder = {
   flowSteps: OrderFlowStep[];
   artworkApproved: boolean;
   artworkLabel?: string;
+  productionRunId?: string;
+  productionRunOrderCount?: number;
 };
 
 export function buildSchedulingQueueOrders(
@@ -480,6 +482,8 @@ export function buildSchedulingQueueOrders(
         artwork && artwork.total > 0
           ? `${artwork.approved}/${artwork.total} proofs approved`
           : undefined,
+      productionRunId: order?.productionRun?.id,
+      productionRunOrderCount: order?.productionRun?.members.length,
     };
   });
 }

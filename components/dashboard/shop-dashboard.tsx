@@ -489,6 +489,8 @@ export function ShopDashboard() {
             orders={filteredData.orders}
             scheduleBlocks={filteredData.scheduleBlocks}
             productionBoardTasks={productionBoardTasks}
+            machines={machines}
+            jobRuns={filteredData.jobRuns}
             isModuleEnabled={isModuleEnabled}
           />
         );

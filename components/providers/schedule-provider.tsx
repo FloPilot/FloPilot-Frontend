@@ -80,6 +80,7 @@ import {
   updateJobRunStatus as apiUpdateJobRunStatus,
   updateMachine as apiUpdateMachine,
   updateOrder as apiUpdateOrder,
+  updateOrderProductionRun as apiUpdateOrderProductionRun,
   updateOrderGarments as apiUpdateOrderGarments,
   updateOrderMaterials as apiUpdateOrderMaterials,
   backfillDesignLibrary as apiBackfillDesignLibrary,
@@ -101,7 +102,7 @@ import {
 import { useAuth } from "@/components/providers/auth-provider";
 import type { DashboardStats } from "@/types";
 import {
-  buildInitialJobRuns,
+  ensureJobRunsForBlocks,
   getRunForBlock,
 } from "@/lib/station-runs";
 import {
@@ -329,6 +330,10 @@ type ScheduleContextValue = {
     orderId: string,
     salesRepId: string | null
   ) => Promise<Order>;
+  updateOrderProductionRun: (
+    orderId: string,
+    linkedOrderIds: string[]
+  ) => Promise<Order>;
   updateOrderEstimatePricing: (
     orderId: string,
     updates: {
@@ -445,11 +450,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       ]);
 
       setScheduleBlocks(blocksRes.blocks);
-      setJobRuns(
-        runsRes.runs.length > 0
-          ? runsRes.runs
-          : buildInitialJobRuns(blocksRes.blocks)
-      );
+      setJobRuns(ensureJobRunsForBlocks(blocksRes.blocks, runsRes.runs));
       setOrders((prev) => {
         const next = mergeOrdersFromServer(prev, ordersRes.orders);
         setProductionTasks(deriveProductionTasks(next));
@@ -497,11 +498,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       setProductionTasks(deriveProductionTasks(ordersRes.orders));
       setMachines(machinesRes.machines);
       setScheduleBlocks(blocksRes.blocks);
-      setJobRuns(
-        runsRes.runs.length > 0
-          ? runsRes.runs
-          : buildInitialJobRuns(blocksRes.blocks)
-      );
+      setJobRuns(ensureJobRunsForBlocks(blocksRes.blocks, runsRes.runs));
 
       const stats: DashboardStatsResponse = statsRes.stats;
       setDashboardStats({
@@ -593,11 +590,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       apiListJobRuns(token),
     ]);
     setScheduleBlocks(blocksRes.blocks);
-    setJobRuns(
-      runsRes.runs.length > 0
-        ? runsRes.runs
-        : buildInitialJobRuns(blocksRes.blocks)
-    );
+    setJobRuns(ensureJobRunsForBlocks(blocksRes.blocks, runsRes.runs));
   }, []);
 
   const getCustomerById = useCallback(
@@ -798,21 +791,56 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const token = await getIdToken();
       if (!token) throw new Error("Not signed in");
 
-      const { block: saved, order } = await apiUpdateScheduleBlock(token, id, block);
-      setScheduleBlocks((prev) =>
-        prev.map((entry) => (entry.id === id ? saved : entry))
-      );
+      const optimistic: ScheduleBlock = { ...block, id };
+      let previous: ScheduleBlock | undefined;
+      setScheduleBlocks((prev) => {
+        previous = prev.find((entry) => entry.id === id);
+        return prev.map((entry) => (entry.id === id ? optimistic : entry));
+      });
       setJobRuns((prev) =>
         prev.map((run) =>
           run.scheduleBlockId === id
-            ? { ...run, machineId: saved.machineId }
+            ? { ...run, machineId: block.machineId }
             : run
         )
       );
-      if (order) {
-        applyOrderUpdate(order);
+
+      try {
+        const { block: saved, order } = await apiUpdateScheduleBlock(
+          token,
+          id,
+          block
+        );
+        setScheduleBlocks((prev) =>
+          prev.map((entry) => (entry.id === id ? saved : entry))
+        );
+        setJobRuns((prev) =>
+          prev.map((run) =>
+            run.scheduleBlockId === id
+              ? { ...run, machineId: saved.machineId }
+              : run
+          )
+        );
+        if (order) {
+          applyOrderUpdate(order);
+        }
+        void refreshCalendarData();
+      } catch (err) {
+        if (previous) {
+          const rollback = previous;
+          setScheduleBlocks((prev) =>
+            prev.map((entry) => (entry.id === id ? rollback : entry))
+          );
+          setJobRuns((prev) =>
+            prev.map((run) =>
+              run.scheduleBlockId === id
+                ? { ...run, machineId: rollback.machineId }
+                : run
+            )
+          );
+        }
+        throw err;
       }
-      await refreshCalendarData();
     },
     [getIdToken, applyOrderUpdate, refreshCalendarData]
   );
@@ -1567,6 +1595,23 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateOrderProductionRun = useCallback(
+    async (orderId: string, linkedOrderIds: string[]) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update a multi-job run.");
+      }
+      const result = await apiUpdateOrderProductionRun(
+        token,
+        orderId,
+        linkedOrderIds
+      );
+      setOrders((current) => mergeOrdersFromServer(current, result.orders));
+      return result.order;
+    },
+    [getIdToken]
+  );
+
   const updateOrderEstimatePricing = useCallback(
     async (
       orderId: string,
@@ -1947,6 +1992,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateOrderCustomLabel,
       updateOrderEndBusiness,
       updateOrderSalesRep,
+      updateOrderProductionRun,
       updateOrderEstimatePricing,
       updateOrderShipments,
       updateOrderLineItem,
@@ -2033,6 +2079,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateOrderCustomLabel,
       updateOrderEndBusiness,
       updateOrderSalesRep,
+      updateOrderProductionRun,
       updateOrderEstimatePricing,
       updateOrderShipments,
       updateOrderLineItem,

@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { CheckCircle2, FileText, Mail } from "lucide-react";
 import { CustomerEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
 import type { PortalInvoiceSummary } from "@/lib/customer-portal-api";
+import type { OrderProductionRun } from "@/types";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -13,12 +14,17 @@ export function CustomerPortalInvoicePanel({
   shopEmail,
   shopName,
   highlight = false,
+  productionRun,
 }: {
   invoice: PortalInvoiceSummary;
   accent: string;
   shopEmail?: string;
   shopName?: string;
   highlight?: boolean;
+  productionRun?: Pick<
+    OrderProductionRun,
+    "id" | "members" | "combinedQuantity"
+  >;
 }) {
   const ref = useRef<HTMLElement>(null);
   const amountDue = Math.max(0, invoice.balance);
@@ -108,6 +114,7 @@ export function CustomerPortalInvoicePanel({
           paid={invoice.paid}
           balance={invoice.balance}
           accentColor={accent}
+          productionRun={productionRun}
         />
 
         <div
