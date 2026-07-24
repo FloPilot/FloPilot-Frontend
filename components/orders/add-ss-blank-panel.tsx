@@ -155,17 +155,21 @@ export function AddSsBlankPanel({
   onAdd,
   saving,
   provider = "ssActivewear",
+  editItem,
 }: {
   lineItems: LineItem[];
   onAdd: (item: LineItem) => Promise<void>;
   saving: boolean;
   provider?: SupplierProviderId;
+  /** When set, opens directly on this style with color/qty prefilled for editing. */
+  editItem?: LineItem | null;
 }) {
   const { getIdToken } = useAuth();
   const providerLabel = supplierProviderLabel(provider);
   const quickBrandHints = QUICK_BRAND_HINTS_BY_PROVIDER[provider];
   const inputRef = useRef<HTMLInputElement>(null);
-  const [view, setView] = useState<View>("search");
+  const isEditMode = Boolean(editItem);
+  const [view, setView] = useState<View>(isEditMode ? "detail" : "search");
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [brandFilter, setBrandFilter] = useState<string | null>(null);
@@ -182,15 +186,24 @@ export function AddSsBlankPanel({
     null
   );
   const [selectedColorIndex, setSelectedColorIndex] = useState(0);
-  const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [quantities, setQuantities] = useState<Record<string, number>>(() =>
+    editItem
+      ? Object.fromEntries(editItem.sizes.map((row) => [row.size, row.quantity]))
+      : {}
+  );
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [editBootstrapping, setEditBootstrapping] = useState(isEditMode);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 350);
     return () => window.clearTimeout(timer);
   }, [query]);
 
+  // Brands are only needed for catalog search — skip on edit bootstrap so we
+  // don't compete with the style-detail request for auth / rate limit.
   useEffect(() => {
+    if (view !== "search") return;
+
     let cancelled = false;
 
     async function loadBrands() {
@@ -211,7 +224,7 @@ export function AddSsBlankPanel({
     return () => {
       cancelled = true;
     };
-  }, [getIdToken, provider]);
+  }, [getIdToken, provider, view]);
 
   const shouldSearch = debouncedQuery.length >= 2 || Boolean(brandFilter);
 
@@ -289,16 +302,26 @@ export function AddSsBlankPanel({
 
   const existingOnOrder = useMemo(() => {
     if (!styleDetail || !selectedColor) return {};
+    const otherItems = editItem
+      ? lineItems.filter((item) => item.id !== editItem.id)
+      : lineItems;
     return existingSupplierSizesOnOrder(
-      lineItems,
+      otherItems,
       provider,
       styleDetail.partNumber,
       selectedColor.colorCode
     );
-  }, [lineItems, provider, selectedColor, styleDetail]);
+  }, [editItem, lineItems, provider, selectedColor, styleDetail]);
 
   const loadStyle = useCallback(
-    async (style: SupplierStyleSummary) => {
+    async (
+      style: SupplierStyleSummary,
+      options?: {
+        preferColorCode?: string;
+        preferColorName?: string;
+        preferQuantities?: Record<string, number>;
+      }
+    ) => {
       const styleKey =
         style.partNumber ||
         (style.styleId != null ? String(style.styleId) : "");
@@ -323,9 +346,29 @@ export function AddSsBlankPanel({
             `This style has no available colors on your ${providerLabel} account.`
           );
         }
+
+        const colorCode = options?.preferColorCode?.trim().toLowerCase();
+        const colorName = options?.preferColorName?.trim().toLowerCase();
+        let colorIndex = 0;
+        if (colorCode || colorName) {
+          const matchIndex = detail.colors.findIndex(
+            (color) =>
+              (colorCode && color.colorCode.toLowerCase() === colorCode) ||
+              (colorName && color.colorName.toLowerCase() === colorName)
+          );
+          if (matchIndex >= 0) colorIndex = matchIndex;
+        }
+
+        const matchedColor = detail.colors[colorIndex];
+        const nextQuantities: Record<string, number> = {};
+        for (const sku of matchedColor.sizes) {
+          nextQuantities[sku.sizeName] =
+            options?.preferQuantities?.[sku.sizeName] || 0;
+        }
+
         setStyleDetail(detail);
-        setSelectedColorIndex(0);
-        setQuantities({});
+        setSelectedColorIndex(colorIndex);
+        setQuantities(nextQuantities);
         setView("detail");
       } catch (err) {
         setDetailError(
@@ -338,8 +381,118 @@ export function AddSsBlankPanel({
     [getIdToken, provider, providerLabel]
   );
 
+  // Prefill edit mode from the existing line item.
+  // IMPORTANT: do not gate on a sticky ref — React Strict Mode cancels the first
+  // effect and remounts; a sticky "already started" flag permanently skips load.
+  useEffect(() => {
+    if (!editItem) return;
+
+    let cancelled = false;
+    const run = async () => {
+      setEditBootstrapping(true);
+      setDetailError(null);
+      try {
+        const token = await getIdToken();
+        if (!token || cancelled) {
+          if (!cancelled && !token) {
+            setDetailError("Sign in again to load this blank.");
+            setView("search");
+          }
+          return;
+        }
+
+        const prefix = provider === "sanMar" ? "sm:" : "ss:";
+        const partNumber =
+          editItem.supplierPartNumber?.trim() ||
+          editItem.productKey?.replace(prefix, "").trim() ||
+          "";
+        const colorCode = editItem.colorKey?.startsWith(prefix)
+          ? editItem.colorKey.slice(prefix.length)
+          : undefined;
+        const preferQuantities = Object.fromEntries(
+          editItem.sizes.map((row) => [row.size, row.quantity])
+        );
+
+        const styleSummary = {
+          provider,
+          brandName: editItem.brand,
+          styleName: editItem.productName,
+          partNumber,
+          styleId: editItem.supplierStyleId ?? null,
+          title: `${editItem.brand} ${editItem.productName}`.trim(),
+          styleImageUrl: editItem.imageUrl || "",
+          styleImageLargeUrl: editItem.imageUrl || "",
+          brandImageUrl: "",
+          baseCategory: "",
+        };
+
+        setLoadingStyleKey(partNumber || String(editItem.supplierStyleId ?? ""));
+        const { style: detail } = await fetchSupplierStyleDetail(
+          token,
+          styleSummary,
+          provider
+        );
+        if (cancelled) return;
+
+        if (!detail.colors?.length) {
+          throw new Error(
+            `This style has no available colors on your ${providerLabel} account.`
+          );
+        }
+
+        const code = colorCode?.trim().toLowerCase();
+        const name = editItem.color?.trim().toLowerCase();
+        let colorIndex = 0;
+        if (code || name) {
+          const matchIndex = detail.colors.findIndex(
+            (color) =>
+              (code && color.colorCode.toLowerCase() === code) ||
+              (name && color.colorName.toLowerCase() === name)
+          );
+          if (matchIndex >= 0) colorIndex = matchIndex;
+        }
+
+        const matchedColor = detail.colors[colorIndex];
+        setStyleDetail(detail);
+        setSelectedColorIndex(colorIndex);
+        setQuantities((current) => {
+          const next: Record<string, number> = {};
+          for (const sku of matchedColor.sizes) {
+            next[sku.sizeName] =
+              current[sku.sizeName] ??
+              preferQuantities[sku.sizeName] ??
+              0;
+          }
+          return next;
+        });
+        setView("detail");
+      } catch (err) {
+        if (!cancelled) {
+          setDetailError(
+            err instanceof Error
+              ? err.message
+              : "Could not load this blank for editing"
+          );
+          setView("search");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingStyleKey(null);
+          setEditBootstrapping(false);
+        }
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [editItem, getIdToken, provider, providerLabel]);
+
   useEffect(() => {
     if (!selectedColor) return;
+    // Don't wipe prefilled edit quantities on the first color hydrate.
+    if (editBootstrapping) return;
     setQuantities((current) => {
       const next: Record<string, number> = {};
       for (const sku of selectedColor.sizes) {
@@ -347,7 +500,7 @@ export function AddSsBlankPanel({
       }
       return next;
     });
-  }, [selectedColor]);
+  }, [selectedColor, editBootstrapping]);
 
   const pieceCount = useMemo(() => {
     if (!selectedColor) return 0;
@@ -380,15 +533,32 @@ export function AddSsBlankPanel({
       return;
     }
 
+    const payload: LineItem = editItem
+      ? {
+          ...item,
+          id: editItem.id,
+          markupPercent: editItem.markupPercent,
+          customerUnitPrice: editItem.customerUnitPrice,
+        }
+      : item;
+
     try {
-      await onAdd(item);
-      setView("search");
-      setQuery("");
-      setBrandFilter(null);
-      setStyleDetail(null);
-      setQuantities({});
+      await onAdd(payload);
+      if (!isEditMode) {
+        setView("search");
+        setQuery("");
+        setBrandFilter(null);
+        setStyleDetail(null);
+        setQuantities({});
+      }
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Could not add blank");
+      setSubmitError(
+        err instanceof Error
+          ? err.message
+          : isEditMode
+            ? "Could not update blank"
+            : "Could not add blank"
+      );
     }
   };
 
@@ -648,6 +818,158 @@ export function AddSsBlankPanel({
     );
   }
 
+  if (editBootstrapping || (isEditMode && (!styleDetail || !selectedColor))) {
+    if (detailError) {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 py-16 text-[13px] text-[#616161]">
+          <div className="mx-auto max-w-md space-y-3 text-center">
+            <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[13px] text-[#8f1f1f]">
+              {detailError}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 text-[13px]"
+              onClick={() => {
+                setView("search");
+                setDetailError(null);
+              }}
+            >
+              Search catalog instead
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    // Progressive edit: size/qty are already on the line item — don't block the
+    // whole dialog while supplier colors/stock finish loading.
+    const pendingSizes =
+      editItem?.sizes.map((row) => row.size) ?? Object.keys(quantities);
+    const pendingPieceCount = pendingSizes.reduce(
+      (sum, size) => sum + (quantities[size] || 0),
+      0
+    );
+
+    const saveQtyOnly = async () => {
+      if (!editItem) return;
+      setSubmitError(null);
+      const sizes = pendingSizes
+        .map((size) => ({
+          size,
+          quantity: Math.max(0, Math.floor(quantities[size] || 0)),
+        }))
+        .filter((row) => row.quantity > 0);
+      if (sizes.length === 0) {
+        setSubmitError("Enter a quantity for at least one size.");
+        return;
+      }
+      try {
+        await onAdd({ ...editItem, sizes });
+      } catch (err) {
+        setSubmitError(
+          err instanceof Error ? err.message : "Could not update blank"
+        );
+      }
+    };
+
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="shrink-0 border-b border-[#ebebeb] pb-3">
+          <div className="flex flex-wrap items-start gap-4">
+            <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#ebebeb] bg-[#fafafa]">
+              {editItem?.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={editItem.imageUrl}
+                  alt=""
+                  className="size-full object-contain"
+                />
+              ) : (
+                <Package className="size-6 text-[#8a8a8a]" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <h3 className={dashboardTaskTitleClass}>
+                {editItem?.brand} {editItem?.productName}
+              </h3>
+              <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+                {editItem?.color || "Color"}
+              </p>
+              <p className="mt-2 inline-flex items-center gap-1.5 text-[12px] text-[#616161]">
+                <Loader2 className="size-3.5 animate-spin" />
+                Loading colors &amp; live stock…
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="scrollbar-none max-h-[min(42vh,420px)] space-y-4 overflow-y-auto overscroll-contain py-3">
+          <div className={cn(dashboardInsetSurfaceClass, "overflow-hidden")}>
+            <div className="border-b border-[#ebebeb] bg-[#fafafa] px-4 py-3">
+              <p className="text-[13px] font-semibold text-[#303030]">
+                Adjust quantities
+              </p>
+              <p className="mt-0.5 text-[12px] text-[#616161]">
+                You can save qty changes now — color picker unlocks when the
+                catalog finishes loading.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 px-4 py-4 sm:grid-cols-4">
+              {pendingSizes.map((size) => (
+                <div key={size} className="space-y-1.5">
+                  <p className="text-[11px] font-medium text-[#616161]">{size}</p>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={quantities[size] || ""}
+                    placeholder="0"
+                    disabled={saving}
+                    onChange={(event) => {
+                      const next = Math.max(
+                        0,
+                        parseInt(event.target.value, 10) || 0
+                      );
+                      setQuantities((current) => ({
+                        ...current,
+                        [size]: next,
+                      }));
+                    }}
+                    className="h-9 rounded-lg border-[#e3e3e3] text-right text-[13px] tabular-nums"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {submitError ? (
+            <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[13px] text-[#8f1f1f]">
+              {submitError}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 justify-end border-t border-[#ebebeb] pt-3">
+          <Button
+            type="button"
+            disabled={saving || pendingPieceCount <= 0}
+            className={cn(dashboardPrimaryButtonClass, "h-9 px-4 text-[13px]")}
+            onClick={() => void saveQtyOnly()}
+          >
+            {saving ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" />
+                Saving…
+              </>
+            ) : (
+              "Save quantity changes"
+            )}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (!styleDetail || !selectedColor) {
     return null;
   }
@@ -669,7 +991,7 @@ export function AddSsBlankPanel({
           )}
         >
           <ArrowLeft className="size-3.5 text-[#616161]" strokeWidth={2} />
-          Back to catalog
+          {isEditMode ? "Change style" : "Back to catalog"}
         </button>
 
         <div className="mt-3 flex flex-wrap items-start gap-4">
@@ -748,8 +1070,8 @@ export function AddSsBlankPanel({
             {selectedColor.colorName}
           </p>
           <p className="mt-0.5 text-[12px] text-[#616161]">
-            Standard S&amp;S piece pricing · {selectedColor.totalQty.toLocaleString()}{" "}
-            in stock across warehouses
+            Standard {providerLabel} piece pricing ·{" "}
+            {selectedColor.totalQty.toLocaleString()} in stock across warehouses
           </p>
         </div>
 
@@ -767,7 +1089,7 @@ export function AddSsBlankPanel({
                   Stock
                 </th>
                 <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
-                  Add
+                  {isEditMode ? "Qty" : "Add"}
                 </th>
                 <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
                   Piece price
@@ -838,7 +1160,8 @@ export function AddSsBlankPanel({
                   colSpan={5}
                   className="px-4 py-3 text-right text-[12px] font-medium text-[#616161]"
                 >
-                  {pieceCount} piece{pieceCount !== 1 ? "s" : ""} to add
+                  {pieceCount} piece{pieceCount !== 1 ? "s" : ""}{" "}
+                  {isEditMode ? "on this blank" : "to add"}
                 </td>
                 <td className="px-4 py-3 text-right text-[13px] font-semibold tabular-nums text-[#303030]">
                   {formatCurrency(orderTotal)}
@@ -866,8 +1189,10 @@ export function AddSsBlankPanel({
           {saving ? (
             <>
               <Loader2 className="size-3.5 animate-spin" />
-              Adding…
+              {isEditMode ? "Saving…" : "Adding…"}
             </>
+          ) : isEditMode ? (
+            "Save changes"
           ) : (
             "Add to order"
           )}

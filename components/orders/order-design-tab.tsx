@@ -15,6 +15,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { getOrderProductionSteps } from "@/lib/order-production";
+import { imprintDisplayName } from "@/lib/imprint-display";
 import type { Order } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -113,7 +114,7 @@ export function OrderDesignTab({ order }: { order: Order }) {
                       selected ? "text-[#2c6ecb]" : "text-[#303030]"
                     )}
                   >
-                    {imprint.label}
+                    {imprintDisplayName(imprint)}
                   </p>
                   <ArtworkStatusBadge
                     status={imprint.artwork.status}

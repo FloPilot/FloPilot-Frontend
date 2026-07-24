@@ -1,5 +1,6 @@
 import { differenceInCalendarDays, format, isBefore, parseISO, startOfDay } from "date-fns";
 import type {
+  BuiltInDecorationType,
   DecorationType,
   ImprintLocationKey,
   Job,
@@ -16,7 +17,7 @@ import {
 } from "@/lib/order-production";
 
 /** Standard shop floor sequence — neck/labels first, garment prints, sleeves, finishing last */
-const LOCATION_FLOW_RANK: Record<ImprintLocationKey, number> = {
+const LOCATION_FLOW_RANK: Record<string, number> = {
   nape: 10,
   front_left_chest: 20,
   front_chest: 25,
@@ -28,7 +29,7 @@ const LOCATION_FLOW_RANK: Record<ImprintLocationKey, number> = {
   other: 60,
 };
 
-const DECORATION_FLOW_RANK: Record<DecorationType, number> = {
+const DECORATION_FLOW_RANK: Record<BuiltInDecorationType, number> = {
   screen_print: 0,
   embroidery: 5,
   dtf: 10,
@@ -62,7 +63,8 @@ export function getStepFlowRank(job: Job, imprint: JobImprint, jobIndex: number)
     return 900 + jobIndex;
   }
   const location = LOCATION_FLOW_RANK[imprint.locationKey] ?? 60;
-  const decoration = DECORATION_FLOW_RANK[imprint.decoration] ?? 0;
+  const decoration =
+    DECORATION_FLOW_RANK[imprint.decoration as BuiltInDecorationType] ?? 0;
   return location * 10 + decoration + jobIndex * 0.01;
 }
 

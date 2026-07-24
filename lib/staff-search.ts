@@ -98,6 +98,8 @@ function flattenNavPages(items: NavItem[]): StaffSearchResult[] {
   const pages: StaffSearchResult[] = [];
 
   for (const item of items) {
+    if (item.comingSoon) continue;
+
     pages.push({
       id: `page-${item.href}`,
       category: "pages",

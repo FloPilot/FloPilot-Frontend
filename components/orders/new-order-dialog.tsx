@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { AddCustomerDialog } from "@/components/customers/add-customer-dialog";
+import { EventQuickPickBrowser } from "@/components/orders/event-quick-picks";
 import { OrderCustomLabelField } from "@/components/orders/order-custom-label-field";
 import { StaffRepSelect } from "@/components/staff/staff-rep-select";
 import { NewOrderBlanksStep } from "@/components/orders/new-order-blanks-step";
@@ -66,18 +67,19 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import {
-  DECORATION_TYPE_OPTIONS,
   EVENT_KIND_OPTIONS,
   decorationLabel,
 } from "@/lib/format";
 import {
   defaultPrintLocationKey,
+  getDecorationTypeOptions,
   getPrintLocationOptions,
+  resolvePrintLocationDecorationType,
   resolvePrintLocationLabel,
 } from "@/lib/shop-settings";
 import { getProductionStepQuickPicks } from "@/lib/order-production";
 import { sortSubCustomers } from "@/lib/sub-customers";
-import { eventLabel, eventsLabel } from "@/lib/terminology";
+import { eventLabel } from "@/lib/terminology";
 import type { DecorationType, ImprintLocationKey, Order } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -154,6 +156,10 @@ export function NewOrderDialog({
 
   const printLocationOptions = useMemo(
     () => getPrintLocationOptions(settings.productionDefaults),
+    [settings.productionDefaults]
+  );
+  const decorationTypeOptions = useMemo(
+    () => getDecorationTypeOptions(settings.productionDefaults),
     [settings.productionDefaults]
   );
   const defaultLocationKey = useMemo(
@@ -550,39 +556,53 @@ export function NewOrderDialog({
           )}
 
           {step === 3 && (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className={dashboardTaskDetailClass}>
-                  {form.jobs.length === 0
-                    ? `No ${eventsLabel.toLowerCase()} yet — optional`
-                    : `${form.jobs.length} ${form.jobs.length !== 1 ? eventsLabel.toLowerCase() : eventLabel.toLowerCase()}`}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {quickPickTemplates.map((template) => (
-                    <button
-                      key={template.id}
-                      type="button"
-                      onClick={() => addJobFromTemplate(template.id)}
-                      className="rounded-full border border-[#e3e3e3] bg-white px-2.5 py-1 text-[11px] font-medium text-[#616161] transition-colors hover:border-brand-ink/25 hover:bg-brand-ink/[0.04] hover:text-[#303030]"
-                    >
-                      + {template.name}
-                    </button>
-                  ))}
+            <div className="space-y-5">
+              <div className="rounded-xl border border-[#ebebeb] bg-[#fafafa] p-4">
+                <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+                  <div>
+                    <p className="text-[13px] font-semibold text-[#303030]">
+                      Quick picks
+                    </p>
+                    <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+                      Filter by decoration type, then click a location to add
+                      it.
+                    </p>
+                  </div>
+                  <p className="text-[12px] font-medium tabular-nums text-[#616161]">
+                    {form.jobs.length === 0
+                      ? "None added yet"
+                      : `${form.jobs.length} added`}
+                  </p>
                 </div>
+                <EventQuickPickBrowser
+                  templates={quickPickTemplates}
+                  decorationTypeOptions={decorationTypeOptions}
+                  printLocationOptions={printLocationOptions}
+                  onSelect={(template) => addJobFromTemplate(template.id)}
+                  className="max-h-[320px]"
+                />
               </div>
 
               {form.jobs.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-8 text-center">
+                <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-white px-4 py-7 text-center">
                   <p className="text-[13px] font-medium text-[#303030]">
-                    Skip for now
+                    Events are optional
                   </p>
-                  <p className={cn("mx-auto mt-1 max-w-sm", dashboardTaskDetailClass)}>
-                    You can add decoration and finishing events from the order
-                    detail page after the order is created.
+                  <p
+                    className={cn(
+                      "mx-auto mt-1 max-w-sm",
+                      dashboardTaskDetailClass
+                    )}
+                  >
+                    Pick from above, or skip and add decoration events later from
+                    the order page.
                   </p>
                 </div>
               ) : (
                 <div className="space-y-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                    On this order
+                  </p>
                   {form.jobs.map((job, index) => (
                     <JobStepCard
                       key={job.id}
@@ -591,6 +611,7 @@ export function NewOrderDialog({
                       blanks={blanks}
                       canRemove
                       printLocationOptions={printLocationOptions}
+                      decorationTypeOptions={decorationTypeOptions}
                       defaultLocationKey={defaultLocationKey}
                       onChange={(patch) => updateJob(job.id, patch)}
                       onRemove={() => removeJob(job.id)}
@@ -609,7 +630,7 @@ export function NewOrderDialog({
                 onClick={() => addJob()}
               >
                 <Plus className="size-3.5" />
-                Add {eventLabel.toLowerCase()}
+                Add custom {eventLabel.toLowerCase()}
               </Button>
             </div>
           )}
@@ -716,6 +737,7 @@ function JobStepCard({
   blanks,
   canRemove,
   printLocationOptions,
+  decorationTypeOptions,
   defaultLocationKey,
   onChange,
   onRemove,
@@ -726,6 +748,7 @@ function JobStepCard({
   blanks: ReturnType<typeof activeLineItems>;
   canRemove: boolean;
   printLocationOptions: ReturnType<typeof getPrintLocationOptions>;
+  decorationTypeOptions: ReturnType<typeof getDecorationTypeOptions>;
   defaultLocationKey: string;
   onChange: (patch: Partial<NewOrderJobInput>) => void;
   onRemove: () => void;
@@ -802,25 +825,35 @@ function JobStepCard({
                 >
                   <LabeledSelectValue
                     value={job.decorationType}
-                    options={DECORATION_TYPE_OPTIONS}
+                    options={decorationTypeOptions}
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="screen_print">Screen Print</SelectItem>
-                  <SelectItem value="embroidery">Embroidery</SelectItem>
-                  <SelectItem value="dtf">DTF</SelectItem>
-                  <SelectItem value="vinyl">Vinyl</SelectItem>
+                  {decorationTypeOptions.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      {type.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </Field>
             <Field label="Placement">
               <Select
                 value={job.locationKey}
-                onValueChange={(value) =>
+                onValueChange={(value) => {
+                  const locationKey = (value ??
+                    defaultLocationKey) as ImprintLocationKey;
+                  const match = printLocationOptions.find(
+                    (option) => option.value === locationKey
+                  );
                   onChange({
-                    locationKey: (value ?? defaultLocationKey) as ImprintLocationKey,
-                  })
-                }
+                    locationKey,
+                    decorationType:
+                      resolvePrintLocationDecorationType(
+                        match
+                      ) as DecorationType,
+                  });
+                }}
               >
                 <SelectTrigger
                   className={cn(dashboardControlClass, "h-10 w-full")}

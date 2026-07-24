@@ -108,6 +108,27 @@ export function RushBadge() {
   );
 }
 
+export function ClientStoreBadge({
+  storeName,
+  className,
+}: {
+  storeName?: string;
+  className?: string;
+}) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "border-[#c4d7f2] bg-[#f4f7fd] font-medium text-[#2c6ecb]",
+        className
+      )}
+      title={storeName ? `From client store: ${storeName}` : "From client store"}
+    >
+      Client Store
+    </Badge>
+  );
+}
+
 const estimateStatusConfig: Record<
   OrderEstimateStatus,
   { label: string; className: string }

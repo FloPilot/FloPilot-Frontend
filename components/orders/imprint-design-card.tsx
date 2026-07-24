@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookMarked,
+  Check,
   CheckCircle2,
+  Loader2,
   RotateCcw,
 } from "lucide-react";
 import { ProofSlidesEditor } from "@/components/orders/artwork/proof-slides-gallery";
@@ -36,6 +38,10 @@ import {
   parsePrintDimensions,
   productionNotesEqual,
 } from "@/lib/imprint-design";
+import {
+  imprintDisplayName,
+  imprintLocationSubtitle,
+} from "@/lib/imprint-display";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -261,6 +267,7 @@ export function ImprintDesignCard({
 }) {
   const {
     updateImprintNotes,
+    updateImprintCustomLabel,
     updateImprintInkColors,
     linkImprintArtworkFromFile,
     setArtworkStatus,
@@ -270,6 +277,55 @@ export function ImprintDesignCard({
   const [addingCustomInkType, setAddingCustomInkType] = useState(false);
   const [addingCustomDtfImprintArea, setAddingCustomDtfImprintArea] =
     useState(false);
+  const [customNameDraft, setCustomNameDraft] = useState(
+    imprint.customLabel ?? ""
+  );
+  const [savingCustomName, setSavingCustomName] = useState(false);
+  const [customNameSaved, setCustomNameSaved] = useState(false);
+  const customNameSavedTimeout = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+
+  useEffect(() => {
+    setCustomNameDraft(imprint.customLabel ?? "");
+  }, [imprint.customLabel, imprint.id]);
+
+  useEffect(() => {
+    return () => {
+      if (customNameSavedTimeout.current) {
+        clearTimeout(customNameSavedTimeout.current);
+      }
+    };
+  }, []);
+
+  const saveCustomName = useCallback(async () => {
+    const trimmed = customNameDraft.trim();
+    const current = imprint.customLabel?.trim() ?? "";
+    if (trimmed === current || savingCustomName || readOnly) return;
+    setSavingCustomName(true);
+    setCustomNameSaved(false);
+    try {
+      await updateImprintCustomLabel(order.id, job.id, imprint.id, trimmed);
+      setCustomNameSaved(true);
+      if (customNameSavedTimeout.current) {
+        clearTimeout(customNameSavedTimeout.current);
+      }
+      customNameSavedTimeout.current = setTimeout(() => {
+        setCustomNameSaved(false);
+      }, 1800);
+    } finally {
+      setSavingCustomName(false);
+    }
+  }, [
+    customNameDraft,
+    imprint.customLabel,
+    imprint.id,
+    savingCustomName,
+    readOnly,
+    updateImprintCustomLabel,
+    order.id,
+    job.id,
+  ]);
 
   const inkColors = imprint.inkColors ?? EMPTY_INK_COLORS;
   const serverNotes = imprint.notes ?? EMPTY_NOTES;
@@ -478,14 +534,70 @@ export function ImprintDesignCard({
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
-        <div className="space-y-2">
+        <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <p className="text-[15px] font-semibold text-[#303030]">
-              {imprint.label}
+              {imprintDisplayName(imprint)}
             </p>
             <DecorationTypePill decoration={imprint.decoration} />
           </div>
-          <p className={dashboardTaskDetailClass}>{job.name}</p>
+          {imprintLocationSubtitle(imprint) ? (
+            <p className={dashboardTaskDetailClass}>
+              Location · {imprintLocationSubtitle(imprint)}
+            </p>
+          ) : (
+            <p className={dashboardTaskDetailClass}>{job.name}</p>
+          )}
+          {!isFinishing && !readOnly ? (
+            <div className="max-w-sm space-y-1 pt-0.5">
+              <Label
+                htmlFor={`proof-custom-name-${imprint.id}`}
+                className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]"
+              >
+                Custom proof name{" "}
+                <span className="font-normal normal-case tracking-normal text-[#a3a3a3]">
+                  (optional)
+                </span>
+              </Label>
+              <div className="relative">
+                <Input
+                  id={`proof-custom-name-${imprint.id}`}
+                  value={customNameDraft}
+                  onChange={(event) => {
+                    setCustomNameDraft(event.target.value);
+                    setCustomNameSaved(false);
+                  }}
+                  onBlur={() => void saveCustomName()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      (event.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  placeholder="e.g. Left neck — Store A"
+                  maxLength={120}
+                  disabled={savingCustomName}
+                  className={cn(
+                    dashboardControlClass,
+                    "h-9 shadow-none",
+                    (savingCustomName || customNameSaved) && "pr-9"
+                  )}
+                />
+                {savingCustomName ? (
+                  <Loader2 className="pointer-events-none absolute right-3 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-[#2c6ecb]" />
+                ) : customNameSaved ? (
+                  <Check
+                    className="pointer-events-none absolute right-3 top-1/2 size-3.5 -translate-y-1/2 text-[#0d5c2e]"
+                    strokeWidth={2.5}
+                  />
+                ) : null}
+              </div>
+              <p className="text-[11px] text-[#8a8a8a]">
+                Useful when a client has multiple of the same location. Saved to
+                the design library with this name.
+              </p>
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           {!isFinishing ? (

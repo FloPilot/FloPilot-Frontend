@@ -13,6 +13,7 @@ import type { Order } from "@/types";
 export type OrderDetailTab =
   | "events"
   | "blanks"
+  | "design"
   | "dtf_sheets"
   | "screens"
   | "inks"
@@ -39,6 +40,7 @@ export function buildOrderDetailTabs(order: Order): OrderDetailTabConfig[] {
   const tabs: OrderDetailTabConfig[] = [
     { id: "events", label: "Events" },
     { id: "blanks", label: blanksTabLabel(order) },
+    { id: "design", label: "Design" },
     { id: "proof", label: "Proofs" },
     { id: "estimate", label: "Estimate" },
   ];
@@ -95,7 +97,8 @@ export function parseOrderDetailTab(tab: string | null): OrderDetailTab {
   }
   if (tab === "screens" || tab === "screen") return "screens";
   if (tab === "inks" || tab === "ink") return "inks";
-  if (tab === "proof" || tab === "design") return "proof";
+  if (tab === "proof") return "proof";
+  if (tab === "design" || tab === "mockup" || tab === "mockups") return "design";
   if (tab === "estimate" || tab === "pricing" || tab === "quote") {
     return "estimate";
   }

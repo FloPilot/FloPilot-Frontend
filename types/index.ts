@@ -12,12 +12,19 @@ export type OrderStatus =
 
 export type TaskStatus = "pending" | "in_progress" | "blocked" | "done";
 
-export type DecorationType =
+/** Built-in decoration methods with first-class workflow support */
+export type BuiltInDecorationType =
   | "screen_print"
   | "embroidery"
   | "dtf"
   | "vinyl"
   | "finishing";
+
+/**
+ * Decoration method key — built-in values, or a shop-configured custom type
+ * from Settings → Decoration locations.
+ */
+export type DecorationType = BuiltInDecorationType | (string & {});
 
 export type DocumentType = "quote" | "sales_order" | "invoice";
 
@@ -229,6 +236,10 @@ export interface LineItem {
   supplier?: LineItemSupplier;
   supplierPartNumber?: string;
   supplierStyleId?: number | string | null;
+  /** Optional blank product image for design mockups */
+  imageUrl?: string;
+  /** Hex from supplier colorway when available */
+  colorHex?: string;
 }
 
 export type ImprintLocationKey = string;
@@ -382,6 +393,11 @@ export interface OrderInvoiceMeta {
   sentAt?: string;
   sentTo?: string;
   lastPreviewedAt?: string;
+  /**
+   * Payment due date (YYYY-MM-DD). When unset, document filters fall back
+   * to the order in-hands date for statement-style "due by" queries.
+   */
+  dueDate?: string;
   /** Totals captured when the invoice was last sent */
   subtotal?: number;
   tax?: number;
@@ -511,12 +527,59 @@ export interface ProductionEventWorkflow {
   checkpoints?: ProductionEventCheckpoints;
 }
 
+/** Normalized art transform on a blank mockup canvas (0–1 relative coords). */
+export interface DesignMockupTransform {
+  /** Center X of artwork box as fraction of canvas width */
+  x: number;
+  /** Center Y of artwork box as fraction of canvas height */
+  y: number;
+  /** Artwork width as fraction of canvas width */
+  scale: number;
+  rotation?: number;
+}
+
+/**
+ * How the design stage is filled:
+ * - garment — vendor / blank photo (chest, back, etc.)
+ * - color — solid backdrop matching the blank color (neck labels, tags)
+ */
+export type DesignMockupStageMode = "garment" | "color";
+
+/** Staff-composed garment mockup for a decoration location / event. */
+export interface OrderDesignMockup {
+  id: string;
+  lineItemId?: string;
+  /** garment photo vs solid color backdrop */
+  stageMode?: DesignMockupStageMode;
+  /** Which vendor blank photo to use — front or back */
+  blankView?: "front" | "back";
+  blankImageUrl?: string;
+  /** Hex color overlay when blank photo lacks this colorway */
+  blankColorHex?: string;
+  artworkUrl?: string;
+  /** Artwork with background removed (transparent PNG data URL or storage URL) */
+  artworkCleanUrl?: string;
+  backgroundRemoved?: boolean;
+  placementPresetId?: string;
+  locationKey?: ImprintLocationKey;
+  transform: DesignMockupTransform;
+  /** Flattened mockup preview ready for proofs */
+  composedPreviewUrl?: string;
+  updatedAt: string;
+  updatedBy?: string;
+}
+
 /** One decoration spot on the garment — each has its own mockup and specs */
 export interface JobImprint {
   id: string;
   locationKey: ImprintLocationKey;
   /** Display label, e.g. "Front left chest" */
   label: string;
+  /**
+   * Optional custom proof name (e.g. distinguishing multiple neck labels).
+   * Empty by default — when set, used as the primary display name.
+   */
+  customLabel?: string;
   decoration: DecorationType;
   artwork: ArtworkFile;
   notes?: ImprintProductionNotes;
@@ -526,6 +589,8 @@ export interface JobImprint {
   libraryDesignId?: string;
   /** Per-event workflow — prep, assignment, and status overrides */
   workflow?: ProductionEventWorkflow;
+  /** Composed blank + artwork mockup from the Design tab */
+  designMockup?: OrderDesignMockup;
 }
 
 export interface Task {
@@ -680,6 +745,12 @@ export interface Order {
   excludedContractFeeIds?: string[];
   /** Optional shop label shown after order number, e.g. "CUSTOM NAME" */
   customLabel?: string;
+  /** Origin channel — client storefront checkouts use "client_store" */
+  source?: "client_store";
+  clientStoreId?: string;
+  clientStoreName?: string;
+  clientStoreSubmissionId?: string;
+  clientStoreShopperName?: string;
   /** Assigned sales rep — receives order notifications */
   salesRepId?: string;
   salesRepName?: string;
@@ -715,6 +786,10 @@ export interface SavedDesign {
   decoration: DecorationType;
   locationKey: ImprintLocationKey;
   locationLabel: string;
+  /** Snapshot of order.customLabel when synced from an order */
+  sourceOrderCustomLabel?: string;
+  /** Snapshot of imprint.customLabel (proof custom name) when synced */
+  imprintCustomLabel?: string;
   artwork: ArtworkFile;
   inkColors?: ImprintInkColor[];
   notes?: ImprintProductionNotes;

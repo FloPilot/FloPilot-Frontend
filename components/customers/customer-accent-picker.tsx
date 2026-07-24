@@ -13,11 +13,13 @@ export function CustomerAccentPicker({
   onChange,
   customerId,
   fallbackKey = "",
+  hint,
 }: {
   value?: CustomerAccentKey | null;
   onChange: (value: CustomerAccentKey | null) => void;
   customerId?: string;
   fallbackKey?: string;
+  hint?: string;
 }) {
   const autoAccent = getCustomerAccent(customerId, fallbackKey);
 
@@ -66,8 +68,8 @@ export function CustomerAccentPicker({
         })}
       </div>
       <p className="text-[11px] text-[#8a8a8a]">
-        Used on production boards and customer lists. Auto picks a consistent
-        color from the account name.
+        {hint ||
+          "Used on production boards and customer lists. Auto picks a consistent color from the account name."}
       </p>
     </div>
   );

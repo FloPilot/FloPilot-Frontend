@@ -7,7 +7,7 @@ import {
   CheckpointStatusBadge,
   findCheckpoint,
 } from "@/components/orders/order-checkpoint-pills";
-import { OrderStatusBadge, RushBadge, EstimateStatusBadge } from "@/components/status-badges";
+import { OrderStatusBadge, RushBadge, EstimateStatusBadge, ClientStoreBadge } from "@/components/status-badges";
 import {
   Table,
   TableBody,
@@ -483,6 +483,9 @@ export function OrdersListTable({
                             {formatOrderDisplayLine(order)}
                           </Link>
                           {order.rush ? <RushBadge /> : null}
+                          {order.source === "client_store" ? (
+                            <ClientStoreBadge storeName={order.clientStoreName} />
+                          ) : null}
                           {order.productionRun ? (
                             <span
                               className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[#b8cceb] bg-white px-2 py-0.5 text-[10px] font-semibold text-[#315f9e]"

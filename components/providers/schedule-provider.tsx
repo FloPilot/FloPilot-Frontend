@@ -76,6 +76,7 @@ import {
   setMachineOnline as apiSetMachineOnline,
   updateImprintInkColors as apiUpdateImprintInkColors,
   updateImprintNotes as apiUpdateImprintNotes,
+  updateImprintCustomLabel as apiUpdateImprintCustomLabel,
   updateProductionEventWorkflow as apiUpdateProductionEventWorkflow,
   updateJobRunStatus as apiUpdateJobRunStatus,
   updateMachine as apiUpdateMachine,
@@ -91,6 +92,7 @@ import {
   uploadArtworkVersion as apiUploadArtworkVersion,
   addProofSlide as apiAddProofSlide,
   updateProofSlides as apiUpdateProofSlides,
+  updateImprintDesignMockup as apiUpdateImprintDesignMockup,
   type DashboardStatsResponse,
 } from "@/lib/api";
 import type { NewOrderFormInput } from "@/lib/create-order";
@@ -241,6 +243,13 @@ type ScheduleContextValue = {
     imprintId: string,
     payload: { fileName: string; previewUrl?: string; label?: string }
   ) => Promise<void>;
+  updateImprintDesignMockup: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    designMockup: import("@/types").OrderDesignMockup,
+    options?: { attachToProof?: boolean; proofLabel?: string }
+  ) => Promise<Order>;
   updateProofSlides: (
     orderId: string,
     jobId: string,
@@ -363,6 +372,12 @@ type ScheduleContextValue = {
     imprintId: string,
     notes: ImprintProductionNotes
   ) => void;
+  updateImprintCustomLabel: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    customLabel: string
+  ) => Promise<void>;
   updateImprintInkColors: (
     orderId: string,
     jobId: string,
@@ -1279,6 +1294,31 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateImprintDesignMockup = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      designMockup: import("@/types").OrderDesignMockup,
+      options?: { attachToProof?: boolean; proofLabel?: string }
+    ) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { order } = await apiUpdateImprintDesignMockup(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        designMockup,
+        options
+      );
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const updateProofSlides = useCallback(
     async (
       orderId: string,
@@ -1715,6 +1755,28 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateImprintCustomLabel = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      customLabel: string
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateImprintCustomLabel(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        customLabel
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const updateImprintInkColors = useCallback(
     async (
       orderId: string,
@@ -1972,6 +2034,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       approveOrderEstimate,
       uploadArtworkVersion,
       addProofSlide,
+      updateImprintDesignMockup,
       updateProofSlides,
       updateOrderGarments,
       updateOrderMaterials,
@@ -1999,6 +2062,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       addOrderLineItem,
       removeOrderLineItem,
       updateImprintNotes,
+      updateImprintCustomLabel,
       updateImprintInkColors,
       linkImprintArtworkFromFile,
       productionTasks,
@@ -2059,6 +2123,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       approveOrderEstimate,
       uploadArtworkVersion,
       addProofSlide,
+      updateImprintDesignMockup,
       updateProofSlides,
       updateOrderGarments,
       updateOrderMaterials,
@@ -2086,6 +2151,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       addOrderLineItem,
       removeOrderLineItem,
       updateImprintNotes,
+      updateImprintCustomLabel,
       updateImprintInkColors,
       linkImprintArtworkFromFile,
       productionTasks,

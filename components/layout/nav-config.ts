@@ -12,8 +12,8 @@ import {
   Layers,
   LayoutDashboard,
   Monitor,
-  Package,
   SlidersHorizontal,
+  Store,
   Users,
   Warehouse,
   Wrench,
@@ -24,6 +24,12 @@ import {
   DEPARTMENTS_BASE,
   isDepartmentsSection,
 } from "@/lib/departments";
+import {
+  DOCUMENT_DEFINITIONS,
+  DOCUMENTS_BASE,
+  DOCUMENTS_NAV_ICON,
+  isDocumentsSection,
+} from "@/lib/order-documents";
 import type { ShopModuleKey, ShopModules } from "@/lib/shop-settings";
 import type { StaffAccess } from "@/lib/staff-access";
 import {
@@ -51,6 +57,8 @@ export type NavItem = {
   moduleKey?: ShopModuleKey;
   /** Workspace tab this nav item maps to */
   workspaceArea?: WorkspaceAreaKey;
+  /** Shown in nav but not clickable */
+  comingSoon?: boolean;
 };
 
 export const MACHINES_BASE = "/app/machines";
@@ -87,6 +95,7 @@ export function shouldExpandNavChildren(
   if (item.href === MACHINES_BASE) return isMachinesSection(pathname);
   if (item.href === FILES_BASE) return isFilesSection(pathname);
   if (item.href === DEPARTMENTS_BASE) return isDepartmentsSection(pathname);
+  if (item.href === DOCUMENTS_BASE) return isDocumentsSection(pathname);
   return isNavItemActive(pathname, item);
 }
 
@@ -108,7 +117,31 @@ export const navItems: NavItem[] = [
   },
   { href: "/app/tasks", label: "Tasks", icon: CheckSquare, workspaceArea: "tasks" },
   { href: "/app/orders", label: "Orders", icon: ClipboardList, workspaceArea: "orders" },
+  {
+    href: DOCUMENTS_BASE,
+    label: "Documents",
+    icon: DOCUMENTS_NAV_ICON,
+    workspaceArea: "orders",
+    isActive: isDocumentsSection,
+    children: DOCUMENT_DEFINITIONS.map((doc) => ({
+      href: doc.href,
+      label: doc.label,
+      icon: doc.icon,
+      isActive: (pathname: string) =>
+        doc.slug === "overview"
+          ? pathname === DOCUMENTS_BASE
+          : pathname === doc.href || pathname.startsWith(`${doc.href}/`),
+    })),
+  },
   { href: "/app/customers", label: "Customers", icon: Users, workspaceArea: "customers" },
+  {
+    href: "/app/stores",
+    label: "Client Stores",
+    icon: Store,
+    moduleKey: "clientStores",
+    workspaceArea: "stores",
+    comingSoon: true,
+  },
   {
     href: PRODUCTION_BASE,
     label: "Production",

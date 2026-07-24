@@ -7,6 +7,7 @@ import {
   Eye,
   FileText,
   Loader2,
+  Pencil,
   Plus,
   Printer,
   Trash2,
@@ -33,6 +34,7 @@ import {
 } from "@/lib/dashboard-styles";
 import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
 import { AddBlankItemDialog } from "@/components/orders/add-blank-item-dialog";
+import { EditBlankItemDialog } from "@/components/orders/edit-blank-item-dialog";
 import { InkPrepLocationCard } from "@/components/orders/ink-prep-location-card";
 import { RemoveBlankSizeDialog } from "@/components/orders/remove-blank-size-dialog";
 import {
@@ -286,6 +288,8 @@ function rebuildLineItemQuantity(
     supplier: item.supplier,
     supplierPartNumber: item.supplierPartNumber,
     supplierStyleId: item.supplierStyleId,
+    imageUrl: item.imageUrl,
+    colorHex: item.colorHex,
   };
 }
 
@@ -894,6 +898,7 @@ export function OrderMaterialsPanel({
   const showBlankPricing = shouldShowBlankPricing(order);
   const [saving, setSaving] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
+  const [editItem, setEditItem] = useState<LineItem | null>(null);
   const [removeTarget, setRemoveTarget] = useState<OrderMaterialLine | null>(null);
   const [removingRowId, setRemovingRowId] = useState<string | null>(null);
   const screenFileInputRef = useRef<HTMLInputElement>(null);
@@ -1224,24 +1229,42 @@ export function OrderMaterialsPanel({
                           rowSpan={rowSpan}
                           className="border-r border-[#f0f0f0] px-4 py-3 align-top"
                         >
-                          <p className="font-medium text-[#303030]">
-                            {line.productName ?? line.label}
-                          </p>
-                          {line.brand ? (
-                            <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-[#8a8a8a]">
-                              <span>{line.brand}</span>
-                              {lineItem?.supplier === "ssActivewear" ? (
-                                <span className="rounded bg-[#eef1ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">
-                                  S&amp;S
-                                </span>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="font-medium text-[#303030]">
+                                {line.productName ?? line.label}
+                              </p>
+                              {line.brand ? (
+                                <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-[#8a8a8a]">
+                                  <span>{line.brand}</span>
+                                  {lineItem?.supplier === "ssActivewear" ? (
+                                    <span className="rounded bg-[#eef1ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">
+                                      S&amp;S
+                                    </span>
+                                  ) : null}
+                                  {lineItem?.supplier === "sanMar" ? (
+                                    <span className="rounded bg-[#eef1ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">
+                                      SanMar
+                                    </span>
+                                  ) : null}
+                                </p>
                               ) : null}
-                              {lineItem?.supplier === "sanMar" ? (
-                                <span className="rounded bg-[#eef1ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">
-                                  SanMar
-                                </span>
-                              ) : null}
-                            </p>
-                          ) : null}
+                            </div>
+                            {canEditBlanks && lineItem ? (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                disabled={saving || removingRowId !== null}
+                                className="size-8 shrink-0 text-[#8a8a8a] hover:border hover:border-[#c9d7ef] hover:bg-[#f8faff] hover:text-[#303030]"
+                                aria-label={`Edit ${line.productName ?? line.label}`}
+                                title="Edit product, color, and sizes"
+                                onClick={() => setEditItem(lineItem)}
+                              >
+                                <Pencil className="size-3.5" />
+                              </Button>
+                            ) : null}
+                          </div>
                         </td>
                         <td
                           rowSpan={rowSpan}
@@ -1588,6 +1611,15 @@ export function OrderMaterialsPanel({
           onOpenChange={setAddItemOpen}
           orderId={order.id}
           order={order}
+        />
+        <EditBlankItemDialog
+          open={editItem !== null}
+          onOpenChange={(next) => {
+            if (!next) setEditItem(null);
+          }}
+          orderId={order.id}
+          order={order}
+          item={editItem}
         />
         <RemoveBlankSizeDialog
           open={removeTarget !== null}
