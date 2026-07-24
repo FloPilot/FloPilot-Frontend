@@ -619,31 +619,37 @@ function ScreenFileNameDialog({
   open,
   onOpenChange,
   orderNumber,
-  file,
+  files,
   uploading,
   onConfirm,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   orderNumber: string;
-  file: File | null;
+  files: File[];
   uploading: boolean;
-  onConfirm: (fullName: string) => void;
+  onConfirm: (fullNames: string[]) => void;
 }) {
   const prefix = compactOrderNumberForLabel(orderNumber);
-  const { base, ext } = useMemo(
-    () => splitFileName(file?.name ?? ""),
-    [file]
+  const fileParts = useMemo(
+    () => files.map((file) => splitFileName(file.name)),
+    [files]
   );
-  const [name, setName] = useState(base);
+  const [names, setNames] = useState<string[]>(() =>
+    fileParts.map(({ base }) => base)
+  );
 
   useEffect(() => {
-    setName(base);
-  }, [base]);
+    setNames(fileParts.map(({ base }) => base));
+  }, [fileParts]);
 
-  const trimmed = name.trim();
-  const fullName = `${prefix} - ${trimmed}${ext}`;
-  const canSave = trimmed.length > 0 && !uploading;
+  const fullNames = fileParts.map(
+    ({ ext }, index) => `${prefix} - ${(names[index] || "").trim()}${ext}`
+  );
+  const canSave =
+    files.length > 0 &&
+    names.every((name) => name.trim().length > 0) &&
+    !uploading;
 
   return (
     <Dialog
@@ -654,11 +660,11 @@ function ScreenFileNameDialog({
     >
       <DialogContent
         showCloseButton
-        className="gap-0 overflow-hidden p-0 sm:max-w-md"
+        className="gap-0 overflow-hidden p-0 sm:max-w-lg"
       >
         <DialogHeader className="border-b border-[#ebebeb] px-5 py-4">
           <DialogTitle className={dashboardTaskTitleClass}>
-            Name screen file
+            {files.length > 1 ? `Review ${files.length} screen files` : "Name screen file"}
           </DialogTitle>
           <p className={dashboardTaskDetailClass}>
             Files are prefixed with the order number so the floor can match them
@@ -666,36 +672,46 @@ function ScreenFileNameDialog({
           </p>
         </DialogHeader>
 
-        <div className="space-y-3 px-5 py-4">
-          <div className="space-y-1.5">
-            <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-              File name
-            </Label>
-            <div className="flex items-center gap-1 rounded-lg border border-[#e3e3e3] bg-white px-2 transition-colors focus-within:border-[#2c6ecb]">
-              <span className="shrink-0 py-2 pl-1 text-[13px] font-semibold tabular-nums text-[#616161]">
-                {prefix} -
-              </span>
-              <input
-                autoFocus
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && canSave) onConfirm(fullName);
-                }}
-                placeholder="front-left-chest"
-                className="h-9 min-w-0 flex-1 border-0 bg-transparent text-[13px] text-[#303030] outline-none placeholder:text-[#b0b0b0]"
-              />
-              {ext ? (
-                <span className="shrink-0 py-2 pr-1 text-[13px] text-[#8a8a8a]">
-                  {ext}
+        <div className="scrollbar-none max-h-[55vh] space-y-3 overflow-y-auto px-5 py-4">
+          {fileParts.map(({ ext }, index) => (
+            <div key={`${files[index]?.name}-${index}`} className="space-y-1.5">
+              <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                {files.length > 1 ? `File ${index + 1}` : "File name"}
+              </Label>
+              <div className="flex items-center gap-1 rounded-lg border border-[#e3e3e3] bg-white px-2 transition-colors focus-within:border-[#2c6ecb]">
+                <span className="shrink-0 py-2 pl-1 text-[13px] font-semibold tabular-nums text-[#616161]">
+                  {prefix} -
                 </span>
-              ) : null}
+                <input
+                  autoFocus={index === 0}
+                  value={names[index] || ""}
+                  onChange={(event) =>
+                    setNames((current) =>
+                      current.map((name, nameIndex) =>
+                        nameIndex === index ? event.target.value : name
+                      )
+                    )
+                  }
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && canSave) onConfirm(fullNames);
+                  }}
+                  placeholder="front-left-chest"
+                  className="h-9 min-w-0 flex-1 border-0 bg-transparent text-[13px] text-[#303030] outline-none placeholder:text-[#b0b0b0]"
+                />
+                {ext ? (
+                  <span className="shrink-0 py-2 pr-1 text-[13px] text-[#8a8a8a]">
+                    {ext}
+                  </span>
+                ) : null}
+              </div>
+              <p className="truncate text-[12px] text-[#8a8a8a]">
+                Saves as{" "}
+                <span className="font-medium text-[#303030]">
+                  {fullNames[index]}
+                </span>
+              </p>
             </div>
-            <p className="text-[12px] text-[#8a8a8a]">
-              Saves as{" "}
-              <span className="font-medium text-[#303030]">{fullName}</span>
-            </p>
-          </div>
+          ))}
         </div>
 
         <div className="flex justify-end gap-2 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-4">
@@ -712,15 +728,15 @@ function ScreenFileNameDialog({
             type="button"
             disabled={!canSave}
             className={cn(dashboardPrimaryButtonClass, "h-9 px-4 text-[13px]")}
-            onClick={() => onConfirm(fullName)}
+            onClick={() => onConfirm(fullNames)}
           >
             {uploading ? (
               <>
                 <Loader2 className="size-3.5 animate-spin" />
-                Uploading…
+                Uploading {files.length > 1 ? `${files.length} files…` : "…"}
               </>
             ) : (
-              "Upload"
+              files.length > 1 ? `Upload ${files.length} files` : "Upload"
             )}
           </Button>
         </div>
@@ -904,7 +920,7 @@ export function OrderMaterialsPanel({
   const screenFileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingScreenFile, setUploadingScreenFile] = useState(false);
   const [screenFileError, setScreenFileError] = useState<string | null>(null);
-  const [pendingScreenFile, setPendingScreenFile] = useState<File | null>(null);
+  const [pendingScreenFiles, setPendingScreenFiles] = useState<File[]>([]);
   const [deleteFileTarget, setDeleteFileTarget] = useState<OrderFile | null>(
     null
   );
@@ -1464,36 +1480,37 @@ export function OrderMaterialsPanel({
   const handleScreenFileChange = (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (!file) return;
+    if (files.length === 0) return;
 
     setScreenFileError(null);
-    setPendingScreenFile(file);
+    setPendingScreenFiles(files);
   };
 
-  const confirmScreenFileUpload = async (fullName: string) => {
-    if (!pendingScreenFile) return;
+  const confirmScreenFileUpload = async (fullNames: string[]) => {
+    if (pendingScreenFiles.length === 0) return;
 
     setScreenFileError(null);
     setUploadingScreenFile(true);
     try {
-      const { base64, contentType, error } =
-        await readUploadContent(pendingScreenFile);
-      if (error) {
-        setScreenFileError(error);
-        return;
+      for (let index = 0; index < pendingScreenFiles.length; index += 1) {
+        const file = pendingScreenFiles[index];
+        const { base64, contentType, error } = await readUploadContent(file);
+        if (error) throw new Error(error);
+        await uploadOrderFile(order.id, {
+          name: fullNames[index] || file.name,
+          kind: "separation",
+          uploadedBy: "Shop",
+          contentBase64: base64,
+          contentType,
+        });
       }
-      await uploadOrderFile(order.id, {
-        name: fullName,
-        kind: "separation",
-        uploadedBy: "Shop",
-        contentBase64: base64,
-        contentType,
-      });
-      setPendingScreenFile(null);
-    } catch {
-      setScreenFileError("Could not upload this file. Try again.");
+      setPendingScreenFiles([]);
+    } catch (err) {
+      setScreenFileError(
+        err instanceof Error ? err.message : "Could not upload these files. Try again."
+      );
     } finally {
       setUploadingScreenFile(false);
     }
@@ -1860,6 +1877,7 @@ export function OrderMaterialsPanel({
               type="file"
               className="hidden"
               accept=".pdf,.ai,.eps,.svg,.png,.jpg,.jpeg,.tif,.tiff"
+              multiple
               onChange={handleScreenFileChange}
             />
 
@@ -1891,14 +1909,14 @@ export function OrderMaterialsPanel({
       </div>
     </section>
     <ScreenFileNameDialog
-      open={pendingScreenFile !== null}
+      open={pendingScreenFiles.length > 0}
       onOpenChange={(open) => {
-        if (!open) setPendingScreenFile(null);
+        if (!open) setPendingScreenFiles([]);
       }}
       orderNumber={order.number}
-      file={pendingScreenFile}
+      files={pendingScreenFiles}
       uploading={uploadingScreenFile}
-      onConfirm={(fullName) => void confirmScreenFileUpload(fullName)}
+      onConfirm={(fullNames) => void confirmScreenFileUpload(fullNames)}
     />
     <DeleteFileDialog
       open={deleteFileTarget !== null}

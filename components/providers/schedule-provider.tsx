@@ -97,6 +97,11 @@ import {
 } from "@/lib/api";
 import type { NewOrderFormInput } from "@/lib/create-order";
 import {
+  garmentFingerprint,
+  invalidateOrderLineItemDesignCaches,
+  refreshOrderLineItemDesignBlanks,
+} from "@/lib/order-design-blank-cache";
+import {
   excludeArchivedOrders,
   excludeScheduleBlocksForArchivedOrders,
   getArchivedOrderIds,
@@ -236,7 +241,7 @@ type ScheduleContextValue = {
     mockupLabel?: string,
     kind?: OrderFileKind,
     previewUrl?: string
-  ) => void;
+  ) => Promise<void>;
   addProofSlide: (
     orderId: string,
     jobId: string,
@@ -297,6 +302,8 @@ type ScheduleContextValue = {
       contentBase64: string;
       contentType: string;
       notes?: string;
+      jobId?: string;
+      imprintId?: string;
     }
   ) => Promise<void>;
   deleteOrderFile: (orderId: string, fileId: string) => Promise<void>;
@@ -1456,6 +1463,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         contentBase64: string;
         contentType: string;
         notes?: string;
+        jobId?: string;
+        imprintId?: string;
       }
     ) => {
       const token = await getIdToken();
@@ -1697,6 +1706,13 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const token = await getIdToken();
       if (!token) throw new Error("Not signed in");
 
+      const previous = orders
+        .find((entry) => entry.id === orderId)
+        ?.lineItems.find((entry) => entry.id === lineItemId);
+      const garmentChanged =
+        !previous ||
+        garmentFingerprint(previous) !== garmentFingerprint(lineItem);
+
       const { order } = await apiUpdateOrderLineItem(
         token,
         orderId,
@@ -1704,9 +1720,18 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         lineItem
       );
       applyOrderUpdate(order);
+
+      // Background-warm Design blanks so returning to the Design tab shows the
+      // new color/model instead of a stale cached garment.
+      if (garmentChanged) {
+        const updated =
+          order.lineItems.find((entry) => entry.id === lineItemId) ?? lineItem;
+        void refreshOrderLineItemDesignBlanks(token, orderId, updated);
+      }
+
       return order;
     },
-    [getIdToken, applyOrderUpdate]
+    [getIdToken, applyOrderUpdate, orders]
   );
 
   const addOrderLineItem = useCallback(
@@ -1716,6 +1741,14 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
       const { order } = await apiAddOrderLineItem(token, orderId, lineItem);
       applyOrderUpdate(order);
+
+      const added = lineItem?.id
+        ? order.lineItems.find((entry) => entry.id === lineItem.id)
+        : order.lineItems[order.lineItems.length - 1];
+      if (added) {
+        void refreshOrderLineItemDesignBlanks(token, orderId, added);
+      }
+
       return order;
     },
     [getIdToken, applyOrderUpdate]
@@ -1728,6 +1761,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
       const { order } = await apiRemoveOrderLineItem(token, orderId, lineItemId);
       applyOrderUpdate(order);
+      invalidateOrderLineItemDesignCaches(orderId, lineItemId);
+
       return order;
     },
     [getIdToken, applyOrderUpdate]

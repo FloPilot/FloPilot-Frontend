@@ -55,10 +55,7 @@ function hasInvoiceActivity(order: Order): boolean {
   // Only treat paid/partial as invoice activity once billing has started.
   if (
     (payment === "partial" || payment === "paid") &&
-    (order.invoice?.sentAt ||
-      order.status === "invoice_sent" ||
-      order.status === "ready_to_invoice" ||
-      order.status === "completed")
+    (order.invoice?.sentAt || order.status === "completed")
   ) {
     return true;
   }

@@ -4,6 +4,10 @@ const ALLOWED_HOST_SUFFIXES = [
   "ssactivewear.com",
   "sanmar.com",
   "cdnm.sanmar.com",
+  // Our own bucket — design artwork and mockups that outgrew the inline data
+  // URL budget live here, and the canvas needs them CORS-clean to re-compose.
+  "firebasestorage.googleapis.com",
+  "storage.googleapis.com",
 ];
 
 function isAllowedImageUrl(raw: string): boolean {

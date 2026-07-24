@@ -38,6 +38,34 @@ const styleDetailClientCache = new Map<
   import("@/lib/supplier-integrations").SupplierStyleDetail
 >();
 
+function styleDetailMatchesRequest(
+  requested: import("@/lib/supplier-integrations").SupplierStyleSummary,
+  loaded: import("@/lib/supplier-integrations").SupplierStyleDetail
+): boolean {
+  const requestedId =
+    requested.styleId != null ? String(requested.styleId) : null;
+  const loadedId = loaded.styleId != null ? String(loaded.styleId) : null;
+  if (requestedId && loadedId && requestedId !== loadedId) return false;
+
+  if (
+    requested.brandName?.trim() &&
+    loaded.brandName.trim().toLowerCase() !==
+      requested.brandName.trim().toLowerCase()
+  ) {
+    return false;
+  }
+
+  if (
+    requested.styleName?.trim() &&
+    loaded.styleName.trim().toLowerCase() !==
+      requested.styleName.trim().toLowerCase()
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 export async function callApi<T>(
   functionName: string,
   options: {
@@ -423,6 +451,7 @@ export async function fetchSupplierStyleDetail(
   provider: import("@/lib/supplier-integrations").SupplierProviderId = "ssActivewear"
 ) {
   const cacheKey = [
+    "v2",
     provider,
     style.partNumber || "",
     style.styleId != null ? String(style.styleId) : "",
@@ -432,11 +461,14 @@ export async function fetchSupplierStyleDetail(
     .join(":")
     .toLowerCase();
   const cached = styleDetailClientCache.get(cacheKey);
-  if (cached) {
+  if (cached && styleDetailMatchesRequest(style, cached)) {
     return {
       provider,
       style: cached,
     };
+  }
+  if (cached) {
+    styleDetailClientCache.delete(cacheKey);
   }
 
   const fn =
@@ -455,6 +487,12 @@ export async function fetchSupplierStyleDetail(
       partNumber: style.partNumber || undefined,
     },
   });
+
+  if (result.style && !styleDetailMatchesRequest(style, result.style)) {
+    throw new Error(
+      `Catalog returned ${result.style.brandName} ${result.style.styleName} instead of ${style.brandName} ${style.styleName}. Please try again.`
+    );
+  }
 
   if (result.style) {
     styleDetailClientCache.set(cacheKey, result.style);
@@ -1040,6 +1078,8 @@ export async function uploadOrderFile(
     contentBase64: string;
     contentType: string;
     notes?: string;
+    jobId?: string;
+    imprintId?: string;
   }
 ) {
   return callApi<{ order: Order }>("uploadOrderFile", {

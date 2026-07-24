@@ -262,6 +262,17 @@ function sampleImageBackgroundColor(
   }
 }
 
+/**
+ * Raised when the placed artwork can't be loaded. Callers must not fall back to
+ * a blank-only render — that silently wipes a saved design off the stage.
+ */
+export class ArtworkLoadError extends Error {
+  constructor() {
+    super("Could not load the saved artwork");
+    this.name = "ArtworkLoadError";
+  }
+}
+
 export async function composeDesignMockup(options: {
   blankImageUrl?: string | null;
   blankColorHex: string;
@@ -304,7 +315,7 @@ export async function composeDesignMockup(options: {
         ctx.drawImage(art, -boxW / 2, -boxH / 2, boxW, boxH);
         ctx.restore();
       } catch {
-        // Keep color-only preview if artwork fails to load
+        throw new ArtworkLoadError();
       }
     }
 
@@ -364,7 +375,7 @@ export async function composeDesignMockup(options: {
       ctx.drawImage(art, -boxW / 2, -boxH / 2, boxW, boxH);
       ctx.restore();
     } catch {
-      // Keep blank-only preview if artwork fails to load
+      throw new ArtworkLoadError();
     }
   }
 
@@ -455,7 +466,7 @@ export function seedMockupFromExisting(
     backgroundRemoved: existing?.backgroundRemoved,
     placementPresetId: options.placementPresetId ?? existing?.placementPresetId,
     locationKey: options.locationKey ?? existing?.locationKey,
-    transform: existing?.transform ?? options.transform,
+    transform: options.transform,
     composedPreviewUrl: existing?.composedPreviewUrl,
     updatedAt: existing?.updatedAt ?? new Date().toISOString(),
     updatedBy: existing?.updatedBy,

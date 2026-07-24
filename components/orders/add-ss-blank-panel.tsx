@@ -347,6 +347,26 @@ export function AddSsBlankPanel({
           );
         }
 
+        // Guardrail: never show a different blank than the one the user clicked.
+        const clickedId =
+          style.styleId != null ? String(style.styleId) : null;
+        const loadedId =
+          detail.styleId != null ? String(detail.styleId) : null;
+        const brandOk =
+          !style.brandName ||
+          detail.brandName.trim().toLowerCase() ===
+            style.brandName.trim().toLowerCase();
+        const nameOk =
+          !style.styleName ||
+          detail.styleName.trim().toLowerCase() ===
+            style.styleName.trim().toLowerCase();
+        const idOk = !clickedId || !loadedId || clickedId === loadedId;
+        if (!idOk || !brandOk || !nameOk) {
+          throw new Error(
+            `Catalog returned ${detail.brandName} ${detail.styleName} instead of ${style.brandName} ${style.styleName}. Please try again.`
+          );
+        }
+
         const colorCode = options?.preferColorCode?.trim().toLowerCase();
         const colorName = options?.preferColorName?.trim().toLowerCase();
         let colorIndex = 0;

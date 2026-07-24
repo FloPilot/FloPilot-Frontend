@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ImagePlus,
@@ -21,7 +21,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { fetchSupplierStyleDetail } from "@/lib/api";
 import { isImageUpload, readImagePreviewDataUrl } from "@/lib/artwork-preview";
 import {
   dashboardCardClass,
@@ -32,6 +31,20 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import {
+  composedPreviewCacheKey,
+  garmentFingerprint,
+  isDesignMockupGarmentStale,
+  looksLikeVendorImageUrl,
+  readBlankCache,
+  readComposedCache,
+  resolveVendorBlankImage,
+  supplierProviderForDesignBlank,
+  writeBlankCache,
+  writeComposedCache,
+  type BlankCacheEntry,
+} from "@/lib/order-design-blank-cache";
+import {
+  ArtworkLoadError,
   composeDesignMockup,
   createDesignMockupId,
   defaultColorStageTransform,
@@ -49,11 +62,6 @@ import {
 } from "@/lib/order-design-mockup";
 import { getDesignPlacementPresets } from "@/lib/shop-settings";
 import { useImageBackgroundColor } from "@/lib/use-image-background-color";
-import {
-  SANMAR_PRODUCT_KEY_PREFIX,
-  SS_PRODUCT_KEY_PREFIX,
-} from "@/lib/supplier-line-items";
-import type { SupplierProviderId } from "@/lib/supplier-integrations";
 import type {
   DesignMockupStageMode,
   DesignMockupTransform,
@@ -74,310 +82,6 @@ function formatBlankLabel(item: LineItem): string {
 
 function imprintTitle(imprint: JobImprint): string {
   return imprint.customLabel?.trim() || imprint.label;
-}
-
-function supplierProviderForLineItem(
-  item: LineItem
-): SupplierProviderId | null {
-  if (item.supplier === "sanMar" || item.supplier === "ssActivewear") {
-    return item.supplier;
-  }
-  if (item.productKey?.startsWith(SANMAR_PRODUCT_KEY_PREFIX)) return "sanMar";
-  if (item.productKey?.startsWith(SS_PRODUCT_KEY_PREFIX)) return "ssActivewear";
-  return null;
-}
-
-function colorCodeFromLineItem(item: LineItem): string | undefined {
-  const prefix =
-    item.supplier === "sanMar" ||
-    item.productKey?.startsWith(SANMAR_PRODUCT_KEY_PREFIX)
-      ? SANMAR_PRODUCT_KEY_PREFIX
-      : SS_PRODUCT_KEY_PREFIX;
-  if (item.colorKey?.startsWith(prefix)) {
-    return item.colorKey.slice(prefix.length);
-  }
-  return undefined;
-}
-
-function looksLikeVendorImageUrl(url?: string | null): boolean {
-  if (!url?.trim()) return false;
-  try {
-    const host = new URL(url).hostname.toLowerCase();
-    return (
-      host.includes("ssactivewear.com") ||
-      host.includes("sanmar.com")
-    );
-  } catch {
-    return false;
-  }
-}
-
-type VendorBlankPack = {
-  colorHex?: string;
-  views: {
-    front?: string;
-    back?: string;
-    /** Vendor side shot — only used as a fallback source for back, not a UI option. */
-    side?: string;
-  };
-};
-
-type BlankCacheEntry = {
-  imageUrl: string;
-  colorHex?: string;
-  vendor: boolean;
-};
-
-/** Survives editor remounts when switching front/back locations / views. */
-const vendorBlankPackCache = new Map<string, VendorBlankPack>();
-const blankViewCache = new Map<string, BlankCacheEntry>();
-const composedPreviewCache = new Map<string, string>();
-const vendorPackInflight = new Map<string, Promise<VendorBlankPack>>();
-
-function vendorPackCacheKey(orderId: string, item: LineItem): string {
-  return [
-    orderId,
-    item.id,
-    item.colorKey || item.color,
-    item.supplierPartNumber || item.productKey || "",
-    item.supplierStyleId ?? "",
-  ].join("::");
-}
-
-function blankViewCacheKey(
-  orderId: string,
-  lineItemId: string,
-  view: GarmentBlankView
-): string {
-  return `${orderId}::${lineItemId}::${view}`;
-}
-
-function composedPreviewCacheKey(parts: {
-  orderId: string;
-  lineItemId?: string;
-  blankView: GarmentBlankView;
-  stageMode: DesignMockupStageMode;
-  blankImageUrl?: string;
-  blankColorHex: string;
-  artworkUrl?: string;
-  transform: DesignMockupTransform;
-}): string {
-  const t = parts.transform;
-  return [
-    parts.orderId,
-    parts.lineItemId || "",
-    parts.blankView,
-    parts.stageMode,
-    parts.blankImageUrl || "",
-    parts.blankColorHex,
-    parts.artworkUrl || "",
-    t.x.toFixed(3),
-    t.y.toFixed(3),
-    t.scale.toFixed(3),
-    String(t.rotation ?? 0),
-  ].join("::");
-}
-
-function warmImageUrl(url?: string) {
-  if (!url || typeof window === "undefined") return;
-  const img = new window.Image();
-  if (/^https?:\/\//i.test(url)) {
-    img.crossOrigin = "anonymous";
-    img.src = `/api/proxy-image?url=${encodeURIComponent(url)}`;
-  } else {
-    img.src = url;
-  }
-}
-
-function readBlankCache(
-  orderId: string,
-  lineItemId: string,
-  view: GarmentBlankView
-): BlankCacheEntry | undefined {
-  return blankViewCache.get(blankViewCacheKey(orderId, lineItemId, view));
-}
-
-function writeBlankCache(
-  orderId: string,
-  lineItemId: string,
-  view: GarmentBlankView,
-  entry: BlankCacheEntry
-) {
-  blankViewCache.set(blankViewCacheKey(orderId, lineItemId, view), entry);
-  warmImageUrl(entry.imageUrl);
-}
-
-function readComposedCache(key: string): string | undefined {
-  return composedPreviewCache.get(key);
-}
-
-function writeComposedCache(key: string, previewUrl: string) {
-  composedPreviewCache.set(key, previewUrl);
-}
-
-function pickViewFromPack(
-  pack: VendorBlankPack,
-  view: GarmentBlankView
-): string | undefined {
-  if (view === "back") {
-    return pack.views.back || pack.views.side || pack.views.front;
-  }
-  return pack.views.front || pack.views.side || pack.views.back;
-}
-
-async function fetchVendorBlankPack(
-  token: string,
-  item: LineItem
-): Promise<VendorBlankPack> {
-  const provider = supplierProviderForLineItem(item);
-  if (!provider) {
-    return {
-      colorHex: item.colorHex,
-      views: item.imageUrl?.trim()
-        ? { front: item.imageUrl.trim() }
-        : {},
-    };
-  }
-
-  const partNumber =
-    item.supplierPartNumber?.trim() ||
-    item.productKey
-      ?.replace(SS_PRODUCT_KEY_PREFIX, "")
-      .replace(SANMAR_PRODUCT_KEY_PREFIX, "")
-      .trim() ||
-    "";
-
-  const styleSummary = {
-    provider,
-    brandName: item.brand,
-    styleName: item.productName,
-    partNumber,
-    styleId: item.supplierStyleId ?? null,
-    title: `${item.brand} ${item.productName}`.trim(),
-  };
-
-  const { style } = await fetchSupplierStyleDetail(
-    token,
-    styleSummary,
-    provider
-  );
-
-  const colorCode = colorCodeFromLineItem(item)?.toLowerCase();
-  const colorName = item.color.trim().toLowerCase();
-  const match =
-    style.colors.find(
-      (color) =>
-        (colorCode && color.colorCode.toLowerCase() === colorCode) ||
-        color.colorName.toLowerCase() === colorName
-    ) ??
-    style.colors.find((color) =>
-      color.colorName.toLowerCase().includes(colorName)
-    );
-
-  if (!match) {
-    return {
-      colorHex: item.colorHex,
-      views: item.imageUrl?.trim()
-        ? { front: item.imageUrl.trim() }
-        : {},
-    };
-  }
-
-  const pack: VendorBlankPack = {
-    colorHex: match.colorHex?.trim() || item.colorHex,
-    views: {
-      front:
-        match.colorFrontImageLargeUrl?.trim() ||
-        match.colorFrontImageUrl?.trim() ||
-        undefined,
-      back: match.colorBackImageUrl?.trim() || undefined,
-      side: match.colorSideImageUrl?.trim() || undefined,
-    },
-  };
-
-  return pack;
-}
-
-async function getVendorBlankPack(
-  token: string,
-  orderId: string,
-  item: LineItem
-): Promise<VendorBlankPack> {
-  const key = vendorPackCacheKey(orderId, item);
-  const cached = vendorBlankPackCache.get(key);
-  if (cached) return cached;
-
-  const inflight = vendorPackInflight.get(key);
-  if (inflight) return inflight;
-
-  const promise = fetchVendorBlankPack(token, item)
-    .then((pack) => {
-      vendorBlankPackCache.set(key, pack);
-      for (const view of ["front", "back"] as GarmentBlankView[]) {
-        const imageUrl = pickViewFromPack(pack, view);
-        if (imageUrl) {
-          writeBlankCache(orderId, item.id, view, {
-            imageUrl,
-            colorHex: pack.colorHex,
-            vendor: true,
-          });
-        }
-      }
-      return pack;
-    })
-    .finally(() => {
-      vendorPackInflight.delete(key);
-    });
-
-  vendorPackInflight.set(key, promise);
-  return promise;
-}
-
-async function resolveVendorBlankImage(
-  token: string,
-  orderId: string,
-  item: LineItem,
-  view: GarmentBlankView = "front"
-): Promise<BlankCacheEntry | null> {
-  const cached = readBlankCache(orderId, item.id, view);
-  if (cached) return cached;
-
-  // Front-only shortcut from the line item before any network call.
-  if (view === "front" && item.imageUrl?.trim()) {
-    const entry: BlankCacheEntry = {
-      imageUrl: item.imageUrl.trim(),
-      colorHex: item.colorHex,
-      vendor: looksLikeVendorImageUrl(item.imageUrl),
-    };
-    writeBlankCache(orderId, item.id, "front", entry);
-    return entry;
-  }
-
-  const provider = supplierProviderForLineItem(item);
-  if (!provider) {
-    if (item.imageUrl?.trim()) {
-      const entry: BlankCacheEntry = {
-        imageUrl: item.imageUrl.trim(),
-        colorHex: item.colorHex,
-        vendor: looksLikeVendorImageUrl(item.imageUrl),
-      };
-      writeBlankCache(orderId, item.id, view, entry);
-      return entry;
-    }
-    return null;
-  }
-
-  const pack = await getVendorBlankPack(token, orderId, item);
-  const imageUrl = pickViewFromPack(pack, view);
-  if (!imageUrl) return null;
-
-  const entry: BlankCacheEntry = {
-    imageUrl,
-    colorHex: pack.colorHex,
-    vendor: true,
-  };
-  writeBlankCache(orderId, item.id, view, entry);
-  return entry;
 }
 
 export function OrderDesignStudioTab({ order }: { order: Order }) {
@@ -405,9 +109,9 @@ export function OrderDesignStudioTab({ order }: { order: Order }) {
     setSelectedKey(key);
   };
 
-  const handleEditorReady = () => {
+  const handleEditorReady = useCallback(() => {
     setIsSwitching(false);
-  };
+  }, []);
 
   if (entries.length === 0) {
     return (
@@ -559,11 +263,21 @@ function DesignMockupEditor({
       : undefined
   );
   const needsVendorResolve = Boolean(
-    !isColorStage && lineItem && supplierProviderForLineItem(lineItem)
+    !isColorStage && lineItem && supplierProviderForDesignBlank(lineItem)
   );
+  const savedMockupStale = isDesignMockupGarmentStale(
+    imprint.designMockup,
+    lineItem
+  );
+  const savedBlankImageUrl = savedMockupStale
+    ? undefined
+    : imprint.designMockup?.blankImageUrl;
+  const savedComposedPreviewUrl = savedMockupStale
+    ? undefined
+    : imprint.designMockup?.composedPreviewUrl;
   const cachedBlank =
-    !isColorStage && lineItem?.id != null
-      ? readBlankCache(order.id, lineItem.id, blankView)
+    !isColorStage && lineItem
+      ? readBlankCache(order.id, lineItem, blankView)
       : undefined;
 
   /** Vendor color photos must not get the silhouette tint overlay. */
@@ -575,7 +289,7 @@ function DesignMockupEditor({
       isColorStage
         ? undefined
         : cachedBlank?.imageUrl ??
-          imprint.designMockup?.blankImageUrl ??
+          savedBlankImageUrl ??
           (blankView === "front" ? lineItem?.imageUrl : undefined)
   );
   const [blankLoading, setBlankLoading] = useState(
@@ -601,14 +315,37 @@ function DesignMockupEditor({
     }
     return activePreset ? transformFromPreset(activePreset) : defaultTransform();
   });
+  const activeArtUrlSeed = backgroundRemoved
+    ? artworkCleanUrl || artworkUrl
+    : artworkUrl;
+  const initialBlankForCompose = isColorStage
+    ? undefined
+    : cachedBlank?.imageUrl ??
+      savedBlankImageUrl ??
+      (blankView === "front" ? lineItem?.imageUrl : undefined);
+  const initialComposedPreview =
+    savedComposedPreviewUrl ??
+    (initialBlankForCompose
+      ? readComposedCache(
+          composedPreviewCacheKey({
+            orderId: order.id,
+            lineItemId: lineItem?.id,
+            blankView,
+            stageMode,
+            blankImageUrl: initialBlankForCompose,
+            blankColorHex,
+            artworkUrl: activeArtUrlSeed,
+            transform,
+          })
+        )
+      : undefined);
   const [previewUrl, setPreviewUrl] = useState<string | undefined>(
-    () => imprint.designMockup?.composedPreviewUrl
+    () => initialComposedPreview
   );
   const [previewComposing, setPreviewComposing] = useState(
     !(
       isColorStage ||
-      ((cachedBlank?.imageUrl || imprint.designMockup?.blankImageUrl) &&
-        imprint.designMockup?.composedPreviewUrl)
+      ((cachedBlank?.imageUrl || savedBlankImageUrl) && initialComposedPreview)
     )
   );
   /** First paint for this location — hide canvas until blank + compose settle. */
@@ -616,12 +353,12 @@ function DesignMockupEditor({
     Boolean(
       isColorStage ||
         ((cachedBlank?.imageUrl || !needsVendorResolve) &&
-          (imprint.designMockup?.composedPreviewUrl || !needsVendorResolve))
+          (initialComposedPreview || !needsVendorResolve))
     )
   );
   const [fadeIn, setFadeIn] = useState(() =>
     Boolean(
-      imprint.designMockup?.composedPreviewUrl &&
+      initialComposedPreview &&
         (isColorStage || cachedBlank?.imageUrl || !needsVendorResolve)
     )
   );
@@ -665,10 +402,10 @@ function DesignMockupEditor({
       return;
     }
 
-    const lineItemIdForFetch = lineItem?.id;
     const view = blankView;
     const mockupBlankUrl =
-      imprint.designMockup?.lineItemId === lineItemIdForFetch
+      !savedMockupStale &&
+      imprint.designMockup?.lineItemId === lineItem?.id
         ? imprint.designMockup?.blankImageUrl?.trim()
         : undefined;
 
@@ -689,7 +426,7 @@ function DesignMockupEditor({
     };
 
     const run = async () => {
-      if (!lineItem || !lineItemIdForFetch) {
+      if (!lineItem) {
         applyBlank(null, false);
         return;
       }
@@ -700,7 +437,7 @@ function DesignMockupEditor({
         return;
       }
 
-      const cached = readBlankCache(order.id, lineItemIdForFetch, view);
+      const cached = readBlankCache(order.id, lineItem, view);
       if (cached) {
         applyBlank(cached, true);
         return;
@@ -715,7 +452,7 @@ function DesignMockupEditor({
       setBlankLoading(true);
 
       try {
-        const provider = supplierProviderForLineItem(lineItem);
+        const provider = supplierProviderForDesignBlank(lineItem);
 
         if (provider) {
           const token = await getIdToken();
@@ -749,13 +486,13 @@ function DesignMockupEditor({
           }
 
           if (mockupBlankUrl) {
-            const entry: BlankCacheEntry = {
+            const entry = {
               imageUrl: mockupBlankUrl,
               vendor: looksLikeVendorImageUrl(mockupBlankUrl),
               colorHex: lineItem.colorHex,
             };
-            writeBlankCache(order.id, lineItemIdForFetch, view, entry);
-            applyBlank(entry, false);
+            writeBlankCache(order.id, lineItem, view, entry);
+            applyBlank({ ...entry, garmentKey: garmentFingerprint(lineItem) }, false);
             return;
           }
 
@@ -764,24 +501,24 @@ function DesignMockupEditor({
         }
 
         if (mockupBlankUrl) {
-          const entry: BlankCacheEntry = {
+          const entry = {
             imageUrl: mockupBlankUrl,
             vendor: looksLikeVendorImageUrl(mockupBlankUrl),
             colorHex: lineItem.colorHex,
           };
-          writeBlankCache(order.id, lineItemIdForFetch, view, entry);
-          applyBlank(entry, false);
+          writeBlankCache(order.id, lineItem, view, entry);
+          applyBlank({ ...entry, garmentKey: garmentFingerprint(lineItem) }, false);
           return;
         }
 
         if (lineItem.imageUrl?.trim()) {
-          const entry: BlankCacheEntry = {
+          const entry = {
             imageUrl: lineItem.imageUrl.trim(),
             vendor: looksLikeVendorImageUrl(lineItem.imageUrl),
             colorHex: lineItem.colorHex,
           };
-          writeBlankCache(order.id, lineItemIdForFetch, view, entry);
-          applyBlank(entry, false);
+          writeBlankCache(order.id, lineItem, view, entry);
+          applyBlank({ ...entry, garmentKey: garmentFingerprint(lineItem) }, false);
           return;
         }
 
@@ -810,15 +547,19 @@ function DesignMockupEditor({
     getIdToken,
     imprint.designMockup?.blankImageUrl,
     imprint.designMockup?.lineItemId,
+    imprint.designMockup?.garmentKey,
     isColorStage,
     lineItem?.id,
     lineItem?.color,
     lineItem?.colorKey,
+    lineItem?.colorHex,
+    lineItem?.imageUrl,
     lineItem?.supplier,
     lineItem?.supplierPartNumber,
     lineItem?.supplierStyleId,
     lineItem?.productKey,
     order.id,
+    savedMockupStale,
     updateOrderLineItem,
   ]);
 
@@ -842,6 +583,7 @@ function DesignMockupEditor({
       setPreviewUrl(cachedPreview);
       setPreviewComposing(false);
       setStageReady(true);
+      setFadeIn(true);
       return;
     }
 
@@ -861,9 +603,15 @@ function DesignMockupEditor({
         setPreviewUrl(composed);
         setPreviewComposing(false);
         setStageReady(true);
-      } catch {
+      } catch (err) {
         if (cancelled) return;
-        // Keep prior preview if compose fails (e.g. transient image load).
+        // Never replace a saved design with a blank-only render — show the
+        // stored mockup instead so the work stays visible and editable.
+        const saved = imprint.designMockup?.composedPreviewUrl;
+        if (saved) setPreviewUrl((current) => current ?? saved);
+        if (err instanceof ArtworkLoadError && activeArtUrl) {
+          setError("Could not load this design's artwork. Re-upload it to keep editing.");
+        }
         setPreviewComposing(false);
         setStageReady(true);
       }
@@ -874,6 +622,7 @@ function DesignMockupEditor({
     };
   }, [
     blankLoading,
+    imprint.designMockup?.composedPreviewUrl,
     blankImageUrl,
     blankColorHex,
     blankView,
@@ -885,17 +634,26 @@ function DesignMockupEditor({
     lineItem?.id,
   ]);
 
+  // Fade the stage in once loading settles. Keep this effect independent of
+  // `onReady` — notifying the parent re-renders with a new callback identity,
+  // which would cancel the rAF and leave the cached preview stuck at opacity-0.
+  useEffect(() => {
+    if (isStageLoading) {
+      setFadeIn(false);
+      return;
+    }
+    const frame = requestAnimationFrame(() => setFadeIn(true));
+    return () => cancelAnimationFrame(frame);
+  }, [isStageLoading]);
+
   useEffect(() => {
     if (isStageLoading) {
       readyNotifiedRef.current = false;
-      setFadeIn(false);
       return;
     }
     if (readyNotifiedRef.current) return;
     readyNotifiedRef.current = true;
     onReady?.();
-    const frame = requestAnimationFrame(() => setFadeIn(true));
-    return () => cancelAnimationFrame(frame);
   }, [isStageLoading, onReady]);
 
   const applyPreset = (nextPlacementId: string) => {
@@ -931,10 +689,9 @@ function DesignMockupEditor({
     setBlankView(view);
     setFadeIn(false);
 
-    const cachedBlankEntry =
-      lineItem?.id != null
-        ? readBlankCache(order.id, lineItem.id, view)
-        : undefined;
+    const cachedBlankEntry = lineItem
+      ? readBlankCache(order.id, lineItem, view)
+      : undefined;
 
     if (cachedBlankEntry) {
       setBlankImageUrl(cachedBlankEntry.imageUrl);
@@ -959,7 +716,7 @@ function DesignMockupEditor({
         setPreviewUrl(cachedPreview);
         setPreviewComposing(false);
         setStageReady(true);
-        requestAnimationFrame(() => setFadeIn(true));
+        setFadeIn(true);
         return;
       }
     } else {
@@ -1013,8 +770,8 @@ function DesignMockupEditor({
       manualBlankOverrideRef.current = true;
       setBlankImageUrl(dataUrl.previewUrl);
       setBlankIsVendorPhoto(false);
-      if (lineItem?.id) {
-        writeBlankCache(order.id, lineItem.id, blankView, {
+      if (lineItem) {
+        writeBlankCache(order.id, lineItem, blankView, {
           imageUrl: dataUrl.previewUrl,
           colorHex: resolvedColorHex ?? lineItem.colorHex,
           vendor: false,
@@ -1061,6 +818,7 @@ function DesignMockupEditor({
       id: existing?.id ?? createDesignMockupId(),
       stageMode,
       blankView,
+      garmentKey: lineItem ? garmentFingerprint(lineItem) : undefined,
       artworkUrl,
       artworkCleanUrl,
       backgroundRemoved,
@@ -1194,6 +952,7 @@ function DesignMockupEditor({
                   fadeIn ? "opacity-100" : "opacity-0"
                 )}
                 draggable={false}
+                onLoad={() => setFadeIn(true)}
               />
             ) : null}
 

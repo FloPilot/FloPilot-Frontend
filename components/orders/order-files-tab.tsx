@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
+  Download,
   FileUp,
   FolderOpen,
   Loader2,
@@ -41,12 +42,15 @@ import {
   type FileCategoryFilter,
   type OrderFileItem,
 } from "@/lib/order-files";
+import { getProofSlides } from "@/lib/proof-slides";
 import type { Order, OrderFileKind } from "@/types";
 import { cn } from "@/lib/utils";
 
 function imprintKey(jobId: string, imprintId: string) {
   return `${jobId}:${imprintId}`;
 }
+
+type DownloadSelection = Record<string, { name: string; url: string }>;
 
 export function OrderFilesTab({
   order,
@@ -60,7 +64,7 @@ export function OrderFilesTab({
   const {
     setArtworkStatus,
     uploadArtworkVersion,
-    addOrderFile,
+    addProofSlide,
     uploadOrderFile,
     deleteOrderFile,
     sendProofToCustomer,
@@ -126,6 +130,11 @@ export function OrderFilesTab({
   const [replaceTarget, setReplaceTarget] = useState<OrderFileItem | null>(null);
   const [replacingId, setReplacingId] = useState<string | null>(null);
   const [replaceError, setReplaceError] = useState<string | null>(null);
+  const [uploadingFiles, setUploadingFiles] = useState(false);
+  const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
+  const [selectedDownloads, setSelectedDownloads] = useState<
+    Record<string, { name: string; url: string }>
+  >({});
 
   useEffect(() => {
     if (focusImprint) {
@@ -162,35 +171,124 @@ export function OrderFilesTab({
   const handleImprintFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const file = e.target.files?.[0];
-    if (!file || !pendingImprintUpload) return;
-    const { previewUrl } = await readImagePreviewDataUrl(file);
-    uploadArtworkVersion(
-      order.id,
-      pendingImprintUpload.jobId,
-      pendingImprintUpload.imprintId,
-      file.name,
-      undefined,
-      pendingImprintUpload.kind,
-      previewUrl || undefined
-    );
-    setPendingImprintUpload(null);
+    const files = Array.from(e.target.files ?? []);
+    const target = pendingImprintUpload;
     e.target.value = "";
+    if (files.length === 0 || !target) return;
+
+    setUploadingFiles(true);
+    setUploadFeedback(null);
+    try {
+      if (target.kind === "mockup" && files.length > 1) {
+        for (const file of files) {
+          const { previewUrl, error } = await readImagePreviewDataUrl(file);
+          if (!previewUrl) throw new Error(error || `${file.name} is not an image.`);
+          await addProofSlide(order.id, target.jobId, target.imprintId, {
+            fileName: file.name,
+            previewUrl,
+            label: file.name.replace(/\.[^./\\]+$/, ""),
+          });
+        }
+      } else if (target.kind === "mockup") {
+        const file = files[0];
+        const { previewUrl } = await readImagePreviewDataUrl(file);
+        await uploadArtworkVersion(
+          order.id,
+          target.jobId,
+          target.imprintId,
+          file.name,
+          undefined,
+          target.kind,
+          previewUrl || undefined
+        );
+      } else {
+        for (const file of files) {
+          const { base64, contentType, error } = await readUploadContent(file);
+          if (error) throw new Error(error);
+          await uploadOrderFile(order.id, {
+            name: file.name,
+            kind: target.kind,
+            uploadedBy: "Shop",
+            contentBase64: base64,
+            contentType,
+            jobId: target.jobId,
+            imprintId: target.imprintId,
+          });
+        }
+      }
+      setUploadFeedback(
+        `${files.length} file${files.length === 1 ? "" : "s"} uploaded.`
+      );
+    } catch (err) {
+      setUploadFeedback(
+        err instanceof Error ? err.message : "Could not upload the selected files."
+      );
+    } finally {
+      setPendingImprintUpload(null);
+      setUploadingFiles(false);
+    }
   };
 
   const handleOrderFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const { previewUrl } = await readImagePreviewDataUrl(file);
-    addOrderFile(order.id, {
-      name: file.name,
-      kind: defaultUploadKindForCategory(category),
-      uploadedBy: "Shop",
-      previewUrl: previewUrl || undefined,
-    });
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
+    if (files.length === 0) return;
+
+    setUploadingFiles(true);
+    setUploadFeedback(null);
+    try {
+      for (const file of files) {
+        const { base64, contentType, error } = await readUploadContent(file);
+        if (error) throw new Error(error);
+        await uploadOrderFile(order.id, {
+          name: file.name,
+          kind: defaultUploadKindForCategory(category),
+          uploadedBy: "Shop",
+          contentBase64: base64,
+          contentType,
+        });
+      }
+      setUploadFeedback(
+        `${files.length} file${files.length === 1 ? "" : "s"} uploaded.`
+      );
+    } catch (err) {
+      setUploadFeedback(
+        err instanceof Error ? err.message : "Could not upload the selected files."
+      );
+    } finally {
+      setUploadingFiles(false);
+    }
+  };
+
+  const toggleDownload = (
+    key: string,
+    item: { name: string; url: string }
+  ) => {
+    setSelectedDownloads((current) => {
+      const next = { ...current };
+      if (next[key]) delete next[key];
+      else next[key] = item;
+      return next;
+    });
+  };
+
+  const handleBulkDownload = () => {
+    const selected = Object.values(selectedDownloads);
+    selected.forEach((file, index) => {
+      window.setTimeout(() => {
+        const link = document.createElement("a");
+        link.href = file.url;
+        link.download = file.name;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }, index * 150);
+    });
+    setSelectedDownloads({});
   };
 
   const triggerOrderFileReplace = (file: OrderFileItem) => {
@@ -257,12 +355,14 @@ export function OrderFilesTab({
         type="file"
         className="hidden"
         accept=".pdf,.ai,.eps,.png,.jpg,.jpeg,.dst,.svg"
+        multiple
         onChange={handleImprintFileChange}
       />
       <input
         ref={orderFileInputRef}
         type="file"
         className="hidden"
+        multiple
         onChange={handleOrderFileChange}
       />
       <input
@@ -278,6 +378,12 @@ export function OrderFilesTab({
         </div>
       )}
 
+      {uploadFeedback ? (
+        <div className="rounded-xl border border-[#d8e4f7] bg-[#f4f7fd] px-4 py-3 text-sm text-[#305d9b]">
+          {uploadFeedback}
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
           {FILE_CATEGORY_TABS.map((tab) => {
@@ -287,7 +393,10 @@ export function OrderFilesTab({
               <button
                 key={tab.id}
                 type="button"
-                onClick={() => setCategory(tab.id)}
+                onClick={() => {
+                  setCategory(tab.id);
+                  setSelectedDownloads({});
+                }}
                 className={cn(
                   dashboardControlClass,
                   "h-8 shrink-0 px-2.5 text-[12px]",
@@ -310,28 +419,44 @@ export function OrderFilesTab({
           })}
         </div>
 
-        <Button
-          className={cn(dashboardControlClass, "h-8 shrink-0 text-[12px]")}
-          onClick={() => {
-            if (category === "mockups" || category === "artwork") {
-              const target = selectedEntry ?? allEntries[0];
-              if (target) {
-                triggerImprintUpload(
-                  target.job.id,
-                  target.imprint.id,
-                  category === "mockups" ? "mockup" : "production_art"
-                );
+        <div className="flex shrink-0 items-center gap-2">
+          {Object.keys(selectedDownloads).length > 0 ? (
+            <Button
+              className={cn(dashboardControlClass, "h-8 text-[12px]")}
+              onClick={handleBulkDownload}
+            >
+              <Download className="size-3.5" />
+              Download {Object.keys(selectedDownloads).length}
+            </Button>
+          ) : null}
+          <Button
+            className={cn(dashboardControlClass, "h-8 shrink-0 text-[12px]")}
+            disabled={uploadingFiles}
+            onClick={() => {
+              if (category === "mockups" || category === "artwork") {
+                const target = selectedEntry ?? allEntries[0];
+                if (target) {
+                  triggerImprintUpload(
+                    target.job.id,
+                    target.imprint.id,
+                    category === "mockups" ? "mockup" : "production_art"
+                  );
+                } else {
+                  orderFileInputRef.current?.click();
+                }
               } else {
                 orderFileInputRef.current?.click();
               }
-            } else {
-              orderFileInputRef.current?.click();
-            }
-          }}
-        >
-          <Upload className="size-3.5" />
-          {uploadLabel}
-        </Button>
+            }}
+          >
+            {uploadingFiles ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Upload className="size-3.5" />
+            )}
+            {uploadingFiles ? "Uploading…" : uploadLabel}
+          </Button>
+        </div>
       </div>
 
       {showMockupGallery ? (
@@ -349,22 +474,51 @@ export function OrderFilesTab({
                 Mockups by location
               </p>
               <div className="space-y-3">
-                {allEntries.map((entry) => (
-                  <MockupPreview
-                    key={imprintKey(entry.job.id, entry.imprint.id)}
-                    entry={entry}
-                    pinned={
-                      pinned?.imprint.id === entry.imprint.id &&
-                      pinned.job.id === entry.job.id
-                    }
-                    selected={
-                      selectedKey ===
-                      imprintKey(entry.job.id, entry.imprint.id)
-                    }
-                    onClick={() => handleSelect(entry)}
-                    compact
-                  />
-                ))}
+                {allEntries.map((entry) => {
+                  const key = `mockup:${entry.job.id}:${entry.imprint.id}`;
+                  const slide = getProofSlides(entry.imprint.artwork)[0];
+                  const downloadUrl = slide?.previewUrl;
+                  return (
+                    <div
+                      key={imprintKey(entry.job.id, entry.imprint.id)}
+                      className="relative"
+                    >
+                      {downloadUrl ? (
+                        <label
+                          className="absolute left-3 top-3 z-20 flex size-7 cursor-pointer items-center justify-center rounded-md border border-[#d8d8d8] bg-white/95 shadow-sm"
+                          title="Select for download"
+                        >
+                          <input
+                            type="checkbox"
+                            className="size-4 accent-[#2c6ecb]"
+                            checked={Boolean(selectedDownloads[key])}
+                            onChange={() =>
+                              toggleDownload(key, {
+                                name: entry.imprint.artwork.name,
+                                url: downloadUrl,
+                              })
+                            }
+                            onClick={(event) => event.stopPropagation()}
+                            aria-label={`Select ${entry.imprint.artwork.name} for download`}
+                          />
+                        </label>
+                      ) : null}
+                      <MockupPreview
+                        entry={entry}
+                        pinned={
+                          pinned?.imprint.id === entry.imprint.id &&
+                          pinned.job.id === entry.job.id
+                        }
+                        selected={
+                          selectedKey ===
+                          imprintKey(entry.job.id, entry.imprint.id)
+                        }
+                        onClick={() => handleSelect(entry)}
+                        compact
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -472,6 +626,21 @@ export function OrderFilesTab({
                         <FileUp className="size-3.5" />
                         New version
                       </Button>
+                      {selectedEntry.imprint.artwork.previewUrl ? (
+                        <a
+                          href={selectedEntry.imprint.artwork.previewUrl}
+                          download={selectedEntry.imprint.artwork.name}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={cn(
+                            dashboardControlClass,
+                            "inline-flex h-8 items-center gap-1.5 px-2.5 text-[12px] font-medium text-[#303030] hover:bg-[#fafafa]"
+                          )}
+                        >
+                          <Download className="size-3.5" />
+                          Download
+                        </a>
+                      ) : null}
                     </div>
 
                     {proofFeedback ? (
@@ -525,17 +694,23 @@ export function OrderFilesTab({
                 onUploadImprint={triggerImprintUpload}
                 onReplaceOrderFile={triggerOrderFileReplace}
                 replacingId={replacingId}
+                selectedDownloads={selectedDownloads}
+                onToggleDownload={toggleDownload}
               />
             ) : category === "artwork" ? (
               <ArtworkByLocation
                 items={filteredList}
                 onUpload={triggerImprintUpload}
+                selectedDownloads={selectedDownloads}
+                onToggleDownload={toggleDownload}
               />
             ) : (
               <FileList
                 items={filteredList}
                 onReplaceOrderFile={triggerOrderFileReplace}
                 replacingId={replacingId}
+                selectedDownloads={selectedDownloads}
+                onToggleDownload={toggleDownload}
               />
             )}
           </CardContent>
@@ -549,10 +724,17 @@ function FileList({
   items,
   onReplaceOrderFile,
   replacingId,
+  selectedDownloads,
+  onToggleDownload,
 }: {
   items: OrderFileItem[];
   onReplaceOrderFile?: (file: OrderFileItem) => void;
   replacingId?: string | null;
+  selectedDownloads: DownloadSelection;
+  onToggleDownload: (
+    key: string,
+    item: { name: string; url: string }
+  ) => void;
 }) {
   return (
     <div>
@@ -566,6 +748,16 @@ function FileList({
               : undefined
           }
           replacing={replacingId === file.id}
+          selected={Boolean(selectedDownloads[`file:${file.source}:${file.id}`])}
+          onToggleSelect={() => {
+            const url = file.downloadUrl || file.previewUrl;
+            if (url) {
+              onToggleDownload(`file:${file.source}:${file.id}`, {
+                name: file.name,
+                url,
+              });
+            }
+          }}
         />
       ))}
     </div>
@@ -577,11 +769,18 @@ function AllFilesGrouped({
   onUploadImprint,
   onReplaceOrderFile,
   replacingId,
+  selectedDownloads,
+  onToggleDownload,
 }: {
   items: OrderFileItem[];
   onUploadImprint: (jobId: string, imprintId: string, kind: OrderFileKind) => void;
   onReplaceOrderFile?: (file: OrderFileItem) => void;
   replacingId?: string | null;
+  selectedDownloads: DownloadSelection;
+  onToggleDownload: (
+    key: string,
+    item: { name: string; url: string }
+  ) => void;
 }) {
   const groups = useMemo(() => {
     const map = new Map<string, OrderFileItem[]>();
@@ -625,6 +824,18 @@ function AllFilesGrouped({
                     : undefined
                 }
                 replacing={replacingId === file.id}
+                selected={Boolean(
+                  selectedDownloads[`file:${file.source}:${file.id}`]
+                )}
+                onToggleSelect={() => {
+                  const url = file.downloadUrl || file.previewUrl;
+                  if (url) {
+                    onToggleDownload(`file:${file.source}:${file.id}`, {
+                      name: file.name,
+                      url,
+                    });
+                  }
+                }}
               />
             ))}
           </div>
@@ -637,14 +848,21 @@ function AllFilesGrouped({
 function ArtworkByLocation({
   items,
   onUpload,
+  selectedDownloads,
+  onToggleDownload,
 }: {
   items: OrderFileItem[];
   onUpload: (jobId: string, imprintId: string, kind: OrderFileKind) => void;
+  selectedDownloads: DownloadSelection;
+  onToggleDownload: (
+    key: string,
+    item: { name: string; url: string }
+  ) => void;
 }) {
   const byLocation = useMemo(() => {
     const map = new Map<string, OrderFileItem[]>();
     for (const item of items) {
-      if (item.source !== "imprint" || !item.imprintLabel) continue;
+      if (!item.imprintLabel) continue;
       const key = `${item.jobName} · ${item.imprintLabel}`;
       const list = map.get(key) ?? [];
       list.push(item);
@@ -687,7 +905,22 @@ function ArtworkByLocation({
             </div>
             <div className="px-4">
               {groupItems.map((file) => (
-                <FileRow key={file.id} file={file} />
+                <FileRow
+                  key={`${file.source}:${file.id}`}
+                  file={file}
+                  selected={Boolean(
+                    selectedDownloads[`file:${file.source}:${file.id}`]
+                  )}
+                  onToggleSelect={() => {
+                    const url = file.downloadUrl || file.previewUrl;
+                    if (url) {
+                      onToggleDownload(`file:${file.source}:${file.id}`, {
+                        name: file.name,
+                        url,
+                      });
+                    }
+                  }}
+                />
               ))}
             </div>
           </div>
@@ -702,11 +935,15 @@ function FileRow({
   onUpload,
   onReplace,
   replacing,
+  selected,
+  onToggleSelect,
 }: {
   file: OrderFileItem;
   onUpload?: () => void;
   onReplace?: () => void;
   replacing?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }) {
   return (
     <div
@@ -716,6 +953,15 @@ function FileRow({
       )}
     >
       <div className="min-w-0 flex-1 flex items-center gap-3">
+        {(file.downloadUrl || file.previewUrl) && onToggleSelect ? (
+          <input
+            type="checkbox"
+            className="size-4 shrink-0 cursor-pointer accent-[#2c6ecb]"
+            checked={selected}
+            onChange={onToggleSelect}
+            aria-label={`Select ${file.name} for download`}
+          />
+        ) : null}
         {file.previewUrl ? (
           <img
             src={file.previewUrl}
@@ -738,6 +984,21 @@ function FileRow({
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {file.status && <ArtworkStatusBadge status={file.status} />}
+        {file.downloadUrl || file.previewUrl ? (
+          <a
+            href={file.downloadUrl || file.previewUrl}
+            download={file.name}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(
+              dashboardControlClass,
+              "inline-flex h-7 items-center gap-1.5 px-2.5 text-[12px] font-medium text-[#303030] hover:bg-[#fafafa]"
+            )}
+          >
+            <Download className="size-3" />
+            Download
+          </a>
+        ) : null}
         {onUpload && (
           <Button
             className={cn(dashboardControlClass, "h-7 text-[12px]")}

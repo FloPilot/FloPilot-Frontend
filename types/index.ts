@@ -549,6 +549,11 @@ export type DesignMockupStageMode = "garment" | "color";
 export interface OrderDesignMockup {
   id: string;
   lineItemId?: string;
+  /**
+   * Fingerprint of the blank garment (color/model/image) when this mockup
+   * was saved — used to detect stale blanks after Blanks tab edits.
+   */
+  garmentKey?: string;
   /** garment photo vs solid color backdrop */
   stageMode?: DesignMockupStageMode;
   /** Which vendor blank photo to use — front or back */
