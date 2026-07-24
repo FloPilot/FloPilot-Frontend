@@ -76,6 +76,7 @@ import {
   setMachineOnline as apiSetMachineOnline,
   updateImprintInkColors as apiUpdateImprintInkColors,
   updateImprintNotes as apiUpdateImprintNotes,
+  updateImprintCustomLabel as apiUpdateImprintCustomLabel,
   updateProductionEventWorkflow as apiUpdateProductionEventWorkflow,
   updateJobRunStatus as apiUpdateJobRunStatus,
   updateMachine as apiUpdateMachine,
@@ -91,9 +92,15 @@ import {
   uploadArtworkVersion as apiUploadArtworkVersion,
   addProofSlide as apiAddProofSlide,
   updateProofSlides as apiUpdateProofSlides,
+  updateImprintDesignMockup as apiUpdateImprintDesignMockup,
   type DashboardStatsResponse,
 } from "@/lib/api";
 import type { NewOrderFormInput } from "@/lib/create-order";
+import {
+  garmentFingerprint,
+  invalidateOrderLineItemDesignCaches,
+  refreshOrderLineItemDesignBlanks,
+} from "@/lib/order-design-blank-cache";
 import {
   excludeArchivedOrders,
   excludeScheduleBlocksForArchivedOrders,
@@ -234,13 +241,20 @@ type ScheduleContextValue = {
     mockupLabel?: string,
     kind?: OrderFileKind,
     previewUrl?: string
-  ) => void;
+  ) => Promise<void>;
   addProofSlide: (
     orderId: string,
     jobId: string,
     imprintId: string,
     payload: { fileName: string; previewUrl?: string; label?: string }
   ) => Promise<void>;
+  updateImprintDesignMockup: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    designMockup: import("@/types").OrderDesignMockup,
+    options?: { attachToProof?: boolean; proofLabel?: string }
+  ) => Promise<Order>;
   updateProofSlides: (
     orderId: string,
     jobId: string,
@@ -288,6 +302,8 @@ type ScheduleContextValue = {
       contentBase64: string;
       contentType: string;
       notes?: string;
+      jobId?: string;
+      imprintId?: string;
     }
   ) => Promise<void>;
   deleteOrderFile: (orderId: string, fileId: string) => Promise<void>;
@@ -363,6 +379,12 @@ type ScheduleContextValue = {
     imprintId: string,
     notes: ImprintProductionNotes
   ) => void;
+  updateImprintCustomLabel: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    customLabel: string
+  ) => Promise<void>;
   updateImprintInkColors: (
     orderId: string,
     jobId: string,
@@ -1279,6 +1301,31 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateImprintDesignMockup = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      designMockup: import("@/types").OrderDesignMockup,
+      options?: { attachToProof?: boolean; proofLabel?: string }
+    ) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const { order } = await apiUpdateImprintDesignMockup(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        designMockup,
+        options
+      );
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const updateProofSlides = useCallback(
     async (
       orderId: string,
@@ -1416,6 +1463,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         contentBase64: string;
         contentType: string;
         notes?: string;
+        jobId?: string;
+        imprintId?: string;
       }
     ) => {
       const token = await getIdToken();
@@ -1657,6 +1706,13 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const token = await getIdToken();
       if (!token) throw new Error("Not signed in");
 
+      const previous = orders
+        .find((entry) => entry.id === orderId)
+        ?.lineItems.find((entry) => entry.id === lineItemId);
+      const garmentChanged =
+        !previous ||
+        garmentFingerprint(previous) !== garmentFingerprint(lineItem);
+
       const { order } = await apiUpdateOrderLineItem(
         token,
         orderId,
@@ -1664,9 +1720,18 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         lineItem
       );
       applyOrderUpdate(order);
+
+      // Background-warm Design blanks so returning to the Design tab shows the
+      // new color/model instead of a stale cached garment.
+      if (garmentChanged) {
+        const updated =
+          order.lineItems.find((entry) => entry.id === lineItemId) ?? lineItem;
+        void refreshOrderLineItemDesignBlanks(token, orderId, updated);
+      }
+
       return order;
     },
-    [getIdToken, applyOrderUpdate]
+    [getIdToken, applyOrderUpdate, orders]
   );
 
   const addOrderLineItem = useCallback(
@@ -1676,6 +1741,14 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
       const { order } = await apiAddOrderLineItem(token, orderId, lineItem);
       applyOrderUpdate(order);
+
+      const added = lineItem?.id
+        ? order.lineItems.find((entry) => entry.id === lineItem.id)
+        : order.lineItems[order.lineItems.length - 1];
+      if (added) {
+        void refreshOrderLineItemDesignBlanks(token, orderId, added);
+      }
+
       return order;
     },
     [getIdToken, applyOrderUpdate]
@@ -1688,6 +1761,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
       const { order } = await apiRemoveOrderLineItem(token, orderId, lineItemId);
       applyOrderUpdate(order);
+      invalidateOrderLineItemDesignCaches(orderId, lineItemId);
+
       return order;
     },
     [getIdToken, applyOrderUpdate]
@@ -1709,6 +1784,28 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         jobId,
         imprintId,
         notes
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateImprintCustomLabel = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      customLabel: string
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateImprintCustomLabel(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        customLabel
       );
       applyOrderUpdate(order);
     },
@@ -1972,6 +2069,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       approveOrderEstimate,
       uploadArtworkVersion,
       addProofSlide,
+      updateImprintDesignMockup,
       updateProofSlides,
       updateOrderGarments,
       updateOrderMaterials,
@@ -1999,6 +2097,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       addOrderLineItem,
       removeOrderLineItem,
       updateImprintNotes,
+      updateImprintCustomLabel,
       updateImprintInkColors,
       linkImprintArtworkFromFile,
       productionTasks,
@@ -2059,6 +2158,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       approveOrderEstimate,
       uploadArtworkVersion,
       addProofSlide,
+      updateImprintDesignMockup,
       updateProofSlides,
       updateOrderGarments,
       updateOrderMaterials,
@@ -2086,6 +2186,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       addOrderLineItem,
       removeOrderLineItem,
       updateImprintNotes,
+      updateImprintCustomLabel,
       updateImprintInkColors,
       linkImprintArtworkFromFile,
       productionTasks,

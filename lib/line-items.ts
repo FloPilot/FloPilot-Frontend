@@ -115,6 +115,14 @@ export function serializeLineItemForApi(lineItem: LineItem): LineItem {
     serialized.customerUnitPrice = lineItem.customerUnitPrice;
   }
 
+  if (lineItem.imageUrl?.trim()) {
+    serialized.imageUrl = lineItem.imageUrl.trim();
+  }
+
+  if (lineItem.colorHex?.trim()) {
+    serialized.colorHex = lineItem.colorHex.trim();
+  }
+
   return serialized;
 }
 

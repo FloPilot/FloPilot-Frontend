@@ -19,6 +19,10 @@ export type CustomerAccent = {
   dot: string;
   text: string;
   swatch: string;
+  /** Solid brand color for CTAs / CSS variables on public storefronts. */
+  hex: string;
+  /** Soft wash for hero overlays / surfaces. */
+  hexSoft: string;
 };
 
 export const CUSTOMER_ACCENT_OPTIONS: CustomerAccent[] = [
@@ -31,6 +35,8 @@ export const CUSTOMER_ACCENT_OPTIONS: CustomerAccent[] = [
     dot: "bg-blue-500",
     text: "text-blue-900",
     swatch: "bg-blue-500",
+    hex: "#2563eb",
+    hexSoft: "#eff6ff",
   },
   {
     key: "violet",
@@ -41,6 +47,8 @@ export const CUSTOMER_ACCENT_OPTIONS: CustomerAccent[] = [
     dot: "bg-violet-500",
     text: "text-violet-900",
     swatch: "bg-violet-500",
+    hex: "#7c3aed",
+    hexSoft: "#f5f3ff",
   },
   {
     key: "emerald",
@@ -51,6 +59,8 @@ export const CUSTOMER_ACCENT_OPTIONS: CustomerAccent[] = [
     dot: "bg-emerald-500",
     text: "text-emerald-900",
     swatch: "bg-emerald-500",
+    hex: "#059669",
+    hexSoft: "#ecfdf5",
   },
   {
     key: "amber",
@@ -61,6 +71,8 @@ export const CUSTOMER_ACCENT_OPTIONS: CustomerAccent[] = [
     dot: "bg-amber-500",
     text: "text-amber-900",
     swatch: "bg-amber-500",
+    hex: "#d97706",
+    hexSoft: "#fffbeb",
   },
   {
     key: "rose",
@@ -71,6 +83,8 @@ export const CUSTOMER_ACCENT_OPTIONS: CustomerAccent[] = [
     dot: "bg-rose-500",
     text: "text-rose-900",
     swatch: "bg-rose-500",
+    hex: "#e11d48",
+    hexSoft: "#fff1f2",
   },
   {
     key: "cyan",
@@ -81,6 +95,8 @@ export const CUSTOMER_ACCENT_OPTIONS: CustomerAccent[] = [
     dot: "bg-cyan-500",
     text: "text-cyan-900",
     swatch: "bg-cyan-500",
+    hex: "#0891b2",
+    hexSoft: "#ecfeff",
   },
   {
     key: "orange",
@@ -91,6 +107,8 @@ export const CUSTOMER_ACCENT_OPTIONS: CustomerAccent[] = [
     dot: "bg-orange-500",
     text: "text-orange-900",
     swatch: "bg-orange-500",
+    hex: "#ea580c",
+    hexSoft: "#fff7ed",
   },
   {
     key: "indigo",
@@ -101,6 +119,8 @@ export const CUSTOMER_ACCENT_OPTIONS: CustomerAccent[] = [
     dot: "bg-indigo-500",
     text: "text-indigo-900",
     swatch: "bg-indigo-500",
+    hex: "#4f46e5",
+    hexSoft: "#eef2ff",
   },
 ];
 

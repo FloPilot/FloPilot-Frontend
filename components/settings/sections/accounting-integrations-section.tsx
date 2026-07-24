@@ -163,15 +163,20 @@ export function AccountingIntegrationsSection() {
       const result = await listQuickBooksItems(token);
       setCatalogItems(result.items || []);
     } catch (err) {
-      setItemsError(
+      const message =
         err instanceof Error
           ? err.message
-          : "Could not load QuickBooks products/services"
-      );
+          : "Could not load QuickBooks products/services";
+      setItemsError(message);
+      // Token refresh failure updates the integration record server-side;
+      // reload so the Connected badge doesn't disagree with the warning.
+      if (/session expired|reconnect/i.test(message)) {
+        void load();
+      }
     } finally {
       setLoadingItems(false);
     }
-  }, [getIdToken]);
+  }, [getIdToken, load]);
 
   useEffect(() => {
     void load();

@@ -32,6 +32,40 @@ export type ApiError = {
   code?: string;
 };
 
+/** Session cache so re-opening Edit blank does not wait on supplier again. */
+const styleDetailClientCache = new Map<
+  string,
+  import("@/lib/supplier-integrations").SupplierStyleDetail
+>();
+
+function styleDetailMatchesRequest(
+  requested: import("@/lib/supplier-integrations").SupplierStyleSummary,
+  loaded: import("@/lib/supplier-integrations").SupplierStyleDetail
+): boolean {
+  const requestedId =
+    requested.styleId != null ? String(requested.styleId) : null;
+  const loadedId = loaded.styleId != null ? String(loaded.styleId) : null;
+  if (requestedId && loadedId && requestedId !== loadedId) return false;
+
+  if (
+    requested.brandName?.trim() &&
+    loaded.brandName.trim().toLowerCase() !==
+      requested.brandName.trim().toLowerCase()
+  ) {
+    return false;
+  }
+
+  if (
+    requested.styleName?.trim() &&
+    loaded.styleName.trim().toLowerCase() !==
+      requested.styleName.trim().toLowerCase()
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
 export async function callApi<T>(
   functionName: string,
   options: {
@@ -39,9 +73,11 @@ export async function callApi<T>(
     body?: unknown;
     token?: string | null;
     query?: Record<string, string | undefined>;
+    /** Abort / fail the request after this many ms (default: no timeout). */
+    timeoutMs?: number;
   } = {}
 ): Promise<T> {
-  const { method = "GET", body, token, query } = options;
+  const { method = "GET", body, token, query, timeoutMs } = options;
   const url = new URL(resolveFunctionUrl(functionName));
 
   if (query) {
@@ -62,25 +98,44 @@ export async function callApi<T>(
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const res = await fetch(url.toString(), {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    cache: "no-store",
-  });
+  const controller =
+    timeoutMs && timeoutMs > 0 ? new AbortController() : null;
+  const timer =
+    controller && timeoutMs
+      ? window.setTimeout(() => controller.abort(), timeoutMs)
+      : null;
 
-  if (res.status === 204) {
-    return undefined as T;
+  try {
+    const res = await fetch(url.toString(), {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      cache: "no-store",
+      signal: controller?.signal,
+    });
+
+    if (res.status === 204) {
+      return undefined as T;
+    }
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      const err = data as ApiError;
+      throw new Error(err.error || `API error ${res.status}`);
+    }
+
+    return data as T;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new Error(
+        "Catalog request timed out. Check your connection and try again."
+      );
+    }
+    throw err;
+  } finally {
+    if (timer != null) window.clearTimeout(timer);
   }
-
-  const data = await res.json();
-
-  if (!res.ok) {
-    const err = data as ApiError;
-    throw new Error(err.error || `API error ${res.status}`);
-  }
-
-  return data as T;
 }
 
 // ─── Auth ───────────────────────────────────────────────────────────────────
@@ -395,13 +450,35 @@ export async function fetchSupplierStyleDetail(
   style: import("@/lib/supplier-integrations").SupplierStyleSummary,
   provider: import("@/lib/supplier-integrations").SupplierProviderId = "ssActivewear"
 ) {
+  const cacheKey = [
+    "v2",
+    provider,
+    style.partNumber || "",
+    style.styleId != null ? String(style.styleId) : "",
+    style.brandName || "",
+    style.styleName || "",
+  ]
+    .join(":")
+    .toLowerCase();
+  const cached = styleDetailClientCache.get(cacheKey);
+  if (cached && styleDetailMatchesRequest(style, cached)) {
+    return {
+      provider,
+      style: cached,
+    };
+  }
+  if (cached) {
+    styleDetailClientCache.delete(cacheKey);
+  }
+
   const fn =
     provider === "sanMar" ? "getSanMarStyleDetail" : "getSupplierStyleDetail";
-  return callApi<{
+  const result = await callApi<{
     provider: string;
     style: import("@/lib/supplier-integrations").SupplierStyleDetail;
   }>(fn, {
     token,
+    timeoutMs: 25_000,
     query: {
       styleRef: supplierStyleRef(style),
       styleId: style.styleId != null ? String(style.styleId) : undefined,
@@ -410,6 +487,17 @@ export async function fetchSupplierStyleDetail(
       partNumber: style.partNumber || undefined,
     },
   });
+
+  if (result.style && !styleDetailMatchesRequest(style, result.style)) {
+    throw new Error(
+      `Catalog returned ${result.style.brandName} ${result.style.styleName} instead of ${style.brandName} ${style.styleName}. Please try again.`
+    );
+  }
+
+  if (result.style) {
+    styleDetailClientCache.set(cacheKey, result.style);
+  }
+  return result;
 }
 
 // ─── Team ───────────────────────────────────────────────────────────────────
@@ -990,6 +1078,8 @@ export async function uploadOrderFile(
     contentBase64: string;
     contentType: string;
     notes?: string;
+    jobId?: string;
+    imprintId?: string;
   }
 ) {
   return callApi<{ order: Order }>("uploadOrderFile", {
@@ -1044,6 +1134,8 @@ export async function addOrderLineItem(
             supplier: lineItem.supplier,
             supplierPartNumber: lineItem.supplierPartNumber,
             supplierStyleId: lineItem.supplierStyleId,
+            imageUrl: lineItem.imageUrl,
+            colorHex: lineItem.colorHex,
             sizes: lineItem.sizes.filter((row) => row.quantity > 0),
           },
         }
@@ -1078,6 +1170,20 @@ export async function updateImprintNotes(
   return callApi<{ order: Order }>("updateImprintNotes", {
     method: "PATCH",
     body: { orderId, jobId, imprintId, ...notes },
+    token,
+  });
+}
+
+export async function updateImprintCustomLabel(
+  token: string,
+  orderId: string,
+  jobId: string,
+  imprintId: string,
+  customLabel: string
+) {
+  return callApi<{ order: Order }>("updateImprintCustomLabel", {
+    method: "PATCH",
+    body: { orderId, jobId, imprintId, customLabel },
     token,
   });
 }
@@ -1181,6 +1287,28 @@ export async function uploadArtworkVersion(
   return callApi<{ order: Order }>("uploadArtworkVersion", {
     method: "POST",
     body: { orderId, jobId, imprintId, fileName, mockupLabel, kind, previewUrl },
+    token,
+  });
+}
+
+export async function updateImprintDesignMockup(
+  token: string,
+  orderId: string,
+  jobId: string,
+  imprintId: string,
+  designMockup: import("@/types").OrderDesignMockup,
+  options?: { attachToProof?: boolean; proofLabel?: string }
+) {
+  return callApi<{ order: Order }>("updateImprintDesignMockup", {
+    method: "PATCH",
+    body: {
+      orderId,
+      jobId,
+      imprintId,
+      designMockup,
+      attachToProof: options?.attachToProof === true,
+      proofLabel: options?.proofLabel,
+    },
     token,
   });
 }
@@ -1824,5 +1952,182 @@ export async function markAllNotificationsRead(token: string) {
   return callApi<{ updated: number }>("markAllNotificationsRead", {
     method: "POST",
     token,
+  });
+}
+
+/* ─── Client Stores ─────────────────────────────────────────────── */
+
+export async function listClientStores(
+  token: string,
+  options: { customerId?: string; status?: string; search?: string } = {}
+) {
+  return callApi<{ stores: import("@/lib/client-stores").ClientStore[] }>(
+    "listClientStores",
+    {
+      token,
+      query: {
+        customerId: options.customerId,
+        status: options.status,
+        search: options.search,
+      },
+    }
+  );
+}
+
+export async function getClientStore(token: string, storeId: string) {
+  return callApi<{ store: import("@/lib/client-stores").ClientStore }>(
+    "getClientStore",
+    {
+      token,
+      query: { storeId },
+    }
+  );
+}
+
+export async function createClientStore(
+  token: string,
+  body: {
+    customerId: string;
+    name?: string;
+    headline?: string;
+    description?: string;
+    opensAt?: string | null;
+    closesAt?: string | null;
+    password?: string;
+  }
+) {
+  return callApi<{ store: import("@/lib/client-stores").ClientStore }>(
+    "createClientStore",
+    {
+      method: "POST",
+      token,
+      body,
+    }
+  );
+}
+
+export async function updateClientStore(
+  token: string,
+  storeId: string,
+  updates: Omit<
+    Partial<import("@/lib/client-stores").ClientStore>,
+    "accentColorKey" | "logoUrl" | "heroImageUrl"
+  > & {
+    password?: string | null;
+    clearPassword?: boolean;
+    accentColorKey?: string | null;
+    logoUrl?: string | null;
+    heroImageUrl?: string | null;
+  }
+) {
+  return callApi<{ store: import("@/lib/client-stores").ClientStore }>(
+    "updateClientStore",
+    {
+      method: "POST",
+      token,
+      body: { storeId, ...updates },
+    }
+  );
+}
+
+export async function deleteClientStore(token: string, storeId: string) {
+  return callApi<{ ok: boolean }>("deleteClientStore", {
+    method: "POST",
+    token,
+    body: { storeId },
+  });
+}
+
+export async function listClientStoreSubmissions(
+  token: string,
+  options: { storeId?: string; status?: string } = {}
+) {
+  return callApi<{
+    submissions: import("@/lib/client-stores").ClientStoreSubmission[];
+  }>("listClientStoreSubmissions", {
+    token,
+    query: {
+      storeId: options.storeId,
+      status: options.status,
+    },
+  });
+}
+
+export async function updateClientStoreSubmission(
+  token: string,
+  submissionId: string,
+  status: import("@/lib/client-stores").ClientStoreSubmissionStatus
+) {
+  return callApi<{
+    submission: import("@/lib/client-stores").ClientStoreSubmission;
+  }>("updateClientStoreSubmission", {
+    method: "POST",
+    token,
+    body: { submissionId, status },
+  });
+}
+
+export async function convertClientStoreSubmission(
+  token: string,
+  input: {
+    submissionId: string;
+    subCustomerId?: string;
+    createSubCustomerFromShopper?: boolean;
+  }
+) {
+  return callApi<{
+    submission: import("@/lib/client-stores").ClientStoreSubmission;
+    order: Order;
+  }>("convertClientStoreSubmission", {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
+export async function getPublicClientStore(
+  token: string,
+  options: { password?: string } = {}
+) {
+  return callApi<{ store: import("@/lib/client-stores").PublicClientStore }>(
+    "getPublicClientStore",
+    {
+      method: options.password ? "POST" : "GET",
+      body: options.password
+        ? { token, password: options.password }
+        : undefined,
+      query: options.password ? undefined : { token },
+    }
+  );
+}
+
+export async function submitClientStoreOrder(
+  token: string,
+  body: {
+    name: string;
+    email?: string;
+    phone?: string;
+    notes?: string;
+    password?: string;
+    shippingAddress?: {
+      line1?: string;
+      line2?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+    };
+    items: {
+      productId: string;
+      size: string;
+      color?: string;
+      qty: number;
+    }[];
+  }
+) {
+  return callApi<{
+    submission: import("@/lib/client-stores").ClientStoreSubmission;
+  }>("submitClientStoreOrder", {
+    method: "POST",
+    body: { token, ...body },
   });
 }

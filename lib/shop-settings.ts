@@ -24,6 +24,7 @@ import {
   FileImage,
   Globe,
   Package,
+  Store,
   Warehouse,
   Wrench,
 } from "lucide-react";
@@ -35,7 +36,8 @@ export type ShopModuleKey =
   | "reports"
   | "machines"
   | "customerPortal"
-  | "quotes";
+  | "quotes"
+  | "clientStores";
 
 export type ShopModules = Record<ShopModuleKey, boolean>;
 
@@ -133,9 +135,38 @@ export type InkTypeOption = {
   label: string;
 };
 
+export type DecorationTypeOption = {
+  value: string;
+  label: string;
+};
+
 export type PrintLocationOption = {
   value: string;
   label: string;
+  /** Default decoration method for this placement (matches a decoration type value) */
+  decorationType?: string;
+};
+
+/**
+ * Default art placement box on a garment mockup canvas.
+ * Coordinates are percentages of the blank canvas (0–100).
+ */
+export type DesignPlacementPreset = {
+  id: string;
+  locationKey: string;
+  label: string;
+  /** Left edge % of canvas */
+  x: number;
+  /** Top edge % of canvas */
+  y: number;
+  /** Box width % of canvas */
+  width: number;
+  /** Box height % of canvas */
+  height: number;
+  /** Suggested print size in inches (informational) */
+  maxPrintWidthIn?: number;
+  maxPrintHeightIn?: number;
+  enabled?: boolean;
 };
 
 export type DtfTransferTypeOption = {
@@ -171,8 +202,12 @@ export type ShopProductionDefaults = {
   meshPresets?: MeshPreset[];
   /** Custom ink types beyond built-in defaults */
   inkTypes?: InkTypeOption[];
-  /** Print locations for decoration events on orders */
+  /** Decoration methods the shop offers (screen print, embroidery, DTF, custom, …) */
+  decorationTypes?: DecorationTypeOption[];
+  /** Decoration locations / placements for events on orders */
   printLocations?: PrintLocationOption[];
+  /** Default art boxes for the Design mockup editor */
+  designPlacementPresets?: DesignPlacementPreset[];
   /** Finishing steps offered (bagging, labeling, etc.) */
   finishingSteps?: FinishingStepPreset[];
 };
@@ -220,6 +255,7 @@ export const SHOP_MODULE_KEYS: ShopModuleKey[] = [
   "machines",
   "customerPortal",
   "quotes",
+  "clientStores",
 ];
 
 export const DEFAULT_SHOP_MODULES: ShopModules = {
@@ -230,6 +266,7 @@ export const DEFAULT_SHOP_MODULES: ShopModules = {
   machines: true,
   customerPortal: true,
   quotes: true,
+  clientStores: true,
 };
 
 export const DEFAULT_SHOP_ONBOARDING: ShopOnboarding = {
@@ -267,6 +304,7 @@ export const DEFAULT_PRODUCTION_DEFAULTS: ShopProductionDefaults = {
   dtfTransferTypes: [],
   meshPresets: [],
   inkTypes: [],
+  decorationTypes: [],
   printLocations: [],
   finishingSteps: [],
 };
@@ -375,6 +413,15 @@ export const SHOP_MODULE_DEFINITIONS: ShopModuleDefinition[] = [
     description:
       "Let customers sign in to view orders, approve proofs, and send messages.",
     icon: Globe,
+    group: "customer",
+  },
+  {
+    key: "clientStores",
+    label: "Client Stores",
+    description:
+      "Branded gear stores your clients can share with their teams to order apparel.",
+    icon: Store,
+    href: "/app/stores",
     group: "customer",
   },
   {
@@ -929,10 +976,51 @@ export function normalizeProductionDefaults(
           }
           seenPrintLocations.add(value);
           seenPrintLabels.add(labelKey);
-          return { value, label };
+          const decorationType =
+            typeof option?.decorationType === "string" &&
+            option.decorationType.trim()
+              ? option.decorationType.trim().slice(0, 64)
+              : undefined;
+          return {
+            value,
+            label,
+            ...(decorationType ? { decorationType } : {}),
+          };
         })
         .filter((option): option is PrintLocationOption => option !== null)
         .slice(0, 40)
+    : [];
+
+  const seenDecorationTypes = new Set<string>();
+  const seenDecorationLabels = new Set<string>();
+  const decorationTypes = Array.isArray(input.decorationTypes)
+    ? input.decorationTypes
+        .map((option) => {
+          const label =
+            typeof option?.label === "string"
+              ? option.label.trim().slice(0, 80)
+              : "";
+          const value =
+            typeof option?.value === "string" && option.value.trim()
+              ? option.value.trim().slice(0, 64)
+              : label
+                ? slugifySqueegeeValue(label)
+                : "";
+          const labelKey = label.toLowerCase();
+          if (
+            !label ||
+            !value ||
+            seenDecorationTypes.has(value) ||
+            seenDecorationLabels.has(labelKey)
+          ) {
+            return null;
+          }
+          seenDecorationTypes.add(value);
+          seenDecorationLabels.add(labelKey);
+          return { value, label };
+        })
+        .filter((option): option is DecorationTypeOption => option !== null)
+        .slice(0, 24)
     : [];
 
   const seenFinishing = new Set<string>();
@@ -962,6 +1050,64 @@ export function normalizeProductionDefaults(
         .slice(0, 20)
     : [];
 
+  const seenPlacementIds = new Set<string>();
+  const designPlacementPresets = Array.isArray(input.designPlacementPresets)
+    ? input.designPlacementPresets
+        .map((item, index) => {
+          const locationKey =
+            typeof item?.locationKey === "string"
+              ? item.locationKey.trim().slice(0, 64)
+              : "";
+          const label =
+            typeof item?.label === "string"
+              ? item.label.trim().slice(0, 80)
+              : "";
+          if (!locationKey || !label) return null;
+          const id =
+            typeof item?.id === "string" && item.id.trim()
+              ? item.id.trim().slice(0, 64)
+              : `placement-${index}`;
+          if (seenPlacementIds.has(id)) return null;
+          seenPlacementIds.add(id);
+          const clamp = (value: unknown, fallback: number) => {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return fallback;
+            return Math.max(0, Math.min(100, Math.round(n * 10) / 10));
+          };
+          const width = clamp(item?.width, 22);
+          const height = clamp(item?.height, 18);
+          const maxPrintWidthIn =
+            Number.isFinite(Number(item?.maxPrintWidthIn)) &&
+            Number(item?.maxPrintWidthIn) > 0
+              ? Math.round(Number(item.maxPrintWidthIn) * 10) / 10
+              : undefined;
+          const maxPrintHeightIn =
+            Number.isFinite(Number(item?.maxPrintHeightIn)) &&
+            Number(item?.maxPrintHeightIn) > 0
+              ? Math.round(Number(item.maxPrintHeightIn) * 10) / 10
+              : undefined;
+          const preset: DesignPlacementPreset = {
+            id,
+            locationKey,
+            label,
+            x: clamp(item?.x, 39),
+            y: clamp(item?.y, 28),
+            width: Math.max(4, width),
+            height: Math.max(4, height),
+            enabled: item?.enabled !== false,
+          };
+          if (maxPrintWidthIn !== undefined) {
+            preset.maxPrintWidthIn = maxPrintWidthIn;
+          }
+          if (maxPrintHeightIn !== undefined) {
+            preset.maxPrintHeightIn = maxPrintHeightIn;
+          }
+          return preset;
+        })
+        .filter((item): item is DesignPlacementPreset => item !== null)
+        .slice(0, 40)
+    : [];
+
   return {
     squeegeeOptions,
     screenSizes,
@@ -969,7 +1115,9 @@ export function normalizeProductionDefaults(
     dtfTransferTypes,
     meshPresets,
     inkTypes,
+    decorationTypes,
     printLocations,
+    designPlacementPresets,
     finishingSteps,
   };
 }
@@ -1040,15 +1188,145 @@ export const DEFAULT_INK_TYPE_OPTIONS: InkTypeOption[] = [
 ];
 
 export const DEFAULT_PRINT_LOCATIONS: PrintLocationOption[] = [
-  { value: "front_left_chest", label: "Front left chest" },
-  { value: "front_chest", label: "Front chest" },
-  { value: "full_front", label: "Full front" },
-  { value: "full_back", label: "Full back" },
-  { value: "back", label: "Back" },
-  { value: "left_sleeve", label: "Left sleeve" },
-  { value: "right_sleeve", label: "Right sleeve" },
-  { value: "nape", label: "Nape / yoke" },
-  { value: "other", label: "Other" },
+  { value: "front_left_chest", label: "Front left chest", decorationType: "screen_print" },
+  { value: "front_chest", label: "Front chest", decorationType: "screen_print" },
+  { value: "full_front", label: "Full front", decorationType: "screen_print" },
+  { value: "full_back", label: "Full back", decorationType: "screen_print" },
+  { value: "back", label: "Back", decorationType: "screen_print" },
+  { value: "left_sleeve", label: "Left sleeve", decorationType: "screen_print" },
+  { value: "right_sleeve", label: "Right sleeve", decorationType: "screen_print" },
+  { value: "nape", label: "Nape / yoke", decorationType: "screen_print" },
+  { value: "other", label: "Other", decorationType: "screen_print" },
+];
+
+/** Default design editor art boxes — percentages of the blank canvas. */
+export const DEFAULT_DESIGN_PLACEMENT_PRESETS: DesignPlacementPreset[] = [
+  {
+    id: "preset-front-left-chest",
+    locationKey: "front_left_chest",
+    label: "Front left chest",
+    x: 56,
+    y: 24,
+    width: 18,
+    height: 14,
+    maxPrintWidthIn: 3.5,
+    maxPrintHeightIn: 3.5,
+    enabled: true,
+  },
+  {
+    id: "preset-front-chest",
+    locationKey: "front_chest",
+    label: "Front chest",
+    x: 32,
+    y: 24,
+    width: 36,
+    height: 18,
+    maxPrintWidthIn: 10,
+    maxPrintHeightIn: 5,
+    enabled: true,
+  },
+  {
+    id: "preset-full-front",
+    locationKey: "full_front",
+    label: "Full front",
+    x: 26,
+    y: 28,
+    width: 48,
+    height: 48,
+    maxPrintWidthIn: 12,
+    maxPrintHeightIn: 14,
+    enabled: true,
+  },
+  {
+    id: "preset-full-back",
+    locationKey: "full_back",
+    label: "Full back",
+    x: 26,
+    y: 22,
+    width: 48,
+    height: 52,
+    maxPrintWidthIn: 12,
+    maxPrintHeightIn: 16,
+    enabled: true,
+  },
+  {
+    id: "preset-back",
+    locationKey: "back",
+    label: "Back",
+    x: 30,
+    y: 24,
+    width: 40,
+    height: 36,
+    maxPrintWidthIn: 11,
+    maxPrintHeightIn: 11,
+    enabled: true,
+  },
+  {
+    id: "preset-left-sleeve",
+    locationKey: "left_sleeve",
+    label: "Left sleeve",
+    x: 8,
+    y: 30,
+    width: 14,
+    height: 14,
+    maxPrintWidthIn: 3,
+    maxPrintHeightIn: 3,
+    enabled: true,
+  },
+  {
+    id: "preset-right-sleeve",
+    locationKey: "right_sleeve",
+    label: "Right sleeve",
+    x: 78,
+    y: 30,
+    width: 14,
+    height: 14,
+    maxPrintWidthIn: 3,
+    maxPrintHeightIn: 3,
+    enabled: true,
+  },
+  {
+    id: "preset-nape",
+    locationKey: "nape",
+    label: "Nape / yoke",
+    x: 38,
+    y: 14,
+    width: 24,
+    height: 10,
+    maxPrintWidthIn: 4,
+    maxPrintHeightIn: 2,
+    enabled: true,
+  },
+];
+
+export function getDesignPlacementPresets(
+  productionDefaults?: ShopProductionDefaults | null
+): DesignPlacementPreset[] {
+  const configured =
+    normalizeProductionDefaults(productionDefaults).designPlacementPresets ?? [];
+  if (configured.length > 0) {
+    return configured.filter((preset) => preset.enabled !== false);
+  }
+  return DEFAULT_DESIGN_PLACEMENT_PRESETS.filter(
+    (preset) => preset.enabled !== false
+  );
+}
+
+export function findDesignPlacementPreset(
+  locationKey: string,
+  productionDefaults?: ShopProductionDefaults | null
+): DesignPlacementPreset | undefined {
+  return getDesignPlacementPresets(productionDefaults).find(
+    (preset) => preset.locationKey === locationKey
+  );
+}
+
+/** Default decoration methods shops can offer (finishing stays under warehouse steps) */
+export const DEFAULT_DECORATION_TYPES: DecorationTypeOption[] = [
+  { value: "screen_print", label: "Screen Print" },
+  { value: "embroidery", label: "Embroidery" },
+  { value: "dtf", label: "DTF" },
+  { value: "vinyl", label: "Vinyl" },
 ];
 
 export const STARTER_SCREEN_SIZES: ScreenSizePreset[] = [
@@ -1197,6 +1475,44 @@ export function getPrintLocationOptions(
     normalizeProductionDefaults(productionDefaults).printLocations ?? [];
   if (configured.length > 0) return configured;
   return DEFAULT_PRINT_LOCATIONS;
+}
+
+export function getDecorationTypeOptions(
+  productionDefaults?: ShopProductionDefaults | null
+): DecorationTypeOption[] {
+  const configured =
+    normalizeProductionDefaults(productionDefaults).decorationTypes ?? [];
+  if (configured.length > 0) return configured;
+  return DEFAULT_DECORATION_TYPES;
+}
+
+export function resolveDecorationTypeLabel(
+  key: string,
+  productionDefaults?: ShopProductionDefaults | null
+): string {
+  const match = getDecorationTypeOptions(productionDefaults).find(
+    (option) => option.value === key
+  );
+  if (match) return match.label;
+  return (
+    DEFAULT_DECORATION_TYPES.find((option) => option.value === key)?.label ??
+    DECORATION_TYPE_FALLBACK_LABELS[key] ??
+    key.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+const DECORATION_TYPE_FALLBACK_LABELS: Record<string, string> = {
+  screen_print: "Screen Print",
+  embroidery: "Embroidery",
+  dtf: "DTF",
+  vinyl: "Vinyl",
+  finishing: "Finishing",
+};
+
+export function resolvePrintLocationDecorationType(
+  location: PrintLocationOption | undefined | null
+): string {
+  return location?.decorationType?.trim() || "screen_print";
 }
 
 export function resolvePrintLocationLabel(

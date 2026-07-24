@@ -7,6 +7,7 @@ import type {
   ImprintLocationKey,
   Job,
 } from "@/types";
+import { EventQuickPickBrowser } from "@/components/orders/event-quick-picks";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,12 +25,12 @@ import {
   LabeledSelectValue,
   SelectTrigger,
 } from "@/components/ui/select";
-import { decorationLabel, DECORATION_TYPE_OPTIONS } from "@/lib/format";
 import {
   defaultPrintLocationKey,
+  getDecorationTypeOptions,
   getPrintLocationOptions,
+  resolvePrintLocationDecorationType,
 } from "@/lib/shop-settings";
-import { imprintLocationLabel } from "@/lib/job-imprints";
 import {
   buildCustomProductionJob,
   buildJobFromTemplate,
@@ -52,6 +53,10 @@ export function AddProductionStepDialog({
   const { settings } = useShopSettings();
   const printLocationOptions = useMemo(
     () => getPrintLocationOptions(settings.productionDefaults),
+    [settings.productionDefaults]
+  );
+  const decorationTypeOptions = useMemo(
+    () => getDecorationTypeOptions(settings.productionDefaults),
     [settings.productionDefaults]
   );
   const defaultLocationKey = useMemo(
@@ -117,27 +122,27 @@ export function AddProductionStepDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-lg rounded-2xl p-0 gap-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
-          <DialogTitle className="text-lg font-semibold">
+      <DialogContent className="flex max-h-[min(92vh,760px)] w-full flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-3xl">
+        <DialogHeader className="shrink-0 border-b border-[#ebebeb] px-6 pb-4 pt-6">
+          <DialogTitle className="text-lg font-semibold text-[#303030]">
             Add {eventLabel.toLowerCase()}
           </DialogTitle>
-          <p className="text-sm text-muted-foreground pt-1">
-            Each event can be scheduled on a machine — decoration hits, labels,
-            bagging, and more.
+          <p className="pt-1 text-sm text-[#8a8a8a]">
+            Filter by decoration type, then pick a location — or build a custom
+            event.
           </p>
         </DialogHeader>
 
-        <div className="px-6 py-5">
-          <div className="flex rounded-full border border-border bg-muted/30 p-1 mb-5">
+        <div className="flex min-h-0 flex-1 flex-col px-6 py-5">
+          <div className="mb-4 flex shrink-0 rounded-full border border-[#e3e3e3] bg-[#f6f6f7] p-1">
             <button
               type="button"
               onClick={() => setMode("quick")}
               className={cn(
-                "flex-1 rounded-full py-2 text-sm font-medium transition-colors",
+                "flex-1 rounded-full py-2.5 text-sm font-semibold transition-colors",
                 mode === "quick"
-                  ? "bg-white shadow-sm text-foreground"
-                  : "text-muted-foreground"
+                  ? "bg-white text-[#303030] shadow-sm"
+                  : "text-[#8a8a8a] hover:text-[#303030]"
               )}
             >
               Quick picks
@@ -146,10 +151,10 @@ export function AddProductionStepDialog({
               type="button"
               onClick={() => setMode("custom")}
               className={cn(
-                "flex-1 rounded-full py-2 text-sm font-medium transition-colors",
+                "flex-1 rounded-full py-2.5 text-sm font-semibold transition-colors",
                 mode === "custom"
-                  ? "bg-white shadow-sm text-foreground"
-                  : "text-muted-foreground"
+                  ? "bg-white text-[#303030] shadow-sm"
+                  : "text-[#8a8a8a] hover:text-[#303030]"
               )}
             >
               Custom {eventLabel.toLowerCase()}
@@ -157,29 +162,19 @@ export function AddProductionStepDialog({
           </div>
 
           {mode === "quick" ? (
-            <div className="grid gap-2 sm:grid-cols-2">
-              {quickPicks.map((template) => (
-                <button
-                  key={template.id}
-                  type="button"
-                  disabled={saving}
-                  onClick={() => handleTemplate(template)}
-                  className="rounded-xl border border-border bg-white p-4 text-left hover:border-primary/40 hover:bg-primary/5 transition-colors disabled:opacity-60"
-                >
-                  <p className="font-medium text-sm">{template.name}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {template.kind === "finishing"
-                      ? "Finishing · no press"
-                      : `${decorationLabel(template.decoration)} · ${imprintLocationLabel(
-                          template.locationKey,
-                          printLocationOptions
-                        )}`}
-                  </p>
-                </button>
-              ))}
-            </div>
+            <EventQuickPickBrowser
+              className="min-h-0 flex-1"
+              templates={quickPicks}
+              decorationTypeOptions={decorationTypeOptions}
+              printLocationOptions={printLocationOptions}
+              onSelect={handleTemplate}
+              disabled={saving}
+            />
           ) : (
-            <form onSubmit={handleCustom} className="space-y-4">
+            <form
+              onSubmit={handleCustom}
+              className="mx-auto w-full max-w-lg space-y-4 overflow-y-auto"
+            >
               <div className="space-y-2">
                 <Label htmlFor="step-name">{eventLabel} name</Label>
                 <Input
@@ -227,14 +222,23 @@ export function AddProductionStepDialog({
               </div>
 
               {kind === "decoration" && (
-                <>
+                <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label>Location</Label>
                     <Select
                       value={locationKey}
-                      onValueChange={(v) =>
-                        setLocationKey((v as ImprintLocationKey) ?? "other")
-                      }
+                      onValueChange={(v) => {
+                        const nextKey = (v as ImprintLocationKey) ?? "other";
+                        setLocationKey(nextKey);
+                        const match = printLocationOptions.find(
+                          (option) => option.value === nextKey
+                        );
+                        setDecoration(
+                          resolvePrintLocationDecorationType(
+                            match
+                          ) as DecorationType
+                        );
+                      }}
                     >
                       <SelectTrigger className="h-11 rounded-xl">
                         <LabeledSelectValue
@@ -253,7 +257,7 @@ export function AddProductionStepDialog({
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Method</Label>
+                    <Label>Decoration type</Label>
                     <Select
                       value={decoration}
                       onValueChange={(v) =>
@@ -263,32 +267,28 @@ export function AddProductionStepDialog({
                       <SelectTrigger className="h-11 rounded-xl">
                         <LabeledSelectValue
                           value={decoration}
-                          options={DECORATION_TYPE_OPTIONS}
+                          options={decorationTypeOptions}
                         />
                       </SelectTrigger>
                       <SelectContent>
-                        {(
-                          [
-                            "screen_print",
-                            "embroidery",
-                            "dtf",
-                            "vinyl",
-                          ] as DecorationType[]
-                        ).map((type) => (
-                          <SelectItem key={type} value={type}>
-                            {decorationLabel(type)}
+                        {decorationTypeOptions.map((type) => (
+                          <SelectItem key={type.value} value={type.value}>
+                            {type.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
-                </>
+                </div>
               )}
 
               <Button
                 type="submit"
                 disabled={!customName.trim() || saving}
-                className={cn(dashboardPrimaryButtonClass, "h-11 w-full rounded-full")}
+                className={cn(
+                  dashboardPrimaryButtonClass,
+                  "h-11 w-full rounded-full"
+                )}
               >
                 {saving ? (
                   <>
@@ -302,6 +302,15 @@ export function AddProductionStepDialog({
             </form>
           )}
         </div>
+
+        {mode === "quick" && saving ? (
+          <div className="shrink-0 border-t border-[#ebebeb] bg-[#fafafa] px-6 py-3 text-center text-xs font-medium text-[#616161]">
+            <span className="inline-flex items-center gap-2">
+              <Loader2 className="size-3.5 animate-spin" />
+              Adding {eventLabel.toLowerCase()}…
+            </span>
+          </div>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

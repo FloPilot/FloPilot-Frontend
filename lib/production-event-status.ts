@@ -1,4 +1,5 @@
 import type {
+  BuiltInDecorationType,
   DecorationType,
   Job,
   JobImprint,
@@ -38,7 +39,7 @@ export type PrepCheckpointConfig = {
   hint: string;
 };
 
-const PREP_CONFIG: Record<DecorationType, PrepCheckpointConfig[]> = {
+const PREP_CONFIG: Record<BuiltInDecorationType, PrepCheckpointConfig[]> = {
   screen_print: getDecorationPrepSteps("screen_print").map((step) => ({
     key: step.key as PrepCheckpointKey,
     label: step.label,
@@ -69,7 +70,9 @@ const PREP_CONFIG: Record<DecorationType, PrepCheckpointConfig[]> = {
 export function getPrepCheckpointsForDecoration(
   decoration: DecorationType
 ): PrepCheckpointConfig[] {
-  return PREP_CONFIG[decoration] ?? PREP_CONFIG.screen_print;
+  return (
+    PREP_CONFIG[decoration as BuiltInDecorationType] ?? PREP_CONFIG.screen_print
+  );
 }
 
 function deriveArtworkCheckpoint(

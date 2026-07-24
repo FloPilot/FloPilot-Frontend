@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { OrderMaterialsPanel } from "@/components/orders/order-materials-panel";
 import { OrderDesignTab } from "@/components/orders/order-design-tab";
+import { OrderDesignStudioTab } from "@/components/orders/order-design-studio-tab";
 import { OrderArtworkApprovalPanel } from "@/components/orders/order-artwork-approval-panel";
 import { OrderFilesTab } from "@/components/orders/order-files-tab";
 import { OrderEstimateTab } from "@/components/orders/order-estimate-tab";
@@ -442,6 +443,8 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
           {activeTab === "inks" ? (
             <OrderMaterialsPanel order={order} section="inks" />
           ) : null}
+
+          {activeTab === "design" ? <OrderDesignStudioTab order={order} /> : null}
 
           {activeTab === "proof" ? (
             <div className="space-y-4">

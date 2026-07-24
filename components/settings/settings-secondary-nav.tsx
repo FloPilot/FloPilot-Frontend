@@ -98,8 +98,13 @@ const GROUPS: SettingsNavGroup[] = [
       },
       {
         href: "/app/settings/shop/print-locations",
-        label: "Print locations",
+        label: "Decoration locations",
         icon: Shirt,
+      },
+      {
+        href: "/app/settings/shop/design",
+        label: "Design placements",
+        icon: Palette,
       },
       {
         href: "/app/settings/shop/dtf",

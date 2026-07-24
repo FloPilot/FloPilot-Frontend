@@ -58,7 +58,10 @@ function loadImageFromFile(file: File): Promise<HTMLImageElement> {
   });
 }
 
-async function compressImageToDataUrl(file: File): Promise<string> {
+async function compressImageToDataUrl(
+  file: File,
+  maxBytes = MAX_PREVIEW_BYTES
+): Promise<string> {
   const img = await loadImageFromFile(file);
   const { naturalWidth: width, naturalHeight: height } = img;
 
@@ -79,7 +82,7 @@ async function compressImageToDataUrl(file: File): Promise<string> {
 
     for (let quality = 0.88; quality >= 0.42; quality -= 0.08) {
       const dataUrl = canvas.toDataURL("image/jpeg", quality);
-      if (dataUrlByteSize(dataUrl) <= MAX_PREVIEW_BYTES) {
+      if (dataUrlByteSize(dataUrl) <= maxBytes) {
         return dataUrl;
       }
     }
@@ -215,5 +218,51 @@ export async function readImagePreviewDataUrl(
     return { previewUrl, compressed };
   } catch {
     return { previewUrl: "", error: "Could not read image for preview." };
+  }
+}
+
+/** Store product mockups — smaller target so data URLs fit Firestore/API limits. */
+const MAX_STORE_MOCKUP_BYTES = 320 * 1024;
+
+export async function readStoreMockupDataUrl(
+  file: File
+): Promise<ImagePreviewResult> {
+  if (!isImageUpload(file)) {
+    return {
+      previewUrl: "",
+      error: "Please choose a PNG, JPG, or WebP image.",
+    };
+  }
+
+  try {
+    if (file.size <= DIRECT_EMBED_FILE_BYTES) {
+      const previewUrl = await readFileAsDataUrl(file);
+      if (previewUrl && dataUrlByteSize(previewUrl) <= MAX_STORE_MOCKUP_BYTES) {
+        return { previewUrl };
+      }
+    }
+
+    const previewUrl = await compressImageToDataUrl(
+      file,
+      MAX_STORE_MOCKUP_BYTES
+    );
+    if (!previewUrl) {
+      return { previewUrl: "", error: "Could not read that image." };
+    }
+
+    if (dataUrlByteSize(previewUrl) > MAX_STORE_MOCKUP_BYTES) {
+      return {
+        previewUrl: "",
+        error:
+          "Image is still too large after compression. Try a simpler mockup or a smaller file.",
+      };
+    }
+
+    return {
+      previewUrl,
+      compressed: file.size > DIRECT_EMBED_FILE_BYTES,
+    };
+  } catch {
+    return { previewUrl: "", error: "Could not read that image." };
   }
 }

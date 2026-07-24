@@ -6,7 +6,7 @@ import { OrderCustomLabelEditor } from "@/components/orders/order-custom-label-f
 import { OrderEndBusinessEditor } from "@/components/orders/order-end-business-editor";
 import { OrderSalesRepEditor } from "@/components/orders/order-sales-rep-editor";
 import { OrderProductionRunEditor } from "@/components/orders/order-production-run-editor";
-import { RushBadge } from "@/components/status-badges";
+import { RushBadge, ClientStoreBadge } from "@/components/status-badges";
 import {
   dashboardControlClass,
   dashboardSectionTitleClass,
@@ -103,6 +103,9 @@ export function OrderDetailHeader({
             </span>
           ) : null}
           {order.rush ? <RushBadge /> : null}
+          {order.source === "client_store" ? (
+            <ClientStoreBadge storeName={order.clientStoreName} />
+          ) : null}
           {isArchivedOrder(order) ? (
             <span className="inline-flex rounded-md bg-[#f1f1f1] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
               Archived
@@ -114,6 +117,14 @@ export function OrderDetailHeader({
           <p className={dashboardTaskDetailClass}>
             {order.company} · {order.customerName} · In-hands {dueLabel}
           </p>
+          {order.source === "client_store" && order.clientStoreName ? (
+            <p className={dashboardTaskDetailClass}>
+              Storefront: {order.clientStoreName}
+              {order.clientStoreShopperName
+                ? ` · Shopper ${order.clientStoreShopperName}`
+                : ""}
+            </p>
+          ) : null}
           {showEndBusiness ? (
             <OrderEndBusinessEditor
               order={order}

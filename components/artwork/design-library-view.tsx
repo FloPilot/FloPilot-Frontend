@@ -23,6 +23,7 @@ import { useArchivedDesigns } from "@/lib/design-archive";
 import { useImageBackgroundColor } from "@/lib/use-image-background-color";
 import { listDesigns } from "@/lib/api";
 import { decorationLabel } from "@/lib/format";
+import { formatOrderNumberWithLabel } from "@/lib/order-display";
 import type { SavedDesign } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -117,6 +118,11 @@ function DesignCard({
             {design.company || design.customerName || "Unassigned"} ·{" "}
             {decorationLabel(design.decoration)}
           </p>
+          {design.imprintCustomLabel?.trim() ? (
+            <p className="truncate text-[11px] text-[#8a8a8a]">
+              {design.imprintCustomLabel.trim()}
+            </p>
+          ) : null}
           {pms.length > 0 ? (
             <div className="mt-1 flex flex-wrap gap-1">
               {pms.slice(0, 3).map((code) => (
@@ -144,7 +150,10 @@ function DesignCard({
             className="truncate text-[12px] font-medium text-[#616161] hover:text-[#2c6ecb] hover:underline"
             onClick={(event) => event.stopPropagation()}
           >
-            {design.sourceOrderNumber}
+            {formatOrderNumberWithLabel(
+              design.sourceOrderNumber,
+              design.sourceOrderCustomLabel
+            )}
           </Link>
         ) : (
           <span className="text-[12px] text-[#8a8a8a]">Saved design</span>

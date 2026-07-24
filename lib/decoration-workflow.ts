@@ -1,4 +1,4 @@
-import type { DecorationType } from "@/types";
+import type { BuiltInDecorationType, DecorationType } from "@/types";
 
 export type DecorationWorkflowStepKey =
   | "artwork"
@@ -35,7 +35,7 @@ const SHARED_FLOOR: DecorationWorkflowStep = {
 };
 
 /** Display labels per decoration — foundation for future shop-configurable workflows */
-const DECORATION_WORKFLOW: Record<DecorationType, DecorationWorkflowStep[]> = {
+const DECORATION_WORKFLOW: Record<BuiltInDecorationType, DecorationWorkflowStep[]> = {
   screen_print: [
     {
       key: "artwork",
@@ -173,7 +173,10 @@ const DECORATION_WORKFLOW: Record<DecorationType, DecorationWorkflowStep[]> = {
 export function getDecorationWorkflowSteps(
   decoration: DecorationType
 ): DecorationWorkflowStep[] {
-  return DECORATION_WORKFLOW[decoration] ?? DECORATION_WORKFLOW.screen_print;
+  return (
+    DECORATION_WORKFLOW[decoration as BuiltInDecorationType] ??
+    DECORATION_WORKFLOW.screen_print
+  );
 }
 
 export function getDecorationPrepSteps(

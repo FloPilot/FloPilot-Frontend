@@ -89,6 +89,13 @@ export function buildLineItemFromSupplierSelection(
   const unitCost =
     totalQty > 0 ? Math.round((totalCost / totalQty) * 100) / 100 : 0;
 
+  const imageUrl =
+    color.colorFrontImageLargeUrl?.trim() ||
+    color.colorFrontImageUrl?.trim() ||
+    color.colorSideImageUrl?.trim() ||
+    color.colorBackImageUrl?.trim() ||
+    undefined;
+
   return {
     id: createLineItemId(),
     brand: style.brandName,
@@ -101,6 +108,8 @@ export function buildLineItemFromSupplierSelection(
     supplier: provider,
     supplierPartNumber: style.partNumber,
     supplierStyleId: style.styleId,
+    ...(imageUrl ? { imageUrl } : {}),
+    ...(color.colorHex?.trim() ? { colorHex: color.colorHex.trim() } : {}),
   };
 }
 

@@ -1,4 +1,4 @@
-import type { ArtworkFile, Order, OrderFile, OrderFileKind } from "@/types";
+import type { ArtworkFile, Order, OrderFileKind } from "@/types";
 import { getOrderProductionSteps } from "@/lib/order-production";
 
 export const ORDER_FILE_KIND_LABELS: Record<OrderFileKind, string> = {
@@ -158,6 +158,13 @@ export function buildOrderFileList(order: Order): OrderFileItem[] {
   }
 
   for (const file of order.files ?? []) {
+    const linkedJob = file.jobId
+      ? order.jobs.find((job) => job.id === file.jobId)
+      : undefined;
+    const linkedImprint =
+      linkedJob && file.imprintId
+        ? linkedJob.imprints.find((imprint) => imprint.id === file.imprintId)
+        : undefined;
     items.push({
       id: file.id,
       name: file.name,
@@ -169,6 +176,8 @@ export function buildOrderFileList(order: Order): OrderFileItem[] {
       notes: file.notes,
       jobId: file.jobId,
       imprintId: file.imprintId,
+      jobName: linkedJob?.name,
+      imprintLabel: linkedImprint?.customLabel?.trim() || linkedImprint?.label,
       previewUrl: file.previewUrl,
       downloadUrl: file.downloadUrl,
     });

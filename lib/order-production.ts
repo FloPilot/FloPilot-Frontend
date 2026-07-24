@@ -64,7 +64,7 @@ export const PRODUCTION_STEP_TEMPLATES: ProductionStepTemplate[] = [
   },
 ];
 
-/** Quick picks for add-event flows — driven by shop print locations (+ enabled finishing steps). */
+/** Quick picks for add-event flows — driven by shop decoration locations (+ enabled finishing steps). */
 export function getProductionStepQuickPicks(
   productionDefaults?: ShopProductionDefaults | null
 ): ProductionStepTemplate[] {
@@ -73,7 +73,8 @@ export function getProductionStepQuickPicks(
       id: `print-${location.value}`,
       name: location.label,
       locationKey: location.value,
-      decoration: "screen_print" as DecorationType,
+      decoration: (location.decorationType?.trim() ||
+        "screen_print") as DecorationType,
       kind: "decoration" as const,
     })
   );

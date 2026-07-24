@@ -88,6 +88,15 @@ function DesignSpecsContent({
           value={decorationLabel(design.decoration)}
         />
         <MetaField label="Location" value={design.locationLabel} />
+        {design.imprintCustomLabel ? (
+          <MetaField label="Proof name" value={design.imprintCustomLabel} />
+        ) : null}
+        {design.sourceOrderCustomLabel ? (
+          <MetaField
+            label="Order name"
+            value={design.sourceOrderCustomLabel}
+          />
+        ) : null}
         {design.notes?.dimensions ? (
           <MetaField label="Print size" value={design.notes.dimensions} />
         ) : null}

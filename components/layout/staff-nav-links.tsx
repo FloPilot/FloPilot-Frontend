@@ -31,7 +31,29 @@ export function StaffNavLinks({
       {visibleNavItems.map((item) => {
         const isActive = isNavItemActive(pathname, item);
         const Icon = item.icon;
-        const showChildren = shouldExpandNavChildren(pathname, item);
+        const showChildren =
+          !item.comingSoon && shouldExpandNavChildren(pathname, item);
+
+        if (item.comingSoon) {
+          return (
+            <div key={item.href}>
+              <div
+                aria-disabled="true"
+                title="Coming soon"
+                className={cn(
+                  "flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-1.5 text-[13px] font-medium opacity-60",
+                  staffNav.link
+                )}
+              >
+                <Icon className="size-[18px] shrink-0 opacity-90" />
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                <span className="shrink-0 rounded-md bg-[#dfe3e8] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161]">
+                  Soon
+                </span>
+              </div>
+            </div>
+          );
+        }
 
         return (
           <div key={item.href}>

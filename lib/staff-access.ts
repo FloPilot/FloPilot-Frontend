@@ -9,6 +9,7 @@ export const WORKSPACE_AREA_KEYS = [
   "tasks",
   "orders",
   "customers",
+  "stores",
   "production",
   "departments",
   "artwork",
@@ -52,6 +53,12 @@ export const WORKSPACE_AREA_OPTIONS: {
     key: "customers",
     label: "Customers",
     description: "Customer list and profiles",
+  },
+  {
+    key: "stores",
+    label: "Client Stores",
+    description: "Branded gear stores for your clients’ teams",
+    moduleKey: "clientStores",
   },
   {
     key: "production",
@@ -107,6 +114,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
       tasks: true,
       orders: true,
       customers: true,
+      stores: true,
       production: true,
       departments: true,
       artwork: true,
@@ -121,6 +129,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
       tasks: true,
       orders: true,
       customers: true,
+      stores: true,
       production: true,
       departments: true,
       artwork: true,
@@ -135,6 +144,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
       tasks: true,
       orders: true,
       customers: false,
+      stores: false,
       production: true,
       departments: true,
       artwork: true,
@@ -149,6 +159,7 @@ const ROLE_DEFAULT_AREAS: Record<StaffRole, Record<WorkspaceAreaKey, boolean>> =
       tasks: true,
       orders: true,
       customers: true,
+      stores: true,
       production: true,
       departments: true,
       artwork: true,
@@ -261,6 +272,7 @@ export function getDefaultLandingPath(
     tasks: "/app/tasks",
     orders: "/app/orders",
     customers: "/app/customers",
+    stores: "/app/stores",
     production: "/app/production",
     departments: "/app/departments",
     artwork: "/app/artwork",
@@ -357,7 +369,9 @@ export function getWorkspaceAreaForPath(
   if (pathname.startsWith("/app/notifications")) return "dashboard";
   if (pathname.startsWith("/app/tasks")) return "tasks";
   if (pathname.startsWith("/app/orders")) return "orders";
+  if (pathname.startsWith("/app/documents")) return "orders";
   if (pathname.startsWith("/app/customers")) return "customers";
+  if (pathname.startsWith("/app/stores")) return "stores";
   if (pathname.startsWith("/app/production")) return "production";
   if (pathname.startsWith("/app/departments")) return "departments";
   if (pathname.startsWith("/app/artwork")) return "artwork";

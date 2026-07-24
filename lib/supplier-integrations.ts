@@ -153,11 +153,15 @@ export function supplierStyleRef(style: SupplierStyleSummary): string {
   if (style.provider === "sanMar") {
     return style.partNumber?.trim() || String(style.styleId ?? "") || style.styleName?.trim() || "";
   }
-  if (style.styleId != null) return String(style.styleId);
+  // Prefer styleId — style names like "1717" collide across brands.
+  if (style.styleId != null && String(style.styleId).trim() !== "") {
+    return String(style.styleId);
+  }
+  if (style.partNumber?.trim()) return style.partNumber.trim();
   const brand = style.brandName?.trim();
   const name = style.styleName?.trim();
   if (brand && name) return `${brand} ${name}`;
-  return style.partNumber?.trim() || name || "";
+  return name || "";
 }
 
 export function supplierProviderLabel(provider: SupplierProviderId): string {
