@@ -462,6 +462,13 @@ export interface OrderActivityEvent {
   detail?: string;
   timestamp: string;
   author?: string;
+  /**
+   * Timeline divider — e.g. request → order conversion.
+   * Rendered as a full-width break, not a normal row.
+   */
+  milestone?: boolean;
+  /** Origin phase for inherited request history on an order. */
+  phase?: "request" | "conversion" | "order";
 }
 
 /** Squeegee durometer / type on press — presets plus shop-specific custom values */
@@ -545,6 +552,16 @@ export interface DesignMockupTransform {
  */
 export type DesignMockupStageMode = "garment" | "color";
 
+/** One artwork overlay on a design mockup (stack order = paint order). */
+export interface DesignMockupArtLayer {
+  id: string;
+  url: string;
+  cleanUrl?: string;
+  backgroundRemoved?: boolean;
+  transform: DesignMockupTransform;
+  label?: string;
+}
+
 /** Staff-composed garment mockup for a decoration location / event. */
 export interface OrderDesignMockup {
   id: string;
@@ -561,6 +578,9 @@ export interface OrderDesignMockup {
   blankImageUrl?: string;
   /** Hex color overlay when blank photo lacks this colorway */
   blankColorHex?: string;
+  /** Preferred multi-layer artwork stack (bottom → top). */
+  artLayers?: DesignMockupArtLayer[];
+  /** Legacy / primary artwork — kept in sync with the top art layer. */
   artworkUrl?: string;
   /** Artwork with background removed (transparent PNG data URL or storage URL) */
   artworkCleanUrl?: string;

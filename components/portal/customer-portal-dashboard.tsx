@@ -10,9 +10,8 @@ import {
   Package,
 } from "lucide-react";
 import { useCustomerPortal } from "@/components/portal/customer-portal-provider";
+import { usePortalPaths } from "@/components/portal/portal-paths";
 import {
-  portalHomePath,
-  portalOrderPath,
   portalStatusLabel,
   portalStatusTone,
   type PortalAttentionItem,
@@ -46,19 +45,20 @@ function StatusBadge({ status }: { status: string }) {
 
 function AttentionCard({
   item,
-  token,
   accent,
 }: {
   item: PortalAttentionItem;
-  token: string;
   accent: string;
 }) {
+  const paths = usePortalPaths();
   const href =
     item.type === "artwork" && item.jobId && item.imprintId
-      ? `${portalOrderPath(token, item.orderId)}?focus=${encodeURIComponent(`${item.jobId}:${item.imprintId}`)}`
+      ? paths.order(item.orderId, {
+          focus: `${item.jobId}:${item.imprintId}`,
+        })
       : item.type === "invoice"
-        ? portalOrderPath(token, item.orderId, { view: "invoice" })
-      : portalOrderPath(token, item.orderId);
+        ? paths.order(item.orderId, { view: "invoice" })
+        : paths.order(item.orderId);
 
   return (
     <Link
@@ -95,20 +95,21 @@ function AttentionCard({
 
 function OrderRow({
   order,
-  token,
 }: {
   order: PortalOrderSummary;
-  token: string;
 }) {
+  const paths = usePortalPaths();
   return (
     <Link
-      href={portalOrderPath(token, order.id, {
+      href={paths.order(order.id, {
         view: order.invoiceSentAt ? "invoice" : undefined,
       })}
       className="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_auto] items-center gap-3 border-b border-[#f1f1f1] px-4 py-3.5 text-[13px] transition-colors last:border-b-0 hover:bg-[#fafafa]"
     >
       <div>
-        <p className="font-semibold text-[#303030]">{formatOrderDisplayLine(order)}</p>
+        <p className="truncate text-[14px] font-semibold leading-snug text-[#303030]">
+          {formatOrderDisplayLine(order)}
+        </p>
         {order.needsApproval ? (
           <p className="mt-0.5 text-[11px] font-medium text-[#8a6116]">
             Needs your review
@@ -126,15 +127,23 @@ function OrderRow({
         {order.inHandsDate ? formatDate(order.inHandsDate) : "—"}
       </p>
       <StatusBadge status={order.status} />
-      <p className="text-right font-semibold tabular-nums text-[#303030]">
+      <p className="text-right text-[13px] font-semibold tabular-nums text-[#303030]">
         {formatCurrency(order.total)}
       </p>
     </Link>
   );
 }
 
-export function CustomerPortalDashboardView() {
-  const { token, dashboard, accent } = useCustomerPortal();
+export function CustomerPortalDashboardView({
+  dashboard,
+  accent,
+}: {
+  dashboard: NonNullable<
+    ReturnType<typeof useCustomerPortal>["dashboard"]
+  > | null;
+  accent: string;
+}) {
+  const paths = usePortalPaths();
   const stats = dashboard?.stats;
   const orders = dashboard?.orders || [];
   const attention = dashboard?.attention || [];
@@ -201,6 +210,25 @@ export function CustomerPortalDashboardView() {
           Track orders, review proofs, approve estimates, and view invoices — all
           in one place.
         </p>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#ebebeb] bg-white px-4 py-4 shadow-sm sm:px-5">
+        <div className="min-w-0">
+          <p className="text-[14px] font-semibold text-[#303030]">
+            Need something new?
+          </p>
+          <p className="mt-0.5 text-[13px] text-[#616161]">
+            Submit an order request with blanks, events, and mockups for the shop
+            to confirm.
+          </p>
+        </div>
+        <Link
+          href={paths.newOrderRequest()}
+          className="inline-flex h-10 shrink-0 items-center justify-center rounded-lg px-4 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
+          style={{ backgroundColor: accent }}
+        >
+          New order request
+        </Link>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -281,7 +309,7 @@ export function CustomerPortalDashboardView() {
               </div>
               <div>
                 {orders.map((order) => (
-                  <OrderRow key={order.id} order={order} token={token} />
+                  <OrderRow key={order.id} order={order} />
                 ))}
               </div>
             </>
@@ -306,7 +334,6 @@ export function CustomerPortalDashboardView() {
                   <AttentionCard
                     key={`${item.orderId}-${item.type}-${item.title}-${index}`}
                     item={item}
-                    token={token}
                     accent={accent}
                   />
                 ))
@@ -319,7 +346,7 @@ export function CustomerPortalDashboardView() {
               Portal access valid until{" "}
               {formatDate(dashboard.portalExpiresAt)}.{" "}
               <Link
-                href={portalHomePath(token)}
+                href={paths.home()}
                 className="font-medium underline"
                 style={{ color: accent }}
               >
@@ -330,5 +357,12 @@ export function CustomerPortalDashboardView() {
         </aside>
       </div>
     </div>
+  );
+}
+
+export function CustomerPortalDashboardFromToken() {
+  const { dashboard, accent } = useCustomerPortal();
+  return (
+    <CustomerPortalDashboardView dashboard={dashboard} accent={accent} />
   );
 }

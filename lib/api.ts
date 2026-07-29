@@ -158,8 +158,25 @@ export type MeResponse = (
       };
     }
   | {
+      type: "portal";
+      customer: {
+        id: string;
+        name: string;
+        company?: string;
+        email?: string;
+        [key: string]: unknown;
+      };
+      tenant: {
+        id: string;
+        name: string;
+        slug: string;
+        settings: ShopSettings;
+      };
+    }
+  | {
       type: "none";
       needsRegistration: boolean;
+      needsPortalClaim?: boolean;
       email: string;
       name?: string;
     }
@@ -172,6 +189,7 @@ export async function fetchMe(token: string) {
 }
 
 export type UserTenantSummary = {
+  kind?: "staff";
   tenantId: string;
   userId: string;
   name: string;
@@ -184,8 +202,24 @@ export type UserTenantSummary = {
   role: StaffRole;
 };
 
+export type UserPortalSummary = {
+  kind: "portal";
+  tenantId: string;
+  customerId: string;
+  name: string;
+  company?: string;
+  memberName?: string;
+  slug: string;
+  logoUrl: string;
+  primaryColor?: string;
+  linkedAt?: string | null;
+};
+
 export async function listUserTenants(token: string) {
-  return callApi<{ tenants: UserTenantSummary[] }>("listUserTenants", { token });
+  return callApi<{ tenants: UserTenantSummary[]; portals?: UserPortalSummary[] }>(
+    "listUserTenants",
+    { token }
+  );
 }
 
 export async function switchTenant(token: string, tenantId: string) {
@@ -205,6 +239,59 @@ export async function switchTenant(token: string, tenantId: string) {
     };
     message: string;
   }>("switchTenant", { method: "POST", body: { tenantId }, token });
+}
+
+export async function switchPortal(
+  token: string,
+  payload: { tenantId: string; customerId: string }
+) {
+  return callApi<{
+    ok: boolean;
+    membership: UserPortalSummary;
+    message: string;
+  }>("switchPortal", { method: "POST", body: payload, token });
+}
+
+export type CustomerPortalInvite = {
+  expired?: boolean;
+  reactivateUrl?: string;
+  shop?: {
+    name: string;
+    email: string;
+    phone: string;
+    logoUrl: string;
+    primaryColor: string;
+  };
+  customer?: {
+    name: string;
+    company: string;
+    email: string;
+  };
+  hasAccount?: boolean;
+  accountEmail?: string | null;
+  portalExpiresAt?: string | null;
+};
+
+export async function fetchCustomerPortalInvite(inviteToken: string) {
+  return callApi<CustomerPortalInvite>("getCustomerPortalInvite", {
+    query: { token: inviteToken },
+  });
+}
+
+export async function claimCustomerPortal(
+  authToken: string,
+  inviteToken: string,
+  body?: { name?: string }
+) {
+  return callApi<{
+    ok: boolean;
+    membership: UserPortalSummary;
+    message: string;
+  }>("claimCustomerPortal", {
+    method: "POST",
+    token: authToken,
+    body: { token: inviteToken, ...(body || {}) },
+  });
 }
 
 export async function fetchTenantSettings(token: string) {
@@ -1520,12 +1607,135 @@ export async function getOrderCustomerPortalLink(
     portalToken: string;
     portalHomeUrl: string;
     portalOrderUrl: string;
+    previewHomeUrl: string;
+    previewOrderUrl: string;
     customer: { name: string; email: string | null };
   }>("getOrderCustomerPortalLink", {
     method: "POST",
     token,
     body: { orderId },
   });
+}
+
+export async function listOrderRequests(
+  token: string,
+  options: { status?: string; customerId?: string } = {}
+) {
+  return callApi<{
+    requests: import("@/lib/order-requests").OrderRequestSummary[];
+    counts: Record<string, number>;
+  }>("listOrderRequests", {
+    token,
+    query: {
+      status: options.status,
+      customerId: options.customerId,
+    },
+  });
+}
+
+export async function getOrderRequest(token: string, requestId: string) {
+  return callApi<{ request: import("@/lib/order-requests").OrderRequestDetail }>(
+    "getOrderRequest",
+    {
+      token,
+      query: { requestId },
+    }
+  );
+}
+
+export async function updateOrderRequestStatus(
+  token: string,
+  requestId: string,
+  status: import("@/lib/order-requests").OrderRequestStatus,
+  reason?: string
+) {
+  return callApi<{ request: import("@/lib/order-requests").OrderRequestDetail }>(
+    "updateOrderRequestStatus",
+    {
+      method: "POST",
+      token,
+      body: { requestId, status, reason },
+    }
+  );
+}
+
+export async function updateOrderRequest(
+  token: string,
+  requestId: string,
+  payload: {
+    blankSource?: "shop_orders" | "customer_supplies";
+    subCustomerId?: string | null;
+    newEndBusinessName?: string;
+    lineItems?: import("@/lib/order-requests").OrderRequestLineItem[];
+    events?: import("@/lib/order-requests").OrderRequestEvent[];
+    inHandsDate?: string | null;
+    rush?: boolean;
+    customLabel?: string;
+    notes?: string;
+    vendorPurchaseOrder?: import("@/lib/order-requests").OrderRequestVendorPurchaseOrder | null;
+    estimateAdjustments?: {
+      id: string;
+      label: string;
+      detail?: string;
+      qty: number;
+      unitPrice: number;
+      source?: string;
+      category?: string;
+      contractFeeId?: string;
+    }[];
+    excludedContractFeeIds?: string[];
+    selectedRateSheetId?: string | null;
+  }
+) {
+  return callApi<{ request: import("@/lib/order-requests").OrderRequestDetail }>(
+    "updateOrderRequest",
+    {
+      method: "POST",
+      token,
+      body: { requestId, ...payload },
+    }
+  );
+}
+
+export async function convertOrderRequest(token: string, requestId: string) {
+  return callApi<{
+    request: import("@/lib/order-requests").OrderRequestDetail;
+    order: import("@/types").Order;
+  }>("convertOrderRequest", {
+    method: "POST",
+    token,
+    body: { requestId },
+  });
+}
+
+export async function sendOrderRequestMessage(
+  token: string,
+  requestId: string,
+  content: string
+) {
+  return callApi<{ request: import("@/lib/order-requests").OrderRequestDetail }>(
+    "sendOrderRequestMessage",
+    {
+      method: "POST",
+      token,
+      body: { requestId, content },
+    }
+  );
+}
+
+export async function addOrderRequestInternalNote(
+  token: string,
+  requestId: string,
+  content: string
+) {
+  return callApi<{ request: import("@/lib/order-requests").OrderRequestDetail }>(
+    "addOrderRequestInternalNote",
+    {
+      method: "POST",
+      token,
+      body: { requestId, content },
+    }
+  );
 }
 
 export type OrderDocumentScope = "all" | "estimate" | "proofs" | "invoice";

@@ -306,6 +306,8 @@ export function ProofSlidesEditor({
   readOnly,
   compact,
   pinned,
+  forceArtworkStatus,
+  adapters,
 }: {
   orderId: string;
   job: Job;
@@ -313,8 +315,29 @@ export function ProofSlidesEditor({
   readOnly?: boolean;
   compact?: boolean;
   pinned?: boolean;
+  forceArtworkStatus?: ArtworkFile["status"];
+  adapters?: {
+    addProofSlide?: (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      payload: { fileName: string; previewUrl?: string; label?: string }
+    ) => Promise<unknown>;
+    updateProofSlides?: (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      payload: {
+        orderedIds?: string[];
+        slides?: { id: string; label?: string }[];
+        removeIds?: string[];
+      }
+    ) => Promise<unknown>;
+  };
 }) {
   const { addProofSlide, updateProofSlides } = useSchedule();
+  const addSlideFn = adapters?.addProofSlide ?? addProofSlide;
+  const updateSlidesFn = adapters?.updateProofSlides ?? updateProofSlides;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -323,6 +346,7 @@ export function ProofSlidesEditor({
   const [labelDraft, setLabelDraft] = useState("");
 
   const artwork = imprint.artwork;
+  const artworkStatus = forceArtworkStatus ?? artwork.status;
   const slides = useMemo(() => getProofSlides(artwork), [artwork]);
   const sortableIds = useMemo(() => slides.map((slide) => slide.id), [slides]);
 
@@ -349,14 +373,14 @@ export function ProofSlidesEditor({
     async (nextSlides: ProofSlide[]) => {
       setSaving(true);
       try {
-        await updateProofSlides(orderId, job.id, imprint.id, {
+        await updateSlidesFn(orderId, job.id, imprint.id, {
           orderedIds: nextSlides.map((slide) => slide.id),
         });
       } finally {
         setSaving(false);
       }
     },
-    [updateProofSlides, orderId, job.id, imprint.id]
+    [updateSlidesFn, orderId, job.id, imprint.id]
   );
 
   const handleDragEnd = useCallback(
@@ -390,7 +414,7 @@ export function ProofSlidesEditor({
         if (slides.length + added >= MAX_PROOF_SLIDES) break;
         const { previewUrl, error, compressed } =
           await readImagePreviewDataUrl(file);
-        await addProofSlide(orderId, job.id, imprint.id, {
+        await addSlideFn(orderId, job.id, imprint.id, {
           fileName: file.name,
           previewUrl: previewUrl || undefined,
           label: file.name.replace(/\.[^.]+$/, ""),
@@ -417,7 +441,7 @@ export function ProofSlidesEditor({
     if (slides.length <= 1) return;
     setSaving(true);
     try {
-      await updateProofSlides(orderId, job.id, imprint.id, {
+      await updateSlidesFn(orderId, job.id, imprint.id, {
         removeIds: [slideId],
       });
     } finally {
@@ -431,7 +455,7 @@ export function ProofSlidesEditor({
     if ((activeSlide.label ?? "") === trimmed) return;
     setSaving(true);
     try {
-      await updateProofSlides(orderId, job.id, imprint.id, {
+      await updateSlidesFn(orderId, job.id, imprint.id, {
         slides: [{ id: activeSlide.id, label: trimmed }],
       });
     } finally {
@@ -573,7 +597,7 @@ export function ProofSlidesEditor({
                   {artwork.version}
                   {saving ? " · Saving…" : ""}
                 </p>
-                <ArtworkStatusBadge status={artwork.status} />
+                <ArtworkStatusBadge status={artworkStatus} />
               </div>
             </div>
 

@@ -18,7 +18,14 @@ import {
   type User,
 } from "firebase/auth";
 import { getFirebaseAuth, isFirebaseConfigured } from "@/lib/firebase";
-import { fetchMe, listUserTenants, switchTenant as apiSwitchTenant, type MeResponse } from "@/lib/api";
+import {
+  claimCustomerPortal as apiClaimCustomerPortal,
+  fetchMe,
+  listUserTenants,
+  switchPortal as apiSwitchPortal,
+  switchTenant as apiSwitchTenant,
+  type MeResponse,
+} from "@/lib/api";
 import { normalizeShopSettings } from "@/lib/shop-settings";
 import { resetTenantBrandingOnDocument } from "@/lib/tenant-branding";
 import {
@@ -42,12 +49,17 @@ type AuthContextValue = {
   signOut: () => Promise<void>;
   refreshProfile: (forceTokenRefresh?: boolean) => Promise<MeResponse | null>;
   switchShop: (tenantId: string) => Promise<void>;
+  switchPortalShop: (tenantId: string, customerId: string) => Promise<void>;
+  claimPortalInvite: (
+    inviteToken: string,
+    options?: { name?: string }
+  ) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function persistStaffBranding(me: MeResponse) {
-  if (me.type === "staff") {
+  if (me.type === "staff" || me.type === "portal") {
     const branding = normalizeShopSettings(me.tenant.settings).branding;
     persistTenantBrandingCache(me.tenant.id, branding);
   }
@@ -66,7 +78,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (generation !== profileFetchGeneration.current) return;
 
     setProfile((current) => {
-      if (current?.type === "staff" && me.type === "none") {
+      if (
+        (current?.type === "staff" || current?.type === "portal") &&
+        me.type === "none"
+      ) {
         return current;
       }
       return me;
@@ -75,6 +90,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     persistStaffBranding(me);
     if (me.type === "staff") {
       persistStaffDisplayName(me.user.name);
+    } else if (me.type === "portal") {
+      persistStaffDisplayName(me.customer.name);
     }
   }, []);
 
@@ -87,13 +104,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // custom claims are stale even though listUserTenants has shops.
       if (me.type === "none") {
         try {
-          let { tenants } = await listUserTenants(token);
-          if (tenants.length === 0) {
+          let { tenants, portals = [] } = await listUserTenants(token);
+          if (tenants.length === 0 && portals.length === 0) {
             await new Promise((resolve) => setTimeout(resolve, 400));
-            ({ tenants } = await listUserTenants(token));
+            ({ tenants, portals = [] } = await listUserTenants(token));
           }
           if (tenants.length > 0) {
             await apiSwitchTenant(token, tenants[0].tenantId);
+            const activeUser = user ?? getFirebaseAuth().currentUser;
+            const refreshedToken = await activeUser?.getIdToken(true);
+            if (refreshedToken) {
+              me = await fetchMe(refreshedToken);
+            }
+          } else if (portals.length > 0) {
+            await apiSwitchPortal(token, {
+              tenantId: portals[0].tenantId,
+              customerId: portals[0].customerId,
+            });
             const activeUser = user ?? getFirebaseAuth().currentUser;
             const refreshedToken = await activeUser?.getIdToken(true);
             if (refreshedToken) {
@@ -227,6 +254,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [profile, getIdToken, refreshProfile]
   );
 
+  const switchPortalShop = useCallback(
+    async (tenantId: string, customerId: string) => {
+      if (
+        profile?.type === "portal" &&
+        profile.tenant.id === tenantId &&
+        profile.customer.id === customerId
+      ) {
+        return;
+      }
+
+      setSwitchingShop(true);
+      try {
+        const token = await getIdToken();
+        if (!token) throw new Error("Not signed in");
+
+        await apiSwitchPortal(token, { tenantId, customerId });
+        clearTenantBrandingCache();
+        resetTenantBrandingOnDocument();
+        await refreshProfile(true);
+      } finally {
+        setSwitchingShop(false);
+      }
+    },
+    [profile, getIdToken, refreshProfile]
+  );
+
+  const claimPortalInvite = useCallback(
+    async (inviteToken: string, options?: { name?: string }) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      await apiClaimCustomerPortal(token, inviteToken, options);
+      clearTenantBrandingCache();
+      resetTenantBrandingOnDocument();
+      await refreshProfile(true);
+    },
+    [getIdToken, refreshProfile]
+  );
+
   const value = useMemo(
     () => ({
       user,
@@ -240,6 +305,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       refreshProfile,
       switchShop,
+      switchPortalShop,
+      claimPortalInvite,
     }),
     [
       user,
@@ -253,6 +320,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signOut,
       refreshProfile,
       switchShop,
+      switchPortalShop,
+      claimPortalInvite,
     ]
   );
 

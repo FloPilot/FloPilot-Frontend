@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2, Tag } from "lucide-react";
-import { useCustomerPortal } from "@/components/portal/customer-portal-provider";
+import { usePortalAccess } from "@/components/portal/use-portal-access";
 import {
   fetchCustomerPortalPricing,
   type CustomerPortalPricingResponse,
@@ -75,7 +75,7 @@ function RateSheetTable({ sheet }: { sheet: CustomerNegotiatedRateSheet }) {
 }
 
 export function CustomerPortalPricingView() {
-  const { token, accent } = useCustomerPortal();
+  const { mode, accent, getAccessToken } = usePortalAccess();
   const [data, setData] = useState<CustomerPortalPricingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +86,10 @@ export function CustomerPortalPricingView() {
       setLoading(true);
       setError(null);
       try {
-        const result = await fetchCustomerPortalPricing(token);
+        const accessToken = await getAccessToken();
+        const result = await fetchCustomerPortalPricing(accessToken, {
+          mode: mode === "auth" ? "auth" : "invite",
+        });
         if (!cancelled) setData(result);
       } catch (err) {
         if (!cancelled) {
@@ -101,7 +104,7 @@ export function CustomerPortalPricingView() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [getAccessToken, mode]);
 
   if (loading) {
     return (

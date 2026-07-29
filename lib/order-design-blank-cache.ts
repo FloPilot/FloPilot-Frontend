@@ -110,6 +110,8 @@ export function composedPreviewCacheKey(parts: {
   blankColorHex: string;
   artworkUrl?: string;
   transform: DesignMockupTransform;
+  /** Optional fingerprint when composing multiple artwork layers. */
+  artLayersKey?: string;
 }): string {
   const t = parts.transform;
   return [
@@ -119,7 +121,7 @@ export function composedPreviewCacheKey(parts: {
     parts.stageMode,
     parts.blankImageUrl || "",
     parts.blankColorHex,
-    parts.artworkUrl || "",
+    parts.artLayersKey || parts.artworkUrl || "",
     t.x.toFixed(3),
     t.y.toFixed(3),
     t.scale.toFixed(3),

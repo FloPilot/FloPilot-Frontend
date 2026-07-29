@@ -22,6 +22,20 @@ function portalUrlForCurrentHost(url: string): string {
   }
 }
 
+/** Staff preview uses /portal/preview/... (full UI); invite links stay on /portal/c/... */
+function toStaffPreviewUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.pathname = parsed.pathname.replace(
+      /^\/portal\/c\//,
+      "/portal/preview/"
+    );
+    return parsed.toString();
+  } catch {
+    return url.replace("/portal/c/", "/portal/preview/");
+  }
+}
+
 export function CustomerPortalActions({
   orderId,
   className,
@@ -43,10 +57,18 @@ export function CustomerPortalActions({
     const token = await getIdToken();
     if (!token) throw new Error("You need to be signed in.");
     const result = await getOrderCustomerPortalLink(token, orderId);
+    const portalOrderUrl = portalUrlForCurrentHost(result.portalOrderUrl);
+    const portalHomeUrl = portalUrlForCurrentHost(result.portalHomeUrl);
     return {
       ...result,
-      portalOrderUrl: portalUrlForCurrentHost(result.portalOrderUrl),
-      portalHomeUrl: portalUrlForCurrentHost(result.portalHomeUrl),
+      portalOrderUrl,
+      portalHomeUrl,
+      previewOrderUrl: portalUrlForCurrentHost(
+        result.previewOrderUrl || toStaffPreviewUrl(portalOrderUrl)
+      ),
+      previewHomeUrl: portalUrlForCurrentHost(
+        result.previewHomeUrl || toStaffPreviewUrl(portalHomeUrl)
+      ),
     };
   }, [getIdToken, orderId]);
 
@@ -55,8 +77,12 @@ export function CustomerPortalActions({
     setError(null);
     setCopied(false);
     try {
-      const { portalOrderUrl } = await fetchPortalLink();
-      const opened = window.open(portalOrderUrl, "_blank", "noopener,noreferrer");
+      const { previewOrderUrl } = await fetchPortalLink();
+      const opened = window.open(
+        previewOrderUrl,
+        "_blank",
+        "noopener,noreferrer"
+      );
       if (!opened) {
         throw new Error(
           "Your browser blocked the new tab. Allow pop-ups for this site and try again."
@@ -75,6 +101,7 @@ export function CustomerPortalActions({
     setLoadingCopy(true);
     setError(null);
     try {
+      // Copy the customer invite link (account claim flow), not the staff preview.
       const { portalOrderUrl } = await fetchPortalLink();
       await navigator.clipboard.writeText(portalOrderUrl);
       setCopied(true);

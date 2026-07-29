@@ -1,5 +1,10 @@
-import { CustomerPortalPricingView } from "@/components/portal/customer-portal-pricing-view";
+import { redirect } from "next/navigation";
 
-export default function CustomerPortalPricingPage() {
-  return <CustomerPortalPricingView />;
+export default async function CustomerPortalTokenSectionRedirect({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}) {
+  const { token } = await params;
+  redirect(`/portal/c/${encodeURIComponent(token)}`);
 }

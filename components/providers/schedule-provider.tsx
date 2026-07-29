@@ -31,6 +31,7 @@ import type {
   TaskStatus,
 } from "@/types";
 import { type NewCustomerInput } from "@/lib/customers";
+import { loadOrderRequestsListCached } from "@/lib/order-requests-cache";
 import {
   addJobRunNote as apiAddJobRunNote,
   addOrderFile as apiAddOrderFile,
@@ -54,6 +55,7 @@ import {
   listJobRuns as apiListJobRuns,
   listMachines as apiListMachines,
   listOrders as apiListOrders,
+  listOrderRequests as apiListOrderRequests,
   getOrder as apiGetOrder,
   listScheduleBlocks as apiListScheduleBlocks,
   removeOrderLineItem as apiRemoveOrderLineItem,
@@ -499,6 +501,18 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     setShopDataError(null);
 
     try {
+      // Start order-requests prefetch immediately, but do not block shop data
+      // on it — the inbox cache just needs a head start.
+      void loadOrderRequestsListCached(async () => {
+        const data = await apiListOrderRequests(token);
+        return {
+          requests: data.requests,
+          counts: data.counts || {},
+        };
+      }).catch((prefetchErr) => {
+        console.warn("Order requests prefetch failed:", prefetchErr);
+      });
+
       const [
         customersRes,
         ordersRes,

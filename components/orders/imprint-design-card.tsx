@@ -55,7 +55,9 @@ import {
 } from "@/lib/shop-settings";
 import { useDebouncedCallback } from "@/lib/use-debounced-callback";
 import type {
+  ArtworkFile,
   DecorationType,
+  ImprintInkColor,
   ImprintProductionNotes,
   Job,
   JobImprint,
@@ -67,6 +69,43 @@ const fieldClassName = cn(
   dashboardControlClass,
   "h-9 w-full justify-start px-3 text-[13px] shadow-none"
 );
+
+export type ImprintDesignCardAdapters = {
+  updateNotes?: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    notes: ImprintProductionNotes
+  ) => Promise<unknown>;
+  updateCustomLabel?: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    customLabel: string
+  ) => Promise<unknown>;
+  updateInkColors?: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    inkColors: ImprintInkColor[]
+  ) => Promise<unknown>;
+  addProofSlide?: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    payload: { fileName: string; previewUrl?: string; label?: string }
+  ) => Promise<unknown>;
+  updateProofSlides?: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    payload: {
+      orderedIds?: string[];
+      slides?: { id: string; label?: string }[];
+      removeIds?: string[];
+    }
+  ) => Promise<unknown>;
+};
 
 function PrintSizeFields({
   dimensions,
@@ -257,6 +296,10 @@ export function ImprintDesignCard({
   readOnly = false,
   highlighted = false,
   compact = false,
+  forceArtworkStatus,
+  hideApprovalActions = false,
+  hideLinkFromFiles = false,
+  adapters,
 }: {
   order: Order;
   job: Job;
@@ -264,6 +307,10 @@ export function ImprintDesignCard({
   readOnly?: boolean;
   highlighted?: boolean;
   compact?: boolean;
+  forceArtworkStatus?: ArtworkFile["status"];
+  hideApprovalActions?: boolean;
+  hideLinkFromFiles?: boolean;
+  adapters?: ImprintDesignCardAdapters;
 }) {
   const {
     updateImprintNotes,
@@ -273,6 +320,13 @@ export function ImprintDesignCard({
     setArtworkStatus,
   } = useSchedule();
   const { settings, isAdmin, updateSettings } = useShopSettings();
+
+  const persistNotesFn = adapters?.updateNotes ?? updateImprintNotes;
+  const persistCustomLabelFn =
+    adapters?.updateCustomLabel ?? updateImprintCustomLabel;
+  const persistInkColorsFn =
+    adapters?.updateInkColors ?? updateImprintInkColors;
+  const artworkStatus = forceArtworkStatus ?? imprint.artwork.status;
 
   const [addingCustomInkType, setAddingCustomInkType] = useState(false);
   const [addingCustomDtfImprintArea, setAddingCustomDtfImprintArea] =
@@ -305,7 +359,7 @@ export function ImprintDesignCard({
     setSavingCustomName(true);
     setCustomNameSaved(false);
     try {
-      await updateImprintCustomLabel(order.id, job.id, imprint.id, trimmed);
+      await persistCustomLabelFn(order.id, job.id, imprint.id, trimmed);
       setCustomNameSaved(true);
       if (customNameSavedTimeout.current) {
         clearTimeout(customNameSavedTimeout.current);
@@ -323,6 +377,7 @@ export function ImprintDesignCard({
     savingCustomName,
     readOnly,
     updateImprintCustomLabel,
+    persistCustomLabelFn,
     order.id,
     job.id,
   ]);
@@ -352,9 +407,9 @@ export function ImprintDesignCard({
 
   const persistNotes = useCallback(
     (next: ImprintProductionNotes) => {
-      void updateImprintNotes(order.id, job.id, imprint.id, next);
+      void persistNotesFn(order.id, job.id, imprint.id, next);
     },
-    [updateImprintNotes, order.id, job.id, imprint.id]
+    [persistNotesFn, order.id, job.id, imprint.id]
   );
 
   const { debounced: debouncedPersistNotes, flush: flushPersistNotes } =
@@ -626,6 +681,15 @@ export function ImprintDesignCard({
               readOnly={readOnly}
               compact={compact}
               pinned={highlighted}
+              forceArtworkStatus={forceArtworkStatus}
+              adapters={
+                adapters?.addProofSlide || adapters?.updateProofSlides
+                  ? {
+                      addProofSlide: adapters.addProofSlide,
+                      updateProofSlides: adapters.updateProofSlides,
+                    }
+                  : undefined
+              }
             />
           ) : (
             <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-8 text-center text-sm text-[#8a8a8a]">
@@ -633,12 +697,12 @@ export function ImprintDesignCard({
             </div>
           )}
 
-          {!isFinishing && !readOnly ? (
+          {!isFinishing && !readOnly && !hideApprovalActions ? (
             <div
               className={cn(
                 dashboardInsetSurfaceClass,
                 "space-y-3 px-3 py-3",
-                imprint.artwork.status === "approved" &&
+                artworkStatus === "approved" &&
                   "border-[#86d4a8]/40 bg-[#fafffe]"
               )}
             >
@@ -646,7 +710,7 @@ export function ImprintDesignCard({
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
                   Proof approval
                 </p>
-                <ArtworkStatusBadge status={imprint.artwork.status} />
+                <ArtworkStatusBadge status={artworkStatus} />
               </div>
               <p className={dashboardTaskDetailClass}>
                 Mark approved when the customer signs off on this location.
@@ -655,7 +719,7 @@ export function ImprintDesignCard({
                 <ProofActionButton
                   variant="success"
                   className="h-8 flex-1 text-[12px]"
-                  disabled={imprint.artwork.status === "approved"}
+                  disabled={artworkStatus === "approved"}
                   successLabel="Approved"
                   onClick={() =>
                     setArtworkStatus(
@@ -668,7 +732,7 @@ export function ImprintDesignCard({
                 >
                   <span className="inline-flex items-center gap-1.5">
                     <CheckCircle2 className="size-3.5" />
-                    {imprint.artwork.status === "approved"
+                    {artworkStatus === "approved"
                       ? "Approved"
                       : "Mark approved"}
                   </span>
@@ -676,7 +740,7 @@ export function ImprintDesignCard({
                 <ProofActionButton
                   variant="muted"
                   className="h-8 flex-1 text-[12px]"
-                  disabled={imprint.artwork.status === "revision_requested"}
+                  disabled={artworkStatus === "revision_requested"}
                   successLabel="Saved"
                   onClick={() =>
                     setArtworkStatus(
@@ -704,7 +768,7 @@ export function ImprintDesignCard({
             </p>
           ) : null}
 
-          {!isFinishing && (
+          {!isFinishing && !hideLinkFromFiles ? (
             <div className="space-y-1.5">
               <Label className="text-[11px] font-medium text-[#8a8a8a]">
                 Link from order files
@@ -724,7 +788,7 @@ export function ImprintDesignCard({
                 }
               />
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className="min-w-0 space-y-5">
@@ -901,7 +965,7 @@ export function ImprintDesignCard({
                 decoration={imprint.decoration}
                 inputClassName={fieldClassName}
                 onPersist={(next) =>
-                  updateImprintInkColors(order.id, job.id, imprint.id, next)
+                  persistInkColorsFn(order.id, job.id, imprint.id, next)
                 }
               />
             </div>

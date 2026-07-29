@@ -1473,6 +1473,8 @@ export function getPrintLocationOptions(
 ): PrintLocationOption[] {
   const configured =
     normalizeProductionDefaults(productionDefaults).printLocations ?? [];
+  // Settings can persist an explicit empty list; order UIs still fall back to
+  // FloPilot starters when the shop has never customized locations.
   if (configured.length > 0) return configured;
   return DEFAULT_PRINT_LOCATIONS;
 }

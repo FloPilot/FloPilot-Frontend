@@ -79,11 +79,46 @@ export type ClientStorePage = {
   sections: ClientStoreSection[];
 };
 
+/** Shopify-style header menu link. */
+export type StoreNavItemType =
+  | "home"
+  | "page"
+  | "collection"
+  | "products"
+  | "url"
+  | "group";
+
+export type ClientStoreNavItem = {
+  id: string;
+  label: string;
+  type: StoreNavItemType;
+  /** page.id or collection.id when type is page/collection */
+  targetId?: string;
+  /** External or absolute path when type is url */
+  href?: string;
+  openInNewTab?: boolean;
+  enabled?: boolean;
+  /** Nested submenu links (one level deep). */
+  children?: ClientStoreNavItem[];
+};
+
+export type ClientStoreNavigation = {
+  /** store = use store.logoUrl / initials; custom = customLogoUrl; none = text only */
+  logoMode?: "store" | "custom" | "none";
+  customLogoUrl?: string;
+  showStoreName?: boolean;
+  /** Reserved for future storefront search */
+  showSearch?: boolean;
+  items: ClientStoreNavItem[];
+};
+
 export type ClientStoreTheme = {
   pages: ClientStorePage[];
   collections: ClientStoreCollection[];
   /** Synced from the Home page for public storefront compatibility. */
   sections: ClientStoreSection[];
+  /** Customizable storefront header menu. */
+  navigation?: ClientStoreNavigation;
 };
 
 export type StoreWidgetDefinition = {
@@ -199,9 +234,212 @@ export function isSystemPageHandle(handle: string): boolean {
   return SYSTEM_PAGE_HANDLES.has(handle);
 }
 
-/** Pages shown in the public storefront header. */
+/** Pages shown in the public storefront header (legacy fallback). */
 export function isStorefrontNavPage(page: ClientStorePage): boolean {
   return page.enabled && page.handle !== "product";
+}
+
+export function newStoreNavItemId(): string {
+  return `snav-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** Seed header links from enabled pages when no custom navigation exists yet. */
+export function defaultNavigationFromPages(
+  pages: ClientStorePage[]
+): ClientStoreNavigation {
+  const items: ClientStoreNavItem[] = pages
+    .filter(isStorefrontNavPage)
+    .slice()
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((page) =>
+      page.handle === "home"
+        ? {
+            id: `snav-${page.id}`,
+            label: page.title || "Home",
+            type: "home" as const,
+            enabled: true,
+          }
+        : {
+            id: `snav-${page.id}`,
+            label: page.title,
+            type: "page" as const,
+            targetId: page.id,
+            enabled: true,
+          }
+    );
+
+  if (items.length === 0) {
+    items.push({
+      id: "snav-home",
+      label: "Home",
+      type: "home",
+      enabled: true,
+    });
+  }
+
+  return {
+    logoMode: "store",
+    showStoreName: true,
+    showSearch: false,
+    items,
+  };
+}
+
+const STORE_NAV_ITEM_TYPES = [
+  "home",
+  "page",
+  "collection",
+  "products",
+  "url",
+  "group",
+] as const;
+
+function normalizeNavItemFields(
+  item: Partial<ClientStoreNavItem> | null | undefined,
+  index: number,
+  allowChildren: boolean
+): ClientStoreNavItem | null {
+  if (!item || typeof item !== "object" || !item.label) return null;
+  const type = STORE_NAV_ITEM_TYPES.includes(item.type as StoreNavItemType)
+    ? (item.type as StoreNavItemType)
+    : ("page" as const);
+
+  const children =
+    allowChildren && Array.isArray(item.children)
+      ? item.children
+          .map((child, childIndex) =>
+            normalizeNavItemFields(child, childIndex, false)
+          )
+          .filter((child): child is ClientStoreNavItem => Boolean(child))
+          .slice(0, 16)
+      : undefined;
+
+  return {
+    id: item.id || `snav-${index}-${Date.now()}`,
+    label: String(item.label).trim().slice(0, 60) || "Link",
+    type,
+    targetId: item.targetId,
+    href: item.href,
+    openInNewTab: item.openInNewTab === true,
+    enabled: item.enabled !== false,
+    ...(children && children.length ? { children } : {}),
+  };
+}
+
+export function ensureStoreNavigation(
+  navigation: ClientStoreNavigation | null | undefined,
+  pages: ClientStorePage[]
+): ClientStoreNavigation {
+  if (!navigation || !Array.isArray(navigation.items) || navigation.items.length === 0) {
+    return defaultNavigationFromPages(pages);
+  }
+
+  const items = navigation.items
+    .map((item, index) => normalizeNavItemFields(item, index, true))
+    .filter((item): item is ClientStoreNavItem => Boolean(item));
+
+  return {
+    logoMode:
+      navigation.logoMode === "custom" || navigation.logoMode === "none"
+        ? navigation.logoMode
+        : "store",
+    customLogoUrl: navigation.customLogoUrl,
+    showStoreName: navigation.showStoreName !== false,
+    showSearch: navigation.showSearch === true,
+    items: items.length ? items : defaultNavigationFromPages(pages).items,
+  };
+}
+
+export function getEnabledNavItems(
+  navigation: ClientStoreNavigation | null | undefined
+): ClientStoreNavItem[] {
+  return (navigation?.items || []).filter((item) => item.enabled !== false);
+}
+
+export function getEnabledNavChildren(
+  item: ClientStoreNavItem | null | undefined
+): ClientStoreNavItem[] {
+  return (item?.children || []).filter((child) => child.enabled !== false);
+}
+
+export function navItemHasSubmenu(item: ClientStoreNavItem): boolean {
+  return getEnabledNavChildren(item).length > 0;
+}
+
+export type StoreNavAction =
+  | { kind: "home" }
+  | { kind: "page"; handle: string }
+  | { kind: "collection"; collectionId: string }
+  | { kind: "products" }
+  | { kind: "url"; href: string; openInNewTab?: boolean }
+  | { kind: "noop" };
+
+/** Resolve a menu item into a storefront navigation action. */
+export function resolveNavItemAction(
+  item: ClientStoreNavItem,
+  theme: ClientStoreTheme
+): StoreNavAction {
+  switch (item.type) {
+    case "group":
+      return { kind: "noop" };
+    case "home":
+      return { kind: "home" };
+    case "products":
+      return { kind: "products" };
+    case "page": {
+      const page = theme.pages.find(
+        (row) => row.id === item.targetId && row.enabled !== false
+      );
+      if (!page || page.handle === "product") return { kind: "noop" };
+      return { kind: "page", handle: page.handle };
+    }
+    case "collection": {
+      const collection = theme.collections.find(
+        (row) => row.id === item.targetId && row.enabled !== false
+      );
+      if (!collection) return { kind: "noop" };
+      return { kind: "collection", collectionId: collection.id };
+    }
+    case "url": {
+      const href = (item.href || "").trim();
+      if (!href) return { kind: "noop" };
+      return {
+        kind: "url",
+        href,
+        openInNewTab: item.openInNewTab === true,
+      };
+    }
+    default:
+      return { kind: "noop" };
+  }
+}
+
+export function isNavItemActive(
+  item: ClientStoreNavItem,
+  theme: ClientStoreTheme,
+  activePageHandle: string,
+  activeCollectionId: string | null
+): boolean {
+  if (
+    getEnabledNavChildren(item).some((child) =>
+      isNavItemActive(child, theme, activePageHandle, activeCollectionId)
+    )
+  ) {
+    return true;
+  }
+
+  const action = resolveNavItemAction(item, theme);
+  if (action.kind === "collection") {
+    return activeCollectionId === action.collectionId;
+  }
+  if (activeCollectionId) return false;
+  if (action.kind === "home" || action.kind === "products") {
+    return activePageHandle === "home";
+  }
+  if (action.kind === "page") {
+    return activePageHandle === action.handle;
+  }
+  return false;
 }
 
 export function newStoreSectionId(): string {
@@ -439,6 +677,7 @@ function sortPages(pages: ClientStorePage[]): ClientStorePage[] {
 function syncThemeSections(theme: {
   pages: ClientStorePage[];
   collections: ClientStoreCollection[];
+  navigation?: ClientStoreNavigation | null;
 }, legacy?: {
   headline?: string;
   description?: string;
@@ -454,6 +693,7 @@ function syncThemeSections(theme: {
       .slice()
       .sort((a, b) => a.sortOrder - b.sortOrder),
     sections: home?.sections || [],
+    navigation: ensureStoreNavigation(theme.navigation, pages),
   };
 }
 
@@ -487,6 +727,7 @@ export function ensureStoreTheme(
       {
         pages: theme.pages,
         collections: theme.collections || [],
+        navigation: theme.navigation,
       },
       legacy
     );
@@ -507,6 +748,7 @@ export function ensureStoreTheme(
       {
         pages: [home, createProductPage(), createAboutPage()],
         collections: theme.collections || [],
+        navigation: theme.navigation,
       },
       legacy
     );
@@ -538,7 +780,11 @@ export function updateThemePage(
     if (page.id !== pageId) return page;
     return typeof patch === "function" ? patch(page) : { ...page, ...patch };
   });
-  return syncThemeSections({ pages, collections: theme.collections });
+  return syncThemeSections({
+    pages,
+    collections: theme.collections,
+    navigation: theme.navigation,
+  });
 }
 
 export function updatePageSections(
@@ -585,9 +831,22 @@ export function createStorePage(
     theme: syncThemeSections({
       pages: [...theme.pages, page],
       collections: theme.collections,
+      navigation: theme.navigation,
     }),
     page,
   };
+}
+
+/** Update the storefront header menu without touching pages/collections. */
+export function updateThemeNavigation(
+  theme: ClientStoreTheme,
+  navigation: ClientStoreNavigation
+): ClientStoreTheme {
+  return syncThemeSections({
+    pages: theme.pages,
+    collections: theme.collections,
+    navigation,
+  });
 }
 
 export function sectionTypeLabel(type: StoreSectionType): string {

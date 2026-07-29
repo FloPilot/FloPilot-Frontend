@@ -224,6 +224,49 @@ export async function readImagePreviewDataUrl(
 /** Store product mockups — smaller target so data URLs fit Firestore/API limits. */
 const MAX_STORE_MOCKUP_BYTES = 320 * 1024;
 
+function loadImageFromUrl(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not load image"));
+    img.src = src;
+  });
+}
+
+/**
+ * Ensures a composed mockup data URL fits the store payload budget. Composed
+ * canvases are already JPEG/720px, but this re-encodes defensively when a
+ * detailed backdrop pushes the base64 past the limit.
+ */
+export async function compressStoreMockupDataUrl(
+  dataUrl: string
+): Promise<string> {
+  if (!dataUrl.startsWith("data:")) return dataUrl;
+  if (dataUrlByteSize(dataUrl) <= MAX_STORE_MOCKUP_BYTES) return dataUrl;
+
+  const img = await loadImageFromUrl(dataUrl);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+
+  let maxDim = Math.max(img.naturalWidth || 720, img.naturalHeight || 720);
+  while (maxDim >= 360) {
+    const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    canvas.width = w;
+    canvas.height = h;
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    for (let quality = 0.86; quality >= 0.42; quality -= 0.08) {
+      const next = canvas.toDataURL("image/jpeg", quality);
+      if (dataUrlByteSize(next) <= MAX_STORE_MOCKUP_BYTES) return next;
+    }
+    maxDim = Math.floor(maxDim * 0.72);
+  }
+  return canvas.toDataURL("image/jpeg", 0.42);
+}
+
 export async function readStoreMockupDataUrl(
   file: File
 ): Promise<ImagePreviewResult> {

@@ -20,7 +20,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { listUserTenants, type UserTenantSummary } from "@/lib/api";
+import {
+  listUserTenants,
+  type UserPortalSummary,
+  type UserTenantSummary,
+} from "@/lib/api";
 import {
   persistStaffDisplayName,
   pickStaffDisplayName,
@@ -31,6 +35,10 @@ import {
   getDisplayShopName,
 } from "@/lib/tenant-branding";
 import { cn } from "@/lib/utils";
+
+type WorkspaceRow =
+  | (UserTenantSummary & { kind: "staff" })
+  | UserPortalSummary;
 
 function ShopAvatar({
   name,
@@ -90,17 +98,19 @@ function UserAvatar({ name, className }: { name: string; className?: string }) {
   );
 }
 
-function ShopSwitcherRow({
+function WorkspaceSwitcherRow({
   shop,
   active,
   switching,
   onSelect,
 }: {
-  shop: UserTenantSummary;
+  shop: WorkspaceRow;
   active: boolean;
   switching: boolean;
   onSelect: () => void;
 }) {
+  const isPortal = shop.kind === "portal";
+
   return (
     <button
       type="button"
@@ -118,8 +128,15 @@ function ShopSwitcherRow({
         brandColor={shop.primaryColor}
         size="sm"
       />
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#303030]">
-        {shop.name}
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium text-[#303030]">
+          {shop.name}
+        </span>
+        {isPortal ? (
+          <span className="mt-0.5 inline-flex rounded-md bg-[#ebf4ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#2c6ecb]">
+            Customer Portal
+          </span>
+        ) : null}
       </span>
       {active ? (
         <Check className="size-4 shrink-0 text-[#303030]" strokeWidth={2} />
@@ -132,61 +149,152 @@ function ShopSwitcherRow({
 
 export function ShopTopBarIdentity({ className }: { className?: string }) {
   const router = useRouter();
-  const { user, profile, signOut, getIdToken, switchShop, switchingShop } =
-    useAuth();
+  const {
+    user,
+    profile,
+    signOut,
+    getIdToken,
+    switchShop,
+    switchPortalShop,
+    switchingShop,
+  } = useAuth();
   const { settings } = useShopSettings();
 
   const [open, setOpen] = useState(false);
   const [tenants, setTenants] = useState<UserTenantSummary[]>([]);
+  const [portals, setPortals] = useState<UserPortalSummary[]>([]);
   const [tenantsLoading, setTenantsLoading] = useState(false);
-  const [pendingTenantId, setPendingTenantId] = useState<string | null>(null);
+  const [pendingKey, setPendingKey] = useState<string | null>(null);
 
+  const isStaff = profile?.type === "staff";
+  const isPortal = profile?.type === "portal";
   const tenantName =
-    profile?.type === "staff" ? profile.tenant.name : undefined;
+    isStaff || isPortal ? profile.tenant.name : undefined;
   const activeTenantId =
-    profile?.type === "staff" ? profile.tenant.id : null;
+    isStaff || isPortal ? profile.tenant.id : null;
+  const activeCustomerId = isPortal ? profile.customer.id : null;
   const displayName = getDisplayShopName(settings.shopName, tenantName);
   const { logoUrl, primaryColor } = settings.branding;
-  const userName = profile?.type === "staff" ? profile.user.name : null;
-  const userEmail =
-    profile?.type === "staff" ? profile.user.email : user?.email || null;
+  const userName = isStaff
+    ? profile.user.name
+    : isPortal
+      ? profile.customer.name
+      : null;
+  const userEmail = isStaff
+    ? profile.user.email
+    : isPortal
+      ? (typeof profile.customer.email === "string"
+          ? profile.customer.email
+          : user?.email || null)
+      : user?.email || null;
 
   useEffect(() => {
     const cached = pickStaffDisplayName(
       userName,
-      ...tenants.map((shop) => shop.memberName)
+      ...tenants.map((shop) => shop.memberName),
+      ...portals.map((shop) => shop.memberName)
     );
     if (cached) persistStaffDisplayName(cached);
-  }, [userName, tenants]);
+  }, [userName, tenants, portals]);
 
-  const currentShop = useMemo((): UserTenantSummary | null => {
-    if (profile?.type !== "staff" || !activeTenantId || !tenantName) {
-      return null;
-    }
+  const currentStaffShop = useMemo((): (UserTenantSummary & {
+    kind: "staff";
+  }) | null => {
+    if (!isStaff || !activeTenantId || !tenantName) return null;
     return {
+      kind: "staff",
       tenantId: activeTenantId,
       userId: profile.user.id,
       name: displayName,
       memberName: profile.user.name,
       slug: profile.tenant.slug,
-      logoUrl,
+      logoUrl: logoUrl || "",
       primaryColor,
       role: profile.user.role,
     };
-  }, [profile, activeTenantId, tenantName, displayName, logoUrl, primaryColor]);
+  }, [isStaff, profile, activeTenantId, tenantName, displayName, logoUrl, primaryColor]);
+
+  const currentPortalShop = useMemo((): UserPortalSummary | null => {
+    if (!isPortal || !activeTenantId || !activeCustomerId || !tenantName) {
+      return null;
+    }
+    return {
+      kind: "portal",
+      tenantId: activeTenantId,
+      customerId: activeCustomerId,
+      name: displayName,
+      company:
+        typeof profile.customer.company === "string"
+          ? profile.customer.company
+          : "",
+      memberName: profile.customer.name,
+      slug: profile.tenant.slug,
+      logoUrl: logoUrl || "",
+      primaryColor,
+    };
+  }, [
+    isPortal,
+    profile,
+    activeTenantId,
+    activeCustomerId,
+    tenantName,
+    displayName,
+    logoUrl,
+    primaryColor,
+  ]);
 
   const displayShops = useMemo(() => {
-    const byId = new Map<string, UserTenantSummary>();
-    if (currentShop) byId.set(currentShop.tenantId, currentShop);
-    for (const shop of tenants) {
-      byId.set(shop.tenantId, shop);
+    const staffById = new Map<string, WorkspaceRow>();
+    const portalByKey = new Map<string, WorkspaceRow>();
+
+    if (currentStaffShop) staffById.set(currentStaffShop.tenantId, currentStaffShop);
+    if (currentPortalShop) {
+      portalByKey.set(
+        `${currentPortalShop.tenantId}:${currentPortalShop.customerId}`,
+        currentPortalShop
+      );
     }
-    return Array.from(byId.values()).sort((a, b) => {
-      if (a.tenantId === activeTenantId) return -1;
-      if (b.tenantId === activeTenantId) return 1;
+
+    for (const shop of tenants) {
+      staffById.set(shop.tenantId, { ...shop, kind: "staff" });
+    }
+    for (const shop of portals) {
+      portalByKey.set(`${shop.tenantId}:${shop.customerId}`, shop);
+    }
+
+    const rows = [
+      ...Array.from(staffById.values()),
+      ...Array.from(portalByKey.values()),
+    ];
+
+    return rows.sort((a, b) => {
+      const aActive =
+        a.kind === "staff"
+          ? isStaff && a.tenantId === activeTenantId
+          : isPortal &&
+            a.tenantId === activeTenantId &&
+            a.customerId === activeCustomerId;
+      const bActive =
+        b.kind === "staff"
+          ? isStaff && b.tenantId === activeTenantId
+          : isPortal &&
+            b.tenantId === activeTenantId &&
+            b.customerId === activeCustomerId;
+      if (aActive) return -1;
+      if (bActive) return 1;
+      if (a.kind !== b.kind) return a.kind === "staff" ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
-  }, [currentShop, tenants, activeTenantId]);
+  }, [
+    currentStaffShop,
+    currentPortalShop,
+    tenants,
+    portals,
+    isStaff,
+    isPortal,
+    activeTenantId,
+    activeCustomerId,
+  ]);
 
   const loadTenants = useCallback(async () => {
     setTenantsLoading(true);
@@ -195,33 +303,51 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
       if (!token) return;
       const res = await listUserTenants(token);
       setTenants(res.tenants);
+      setPortals(res.portals || []);
     } catch {
-      if (currentShop) {
-        setTenants([currentShop]);
-      }
+      if (currentStaffShop) setTenants([currentStaffShop]);
+      if (currentPortalShop) setPortals([currentPortalShop]);
     } finally {
       setTenantsLoading(false);
     }
-  }, [getIdToken, currentShop]);
+  }, [getIdToken, currentStaffShop, currentPortalShop]);
 
   useEffect(() => {
-    if (open) {
-      void loadTenants();
-    }
+    if (open) void loadTenants();
   }, [open, loadTenants]);
 
-  async function handleSwitchShop(tenantId: string) {
-    if (tenantId === activeTenantId || switchingShop) return;
+  async function handleSelect(shop: WorkspaceRow) {
+    if (shop.kind === "staff") {
+      if (isStaff && shop.tenantId === activeTenantId) return;
+      setPendingKey(`staff:${shop.tenantId}`);
+      try {
+        await switchShop(shop.tenantId);
+        setOpen(false);
+        router.push("/app/dashboard");
+      } finally {
+        setPendingKey(null);
+      }
+      return;
+    }
 
-    setPendingTenantId(tenantId);
+    if (
+      isPortal &&
+      shop.tenantId === activeTenantId &&
+      shop.customerId === activeCustomerId
+    ) {
+      return;
+    }
+    setPendingKey(`portal:${shop.tenantId}:${shop.customerId}`);
     try {
-      await switchShop(tenantId);
+      await switchPortalShop(shop.tenantId, shop.customerId);
       setOpen(false);
-      router.push("/app/dashboard");
+      router.push("/portal/app");
     } finally {
-      setPendingTenantId(null);
+      setPendingKey(null);
     }
   }
+
+  const triggerLabel = displayName || "Workspace";
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -235,13 +361,13 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
         )}
       >
         <ShopAvatar
-          name={displayName}
+          name={triggerLabel}
           logoUrl={logoUrl}
           brandColor={primaryColor}
           size="trigger"
         />
         <span className="hidden min-w-0 truncate text-[13px] font-medium text-[#e3e3e3] sm:block">
-          {displayName}
+          {triggerLabel}
         </span>
       </DropdownMenuTrigger>
 
@@ -249,20 +375,30 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
         align="end"
         className="w-[min(calc(100vw-1.5rem),320px)] rounded-xl border border-[#e3e3e3] p-1.5 shadow-[0_4px_20px_rgba(0,0,0,0.12)]"
       >
-        {currentShop && (
+        {(currentStaffShop || currentPortalShop || displayShops.length > 0) && (
           <DropdownMenuGroup>
             <div className="px-1 py-0.5">
-              {displayShops.map((shop) => (
-                <ShopSwitcherRow
-                  key={shop.tenantId}
-                  shop={shop}
-                  active={shop.tenantId === activeTenantId}
-                  switching={
-                    switchingShop && pendingTenantId === shop.tenantId
-                  }
-                  onSelect={() => void handleSwitchShop(shop.tenantId)}
-                />
-              ))}
+              {displayShops.map((shop) => {
+                const key =
+                  shop.kind === "staff"
+                    ? `staff:${shop.tenantId}`
+                    : `portal:${shop.tenantId}:${shop.customerId}`;
+                const active =
+                  shop.kind === "staff"
+                    ? isStaff && shop.tenantId === activeTenantId
+                    : isPortal &&
+                      shop.tenantId === activeTenantId &&
+                      shop.customerId === activeCustomerId;
+                return (
+                  <WorkspaceSwitcherRow
+                    key={key}
+                    shop={shop}
+                    active={active}
+                    switching={switchingShop && pendingKey === key}
+                    onSelect={() => void handleSelect(shop)}
+                  />
+                );
+              })}
 
               {tenantsLoading && displayShops.length <= 1 ? (
                 <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-[#616161]">
@@ -271,19 +407,21 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
                 </div>
               ) : null}
 
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  router.push("/register-shop");
-                }}
-                className="mt-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[13px] font-medium text-[#303030] transition-colors hover:bg-[#f6f6f7]"
-              >
-                <span className="flex size-7 items-center justify-center rounded-full border border-[#c9cccf] text-[#616161]">
-                  <PlusCircle className="size-3.5" strokeWidth={1.75} />
-                </span>
-                Create shop
-              </button>
+              {isStaff || !isPortal ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    router.push("/register-shop");
+                  }}
+                  className="mt-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[13px] font-medium text-[#303030] transition-colors hover:bg-[#f6f6f7]"
+                >
+                  <span className="flex size-7 items-center justify-center rounded-full border border-[#c9cccf] text-[#616161]">
+                    <PlusCircle className="size-3.5" strokeWidth={1.75} />
+                  </span>
+                  Create shop
+                </button>
+              ) : null}
             </div>
             <DropdownMenuSeparator className="my-1.5 bg-[#e3e3e3]" />
           </DropdownMenuGroup>
@@ -308,20 +446,38 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
                     {userEmail}
                   </p>
                 ) : null}
+                {isPortal ? (
+                  <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#2c6ecb]">
+                    Customer Portal
+                  </p>
+                ) : null}
               </div>
             </div>
           )}
 
-          <DropdownMenuItem
-            className="rounded-lg px-2 py-2 text-[13px] text-[#303030]"
-            onClick={() => {
-              setOpen(false);
-              router.push("/app/settings");
-            }}
-          >
-            <Settings className="size-4 text-[#616161]" />
-            Shop settings
-          </DropdownMenuItem>
+          {isStaff ? (
+            <DropdownMenuItem
+              className="rounded-lg px-2 py-2 text-[13px] text-[#303030]"
+              onClick={() => {
+                setOpen(false);
+                router.push("/app/settings");
+              }}
+            >
+              <Settings className="size-4 text-[#616161]" />
+              Shop settings
+            </DropdownMenuItem>
+          ) : isPortal ? (
+            <DropdownMenuItem
+              className="rounded-lg px-2 py-2 text-[13px] text-[#303030]"
+              onClick={() => {
+                setOpen(false);
+                router.push("/portal/app/business");
+              }}
+            >
+              <Settings className="size-4 text-[#616161]" />
+              Business profile
+            </DropdownMenuItem>
+          ) : null}
 
           <DropdownMenuSeparator className="my-1.5 bg-[#e3e3e3]" />
 
@@ -330,7 +486,7 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
             onClick={async () => {
               setOpen(false);
               await signOut();
-              router.push("/login");
+              router.push(isPortal ? "/portal" : "/login");
             }}
           >
             <LogOut className="size-4 text-[#616161]" />

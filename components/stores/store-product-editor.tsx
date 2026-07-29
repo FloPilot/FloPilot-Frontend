@@ -3,24 +3,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
+  ArrowLeft,
+  Check,
   ChevronDown,
   ImagePlus,
+  Layers,
   Loader2,
   Search,
   Trash2,
   Truck,
   Upload,
+  Wand2,
   X,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -32,14 +29,22 @@ import {
 } from "@/lib/api";
 import {
   CLIENT_STORE_DEFAULT_SIZES,
+  computeClientStoreEconomics,
   computeClientStoreSellPrice,
+  getEnabledColorVariants,
+  getMockupsForColor,
   getPrimaryMockupUrl,
   syncProductDerivedFields,
   type ClientStoreColorVariant,
   type ClientStoreProduct,
+  type ClientStoreProductDesign,
   type ClientStoreSellPriceMode,
   type ClientStoreSizeOption,
 } from "@/lib/client-stores";
+import {
+  resolveCollectionProducts,
+  type ClientStoreCollection,
+} from "@/lib/client-store-theme";
 import { formatCurrency } from "@/lib/format";
 import {
   isSanMarIntegrationUsable,
@@ -60,6 +65,7 @@ import {
   StoreCatalogConfigureStep,
   StoreCatalogMockupsStep,
 } from "@/components/stores/store-catalog-flow";
+import { StoreProductDesignStudio } from "@/components/stores/store-product-design-studio";
 
 const fieldClassName =
   "h-10 rounded-lg border-[#e3e3e3] bg-white text-[13px] text-[#303030] shadow-none focus-visible:border-brand-primary/40 focus-visible:ring-2 focus-visible:ring-brand-primary/15";
@@ -158,16 +164,18 @@ function BrandChip({
   );
 }
 
-export function StoreProductDialog({
-  open,
-  onOpenChange,
+export function StoreProductEditor({
   product,
+  collections = [],
+  onOpenCollections,
+  onBack,
   onSave,
   onDelete,
 }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
   product: ClientStoreProduct | null;
+  collections?: ClientStoreCollection[];
+  onOpenCollections?: () => void;
+  onBack: () => void;
   onSave: (product: ClientStoreProduct) => Promise<void>;
   onDelete?: () => Promise<void>;
 }) {
@@ -177,8 +185,9 @@ export function StoreProductDialog({
 
   const [draft, setDraft] = useState<ClientStoreProduct>(emptyProduct());
   const [tagDraft, setTagDraft] = useState("");
+  const tagsRef = useRef<string[]>([]);
   const [mode, setMode] = useState<
-    "edit" | "search" | "configure" | "mockups"
+    "edit" | "search" | "configure" | "mockups" | "design"
   >("edit");
   const [saving, setSaving] = useState(false);
   const [uploadingMockup, setUploadingMockup] = useState(false);
@@ -218,12 +227,11 @@ export function StoreProductDialog({
   const quickBrandHints = QUICK_BRAND_HINTS[catalogProvider];
 
   useEffect(() => {
-    if (!open) return;
-    setDraft(
-      product
-        ? { ...product, tags: product.tags || [] }
-        : emptyProduct()
-    );
+    const next = product
+      ? { ...product, tags: product.tags || [] }
+      : emptyProduct();
+    setDraft(next);
+    tagsRef.current = next.tags || [];
     setTagDraft("");
     setMode("edit");
     setQuery("");
@@ -237,10 +245,14 @@ export function StoreProductDialog({
     setSelectedColorKeys(new Set());
     setConfigureSizes([]);
     setWizardVariants([]);
-  }, [open, product]);
+    setGalleryIndex(0);
+  }, [product]);
 
   useEffect(() => {
-    if (!open) return;
+    tagsRef.current = draft.tags || [];
+  }, [draft.tags]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadIntegrations() {
@@ -277,7 +289,7 @@ export function StoreProductDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, getIdToken]);
+  }, [getIdToken]);
 
   useEffect(() => {
     setQuery("");
@@ -294,7 +306,7 @@ export function StoreProductDialog({
   }, [query]);
 
   useEffect(() => {
-    if (!open || mode !== "search" || connectedProviders.length === 0) return;
+    if (mode !== "search" || connectedProviders.length === 0) return;
     let cancelled = false;
 
     async function loadBrands() {
@@ -318,7 +330,7 @@ export function StoreProductDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, mode, catalogProvider, connectedProviders.length, getIdToken]);
+  }, [mode, catalogProvider, connectedProviders.length, getIdToken]);
 
   const shouldSearch = debouncedQuery.length >= 2 || Boolean(brandFilter);
 
@@ -400,7 +412,37 @@ export function StoreProductDialog({
     () => computeClientStoreSellPrice(draft),
     [draft]
   );
+  const economics = useMemo(
+    () => computeClientStoreEconomics(draft),
+    [draft]
+  );
+  const enabledColorVariants = useMemo(
+    () => getEnabledColorVariants(draft),
+    [draft]
+  );
   const enabledSizeCount = draft.sizes.filter((row) => row.enabled).length;
+  const hasDesignArtwork = Boolean(
+    draft.design?.artworkUrl || draft.design?.artworkCleanUrl
+  );
+  const matchedCollections = useMemo(() => {
+    const probe = { ...draft, enabled: true };
+    return (collections || []).filter(
+      (collection) =>
+        collection.enabled !== false &&
+        resolveCollectionProducts(collection, [probe]).length > 0
+    );
+  }, [collections, draft]);
+  const galleryPreviewUrls = useMemo(() => {
+    const urls: string[] = [];
+    for (const variant of enabledColorVariants) {
+      for (const url of variant.mockupUrls || []) {
+        if (url && !urls.includes(url)) urls.push(url);
+      }
+    }
+    if (urls.length === 0 && draft.mockupUrl) urls.push(draft.mockupUrl);
+    return urls.slice(0, 8);
+  }, [enabledColorVariants, draft.mockupUrl]);
+  const [galleryIndex, setGalleryIndex] = useState(0);
 
   const updateDraft = (patch: Partial<ClientStoreProduct>) => {
     setDraft((prev) => {
@@ -516,6 +558,33 @@ export function StoreProductDialog({
     setMode("edit");
   };
 
+  const openDesignStudio = () => {
+    const existing = draft.colorVariants || [];
+    const variants =
+      existing.length > 0
+        ? existing
+        : getEnabledColorVariants(draft).map((variant) => ({
+            ...variant,
+            mockupUrls: variant.mockupUrls || [],
+          }));
+    updateDraft({ colorVariants: variants });
+    setError(null);
+    setMode("design");
+  };
+
+  const handleStudioVariantsChange = (next: ClientStoreColorVariant[]) => {
+    const firstEnabled = next.find((variant) => variant.enabled !== false);
+    updateDraft({
+      colorVariants: next,
+      mockupUrl:
+        (firstEnabled?.mockupUrls || []).find(Boolean) || draft.mockupUrl || "",
+    });
+  };
+
+  const handleStudioDesignChange = (next: ClientStoreProductDesign) => {
+    updateDraft({ design: next });
+  };
+
   const handleMockup = async (file: File | null) => {
     if (!file) return;
     setUploadingMockup(true);
@@ -556,23 +625,22 @@ export function StoreProductDialog({
     }
   };
 
-  const commitPendingTag = (raw = tagDraft) => {
+  const commitPendingTag = (raw = tagDraft): string[] => {
     const next = raw.replace(/,/g, "").trim();
+    const existing = tagsRef.current;
     if (!next) {
       setTagDraft("");
-      return;
+      return existing;
     }
-    const existing = draft.tags || [];
-    if (
-      existing.some((tag) => tag.toLowerCase() === next.toLowerCase())
-    ) {
+    if (existing.some((tag) => tag.toLowerCase() === next.toLowerCase())) {
       setTagDraft("");
-      return;
+      return existing;
     }
-    updateDraft({
-      tags: [...existing, next].slice(0, 24),
-    });
+    const merged = [...existing, next].slice(0, 24);
+    tagsRef.current = merged;
+    updateDraft({ tags: merged });
     setTagDraft("");
+    return merged;
   };
 
   const handleSave = async () => {
@@ -594,22 +662,21 @@ export function StoreProductDialog({
     setSaving(true);
     setError(null);
     try {
-      const pendingTag = tagDraft.replace(/,/g, "").trim();
-      const mergedTags = [
-        ...(draft.tags || []),
-        ...(pendingTag ? [pendingTag] : []),
-      ];
+      // Commit any in-progress tag first. Use the ref so a blur→save race
+      // (blur clears tagDraft before draft.tags has flushed) can't drop tags.
+      const tags = Array.from(
+        new Set(
+          commitPendingTag(tagDraft)
+            .map((tag) => tag.trim())
+            .filter(Boolean)
+        )
+      ).slice(0, 24);
+      tagsRef.current = tags;
       const synced = syncProductDerivedFields({
         ...draft,
         name: draft.name.trim(),
         sellPrice: previewPrice,
-        tags: Array.from(
-          new Set(
-            mergedTags
-              .map((tag) => tag.trim())
-              .filter(Boolean)
-          )
-        ).slice(0, 24),
+        tags,
         colors: draft.color
           ? Array.from(
               new Set([draft.color, ...(draft.colors || [])].filter(Boolean))
@@ -633,52 +700,169 @@ export function StoreProductDialog({
       ? `${results.length} result${results.length !== 1 ? "s" : ""}`
       : null;
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(96vh,920px)] w-full flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-5xl">
-        <DialogHeader className="shrink-0 border-b border-[#ebebeb] px-6 pb-4 pt-6 text-left sm:px-7">
-          <DialogTitle className="pr-8 text-xl font-semibold tracking-tight text-[#121a2e]">
-            {product ? "Edit product" : "Add product"}
-          </DialogTitle>
-          <DialogDescription className="mt-1.5 text-[13px] leading-relaxed text-[#5a6478]">
-            {mode === "configure"
-              ? "Choose which colors and sizes this store product should offer."
-              : mode === "mockups"
-                ? "Assign front and back mockups for each selected color."
-                : "Set the mockup, sizes, and shopper price. Start from a supplier blank or enter details manually."}
-          </DialogDescription>
+  const headerBack = () => {
+    setError(null);
+    if (mode === "design") {
+      setMode("edit");
+      return;
+    }
+    if (mode === "mockups") {
+      setMode(styleDetail ? "configure" : "edit");
+      return;
+    }
+    if (mode === "configure") {
+      setMode("search");
+      return;
+    }
+    onBack();
+  };
 
-          {mode === "edit" || mode === "search" ? (
-            <div className="mt-5 grid grid-cols-2 gap-1 rounded-lg border border-[#e3e3e3] bg-[#f4f4f5] p-1">
-              {(
-                [
-                  ["edit", "Product details"],
-                  ["search", "Supplier catalog"],
-                ] as const
-              ).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => {
-                    setMode(value);
-                    setError(null);
-                    setSearchError(null);
-                  }}
+  return (
+    <div className="flex h-[calc(100dvh-240px)] min-h-[560px] w-full flex-col overflow-hidden rounded-2xl border border-[#e3e3e3] bg-white shadow-sm">
+      {/* Fixed header — only the body below scrolls. */}
+      <div className="shrink-0 border-b border-[#ebebeb] bg-white px-4 pt-4 sm:px-6">
+        <div className="flex flex-wrap items-start justify-between gap-3 pb-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <button
+              type="button"
+              onClick={headerBack}
+              aria-label="Back"
+              className="mt-0.5 inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-[#e3e3e3] bg-white text-[#616161] transition-colors hover:bg-[#fafafa] hover:text-[#303030]"
+            >
+              <ArrowLeft className="size-4" />
+            </button>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="max-w-[420px] truncate text-[17px] font-semibold tracking-tight text-[#121a2e]">
+                  {draft.name.trim() ||
+                    (product ? "Edit product" : "Add product")}
+                </h2>
+                <span
                   className={cn(
-                    "rounded-md px-3 py-2.5 text-center text-[13px] font-medium transition-colors",
-                    mode === value
-                      ? "bg-white text-[#121a2e] shadow-[0_1px_2px_rgba(26,26,26,0.08)]"
-                      : "text-[#616161] hover:text-[#303030]"
+                    "inline-flex shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                    draft.enabled
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-[#eef3fb] text-[#2c6ecb]"
                   )}
                 >
-                  {label}
-                </button>
-              ))}
+                  {draft.enabled ? "Active" : "Draft"}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[12px] leading-relaxed text-[#8a8a8a]">
+                {mode === "configure"
+                  ? "Choose which colors and sizes this store product should offer."
+                  : mode === "mockups"
+                    ? "Assign front and back mockups for each selected color."
+                    : mode === "design"
+                      ? "Drop your artwork onto each color’s blank and save decorated mockups."
+                      : "Set the mockup, sizes, and shopper price. Start from a supplier blank or enter details manually."}
+              </p>
             </div>
-          ) : null}
-        </DialogHeader>
+          </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto bg-[#fafafa] px-6 py-5 sm:px-7">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {mode === "edit" && onDelete ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-9 rounded-lg px-2.5 text-[13px] font-medium text-red-700 hover:bg-red-50 hover:text-red-800"
+                disabled={saving}
+                onClick={() => void onDelete()}
+                title="Remove product"
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            ) : null}
+            {mode === "search" ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 rounded-lg border-[#e3e3e3] bg-white px-3 text-[13px] font-medium"
+                onClick={() => setMode("edit")}
+              >
+                Skip to details
+              </Button>
+            ) : null}
+            {mode === "edit" || mode === "search" ? (
+              <Button
+                type="button"
+                className="h-9 rounded-lg bg-brand-primary px-4 text-[13px] font-medium text-white hover:bg-brand-primary/90"
+                disabled={saving || Boolean(loadingStyleKey)}
+                onClick={() => {
+                  if (mode === "search") {
+                    setMode("edit");
+                    return;
+                  }
+                  void handleSave();
+                }}
+              >
+                {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+                {mode === "search" ? "Continue to details" : "Save product"}
+              </Button>
+            ) : mode === "design" ? (
+              <Button
+                type="button"
+                className="h-9 rounded-lg bg-brand-primary px-4 text-[13px] font-medium text-white hover:bg-brand-primary/90"
+                onClick={() => {
+                  setMode("edit");
+                  setError(null);
+                }}
+              >
+                Done designing
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                className="h-9 rounded-lg bg-brand-primary px-4 text-[13px] font-medium text-white hover:bg-brand-primary/90"
+                disabled={
+                  mode === "configure" &&
+                  (selectedColorKeys.size === 0 ||
+                    !configureSizes.some((row) => row.enabled))
+                }
+                onClick={() => {
+                  if (mode === "configure") applyConfigureAndContinue();
+                  else applyMockupsAndContinue();
+                }}
+              >
+                {mode === "configure"
+                  ? "Continue to mockups"
+                  : "Continue to pricing"}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {mode === "edit" || mode === "search" ? (
+          <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg border border-[#e3e3e3] bg-[#f4f4f5] p-1">
+            {(
+              [
+                ["edit", "Product details"],
+                ["search", "Supplier catalog"],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  setMode(value);
+                  setError(null);
+                  setSearchError(null);
+                }}
+                className={cn(
+                  "rounded-md px-3 py-2 text-center text-[13px] font-medium transition-colors",
+                  mode === value
+                    ? "bg-white text-[#121a2e] shadow-[0_1px_2px_rgba(26,26,26,0.08)]"
+                    : "text-[#616161] hover:text-[#303030]"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto bg-[#fafafa] px-4 py-5 sm:px-6">
           {mode === "configure" && styleDetail ? (
             <StoreCatalogConfigureStep
               styleDetail={styleDetail}
@@ -703,6 +887,14 @@ export function StoreProductDialog({
               backLabel={
                 styleDetail ? "Back to colors & sizes" : "Back to details"
               }
+            />
+          ) : mode === "design" ? (
+            <StoreProductDesignStudio
+              variants={draft.colorVariants || []}
+              design={draft.design}
+              onVariantsChange={handleStudioVariantsChange}
+              onDesignChange={handleStudioDesignChange}
+              onError={setError}
             />
           ) : mode === "search" ? (
             <div className="space-y-4">
@@ -1033,11 +1225,78 @@ export function StoreProductDialog({
             </div>
           ) : (
             <div className="space-y-4">
+              {/* Economics at-a-glance */}
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {(
+                  [
+                    {
+                      label: "Shopper price",
+                      value: formatCurrency(economics.sellPrice),
+                      hint: draft.sellPriceMode === "fixed" ? "Fixed" : "From markup",
+                      tone: "default" as const,
+                    },
+                    {
+                      label: "Unit cost",
+                      value: formatCurrency(economics.unitCost),
+                      hint: `${formatCurrency(economics.blankCost)} blank + ${formatCurrency(economics.decorationCost)} deco`,
+                      tone: "default" as const,
+                    },
+                    {
+                      label: "Profit / piece",
+                      value: formatCurrency(economics.profit),
+                      hint:
+                        economics.profit >= 0
+                          ? "After blank + decoration"
+                          : "Selling below cost",
+                      tone:
+                        economics.profit > 0
+                          ? ("good" as const)
+                          : economics.profit < 0
+                            ? ("bad" as const)
+                            : ("default" as const),
+                    },
+                    {
+                      label: "Margin",
+                      value: `${economics.marginPercent}%`,
+                      hint: `${economics.markupPercent}% markup on cost`,
+                      tone:
+                        economics.marginPercent >= 30
+                          ? ("good" as const)
+                          : economics.marginPercent < 10
+                            ? ("bad" as const)
+                            : ("default" as const),
+                    },
+                  ] as const
+                ).map((card) => (
+                  <div
+                    key={card.label}
+                    className="rounded-xl border border-[#e3e3e3] bg-white px-3.5 py-3"
+                  >
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                      {card.label}
+                    </p>
+                    <p
+                      className={cn(
+                        "mt-1 text-[20px] font-semibold tabular-nums tracking-tight",
+                        card.tone === "good" && "text-emerald-700",
+                        card.tone === "bad" && "text-red-700",
+                        card.tone === "default" && "text-[#121a2e]"
+                      )}
+                    >
+                      {card.value}
+                    </p>
+                    <p className="mt-0.5 truncate text-[11px] text-[#8a8a8a]">
+                      {card.hint}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
               <Section
                 title="Listing"
-                description="What shoppers see on the storefront."
+                description="What shoppers see on the storefront — mockups, vendor, and copy."
               >
-                <div className="grid gap-5 lg:grid-cols-[240px_minmax(0,1fr)]">
+                <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
                   <div>
                     <div className="flex aspect-square items-center justify-center overflow-hidden rounded-xl border border-[#e3e3e3] bg-[#f4f4f5]">
                       {uploadingMockup ? (
@@ -1047,12 +1306,16 @@ export function StoreProductDialog({
                             Preparing image…
                           </p>
                         </div>
-                      ) : getPrimaryMockupUrl(draft) ? (
+                      ) : galleryPreviewUrls[galleryIndex] ||
+                        getPrimaryMockupUrl(draft) ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
-                          src={getPrimaryMockupUrl(draft)}
+                          src={
+                            galleryPreviewUrls[galleryIndex] ||
+                            getPrimaryMockupUrl(draft)
+                          }
                           alt=""
-                          className="size-full object-contain"
+                          className="size-full object-contain p-2"
                         />
                       ) : (
                         <div className="flex flex-col items-center gap-2 px-4 text-center">
@@ -1063,6 +1326,32 @@ export function StoreProductDialog({
                         </div>
                       )}
                     </div>
+
+                    {galleryPreviewUrls.length > 1 ? (
+                      <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5">
+                        {galleryPreviewUrls.map((url, index) => (
+                          <button
+                            key={`${url.slice(0, 24)}-${index}`}
+                            type="button"
+                            onClick={() => setGalleryIndex(index)}
+                            className={cn(
+                              "size-12 shrink-0 overflow-hidden rounded-lg border bg-[#fafafa] p-0.5",
+                              galleryIndex === index
+                                ? "border-brand-primary ring-2 ring-brand-primary/20"
+                                : "border-[#e3e3e3] hover:border-[#c9cccf]"
+                            )}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={url}
+                              alt=""
+                              className="size-full object-contain"
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+
                     <input
                       ref={fileInputRef}
                       type="file"
@@ -1073,32 +1362,9 @@ export function StoreProductDialog({
                         e.target.value = "";
                       }}
                     />
-                    {(draft.colorVariants || []).filter((v) => v.enabled)
-                      .length > 0 ? (
-                      <div className="mt-2 space-y-2">
-                        <div className="flex flex-wrap gap-1.5">
-                          {(draft.colorVariants || [])
-                            .filter((v) => v.enabled)
-                            .slice(0, 8)
-                            .map((variant) => (
-                              <span
-                                key={variant.id}
-                                className="inline-flex items-center gap-1.5 rounded-full border border-[#e3e3e3] bg-white px-2 py-1 text-[11px] text-[#303030]"
-                                title={variant.name}
-                              >
-                                <span
-                                  className="size-2.5 rounded-full border border-[#d4d4d4]"
-                                  style={{
-                                    backgroundColor:
-                                      variant.colorHex || "#e5e5e5",
-                                  }}
-                                />
-                                <span className="max-w-[72px] truncate">
-                                  {variant.name}
-                                </span>
-                              </span>
-                            ))}
-                        </div>
+
+                    <div className="mt-2 space-y-2">
+                      {enabledColorVariants.length > 0 ? (
                         <Button
                           type="button"
                           variant="outline"
@@ -1116,10 +1382,8 @@ export function StoreProductDialog({
                           <Upload className="size-3.5" />
                           Manage color mockups
                         </Button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="mt-2 flex gap-2">
+                      ) : (
+                        <div className="flex gap-2">
                           <Button
                             type="button"
                             variant="outline"
@@ -1146,12 +1410,34 @@ export function StoreProductDialog({
                             </Button>
                           ) : null}
                         </div>
-                        <p className="mt-2 text-[11px] leading-snug text-[#8a8a8a]">
-                          PNG, JPG, or WebP. Or pick a blank from Supplier
-                          catalog for multi-color mockups.
-                        </p>
-                      </>
-                    )}
+                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 w-full rounded-lg border-brand-primary/30 bg-brand-primary/5 text-[12px] font-medium text-brand-primary hover:bg-brand-primary/10"
+                        onClick={openDesignStudio}
+                      >
+                        <Wand2 className="size-3.5" />
+                        Design studio
+                      </Button>
+                      <div
+                        className={cn(
+                          "flex items-center gap-2 rounded-lg border px-2.5 py-2 text-[11px]",
+                          hasDesignArtwork
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            : "border-[#ebebeb] bg-[#fafafa] text-[#8a8a8a]"
+                        )}
+                      >
+                        {hasDesignArtwork ? (
+                          <Check className="size-3.5 shrink-0" />
+                        ) : (
+                          <Wand2 className="size-3.5 shrink-0" />
+                        )}
+                        {hasDesignArtwork
+                          ? "Artwork saved — reopen studio to edit placement."
+                          : "No artwork yet — drop a logo onto each color."}
+                      </div>
+                    </div>
                   </div>
 
                   <div className="space-y-4">
@@ -1179,7 +1465,10 @@ export function StoreProductDialog({
                           htmlFor="product-brand"
                           className="text-[13px] font-medium text-[#303030]"
                         >
-                          Brand
+                          Vendor
+                          <span className="ml-1 font-normal text-[#8a8a8a]">
+                            Brand
+                          </span>
                         </Label>
                         <Input
                           id="product-brand"
@@ -1196,7 +1485,7 @@ export function StoreProductDialog({
                           htmlFor="product-color"
                           className="text-[13px] font-medium text-[#303030]"
                         >
-                          Color
+                          Primary color
                         </Label>
                         <Input
                           id="product-color"
@@ -1209,6 +1498,39 @@ export function StoreProductDialog({
                         />
                       </div>
                     </div>
+
+                    <div className="rounded-xl border border-[#ebebeb] bg-[#fafafa] px-3.5 py-3">
+                      <div className="flex items-start gap-2">
+                        <Truck className="mt-0.5 size-3.5 shrink-0 text-[#8a8a8a]" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[12px] font-medium text-[#303030]">
+                            {draft.supplier
+                              ? supplierProviderLabel(draft.supplier)
+                              : "Manual product"}
+                          </p>
+                          <p className="mt-0.5 text-[11px] leading-relaxed text-[#8a8a8a]">
+                            {draft.supplier
+                              ? [
+                                  draft.supplierPartNumber
+                                    ? `Part ${draft.supplierPartNumber}`
+                                    : null,
+                                  draft.supplierStyleId
+                                    ? `Style ${draft.supplierStyleId}`
+                                    : null,
+                                  draft.productKey &&
+                                  draft.productKey !== draft.supplierPartNumber
+                                    ? `Key ${draft.productKey}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ") ||
+                                "Linked to supplier catalog."
+                              : "No supplier linked — pick a blank from Supplier catalog to order blanks later."}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
                     <div>
                       <Label
                         htmlFor="product-description"
@@ -1229,79 +1551,13 @@ export function StoreProductDialog({
                         className="mt-1.5 min-h-[88px] rounded-lg border-[#e3e3e3] bg-white text-[13px] shadow-none focus-visible:border-brand-primary/40 focus-visible:ring-2 focus-visible:ring-brand-primary/15"
                       />
                     </div>
-                    <div>
-                      <Label
-                        htmlFor="product-tags"
-                        className="text-[13px] font-medium text-[#303030]"
-                      >
-                        Tags
-                        <span className="ml-1 font-normal text-[#8a8a8a]">
-                          For smart collections
-                        </span>
-                      </Label>
-                      <div className="mt-1.5 rounded-lg border border-[#e3e3e3] bg-white px-2.5 py-2 focus-within:border-brand-primary/40 focus-within:ring-2 focus-within:ring-brand-primary/15">
-                        <div className="flex flex-wrap gap-1.5">
-                          {(draft.tags || []).map((tag) => (
-                            <span
-                              key={tag}
-                              className="inline-flex items-center gap-1 rounded-md bg-[#f1f1f1] px-2 py-0.5 text-[11px] font-medium text-[#303030]"
-                            >
-                              {tag}
-                              <button
-                                type="button"
-                                className="rounded text-[#8a8a8a] hover:text-red-700"
-                                onClick={() =>
-                                  updateDraft({
-                                    tags: (draft.tags || []).filter(
-                                      (entry) => entry !== tag
-                                    ),
-                                  })
-                                }
-                              >
-                                <X className="size-3" />
-                              </button>
-                            </span>
-                          ))}
-                          <input
-                            id="product-tags"
-                            value={tagDraft}
-                            onChange={(e) => setTagDraft(e.target.value)}
-                            onBlur={() => commitPendingTag()}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === ",") {
-                                e.preventDefault();
-                                commitPendingTag();
-                              } else if (
-                                e.key === "Backspace" &&
-                                !tagDraft &&
-                                (draft.tags || []).length > 0
-                              ) {
-                                updateDraft({
-                                  tags: (draft.tags || []).slice(0, -1),
-                                });
-                              }
-                            }}
-                            placeholder={
-                              (draft.tags || []).length
-                                ? "Add another…"
-                                : "e.g. t-shirts, hoodies"
-                            }
-                            className="min-w-[120px] flex-1 border-0 bg-transparent py-0.5 text-[13px] text-[#303030] outline-none placeholder:text-[#8a8a8a]"
-                          />
-                        </div>
-                      </div>
-                      <p className="mt-1.5 text-[11px] text-[#8a8a8a]">
-                        Press Enter or click away to add. Smart collections can
-                        match these tags automatically.
-                      </p>
-                    </div>
                   </div>
                 </div>
               </Section>
 
               <Section
-                title="Pricing"
-                description="Blank + decoration cost, then your markup — or lock a fixed shopper price."
+                title="Economics"
+                description="Blank + decoration cost, markup or a fixed shopper price — and what you keep per piece."
               >
                 <div className="mb-4 inline-flex rounded-lg border border-[#e3e3e3] bg-[#f4f4f5] p-1">
                   {(
@@ -1448,41 +1704,138 @@ export function StoreProductDialog({
                   </div>
                 </div>
 
-                {draft.sellPriceMode === "markup" ? (
-                  <div className="mt-4 rounded-lg border border-[#ebebeb] bg-[#fafafa] px-3.5 py-3 text-[12px] text-[#616161]">
-                    <span className="tabular-nums">
-                      {formatCurrency(draft.blankCost || 0)} blank
+                <div className="mt-4 grid gap-2 rounded-xl border border-[#ebebeb] bg-[#fafafa] px-3.5 py-3 text-[12px] sm:grid-cols-2">
+                  <div className="space-y-1 text-[#616161]">
+                    <p>
+                      <span className="tabular-nums">
+                        {formatCurrency(economics.blankCost)}
+                      </span>{" "}
+                      blank
+                      <span className="mx-1.5 text-[#c0c0c4]">+</span>
+                      <span className="tabular-nums">
+                        {formatCurrency(economics.decorationCost)}
+                      </span>{" "}
+                      decoration
+                      <span className="mx-1.5 text-[#c0c0c4]">=</span>
+                      <span className="font-semibold tabular-nums text-[#121a2e]">
+                        {formatCurrency(economics.unitCost)}
+                      </span>{" "}
+                      unit cost
+                    </p>
+                    <p>
+                      Shopper pays{" "}
+                      <span className="font-semibold tabular-nums text-[#121a2e]">
+                        {formatCurrency(economics.sellPrice)}
+                      </span>
+                      <span className="mx-1.5 text-[#c0c0c4]">→</span>
+                      you keep{" "}
+                      <span
+                        className={cn(
+                          "font-semibold tabular-nums",
+                          economics.profit >= 0
+                            ? "text-emerald-700"
+                            : "text-red-700"
+                        )}
+                      >
+                        {formatCurrency(economics.profit)}
+                      </span>{" "}
+                      ({economics.marginPercent}% margin)
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border border-[#e3e3e3] bg-white px-3 py-2 sm:justify-end sm:gap-6">
+                    <span className="text-[12px] text-[#616161]">
+                      Price on storefront
                     </span>
-                    <span className="mx-1.5 text-[#c0c0c4]">+</span>
-                    <span className="tabular-nums">
-                      {formatCurrency(draft.decorationCost || 0)} decoration
-                    </span>
-                    <span className="mx-1.5 text-[#c0c0c4]">×</span>
-                    <span>
-                      {100 + (Number(draft.markupPercent) || 0)}% markup
-                    </span>
-                    <span className="mx-1.5 text-[#c0c0c4]">=</span>
-                    <span className="font-semibold tabular-nums text-[#121a2e]">
+                    <span className="text-[18px] font-semibold tabular-nums text-[#121a2e]">
                       {formatCurrency(previewPrice)}
                     </span>
                   </div>
-                ) : null}
-
-                <div className="mt-4 flex items-center justify-between rounded-lg border border-[#ebebeb] bg-[#fafafa] px-3.5 py-3">
-                  <span className="text-[13px] text-[#616161]">
-                    Price shown in the store
-                  </span>
-                  <span className="text-[18px] font-semibold tabular-nums text-[#121a2e]">
-                    {formatCurrency(previewPrice)}
-                  </span>
                 </div>
               </Section>
 
               <Section
-                title="Sizes"
-                description="Toggle which sizes shoppers can order. Selected sizes appear on the storefront."
+                title="Variants"
+                description="Colors shoppers can pick, mockups attached to each, and the size run."
               >
-                <div className="flex flex-wrap gap-2">
+                {enabledColorVariants.length > 0 ? (
+                  <div className="mb-4 divide-y divide-[#ebebeb] overflow-hidden rounded-xl border border-[#e3e3e3]">
+                    {enabledColorVariants.map((variant) => {
+                      const mockupCount = (variant.mockupUrls || []).filter(
+                        Boolean
+                      ).length;
+                      const thumb =
+                        getMockupsForColor(draft, variant.name)[0] || "";
+                      return (
+                        <div
+                          key={variant.id}
+                          className="flex items-center gap-3 bg-white px-3 py-2.5"
+                        >
+                          <div className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#ebebeb] bg-[#fafafa] p-0.5">
+                            {thumb ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={thumb}
+                                alt=""
+                                className="size-full object-contain"
+                              />
+                            ) : (
+                              <span
+                                className="size-5 rounded-full border border-[#d4d4d4]"
+                                style={{
+                                  backgroundColor:
+                                    variant.colorHex || "#e5e5e5",
+                                }}
+                              />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="size-2.5 shrink-0 rounded-full border border-[#d4d4d4]"
+                                style={{
+                                  backgroundColor:
+                                    variant.colorHex || "#e5e5e5",
+                                }}
+                              />
+                              <p className="truncate text-[13px] font-medium text-[#303030]">
+                                {variant.name}
+                              </p>
+                            </div>
+                            <p className="mt-0.5 text-[11px] text-[#8a8a8a]">
+                              {mockupCount > 0
+                                ? `${mockupCount} mockup${mockupCount === 1 ? "" : "s"}`
+                                : "No mockups yet"}
+                              {variant.colorCode
+                                ? ` · Code ${variant.colorCode}`
+                                : ""}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="mb-4 rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-3 py-3 text-[12px] text-[#8a8a8a]">
+                    No color variants yet. Add a primary color above, or pick a
+                    blank from the Supplier catalog for multi-color mockups.
+                  </p>
+                )}
+
+                <div className="flex flex-wrap items-end justify-between gap-2">
+                  <div>
+                    <p className="text-[13px] font-medium text-[#303030]">
+                      Sizes
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-[#8a8a8a]">
+                      Toggle which sizes shoppers can order.
+                    </p>
+                  </div>
+                  <p className="text-[12px] text-[#8a8a8a]">
+                    {enabledSizeCount} size
+                    {enabledSizeCount === 1 ? "" : "s"} available
+                  </p>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
                   {draft.sizes.map((row) => (
                     <button
                       key={row.size}
@@ -1507,10 +1860,116 @@ export function StoreProductDialog({
                     </button>
                   ))}
                 </div>
-                <p className="mt-3 text-[12px] text-[#8a8a8a]">
-                  {enabledSizeCount} size{enabledSizeCount === 1 ? "" : "s"}{" "}
-                  available
-                </p>
+              </Section>
+
+              <Section
+                title="Organization"
+                description="Tags power smart collections. Collections show where this product appears on the storefront."
+              >
+                <div>
+                  <Label
+                    htmlFor="product-tags"
+                    className="text-[13px] font-medium text-[#303030]"
+                  >
+                    Tags
+                  </Label>
+                  <div className="mt-1.5 rounded-lg border border-[#e3e3e3] bg-white px-2.5 py-2 focus-within:border-brand-primary/40 focus-within:ring-2 focus-within:ring-brand-primary/15">
+                    <div className="flex flex-wrap gap-1.5">
+                      {(draft.tags || []).map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center gap-1 rounded-md bg-[#f1f1f1] px-2 py-0.5 text-[11px] font-medium text-[#303030]"
+                        >
+                          {tag}
+                          <button
+                            type="button"
+                            className="rounded text-[#8a8a8a] hover:text-red-700"
+                            onClick={() => {
+                              const next = (tagsRef.current || []).filter(
+                                (entry) => entry !== tag
+                              );
+                              tagsRef.current = next;
+                              updateDraft({ tags: next });
+                            }}
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </span>
+                      ))}
+                      <input
+                        id="product-tags"
+                        value={tagDraft}
+                        onChange={(e) => setTagDraft(e.target.value)}
+                        onBlur={() => commitPendingTag()}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === ",") {
+                            e.preventDefault();
+                            commitPendingTag();
+                          } else if (
+                            e.key === "Backspace" &&
+                            !tagDraft &&
+                            tagsRef.current.length > 0
+                          ) {
+                            const next = tagsRef.current.slice(0, -1);
+                            tagsRef.current = next;
+                            updateDraft({ tags: next });
+                          }
+                        }}
+                        placeholder={
+                          (draft.tags || []).length
+                            ? "Add another…"
+                            : "e.g. t-shirts, hoodies"
+                        }
+                        className="min-w-[120px] flex-1 border-0 bg-transparent py-0.5 text-[13px] text-[#303030] outline-none placeholder:text-[#8a8a8a]"
+                      />
+                    </div>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-[#8a8a8a]">
+                    Press Enter or click away to add. Save the product so smart
+                    collections can pick these tags up.
+                  </p>
+                </div>
+
+                <div className="mt-5">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[13px] font-medium text-[#303030]">
+                      In collections
+                    </p>
+                    {onOpenCollections ? (
+                      <button
+                        type="button"
+                        onClick={onOpenCollections}
+                        className="text-[12px] font-medium text-brand-primary hover:underline"
+                      >
+                        Manage collections
+                      </button>
+                    ) : null}
+                  </div>
+                  {matchedCollections.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {matchedCollections.map((collection) => (
+                        <span
+                          key={collection.id}
+                          className="inline-flex items-center gap-1.5 rounded-full border border-[#e3e3e3] bg-white px-2.5 py-1 text-[12px] font-medium text-[#303030]"
+                        >
+                          <Layers className="size-3 text-[#8a8a8a]" />
+                          {collection.name}
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                            {collection.selectionType === "smart"
+                              ? "Smart"
+                              : "Manual"}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-3 py-3 text-[12px] text-[#8a8a8a]">
+                      {(draft.tags || []).length === 0
+                        ? "Add tags (or manually add this product to a collection) so it shows up in storefront collections."
+                        : "No collections match yet. Create a smart collection for one of these tags, or add the product to a manual collection."}
+                    </div>
+                  )}
+                </div>
               </Section>
 
               <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#e3e3e3] bg-white px-4 py-3.5">
@@ -1525,8 +1984,8 @@ export function StoreProductDialog({
                     Show on storefront
                   </span>
                   <span className="mt-0.5 block text-[12px] text-[#8a8a8a]">
-                    Turn off to keep this product in the store without offering
-                    it yet.
+                    Turn off to keep this product in the catalog as a draft
+                    without offering it to shoppers yet.
                   </span>
                 </span>
               </label>
@@ -1539,99 +1998,6 @@ export function StoreProductDialog({
             </p>
           ) : null}
         </div>
-
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-[#ebebeb] bg-white px-6 py-4 sm:px-7">
-          {mode === "configure" || mode === "mockups" ? (
-            <>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-10 rounded-lg border-[#e3e3e3] bg-white px-4 text-[13px] font-medium text-[#303030]"
-                onClick={() =>
-                  setMode(
-                    mode === "mockups"
-                      ? styleDetail
-                        ? "configure"
-                        : "edit"
-                      : "search"
-                  )
-                }
-              >
-                Back
-              </Button>
-              <Button
-                type="button"
-                className="h-10 rounded-lg bg-brand-primary px-4 text-[13px] font-medium text-white hover:bg-brand-primary/90"
-                disabled={
-                  mode === "configure" &&
-                  (selectedColorKeys.size === 0 ||
-                    !configureSizes.some((row) => row.enabled))
-                }
-                onClick={() => {
-                  if (mode === "configure") applyConfigureAndContinue();
-                  else applyMockupsAndContinue();
-                }}
-              >
-                {mode === "configure"
-                  ? "Continue to mockups"
-                  : "Continue to pricing"}
-              </Button>
-            </>
-          ) : (
-            <>
-              {onDelete ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-10 rounded-lg px-3 text-[13px] font-medium text-red-700 hover:bg-red-50 hover:text-red-800"
-                  disabled={saving}
-                  onClick={() => void onDelete()}
-                >
-                  <Trash2 className="size-3.5" />
-                  Remove product
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-10 rounded-lg border-[#e3e3e3] bg-white px-4 text-[13px] font-medium text-[#303030]"
-                  disabled={saving}
-                  onClick={() => onOpenChange(false)}
-                >
-                  Cancel
-                </Button>
-              )}
-              <div className="flex items-center gap-2">
-                {mode === "search" ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-10 rounded-lg border-[#e3e3e3] bg-white px-4 text-[13px] font-medium"
-                    onClick={() => setMode("edit")}
-                  >
-                    Skip to details
-                  </Button>
-                ) : null}
-                <Button
-                  type="button"
-                  className="h-10 rounded-lg bg-brand-primary px-4 text-[13px] font-medium text-white hover:bg-brand-primary/90"
-                  disabled={saving || Boolean(loadingStyleKey)}
-                  onClick={() => {
-                    if (mode === "search") {
-                      setMode("edit");
-                      return;
-                    }
-                    void handleSave();
-                  }}
-                >
-                  {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-                  {mode === "search" ? "Continue to details" : "Save product"}
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }

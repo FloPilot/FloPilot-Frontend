@@ -135,6 +135,7 @@ export function inferActivityActorKind(
   const author = event.author?.trim();
   if (!author || author === "Shop") return "shop";
   if (author === "System") return "system";
+  if (author === "Customer") return "customer";
   if (author === order.customerName) return "customer";
   if (event.title.toLowerCase().includes("customer")) return "customer";
   if (event.type === "estimate_approved") return "customer";

@@ -7,6 +7,43 @@ export type ClientStoreSizeOption = {
   enabled: boolean;
 };
 
+/** Placement of artwork on a mockup canvas (0–1 coordinates + scale). */
+export type ClientStoreDesignTransform = {
+  x: number;
+  y: number;
+  scale: number;
+  rotation?: number;
+};
+
+/**
+ * Re-editable design applied to a product's mockups. Kept at the product level
+ * so one uploaded artwork can be stamped across every color (compact + the
+ * common case), mirroring the order Design studio.
+ */
+export type ClientStoreDesignArtLayer = {
+  id: string;
+  url: string;
+  cleanUrl?: string;
+  backgroundRemoved?: boolean;
+  transform: ClientStoreDesignTransform;
+  label?: string;
+};
+
+export type ClientStoreProductDesign = {
+  /** Preferred multi-layer artwork stack (bottom → top). */
+  artLayers?: ClientStoreDesignArtLayer[];
+  artworkUrl?: string;
+  artworkCleanUrl?: string;
+  backgroundRemoved?: boolean;
+  /** garment = compose onto the vendor blank photo; color = solid color backdrop. */
+  stageMode?: "garment" | "color";
+  /** Which mockup slot the studio last edited (front = 0, back = 1). */
+  blankView?: "front" | "back";
+  transform: ClientStoreDesignTransform;
+  placementPresetId?: string;
+  updatedAt?: string;
+};
+
 /** One offerable color on a store product, with optional front/back mockups. */
 export type ClientStoreColorVariant = {
   id: string;
@@ -17,6 +54,12 @@ export type ClientStoreColorVariant = {
   enabled: boolean;
   /** [0] front, [1] back, then extra angles as needed. */
   mockupUrls: string[];
+  /**
+   * Pristine blank sources (usually vendor photo URLs) the Design studio
+   * composes onto, so re-editing doesn't stack art on an already-decorated
+   * mockup. Slot-aligned with mockupUrls.
+   */
+  blankMockupUrls?: string[];
 };
 
 export type ClientStoreProduct = {
@@ -36,6 +79,8 @@ export type ClientStoreProduct = {
   galleryUrls?: string[];
   /** Labels used by smart collections (e.g. "t-shirts", "hoodies"). */
   tags?: string[];
+  /** Artwork + placement composed into the color mockups (admin-only). */
+  design?: ClientStoreProductDesign;
   productKey?: string;
   colorKey?: string;
   supplier?: "ssActivewear" | "sanMar";
@@ -200,6 +245,51 @@ export function computeClientStoreSellPrice(product: {
   return Math.round(cost * (1 + markup / 100) * 100) / 100;
 }
 
+/** Shop-facing unit economics for a store product (staff view). */
+export type ClientStoreProductEconomics = {
+  blankCost: number;
+  decorationCost: number;
+  unitCost: number;
+  sellPrice: number;
+  profit: number;
+  /** Profit ÷ sell price (0–100). */
+  marginPercent: number;
+  /** Markup on unit cost (0–100+). */
+  markupPercent: number;
+};
+
+export function computeClientStoreEconomics(product: {
+  blankCost: number;
+  decorationCost?: number;
+  markupPercent: number;
+  sellPrice: number;
+  sellPriceMode: ClientStoreSellPriceMode;
+}): ClientStoreProductEconomics {
+  const blankCost = Math.max(0, Number(product.blankCost) || 0);
+  const decorationCost = Math.max(0, Number(product.decorationCost) || 0);
+  const unitCost = Math.round((blankCost + decorationCost) * 100) / 100;
+  const sellPrice = computeClientStoreSellPrice(product);
+  const profit = Math.round((sellPrice - unitCost) * 100) / 100;
+  const marginPercent =
+    sellPrice > 0
+      ? Math.round((profit / sellPrice) * 1000) / 10
+      : 0;
+  const markupPercent =
+    product.sellPriceMode === "fixed" && unitCost > 0
+      ? Math.round(((sellPrice - unitCost) / unitCost) * 1000) / 10
+      : Math.max(0, Number(product.markupPercent) || 0);
+
+  return {
+    blankCost,
+    decorationCost,
+    unitCost,
+    sellPrice,
+    profit,
+    marginPercent,
+    markupPercent,
+  };
+}
+
 export function clientStoreStatusLabel(status: ClientStoreStatus): string {
   if (status === "published") return "Live";
   if (status === "closed") return "Closed";
@@ -333,6 +423,9 @@ export function syncProductDerivedFields(
       ...variant,
       name: variant.name.trim(),
       mockupUrls: (variant.mockupUrls || []).filter(Boolean).slice(0, 6),
+      blankMockupUrls: variant.blankMockupUrls
+        ? variant.blankMockupUrls.slice(0, 6)
+        : undefined,
     })),
     colors,
     color: colors[0],

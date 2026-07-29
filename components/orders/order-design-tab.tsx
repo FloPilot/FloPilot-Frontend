@@ -4,7 +4,10 @@ import { useMemo, useState } from "react";
 import { BookMarked, ImageIcon } from "lucide-react";
 import { ApplyDesignDialog } from "@/components/orders/apply-design-dialog";
 import { DecorationTypePill } from "@/components/orders/decoration-type-pill";
-import { ImprintDesignCard } from "@/components/orders/imprint-design-card";
+import {
+  ImprintDesignCard,
+  type ImprintDesignCardAdapters,
+} from "@/components/orders/imprint-design-card";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,10 +19,29 @@ import {
 } from "@/lib/dashboard-styles";
 import { getOrderProductionSteps } from "@/lib/order-production";
 import { imprintDisplayName } from "@/lib/imprint-display";
-import type { Order } from "@/types";
+import type { ArtworkFile, Order } from "@/types";
 import { cn } from "@/lib/utils";
 
-export function OrderDesignTab({ order }: { order: Order }) {
+export function OrderDesignTab({
+  order,
+  forceArtworkStatus,
+  hideApprovalActions = false,
+  hideApplyFromLibrary = false,
+  hideLinkFromFiles = false,
+  imprintAdapters,
+  subtitle,
+  readOnly = false,
+}: {
+  order: Order;
+  /** Force every location badge to this status (order requests → pending). */
+  forceArtworkStatus?: ArtworkFile["status"];
+  hideApprovalActions?: boolean;
+  hideApplyFromLibrary?: boolean;
+  hideLinkFromFiles?: boolean;
+  imprintAdapters?: ImprintDesignCardAdapters;
+  subtitle?: string;
+  readOnly?: boolean;
+}) {
   const [applyOpen, setApplyOpen] = useState(false);
   const steps = useMemo(() => getOrderProductionSteps(order), [order]);
   const proofSteps = useMemo(
@@ -67,18 +89,20 @@ export function OrderDesignTab({ order }: { order: Order }) {
         <div>
           <h2 className={dashboardTaskTitleClass}>Proof by location</h2>
           <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-            Upload mockups, set specs, and send proofs — one per decoration
-            location on this order.
+            {subtitle ||
+              "Upload mockups, set specs, and send proofs — one per decoration location on this order."}
           </p>
         </div>
-        <Button
-          type="button"
-          className={cn(dashboardControlClass, "h-8 shrink-0 text-[12px]")}
-          onClick={() => setApplyOpen(true)}
-        >
-          <BookMarked className="size-3.5" />
-          Apply from library
-        </Button>
+        {!hideApplyFromLibrary ? (
+          <Button
+            type="button"
+            className={cn(dashboardControlClass, "h-8 shrink-0 text-[12px]")}
+            onClick={() => setApplyOpen(true)}
+          >
+            <BookMarked className="size-3.5" />
+            Apply from library
+          </Button>
+        ) : null}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -117,7 +141,7 @@ export function OrderDesignTab({ order }: { order: Order }) {
                     {imprintDisplayName(imprint)}
                   </p>
                   <ArtworkStatusBadge
-                    status={imprint.artwork.status}
+                    status={forceArtworkStatus ?? imprint.artwork.status}
                     className="shrink-0 scale-90"
                   />
                 </div>
@@ -136,16 +160,23 @@ export function OrderDesignTab({ order }: { order: Order }) {
               order={order}
               job={activeStep.job}
               imprint={activeStep.imprint}
+              readOnly={readOnly}
+              forceArtworkStatus={forceArtworkStatus}
+              hideApprovalActions={hideApprovalActions}
+              hideLinkFromFiles={hideLinkFromFiles}
+              adapters={imprintAdapters}
             />
           ) : null}
         </div>
       </div>
 
-      <ApplyDesignDialog
-        order={order}
-        open={applyOpen}
-        onOpenChange={setApplyOpen}
-      />
+      {!hideApplyFromLibrary ? (
+        <ApplyDesignDialog
+          order={order}
+          open={applyOpen}
+          onOpenChange={setApplyOpen}
+        />
+      ) : null}
     </div>
   );
 }

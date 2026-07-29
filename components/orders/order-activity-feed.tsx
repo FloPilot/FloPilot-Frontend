@@ -87,6 +87,30 @@ function ActivityIcon({ type }: { type: OrderActivityEvent["type"] }) {
   );
 }
 
+function ActivityMilestone({ event }: { event: OrderActivityEvent }) {
+  return (
+    <li className="relative py-4">
+      <div className="rounded-xl border border-[#c4d7f2] bg-[#f4f7fd] px-4 py-3.5 text-center">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#2c6ecb]">
+          {event.phase === "conversion" || event.milestone
+            ? "Request → Order"
+            : "Milestone"}
+        </p>
+        <p className="mt-1 text-[14px] font-semibold text-[#303030]">
+          {event.title}
+        </p>
+        {event.detail ? (
+          <p className="mt-0.5 text-[12px] text-[#616161]">{event.detail}</p>
+        ) : null}
+        <p className="mt-1.5 text-[11px] text-[#8a8a8a]">
+          {formatActivityTime(event.timestamp)}
+          {event.author ? ` · ${event.author}` : ""}
+        </p>
+      </div>
+    </li>
+  );
+}
+
 function ActivityRow({
   order,
   event,
@@ -96,6 +120,10 @@ function ActivityRow({
   event: OrderActivityEvent;
   isLast: boolean;
 }) {
+  if (event.milestone) {
+    return <ActivityMilestone event={event} />;
+  }
+
   const actorKind = inferActivityActorKind(order, event);
   const actorName = formatActivityActorName(order, event);
   const showActorName = shouldShowActivityActorName(order, event);
@@ -166,8 +194,8 @@ export function OrderActivityFeed({
     return (
       <div className={cn(dashboardInsetSurfaceClass, "px-4 py-8 text-center")}>
         <p className="text-[13px] text-[#616161]">
-          Activity will appear here as you work this order — artwork uploads,
-          customer approvals, materials, scheduling, and more.
+          Activity will appear here as you work — edits, messages, estimate
+          changes, artwork, and more.
         </p>
       </div>
     );

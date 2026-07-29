@@ -42,7 +42,10 @@ const ShopSettingsContext = createContext<ShopSettingsContextValue | null>(
 
 export function ShopSettingsProvider({ children }: { children: ReactNode }) {
   const { profile, getIdToken, refreshProfile } = useAuth();
-  const tenantId = profile?.type === "staff" ? profile.tenant.id : null;
+  const tenantId =
+    profile?.type === "staff" || profile?.type === "portal"
+      ? profile.tenant.id
+      : null;
   const [savedSettings, setSavedSettings] = useState<ShopSettings | null>(null);
   const [hydratedSettings, setHydratedSettings] = useState<ShopSettings | null>(
     null
@@ -77,7 +80,7 @@ export function ShopSettingsProvider({ children }: { children: ReactNode }) {
   }, [profile?.type, tenantId, getIdToken]);
 
   const profileSettings = useMemo(() => {
-    if (profile?.type === "staff") {
+    if (profile?.type === "staff" || profile?.type === "portal") {
       return normalizeShopSettings(profile.tenant.settings);
     }
     return DEFAULT_SHOP_SETTINGS;

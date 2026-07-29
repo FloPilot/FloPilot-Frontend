@@ -12,6 +12,7 @@ import {
   Layers,
   LayoutDashboard,
   Monitor,
+  ShoppingBag,
   SlidersHorizontal,
   Store,
   Users,
@@ -118,6 +119,12 @@ export const navItems: NavItem[] = [
   { href: "/app/tasks", label: "Tasks", icon: CheckSquare, workspaceArea: "tasks" },
   { href: "/app/orders", label: "Orders", icon: ClipboardList, workspaceArea: "orders" },
   {
+    href: "/app/order-requests",
+    label: "Order requests",
+    icon: ShoppingBag,
+    workspaceArea: "orders",
+  },
+  {
     href: DOCUMENTS_BASE,
     label: "Documents",
     icon: DOCUMENTS_NAV_ICON,
@@ -140,7 +147,6 @@ export const navItems: NavItem[] = [
     icon: Store,
     moduleKey: "clientStores",
     workspaceArea: "stores",
-    comingSoon: true,
   },
   {
     href: PRODUCTION_BASE,
