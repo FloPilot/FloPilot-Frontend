@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Briefcase,
   Check,
+  FileText,
   Loader2,
   MapPin,
   Pencil,
@@ -10,12 +12,17 @@ import {
   Star,
   Trash2,
 } from "lucide-react";
-import { useCustomerPortal } from "@/components/portal/customer-portal-provider";
+import { usePortalAccess } from "@/components/portal/use-portal-access";
+import { PortalOrderRequestExportSettings } from "@/components/portal/portal-order-request-export-settings";
 import {
   fetchCustomerPortalProfile,
   updateCustomerPortalProfile,
   type CustomerPortalProfile,
 } from "@/lib/customer-portal-api";
+import {
+  createDefaultOrderRequestExport,
+  type OrderRequestExportSettings,
+} from "@/lib/order-request-export";
 import { US_STATES } from "@/lib/customers";
 import {
   dashboardCardClass,
@@ -27,7 +34,20 @@ import {
 } from "@/lib/order-shipping";
 import type { CustomerShippingLocation } from "@/types";
 
+type PortalEndBusiness = NonNullable<
+  CustomerPortalProfile["endBusinesses"]
+>[number];
+
 type LocationDraft = Omit<CustomerShippingLocation, "id"> & { id?: string };
+
+type EndBusinessDraft = {
+  id?: string;
+  name: string;
+  contactName: string;
+  email: string;
+  phone: string;
+  notes: string;
+};
 
 function emptyLocation(): LocationDraft {
   return {
@@ -43,13 +63,27 @@ function emptyLocation(): LocationDraft {
   };
 }
 
+function emptyEndBusiness(): EndBusinessDraft {
+  return {
+    name: "",
+    contactName: "",
+    email: "",
+    phone: "",
+    notes: "",
+  };
+}
+
+function createEndBusinessId() {
+  return `sub-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
 const inputClass =
   "h-11 w-full rounded-lg border border-[#ebebeb] bg-white px-3 text-[14px] text-[#303030] outline-none transition-shadow placeholder:text-[#b5b5b5] focus:border-[#2c6ecb] focus:ring-2 focus:ring-[#2c6ecb]/15";
 
 const labelClass = "mb-1.5 block text-[13px] font-medium text-[#616161]";
 
 export function CustomerPortalBusinessView() {
-  const { token, accent } = useCustomerPortal();
+  const { mode, accent, getAccessToken } = usePortalAccess();
   const [profile, setProfile] = useState<CustomerPortalProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -64,6 +98,19 @@ export function CustomerPortalBusinessView() {
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
   const [locations, setLocations] = useState<CustomerShippingLocation[]>([]);
+  const [endBusinesses, setEndBusinesses] = useState<PortalEndBusiness[]>([]);
+  const [orderRequestExport, setOrderRequestExport] =
+    useState<OrderRequestExportSettings>(createDefaultOrderRequestExport());
+  const [pendingExportDataUrl, setPendingExportDataUrl] = useState<
+    string | null
+  >(null);
+  const [pendingExportFileName, setPendingExportFileName] = useState<
+    string | null
+  >(null);
+  const [pendingExportContentType, setPendingExportContentType] = useState<
+    string | null
+  >(null);
+  const [clearExportReference, setClearExportReference] = useState(false);
 
   const [locationDialogOpen, setLocationDialogOpen] = useState(false);
   const [locationDraft, setLocationDraft] = useState<LocationDraft>(
@@ -74,13 +121,23 @@ export function CustomerPortalBusinessView() {
   );
   const [locationError, setLocationError] = useState<string | null>(null);
 
+  const [endBizDialogOpen, setEndBizDialogOpen] = useState(false);
+  const [endBizDraft, setEndBizDraft] = useState<EndBusinessDraft>(
+    emptyEndBusiness()
+  );
+  const [editingEndBizId, setEditingEndBizId] = useState<string | null>(null);
+  const [endBizError, setEndBizError] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       setLoading(true);
       setError(null);
       try {
-        const result = await fetchCustomerPortalProfile(token);
+        const accessToken = await getAccessToken();
+        const result = await fetchCustomerPortalProfile(accessToken, {
+          mode: mode === "auth" ? "auth" : "invite",
+        });
         if (cancelled) return;
         if (result.profile) {
           setProfile(result.profile);
@@ -92,6 +149,15 @@ export function CustomerPortalBusinessView() {
           setCity(result.profile.city);
           setState(result.profile.state);
           setLocations(result.profile.shippingLocations ?? []);
+          setEndBusinesses(result.profile.endBusinesses ?? []);
+          setOrderRequestExport(
+            result.profile.orderRequestExport ||
+              createDefaultOrderRequestExport()
+          );
+          setPendingExportDataUrl(null);
+          setPendingExportFileName(null);
+          setPendingExportContentType(null);
+          setClearExportReference(false);
         }
       } catch (err) {
         if (!cancelled) {
@@ -106,7 +172,7 @@ export function CustomerPortalBusinessView() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [getAccessToken, mode]);
 
   const sortedLocations = useMemo(
     () =>
@@ -117,6 +183,14 @@ export function CustomerPortalBusinessView() {
         return a.isDefault ? -1 : 1;
       }),
     [locations]
+  );
+
+  const sortedEndBusinesses = useMemo(
+    () =>
+      [...endBusinesses].sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+      ),
+    [endBusinesses]
   );
 
   const openAddLocation = () => {
@@ -194,23 +268,97 @@ export function CustomerPortalBusinessView() {
     );
   };
 
+  const openAddEndBusiness = () => {
+    setEditingEndBizId(null);
+    setEndBizDraft(emptyEndBusiness());
+    setEndBizError(null);
+    setEndBizDialogOpen(true);
+  };
+
+  const openEditEndBusiness = (entry: PortalEndBusiness) => {
+    setEditingEndBizId(entry.id);
+    setEndBizDraft({
+      id: entry.id,
+      name: entry.name || "",
+      contactName: entry.contactName || "",
+      email: entry.email || "",
+      phone: entry.phone || "",
+      notes: entry.notes || "",
+    });
+    setEndBizError(null);
+    setEndBizDialogOpen(true);
+  };
+
+  const saveEndBusinessDraft = () => {
+    const name = endBizDraft.name.trim();
+    if (!name) {
+      setEndBizError("Business name is required.");
+      return;
+    }
+    const next: PortalEndBusiness = {
+      id: editingEndBizId || createEndBusinessId(),
+      name,
+      contactName: endBizDraft.contactName.trim(),
+      email: endBizDraft.email.trim(),
+      phone: endBizDraft.phone.trim(),
+      notes: endBizDraft.notes.trim(),
+    };
+    setEndBusinesses((current) =>
+      editingEndBizId
+        ? current.map((entry) => (entry.id === editingEndBizId ? next : entry))
+        : [...current, next]
+    );
+    setEndBizDialogOpen(false);
+  };
+
+  const removeEndBusiness = (id: string) => {
+    setEndBusinesses((current) => current.filter((entry) => entry.id !== id));
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
     setError(null);
     try {
-      const result = await updateCustomerPortalProfile(token, {
-        company,
-        firstName,
-        lastName,
-        email,
-        phone,
-        city,
-        state,
-        shippingLocations: locations,
-      });
+      const accessToken = await getAccessToken();
+      const result = await updateCustomerPortalProfile(
+        accessToken,
+        {
+          company,
+          firstName,
+          lastName,
+          email,
+          phone,
+          city,
+          state,
+          shippingLocations: locations,
+          endBusinesses,
+          orderRequestExport: {
+            ...orderRequestExport,
+            ...(pendingExportDataUrl
+              ? {
+                  referencePdfDataUrl: pendingExportDataUrl,
+                  referencePdfFileName:
+                    pendingExportFileName || "export-template.pdf",
+                  referencePdfContentType:
+                    pendingExportContentType || "application/pdf",
+                }
+              : {}),
+            ...(clearExportReference ? { clearReferencePdf: true } : {}),
+          },
+        },
+        { mode: mode === "auth" ? "auth" : "invite" }
+      );
       setProfile(result.profile);
       setLocations(result.profile.shippingLocations ?? []);
+      setEndBusinesses(result.profile.endBusinesses ?? []);
+      setOrderRequestExport(
+        result.profile.orderRequestExport || createDefaultOrderRequestExport()
+      );
+      setPendingExportDataUrl(null);
+      setPendingExportFileName(null);
+      setPendingExportContentType(null);
+      setClearExportReference(false);
       setSaved(true);
       window.setTimeout(() => setSaved(false), 2500);
     } catch (err) {
@@ -235,8 +383,8 @@ export function CustomerPortalBusinessView() {
         <div>
           <h1 className={dashboardSectionTitleClass}>Business information</h1>
           <p className="mt-1 max-w-2xl text-[14px] text-[#616161]">
-            Keep your contact details up to date and manage delivery locations
-            for your orders.
+            Keep contact details current, manage end businesses you place for,
+            and update delivery locations.
           </p>
         </div>
         <button
@@ -342,6 +490,139 @@ export function CustomerPortalBusinessView() {
             </select>
           </div>
         </div>
+      </section>
+
+      <section className={dashboardCardClass}>
+        <div className="flex items-start gap-3 border-b border-[#ebebeb] px-4 py-3 sm:px-5">
+          <div
+            className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-[#f6f6f7]"
+            style={{ color: accent }}
+          >
+            <FileText className="size-4" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-[15px] font-semibold text-[#303030]">
+              Order request export
+            </h2>
+            <p className="mt-0.5 text-[13px] text-[#616161]">
+              Choose what shows up when you download an order request for your
+              records. Upload a sample of your current form and we&apos;ll map
+              the sections to match.
+            </p>
+          </div>
+        </div>
+        <PortalOrderRequestExportSettings
+          accent={accent}
+          value={orderRequestExport}
+          pendingDataUrl={pendingExportDataUrl}
+          pendingFileName={pendingExportFileName}
+          pendingContentType={pendingExportContentType}
+          onChange={setOrderRequestExport}
+          onPendingUpload={({ dataUrl, fileName, contentType }) => {
+            setPendingExportDataUrl(dataUrl);
+            setPendingExportFileName(fileName);
+            setPendingExportContentType(contentType);
+            setClearExportReference(false);
+          }}
+          onClearPendingUpload={() => {
+            setPendingExportDataUrl(null);
+            setPendingExportFileName(null);
+            setPendingExportContentType(null);
+            setClearExportReference(true);
+          }}
+          getAccessToken={getAccessToken}
+          mode={mode === "auth" ? "auth" : "invite"}
+        />
+      </section>
+
+      <section className={dashboardCardClass}>
+        <div className="flex items-center justify-between gap-3 border-b border-[#ebebeb] px-4 py-3 sm:px-5">
+          <div>
+            <h2 className="text-[15px] font-semibold text-[#303030]">
+              End businesses
+            </h2>
+            <p className="mt-0.5 text-[13px] text-[#616161]">
+              Brands or companies you place orders for. Pick them on order
+              requests and tag artwork to keep work organized.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={openAddEndBusiness}
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-[#ebebeb] bg-white px-3 text-[13px] font-medium text-[#303030] hover:bg-[#fafafa]"
+          >
+            <Plus className="size-3.5" />
+            Add end business
+          </button>
+        </div>
+
+        {sortedEndBusinesses.length === 0 ? (
+          <div className="px-4 py-10 text-center sm:px-5">
+            <Briefcase className="mx-auto size-8 text-[#c4c4c4]" />
+            <p className="mt-3 text-[15px] font-medium text-[#303030]">
+              No end businesses yet
+            </p>
+            <p className="mt-1 text-[14px] text-[#616161]">
+              Add the companies you work with so you can assign them on orders
+              and artwork.
+            </p>
+            <button
+              type="button"
+              onClick={openAddEndBusiness}
+              className="mt-4 inline-flex h-10 items-center rounded-lg px-4 text-[13px] font-semibold text-white"
+              style={{ backgroundColor: accent }}
+            >
+              Add your first end business
+            </button>
+          </div>
+        ) : (
+          <div className="divide-y divide-[#f1f1f1]">
+            {sortedEndBusinesses.map((entry) => (
+              <div
+                key={entry.id}
+                className="flex flex-wrap items-start justify-between gap-3 px-4 py-4 sm:px-5"
+              >
+                <div className="min-w-0">
+                  <p className="text-[15px] font-semibold text-[#303030]">
+                    {entry.name}
+                  </p>
+                  {entry.contactName ? (
+                    <p className="mt-0.5 text-[13px] text-[#616161]">
+                      {entry.contactName}
+                    </p>
+                  ) : null}
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[13px] text-[#616161]">
+                    {entry.email ? <span>{entry.email}</span> : null}
+                    {entry.phone ? <span>{entry.phone}</span> : null}
+                  </div>
+                  {entry.notes ? (
+                    <p className="mt-1 text-[12px] text-[#8a8a8a]">
+                      {entry.notes}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => openEditEndBusiness(entry)}
+                    className="flex size-9 items-center justify-center rounded-lg text-[#616161] hover:bg-[#f6f6f7]"
+                    aria-label="Edit end business"
+                  >
+                    <Pencil className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => removeEndBusiness(entry.id)}
+                    className="flex size-9 items-center justify-center rounded-lg text-[#8f1f1f] hover:bg-[#fff1f1]"
+                    aria-label="Remove end business"
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className={dashboardCardClass}>
@@ -591,6 +872,110 @@ export function CustomerPortalBusinessView() {
                 style={{ backgroundColor: accent }}
               >
                 {editingLocationId ? "Update" : "Add"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {endBizDialogOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div
+            className="absolute inset-0"
+            onClick={() => setEndBizDialogOpen(false)}
+            aria-hidden
+          />
+          <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-xl">
+            <div className="border-b border-[#ebebeb] px-5 py-4">
+              <h3 className="text-[17px] font-semibold text-[#303030]">
+                {editingEndBizId ? "Edit end business" : "Add end business"}
+              </h3>
+              <p className="mt-1 text-[13px] text-[#616161]">
+                Who is this work for? You can tag orders and artwork to them.
+              </p>
+            </div>
+            <div className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
+              {endBizError ? (
+                <p className="rounded-lg bg-[#fff1f1] px-3 py-2 text-[13px] text-[#8f1f1f]">
+                  {endBizError}
+                </p>
+              ) : null}
+              <div>
+                <label className={labelClass}>Business name</label>
+                <input
+                  className={inputClass}
+                  value={endBizDraft.name}
+                  onChange={(e) =>
+                    setEndBizDraft((d) => ({ ...d, name: e.target.value }))
+                  }
+                  placeholder="Acme Corp"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Contact name (optional)</label>
+                <input
+                  className={inputClass}
+                  value={endBizDraft.contactName}
+                  onChange={(e) =>
+                    setEndBizDraft((d) => ({
+                      ...d,
+                      contactName: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className={labelClass}>Email (optional)</label>
+                  <input
+                    type="email"
+                    className={inputClass}
+                    value={endBizDraft.email}
+                    onChange={(e) =>
+                      setEndBizDraft((d) => ({ ...d, email: e.target.value }))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Phone (optional)</label>
+                  <input
+                    type="tel"
+                    className={inputClass}
+                    value={endBizDraft.phone}
+                    onChange={(e) =>
+                      setEndBizDraft((d) => ({ ...d, phone: e.target.value }))
+                    }
+                  />
+                </div>
+              </div>
+              <div>
+                <label className={labelClass}>Notes (optional)</label>
+                <textarea
+                  className={`${inputClass} min-h-[80px] resize-y`}
+                  value={endBizDraft.notes}
+                  onChange={(e) =>
+                    setEndBizDraft((d) => ({ ...d, notes: e.target.value }))
+                  }
+                  placeholder="Anything useful for your team…"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-[#ebebeb] px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setEndBizDialogOpen(false)}
+                className="h-10 rounded-lg px-4 text-[14px] font-medium text-[#616161] hover:bg-[#f6f6f7]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveEndBusinessDraft}
+                className="h-10 rounded-lg px-5 text-[14px] font-semibold text-white"
+                style={{ backgroundColor: accent }}
+              >
+                {editingEndBizId ? "Update" : "Add"}
               </button>
             </div>
           </div>

@@ -28,6 +28,12 @@ export type NewOrderJobInput = {
   kind: "decoration" | "finishing";
   /** Blank line items this decoration runs on */
   lineItemIds?: string[];
+  /** Print size "W × H" — becomes imprint notes.dimensions */
+  printSize?: string;
+  /** Placement note — becomes imprint notes.placement */
+  placement?: string;
+  /** Customer/staff-specified ink colors (name + PMS) for this event */
+  inkColors?: { id?: string; name: string; pmsCode?: string }[];
   /** Optional mockup uploaded for this event during order creation */
   mockupFile?: NewOrderMockupFile;
 };
@@ -406,6 +412,36 @@ function buildOrderLineItemsAndJobs(
           uploadedAt: now,
           uploadedBy: "Shop",
           kind: "mockup",
+        };
+      }
+
+      if (jobInput.inkColors && jobInput.inkColors.length > 0) {
+        built.imprints[0].inkColors = jobInput.inkColors
+          .map((row, inkIndex) => {
+            const name = (row.name || "").trim();
+            const pmsCode = (row.pmsCode || "").trim();
+            if (!name && !pmsCode) return null;
+            return {
+              id: row.id?.trim() || `ink-${suffix}-${index}-${inkIndex}`,
+              name: name || pmsCode,
+              pmsCode,
+              isFlash: false,
+            };
+          })
+          .filter((row): row is NonNullable<typeof row> => row != null);
+      }
+
+      const printSize = jobInput.printSize?.trim() || "";
+      const placement = jobInput.placement?.trim() || "";
+      const instructions = jobInput.notes?.trim() || "";
+      if (printSize || placement || instructions) {
+        built.imprints[0].notes = {
+          ...(built.imprints[0].notes || {}),
+          ...(printSize ? { dimensions: printSize.slice(0, 40) } : {}),
+          ...(placement ? { placement: placement.slice(0, 200) } : {}),
+          ...(instructions
+            ? { instructions: instructions.slice(0, 1000) }
+            : {}),
         };
       }
     }

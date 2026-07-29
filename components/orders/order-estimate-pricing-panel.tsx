@@ -67,9 +67,18 @@ import { cn } from "@/lib/utils";
 export function OrderEstimatePricingPanel({
   order,
   customer,
+  onPersist,
+  readOnly = false,
 }: {
   order: Order;
   customer?: Customer | null;
+  /** When set, used instead of updateOrderEstimatePricing (order-request mode). */
+  onPersist?: (updates: {
+    selectedRateSheetId?: string | null;
+    estimateAdjustments?: OrderEstimateAdjustment[];
+    excludedContractFeeIds?: string[];
+  }) => Promise<void>;
+  readOnly?: boolean;
 }) {
   const { settings } = useShopSettings();
   const { updateOrderEstimatePricing } = useSchedule();
@@ -195,14 +204,19 @@ export function OrderEstimatePricingPanel({
       estimateAdjustments?: OrderEstimateAdjustment[];
       excludedContractFeeIds?: string[];
     }) => {
+      if (readOnly) return;
       setSaving(true);
       try {
-        await updateOrderEstimatePricing(order.id, updates);
+        if (onPersist) {
+          await onPersist(updates);
+        } else {
+          await updateOrderEstimatePricing(order.id, updates);
+        }
       } finally {
         setSaving(false);
       }
     },
-    [order.id, updateOrderEstimatePricing]
+    [order.id, onPersist, readOnly, updateOrderEstimatePricing]
   );
 
   const handleRateSheetChange = (value: string | null) => {
@@ -300,9 +314,9 @@ export function OrderEstimatePricingPanel({
             {saving ? <Loader2 className="size-3.5 animate-spin text-[#8a8a8a]" /> : null}
           </div>
           <p className={cn("mt-1", dashboardTaskDetailClass)}>
-            Choose which rate sheet applies to this order. Enabled additional
-            fees apply automatically — skip any you do not want on this order,
-            or add more from saved presets.
+            Choose which rate sheet applies. Enabled additional fees apply
+            automatically — skip any you do not want, or add more from saved
+            presets.
           </p>
         </div>
       </div>
@@ -312,7 +326,11 @@ export function OrderEstimatePricingPanel({
           <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
             Rate sheet
           </Label>
-          <Select value={selectedRateSheetId} onValueChange={handleRateSheetChange}>
+          <Select
+            value={selectedRateSheetId}
+            onValueChange={handleRateSheetChange}
+            disabled={readOnly || saving}
+          >
             <SelectTrigger className={cn(dashboardControlClass, "h-9 w-full")}>
               <SelectValue placeholder="Select pricing">
                 {selectedRateSheetLabel}
@@ -670,11 +688,12 @@ export function OrderEstimatePricingPanel({
             </Button>
           </div>
         </div>
-      ) : (
+      ) : !readOnly ? (
         <Button
           type="button"
           variant="outline"
           className={cn(dashboardControlClass, "h-9 gap-1.5 px-3 text-[13px]")}
+          disabled={saving}
           onClick={() => {
             setAddingFee(true);
             if (presetOptions.length === 0) {
@@ -686,7 +705,7 @@ export function OrderEstimatePricingPanel({
           <Plus className="size-3.5" />
           Add order fee
         </Button>
-      )}
+      ) : null}
     </div>
   );
 }

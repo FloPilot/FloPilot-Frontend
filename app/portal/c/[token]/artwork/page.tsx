@@ -1,5 +1,10 @@
-import { CustomerPortalArtworkView } from "@/components/portal/customer-portal-artwork-view";
+import { redirect } from "next/navigation";
 
-export default function CustomerPortalArtworkPage() {
-  return <CustomerPortalArtworkView />;
+export default async function CustomerPortalTokenSectionRedirect({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}) {
+  const { token } = await params;
+  redirect(`/portal/c/${encodeURIComponent(token)}`);
 }

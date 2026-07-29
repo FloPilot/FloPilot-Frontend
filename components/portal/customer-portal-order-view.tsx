@@ -6,11 +6,10 @@ import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Layers3, Loader2, RefreshCw } from "lucide-react";
 import { CustomerReviewFlow } from "@/components/review/customer-review-flow";
 import { CustomerPortalInvoicePanel } from "@/components/portal/customer-portal-invoice-panel";
-import { useCustomerPortal } from "@/components/portal/customer-portal-provider";
+import { usePortalAccess } from "@/components/portal/use-portal-access";
+import { usePortalPaths } from "@/components/portal/portal-paths";
 import {
   fetchCustomerPortalOrder,
-  portalHomePath,
-  portalOrderPath,
   portalStatusLabel,
   portalStatusTone,
   reactivatePortalUrl,
@@ -20,6 +19,9 @@ import {
 import { formatCurrency, formatDate } from "@/lib/format";
 import { formatOrderDisplayLine } from "@/lib/order-display";
 import { groupReviewEstimateSections } from "@/lib/estimate-breakdown";
+import {
+  dashboardSectionTitleClass,
+} from "@/lib/dashboard-styles";
 import { cn } from "@/lib/utils";
 
 function isInvoiceSummary(
@@ -29,7 +31,9 @@ function isInvoiceSummary(
 }
 
 export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
-  const { token, accent, refresh: refreshDashboard } = useCustomerPortal();
+  const { mode, token, accent, refresh: refreshDashboard, getAccessToken } =
+    usePortalAccess();
+  const paths = usePortalPaths();
   const searchParams = useSearchParams();
   const focusInvoice = searchParams.get("view") === "invoice";
   const [session, setSession] = useState<CustomerPortalOrderSession | null>(
@@ -40,12 +44,17 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
   const [activeView, setActiveView] = useState<"review" | "invoice">(
     focusInvoice ? "invoice" : "review"
   );
+  const [accessToken, setAccessToken] = useState<string | null>(token);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchCustomerPortalOrder(token, orderId);
+      const authOrInvite = await getAccessToken();
+      setAccessToken(authOrInvite);
+      const data = await fetchCustomerPortalOrder(authOrInvite, orderId, {
+        mode: mode === "auth" ? "auth" : "invite",
+      });
       setSession(data);
       if (
         focusInvoice ||
@@ -61,7 +70,7 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [token, orderId, focusInvoice]);
+  }, [getAccessToken, mode, orderId, focusInvoice]);
 
   useEffect(() => {
     void load();
@@ -89,11 +98,11 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
         </p>
         <p className="mt-2 text-[14px] text-[#616161]">{error}</p>
         <Link
-          href={portalHomePath(token)}
+          href={paths.orders()}
           className="mt-4 inline-flex text-[13px] font-medium underline"
           style={{ color: accent }}
         >
-          Back to dashboard
+          Back to orders
         </Link>
       </div>
     );
@@ -107,7 +116,10 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
           Your portal link has expired
         </h1>
         <a
-          href={session.reactivateUrl || reactivatePortalUrl(token)}
+          href={
+            session.reactivateUrl ||
+            (token ? reactivatePortalUrl(token) : paths.home())
+          }
           className="mt-6 inline-flex h-11 items-center justify-center rounded-lg px-6 text-[14px] font-semibold text-white"
           style={{ backgroundColor: accent }}
         >
@@ -145,17 +157,17 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <Link
-          href={portalHomePath(token)}
+          href={paths.orders()}
           className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#e3e3e3] bg-white px-3 text-[13px] font-medium text-[#303030] transition-colors hover:bg-[#fafafa]"
         >
           <ArrowLeft className="size-3.5" />
           All orders
         </Link>
         <div className="min-w-0 flex-1">
-          <h1 className="text-[20px] font-semibold text-[#303030] sm:text-[22px]">
+          <h1 className={dashboardSectionTitleClass}>
             Order {formatOrderDisplayLine(session.order)}
           </h1>
-          <p className="text-[13px] text-[#616161]">
+          <p className="mt-0.5 text-[13px] text-[#616161]">
             In-hands {formatDate(session.order.inHandsDate)}
           </p>
         </div>
@@ -199,7 +211,7 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
                 className="flex items-center justify-between gap-3 px-4 py-2.5 text-[12px] sm:px-5"
               >
                 <Link
-                  href={portalOrderPath(token, member.orderId)}
+                  href={paths.order(member.orderId)}
                   className="min-w-0 truncate font-medium hover:underline"
                   style={{ color: accent }}
                 >
@@ -279,7 +291,8 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
 
           <CustomerReviewFlow
             key={orderId}
-            portalToken={token}
+            portalToken={accessToken || undefined}
+            portalAuth={mode === "auth"}
             orderId={orderId}
             initialSession={session}
             mode="customer"

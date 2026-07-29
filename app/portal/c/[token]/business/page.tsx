@@ -1,5 +1,10 @@
-import { CustomerPortalBusinessView } from "@/components/portal/customer-portal-business-view";
+import { redirect } from "next/navigation";
 
-export default function CustomerPortalBusinessPage() {
-  return <CustomerPortalBusinessView />;
+export default async function CustomerPortalTokenSectionRedirect({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}) {
+  const { token } = await params;
+  redirect(`/portal/c/${encodeURIComponent(token)}`);
 }

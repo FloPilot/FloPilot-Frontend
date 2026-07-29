@@ -44,6 +44,17 @@ import { cn } from "@/lib/utils";
 
 type View = "search" | "detail";
 
+export type AddSsBlankCatalogClient = {
+  search: (
+    query: string,
+    options: { brand?: string; limit?: number }
+  ) => Promise<{ results: SupplierStyleSummary[] }>;
+  listBrands: () => Promise<{ brands: SupplierBrand[] }>;
+  getStyleDetail: (
+    style: SupplierStyleSummary
+  ) => Promise<{ style: SupplierStyleDetail }>;
+};
+
 const QUICK_BRAND_HINTS_BY_PROVIDER: Record<SupplierProviderId, string[]> = {
   ssActivewear: [
     "Gildan",
@@ -156,6 +167,8 @@ export function AddSsBlankPanel({
   saving,
   provider = "ssActivewear",
   editItem,
+  catalogClient,
+  hidePricing = false,
 }: {
   lineItems: LineItem[];
   onAdd: (item: LineItem) => Promise<void>;
@@ -163,6 +176,10 @@ export function AddSsBlankPanel({
   provider?: SupplierProviderId;
   /** When set, opens directly on this style with color/qty prefilled for editing. */
   editItem?: LineItem | null;
+  /** When provided, use these portal/staff adapters instead of staff API helpers. */
+  catalogClient?: AddSsBlankCatalogClient;
+  /** Hide supplier piece prices (customer portal). */
+  hidePricing?: boolean;
 }) {
   const { getIdToken } = useAuth();
   const providerLabel = supplierProviderLabel(provider);
@@ -209,6 +226,11 @@ export function AddSsBlankPanel({
     async function loadBrands() {
       setLoadingBrands(true);
       try {
+        if (catalogClient) {
+          const { brands: next } = await catalogClient.listBrands();
+          if (!cancelled) setBrands(next);
+          return;
+        }
         const token = await getIdToken();
         if (!token || cancelled) return;
         const { brands: next } = await fetchSupplierBrands(token, provider);
@@ -224,7 +246,7 @@ export function AddSsBlankPanel({
     return () => {
       cancelled = true;
     };
-  }, [getIdToken, provider, view]);
+  }, [catalogClient, getIdToken, provider, view]);
 
   const shouldSearch = debouncedQuery.length >= 2 || Boolean(brandFilter);
 
@@ -241,6 +263,14 @@ export function AddSsBlankPanel({
       setSearching(true);
       setSearchError(null);
       try {
+        if (catalogClient) {
+          const { results: next } = await catalogClient.search(debouncedQuery, {
+            brand: brandFilter || undefined,
+            limit: 50,
+          });
+          if (!cancelled) setResults(next);
+          return;
+        }
         const token = await getIdToken();
         if (!token) return;
         const { results: next } = await searchSupplierCatalog(
@@ -269,7 +299,14 @@ export function AddSsBlankPanel({
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery, brandFilter, getIdToken, shouldSearch, provider]);
+  }, [
+    brandFilter,
+    catalogClient,
+    debouncedQuery,
+    getIdToken,
+    provider,
+    shouldSearch,
+  ]);
 
   const brandChipOptions = useMemo(() => {
     const normalized = debouncedQuery.toLowerCase();
@@ -334,13 +371,18 @@ export function AddSsBlankPanel({
       setSubmitError(null);
       setLoadingStyleKey(styleKey);
       try {
-        const token = await getIdToken();
-        if (!token) return;
-        const { style: detail } = await fetchSupplierStyleDetail(
-          token,
-          style,
-          provider
-        );
+        let detail: SupplierStyleDetail;
+        if (catalogClient) {
+          ({ style: detail } = await catalogClient.getStyleDetail(style));
+        } else {
+          const token = await getIdToken();
+          if (!token) return;
+          ({ style: detail } = await fetchSupplierStyleDetail(
+            token,
+            style,
+            provider
+          ));
+        }
         if (!detail.colors?.length) {
           throw new Error(
             `This style has no available colors on your ${providerLabel} account.`
@@ -398,7 +440,7 @@ export function AddSsBlankPanel({
         setLoadingStyleKey(null);
       }
     },
-    [getIdToken, provider, providerLabel]
+    [catalogClient, getIdToken, provider, providerLabel]
   );
 
   // Prefill edit mode from the existing line item.
@@ -412,15 +454,6 @@ export function AddSsBlankPanel({
       setEditBootstrapping(true);
       setDetailError(null);
       try {
-        const token = await getIdToken();
-        if (!token || cancelled) {
-          if (!cancelled && !token) {
-            setDetailError("Sign in again to load this blank.");
-            setView("search");
-          }
-          return;
-        }
-
         const prefix = provider === "sanMar" ? "sm:" : "ss:";
         const partNumber =
           editItem.supplierPartNumber?.trim() ||
@@ -447,11 +480,25 @@ export function AddSsBlankPanel({
         };
 
         setLoadingStyleKey(partNumber || String(editItem.supplierStyleId ?? ""));
-        const { style: detail } = await fetchSupplierStyleDetail(
-          token,
-          styleSummary,
-          provider
-        );
+
+        let detail: SupplierStyleDetail;
+        if (catalogClient) {
+          ({ style: detail } = await catalogClient.getStyleDetail(styleSummary));
+        } else {
+          const token = await getIdToken();
+          if (!token || cancelled) {
+            if (!cancelled && !token) {
+              setDetailError("Sign in again to load this blank.");
+              setView("search");
+            }
+            return;
+          }
+          ({ style: detail } = await fetchSupplierStyleDetail(
+            token,
+            styleSummary,
+            provider
+          ));
+        }
         if (cancelled) return;
 
         if (!detail.colors?.length) {
@@ -507,7 +554,7 @@ export function AddSsBlankPanel({
     return () => {
       cancelled = true;
     };
-  }, [editItem, getIdToken, provider, providerLabel]);
+  }, [catalogClient, editItem, getIdToken, provider, providerLabel]);
 
   useEffect(() => {
     if (!selectedColor) return;
@@ -1090,13 +1137,19 @@ export function AddSsBlankPanel({
             {selectedColor.colorName}
           </p>
           <p className="mt-0.5 text-[12px] text-[#616161]">
-            Standard {providerLabel} piece pricing ·{" "}
-            {selectedColor.totalQty.toLocaleString()} in stock across warehouses
+            {hidePricing
+              ? `${selectedColor.totalQty.toLocaleString()} in stock across warehouses`
+              : `Standard ${providerLabel} piece pricing · ${selectedColor.totalQty.toLocaleString()} in stock across warehouses`}
           </p>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-[13px]">
+          <table
+            className={cn(
+              "w-full text-[13px]",
+              hidePricing ? "min-w-[420px]" : "min-w-[640px]"
+            )}
+          >
             <thead>
               <tr className="border-b border-[#ebebeb] bg-[#fafafa]">
                 <th className="px-4 py-2.5 text-left font-medium text-[#616161]">
@@ -1108,15 +1161,24 @@ export function AddSsBlankPanel({
                 <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
                   Stock
                 </th>
-                <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
+                <th
+                  className={cn(
+                    "px-3 py-2.5 text-right font-medium text-[#616161]",
+                    hidePricing && "px-4"
+                  )}
+                >
                   {isEditMode ? "Qty" : "Add"}
                 </th>
-                <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
-                  Piece price
-                </th>
-                <th className="px-4 py-2.5 text-right font-medium text-[#616161]">
-                  Line total
-                </th>
+                {!hidePricing ? (
+                  <>
+                    <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
+                      Piece price
+                    </th>
+                    <th className="px-4 py-2.5 text-right font-medium text-[#616161]">
+                      Line total
+                    </th>
+                  </>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -1144,7 +1206,7 @@ export function AddSsBlankPanel({
                     >
                       {sku.qty.toLocaleString()}
                     </td>
-                    <td className="px-3 py-3">
+                    <td className={cn("px-3 py-3", hidePricing && "px-4")}>
                       <Input
                         type="number"
                         min={0}
@@ -1164,28 +1226,44 @@ export function AddSsBlankPanel({
                         className="ml-auto h-8 w-20 rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums"
                       />
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-[#616161]">
-                      {formatCurrency(price)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-medium tabular-nums text-[#303030]">
-                      {qty > 0 ? formatCurrency(qty * price) : "—"}
-                    </td>
+                    {!hidePricing ? (
+                      <>
+                        <td className="px-3 py-3 text-right tabular-nums text-[#616161]">
+                          {formatCurrency(price)}
+                        </td>
+                        <td className="px-4 py-3 text-right font-medium tabular-nums text-[#303030]">
+                          {qty > 0 ? formatCurrency(qty * price) : "—"}
+                        </td>
+                      </>
+                    ) : null}
                   </tr>
                 );
               })}
             </tbody>
             <tfoot>
               <tr className="bg-[#fafafa]">
-                <td
-                  colSpan={5}
-                  className="px-4 py-3 text-right text-[12px] font-medium text-[#616161]"
-                >
-                  {pieceCount} piece{pieceCount !== 1 ? "s" : ""}{" "}
-                  {isEditMode ? "on this blank" : "to add"}
-                </td>
-                <td className="px-4 py-3 text-right text-[13px] font-semibold tabular-nums text-[#303030]">
-                  {formatCurrency(orderTotal)}
-                </td>
+                {hidePricing ? (
+                  <td
+                    colSpan={4}
+                    className="px-4 py-3 text-right text-[12px] font-medium text-[#616161]"
+                  >
+                    {pieceCount} piece{pieceCount !== 1 ? "s" : ""}{" "}
+                    {isEditMode ? "on this blank" : "to add"}
+                  </td>
+                ) : (
+                  <>
+                    <td
+                      colSpan={5}
+                      className="px-4 py-3 text-right text-[12px] font-medium text-[#616161]"
+                    >
+                      {pieceCount} piece{pieceCount !== 1 ? "s" : ""}{" "}
+                      {isEditMode ? "on this blank" : "to add"}
+                    </td>
+                    <td className="px-4 py-3 text-right text-[13px] font-semibold tabular-nums text-[#303030]">
+                      {formatCurrency(orderTotal)}
+                    </td>
+                  </>
+                )}
               </tr>
             </tfoot>
           </table>

@@ -481,22 +481,55 @@ export function StoreCustomizeBuilder({
         <div className="min-h-[420px] overflow-y-auto bg-[#e8e8ea]">
           <div className="mx-auto max-w-[1100px] py-4 sm:py-6">
             <div className="overflow-hidden rounded-lg border border-[#d4d4d4] bg-white shadow-sm">
-              <div className="flex h-12 items-center justify-between border-b border-[#e3e3e3] px-4">
-                <div className="flex items-center gap-2">
-                  {store.logoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={store.logoUrl}
-                      alt=""
-                      className="h-7 w-auto object-contain"
-                    />
-                  ) : (
-                    <span className="text-[12px] font-semibold text-[#303030]">
+              <div className="flex h-12 items-center justify-between gap-3 border-b border-[#e3e3e3] px-4">
+                <div className="flex min-w-0 items-center gap-2">
+                  {theme.navigation?.logoMode === "none" ? null : (
+                    theme.navigation?.logoMode === "custom" &&
+                    theme.navigation.customLogoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={theme.navigation.customLogoUrl}
+                        alt=""
+                        className="h-7 w-auto object-contain"
+                      />
+                    ) : store.logoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={store.logoUrl}
+                        alt=""
+                        className="h-7 w-auto object-contain"
+                      />
+                    ) : (
+                      <span className="text-[12px] font-semibold text-[#303030]">
+                        {store.name}
+                      </span>
+                    )
+                  )}
+                  {theme.navigation?.showStoreName !== false &&
+                  (store.logoUrl ||
+                    theme.navigation?.logoMode === "custom" ||
+                    theme.navigation?.logoMode === "none") ? (
+                    <span className="truncate text-[12px] font-semibold text-[#303030]">
                       {store.name}
                     </span>
-                  )}
+                  ) : null}
                 </div>
-                <span className="text-[11px] text-[#8a8a8a]">Preview</span>
+                <div className="flex min-w-0 items-center gap-1 overflow-hidden">
+                  {(theme.navigation?.items || [])
+                    .filter((item) => item.enabled !== false)
+                    .slice(0, 4)
+                    .map((item) => (
+                      <span
+                        key={item.id}
+                        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium text-[#8a8a8a]"
+                      >
+                        {item.label}
+                      </span>
+                    ))}
+                  <span className="shrink-0 text-[11px] text-[#8a8a8a]">
+                    Preview
+                  </span>
+                </div>
               </div>
               {pageSections
                 .filter((section) => section.enabled)

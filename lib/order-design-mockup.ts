@@ -273,6 +273,27 @@ export class ArtworkLoadError extends Error {
   }
 }
 
+async function drawArtworkLayer(
+  ctx: CanvasRenderingContext2D,
+  size: number,
+  artworkUrl: string,
+  transform: DesignMockupTransform
+) {
+  const art = await loadImageElement(artworkUrl);
+  const boxW = size * transform.scale;
+  const aspect = art.height / Math.max(1, art.width);
+  const boxH = boxW * aspect;
+  const cx = size * transform.x;
+  const cy = size * transform.y;
+  const rotation = ((transform.rotation ?? 0) * Math.PI) / 180;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rotation);
+  ctx.drawImage(art, -boxW / 2, -boxH / 2, boxW, boxH);
+  ctx.restore();
+}
+
 export async function composeDesignMockup(options: {
   blankImageUrl?: string | null;
   blankColorHex: string;
@@ -282,6 +303,8 @@ export async function composeDesignMockup(options: {
   applyColorOverlay?: boolean;
   artworkUrl?: string | null;
   transform: DesignMockupTransform;
+  /** When set, paint these instead of the single artworkUrl (bottom → top). */
+  artworkLayers?: Array<{ url: string; transform: DesignMockupTransform }>;
   size?: number;
 }): Promise<string> {
   const size = options.size ?? DESIGN_CANVAS_SIZE;
@@ -293,27 +316,21 @@ export async function composeDesignMockup(options: {
 
   const stageMode = options.stageMode === "color" ? "color" : "garment";
   const applyOverlay = options.applyColorOverlay === true;
+  const layers =
+    options.artworkLayers && options.artworkLayers.length > 0
+      ? options.artworkLayers
+      : options.artworkUrl
+        ? [{ url: options.artworkUrl, transform: options.transform }]
+        : [];
 
   // Color backdrop: solid garment color — for neck labels, tags, etc.
   if (stageMode === "color") {
     ctx.fillStyle = options.blankColorHex || DEFAULT_STAGE_BACKGROUND;
     ctx.fillRect(0, 0, size, size);
 
-    if (options.artworkUrl) {
+    for (const layer of layers) {
       try {
-        const art = await loadImageElement(options.artworkUrl);
-        const boxW = size * options.transform.scale;
-        const aspect = art.height / Math.max(1, art.width);
-        const boxH = boxW * aspect;
-        const cx = size * options.transform.x;
-        const cy = size * options.transform.y;
-        const rotation = ((options.transform.rotation ?? 0) * Math.PI) / 180;
-
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate(rotation);
-        ctx.drawImage(art, -boxW / 2, -boxH / 2, boxW, boxH);
-        ctx.restore();
+        await drawArtworkLayer(ctx, size, layer.url, layer.transform);
       } catch {
         throw new ArtworkLoadError();
       }
@@ -359,21 +376,9 @@ export async function composeDesignMockup(options: {
     drawShirtSilhouette(ctx, size, options.blankColorHex);
   }
 
-  if (options.artworkUrl) {
+  for (const layer of layers) {
     try {
-      const art = await loadImageElement(options.artworkUrl);
-      const boxW = size * options.transform.scale;
-      const aspect = art.height / Math.max(1, art.width);
-      const boxH = boxW * aspect;
-      const cx = size * options.transform.x;
-      const cy = size * options.transform.y;
-      const rotation = ((options.transform.rotation ?? 0) * Math.PI) / 180;
-
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(rotation);
-      ctx.drawImage(art, -boxW / 2, -boxH / 2, boxW, boxH);
-      ctx.restore();
+      await drawArtworkLayer(ctx, size, layer.url, layer.transform);
     } catch {
       throw new ArtworkLoadError();
     }
@@ -461,6 +466,7 @@ export function seedMockupFromExisting(
       options.blankView ?? normalizeGarmentBlankView(existing?.blankView),
     blankImageUrl: options.blankImageUrl ?? existing?.blankImageUrl,
     blankColorHex: options.blankColorHex,
+    artLayers: existing?.artLayers,
     artworkUrl: existing?.artworkUrl,
     artworkCleanUrl: existing?.artworkCleanUrl,
     backgroundRemoved: existing?.backgroundRemoved,

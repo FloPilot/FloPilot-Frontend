@@ -60,6 +60,7 @@ export function CustomerReviewFlow({
   orderId,
   initialSession = null,
   mode = "customer",
+  portalAuth = false,
   embedded = false,
   hideHeader = false,
   onSessionChange,
@@ -69,12 +70,15 @@ export function CustomerReviewFlow({
   orderId?: string;
   initialSession?: CustomerReviewSession | null;
   mode?: "customer" | "preview";
+  /** When true, portalToken is a Firebase ID token (authenticated portal). */
+  portalAuth?: boolean;
   embedded?: boolean;
   hideHeader?: boolean;
   onSessionChange?: (session: CustomerReviewSession) => void;
 }) {
   const isPreview = mode === "preview";
   const isPortal = Boolean(portalToken && orderId);
+  const portalFetchMode = portalAuth ? "auth" : "invite";
   useLockDocumentScroll(!embedded);
   const searchParams = useSearchParams();
   const [session, setSession] = useState<CustomerReviewSession | null>(
@@ -95,7 +99,9 @@ export function CustomerReviewFlow({
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchCustomerPortalOrder(portalToken, orderId);
+        const data = await fetchCustomerPortalOrder(portalToken, orderId, {
+          mode: portalFetchMode,
+        });
         setSession(data);
       } catch (err) {
         setError(
@@ -120,7 +126,7 @@ export function CustomerReviewFlow({
     } finally {
       setLoading(false);
     }
-  }, [isPortal, portalToken, orderId, token]);
+  }, [isPortal, portalToken, orderId, token, portalFetchMode]);
 
   useEffect(() => {
     if (initialSession) {
@@ -178,7 +184,8 @@ export function CustomerReviewFlow({
         const { order } = await submitCustomerPortalAction(
           portalToken,
           orderId,
-          body
+          body,
+          { mode: portalFetchMode }
         );
         applySession(order);
         showToast("Saved — thank you!");
@@ -225,10 +232,11 @@ export function CustomerReviewFlow({
 
     if (isPortal && portalToken && orderId) {
       const { order } = await submitCustomerPortalAction(
-        portalToken,
-        orderId,
-        body
-      );
+          portalToken,
+          orderId,
+          body,
+          { mode: portalFetchMode }
+        );
       applySession(order);
       showToast("Message sent!");
       return;
@@ -251,10 +259,11 @@ export function CustomerReviewFlow({
 
     if (isPortal && portalToken && orderId) {
       const { order } = await submitCustomerPortalAction(
-        portalToken,
-        orderId,
-        body
-      );
+          portalToken,
+          orderId,
+          body,
+          { mode: portalFetchMode }
+        );
       applySession(order);
       showToast("Message sent!");
       return;

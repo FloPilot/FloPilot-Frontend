@@ -444,7 +444,12 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
             <OrderMaterialsPanel order={order} section="inks" />
           ) : null}
 
-          {activeTab === "design" ? <OrderDesignStudioTab order={order} /> : null}
+          {activeTab === "design" ? (
+            <OrderDesignStudioTab
+              order={order}
+              onRequestAddBlank={() => setActiveTab("blanks")}
+            />
+          ) : null}
 
           {activeTab === "proof" ? (
             <div className="space-y-4">

@@ -13,6 +13,7 @@ import {
   Link2,
   ListOrdered,
   Loader2,
+  Menu,
   Package,
   Plus,
   Settings2,
@@ -22,8 +23,9 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { StoreCollectionsPanel } from "@/components/stores/store-collections-panel";
 import { StoreConvertSubmissionDialog } from "@/components/stores/store-convert-submission-dialog";
 import { StoreCustomizeBuilder } from "@/components/stores/store-customize-builder";
+import { StoreNavigationPanel } from "@/components/stores/store-navigation-panel";
 import { StorePagesPanel } from "@/components/stores/store-pages-panel";
-import { StoreProductDialog } from "@/components/stores/store-product-dialog";
+import { StoreProductEditor } from "@/components/stores/store-product-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,12 +44,15 @@ import {
 } from "@/lib/client-store-theme";
 import {
   clientStoreStatusLabel,
+  computeClientStoreEconomics,
+  getEnabledColorVariants,
   getPrimaryMockupUrl,
   resolveClientStoreShareUrl,
   type ClientStore,
   type ClientStoreProduct,
   type ClientStoreSubmission,
 } from "@/lib/client-stores";
+import { supplierProviderLabel } from "@/lib/supplier-integrations";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -68,6 +73,7 @@ type EditorTab =
   | "products"
   | "collections"
   | "pages"
+  | "navigation"
   | "customize"
   | "share"
   | "orders";
@@ -391,6 +397,14 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       icon: Layers,
     },
     { id: "pages", label: `Pages (${theme.pages.length})`, icon: FileText },
+    {
+      id: "navigation",
+      label: `Navigation (${
+        theme.navigation?.items?.length ||
+        theme.pages.filter((p) => p.enabled && p.handle !== "product").length
+      })`,
+      icon: Menu,
+    },
     { id: "customize", label: "Customize", icon: LayoutTemplate },
     { id: "share", label: "Share", icon: Link2 },
     {
@@ -580,106 +594,247 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       ) : null}
 
       {tab === "products" ? (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[13px] font-semibold text-[#303030]">
-                Catalog
-              </p>
-              <p className="text-[12px] text-[#8a8a8a]">
-                Add blanks from suppliers or create manual products with mockups
-                and markup.
-              </p>
+        productOpen ? (
+          <StoreProductEditor
+            key={editingProduct?.id ?? "new-product"}
+            product={editingProduct}
+            collections={theme.collections || []}
+            onOpenCollections={() => {
+              setProductOpen(false);
+              setEditingProduct(null);
+              setTab("collections");
+            }}
+            onBack={() => {
+              setProductOpen(false);
+              setEditingProduct(null);
+            }}
+            onSave={async (product) => {
+              const products = [...(store.products || [])];
+              const index = products.findIndex((row) => row.id === product.id);
+              if (index >= 0) products[index] = product;
+              else products.push(product);
+              await saveProducts(products);
+              setProductOpen(false);
+              setEditingProduct(null);
+            }}
+            onDelete={
+              editingProduct
+                ? async () => {
+                    if (
+                      !window.confirm(
+                        `Remove “${editingProduct.name}” from this store?`
+                      )
+                    ) {
+                      return;
+                    }
+                    const products = (store.products || []).filter(
+                      (row) => row.id !== editingProduct.id
+                    );
+                    await saveProducts(products);
+                    setProductOpen(false);
+                    setEditingProduct(null);
+                  }
+                : undefined
+            }
+          />
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[13px] font-semibold text-[#303030]">
+                  Catalog
+                </p>
+                <p className="text-[12px] text-[#8a8a8a]">
+                  Add blanks from suppliers or create manual products with
+                  mockups and markup.
+                </p>
+              </div>
+              <Button
+                type="button"
+                className={dashboardPrimaryButtonClass}
+                onClick={() => {
+                  setEditingProduct(null);
+                  setProductOpen(true);
+                }}
+              >
+                <Plus className="size-4" />
+                Add product
+              </Button>
             </div>
-            <Button
-              type="button"
-              className={dashboardPrimaryButtonClass}
-              onClick={() => {
-                setEditingProduct(null);
-                setProductOpen(true);
-              }}
-            >
-              <Plus className="size-4" />
-              Add product
-            </Button>
-          </div>
 
-          {(store.products || []).length === 0 ? (
-            <div className={cn(dashboardCardClass, "px-6 py-14 text-center")}>
-              <p className="text-[15px] font-semibold text-[#303030]">
-                No products yet
-              </p>
-              <p className="mt-1 text-[13px] text-[#616161]">
-                Add the tees, hoodies, and hats this client’s team can order.
-              </p>
-            </div>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2">
-              {(store.products || [])
-                .slice()
-                .sort((a, b) => a.sortOrder - b.sortOrder)
-                .map((product) => (
-                  <button
-                    key={product.id}
-                    type="button"
-                    onClick={() => {
-                      setEditingProduct(product);
-                      setProductOpen(true);
-                    }}
-                    className={cn(
-                      dashboardCardClass,
-                      "flex gap-3 p-3 text-left transition-colors hover:border-[#c9cccf]"
-                    )}
-                  >
-                    <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#ebebeb] bg-[#fafafa] p-1.5">
-                      {getPrimaryMockupUrl(product) ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={getPrimaryMockupUrl(product)}
-                          alt=""
-                          className="size-full object-contain"
-                        />
-                      ) : (
-                        <span className="px-2 text-center text-[10px] text-[#8a8a8a]">
-                          No mockup
-                        </span>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-semibold text-[#303030]">
-                        {product.name}
-                      </p>
-                      <p className="mt-0.5 truncate text-[12px] text-[#8a8a8a]">
-                        {[product.brand, product.color].filter(Boolean).join(" · ") ||
-                          "Custom product"}
-                      </p>
-                      <p className="mt-2 text-[13px] font-semibold tabular-nums text-[#303030]">
-                        {formatCurrency(product.sellPrice)}
-                      </p>
-                      <p className="text-[11px] text-[#8a8a8a]">
-                        {product.sellPriceMode === "fixed"
-                          ? "Fixed price"
-                          : `${product.markupPercent}% markup · blank ${formatCurrency(product.blankCost)}`}
-                        {!product.enabled ? " · Hidden" : ""}
-                      </p>
-                      {(product.tags || []).length > 0 ? (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {(product.tags || []).slice(0, 3).map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded-md bg-[#f1f1f1] px-1.5 py-0.5 text-[10px] font-medium text-[#616161]"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  </button>
-                ))}
-            </div>
-          )}
-        </div>
+            {(store.products || []).length === 0 ? (
+              <div className={cn(dashboardCardClass, "px-6 py-14 text-center")}>
+                <p className="text-[15px] font-semibold text-[#303030]">
+                  No products yet
+                </p>
+                <p className="mt-1 text-[13px] text-[#616161]">
+                  Add the tees, hoodies, and hats this client’s team can order.
+                </p>
+              </div>
+            ) : (
+              <div className={cn(dashboardCardClass, "overflow-x-auto")}>
+                <table className="w-full min-w-[760px] text-left">
+                  <thead>
+                    <tr className="border-b border-[#ebebeb] bg-[#fafafa]">
+                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:px-5">
+                        Product
+                      </th>
+                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                        Status
+                      </th>
+                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                        Price
+                      </th>
+                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                        Profit
+                      </th>
+                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                        Variants
+                      </th>
+                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                        Product type
+                      </th>
+                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                        Vendor
+                      </th>
+                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:px-5">
+                        Supplier
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#ebebeb]">
+                    {(store.products || [])
+                      .slice()
+                      .sort((a, b) => a.sortOrder - b.sortOrder)
+                      .map((product) => {
+                        const colorCount =
+                          getEnabledColorVariants(product).length;
+                        const sizeCount = (product.sizes || []).filter(
+                          (row) => row.enabled
+                        ).length;
+                        const economics = computeClientStoreEconomics(product);
+                        return (
+                          <tr
+                            key={product.id}
+                            onClick={() => {
+                              setEditingProduct(product);
+                              setProductOpen(true);
+                            }}
+                            className="cursor-pointer bg-white transition-colors hover:bg-[#fafafa]"
+                          >
+                            <td className="px-4 py-3 sm:px-5">
+                              <div className="flex items-center gap-3">
+                                <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#ebebeb] bg-[#fafafa] p-0.5">
+                                  {getPrimaryMockupUrl(product) ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img
+                                      src={getPrimaryMockupUrl(product)}
+                                      alt=""
+                                      className="size-full object-contain"
+                                    />
+                                  ) : (
+                                    <Package className="size-4 text-[#c0c0c4]" />
+                                  )}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="max-w-[260px] truncate text-[13px] font-medium text-[#303030]">
+                                    {product.name}
+                                  </p>
+                                  <p className="max-w-[260px] truncate text-[11px] text-[#8a8a8a]">
+                                    {product.color || "—"}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span
+                                className={cn(
+                                  "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                                  product.enabled
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : "bg-[#eef3fb] text-[#2c6ecb]"
+                                )}
+                              >
+                                {product.enabled ? "Active" : "Draft"}
+                              </span>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-3">
+                              <p className="text-[13px] font-medium tabular-nums text-[#303030]">
+                                {formatCurrency(economics.sellPrice)}
+                              </p>
+                              <p className="text-[11px] text-[#8a8a8a]">
+                                {product.sellPriceMode === "fixed"
+                                  ? "Fixed"
+                                  : `${product.markupPercent}% markup`}
+                              </p>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-3">
+                              <p
+                                className={cn(
+                                  "text-[13px] font-medium tabular-nums",
+                                  economics.profit > 0
+                                    ? "text-emerald-700"
+                                    : economics.profit < 0
+                                      ? "text-red-700"
+                                      : "text-[#303030]"
+                                )}
+                              >
+                                {formatCurrency(economics.profit)}
+                              </p>
+                              <p className="text-[11px] text-[#8a8a8a]">
+                                {economics.marginPercent}% margin
+                              </p>
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-3 text-[12px] text-[#616161]">
+                              {colorCount > 0
+                                ? `${colorCount} color${colorCount === 1 ? "" : "s"}`
+                                : "—"}
+                              {sizeCount > 0
+                                ? ` · ${sizeCount} size${sizeCount === 1 ? "" : "s"}`
+                                : ""}
+                            </td>
+                            <td className="px-3 py-3">
+                              {(product.tags || []).length > 0 ? (
+                                <div className="flex flex-wrap gap-1">
+                                  {(product.tags || [])
+                                    .slice(0, 2)
+                                    .map((tag) => (
+                                      <span
+                                        key={tag}
+                                        className="rounded-md bg-[#f1f1f1] px-1.5 py-0.5 text-[10px] font-medium text-[#616161]"
+                                      >
+                                        {tag}
+                                      </span>
+                                    ))}
+                                  {(product.tags || []).length > 2 ? (
+                                    <span className="text-[10px] text-[#8a8a8a]">
+                                      +{(product.tags || []).length - 2}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                <span className="text-[12px] text-[#8a8a8a]">
+                                  —
+                                </span>
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-3 text-[12px] text-[#616161]">
+                              {product.brand || "—"}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-[12px] text-[#616161] sm:px-5">
+                              {product.supplier
+                                ? supplierProviderLabel(product.supplier)
+                                : "Manual"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )
       ) : null}
 
       {tab === "collections" ? (
@@ -700,6 +855,17 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
             setActivePageId(pageId);
             setTab("customize");
           }}
+          onSave={() => void saveCustomize()}
+          saving={saving}
+        />
+      ) : null}
+
+      {tab === "navigation" ? (
+        <StoreNavigationPanel
+          theme={theme}
+          storeName={store.name}
+          logoUrl={store.logoUrl}
+          onThemeChange={setTheme}
           onSave={() => void saveCustomize()}
           saving={saving}
         />
@@ -1081,31 +1247,6 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
           );
           setConvertSubmission(null);
         }}
-      />
-
-      <StoreProductDialog
-        open={productOpen}
-        onOpenChange={setProductOpen}
-        product={editingProduct}
-        onSave={async (product) => {
-          const products = [...(store.products || [])];
-          const index = products.findIndex((row) => row.id === product.id);
-          if (index >= 0) products[index] = product;
-          else products.push(product);
-          await saveProducts(products);
-          setProductOpen(false);
-        }}
-        onDelete={
-          editingProduct
-            ? async () => {
-                const products = (store.products || []).filter(
-                  (row) => row.id !== editingProduct.id
-                );
-                await saveProducts(products);
-                setProductOpen(false);
-              }
-            : undefined
-        }
       />
 
       {publishSuccess && shareUrl ? (

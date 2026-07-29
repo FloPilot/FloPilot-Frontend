@@ -39,6 +39,10 @@ export function LoginForm() {
           router.push(next);
           return;
         }
+        if (me?.type === "portal") {
+          router.push("/portal/app");
+          return;
+        }
         router.push("/register-shop");
         return;
       }
@@ -53,6 +57,11 @@ export function LoginForm() {
 
       if (me.type === "staff") {
         router.push(next);
+        return;
+      }
+
+      if (me.type === "portal") {
+        router.push("/portal/app");
         return;
       }
 

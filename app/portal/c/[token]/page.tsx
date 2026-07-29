@@ -1,5 +1,10 @@
-import { CustomerPortalDashboardView } from "@/components/portal/customer-portal-dashboard";
+import { PortalClaimPageClient } from "@/components/portal/portal-claim-page-client";
 
-export default function CustomerPortalDashboardPage() {
-  return <CustomerPortalDashboardView />;
+export default async function CustomerPortalInvitePage({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}) {
+  const { token } = await params;
+  return <PortalClaimPageClient token={decodeURIComponent(token)} />;
 }

@@ -9,6 +9,11 @@ import {
   Upload,
   Wand2,
 } from "lucide-react";
+import { DesignStudioBlankRequired } from "@/components/design-studio/design-studio-blank-required";
+import {
+  DesignStudioLayersPanel,
+  type DesignStudioLayerRow,
+} from "@/components/design-studio/design-studio-layers-panel";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -30,6 +35,16 @@ import {
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
+import {
+  activeLayerUrl,
+  artLayersCacheFingerprint,
+  artLayersForCompose,
+  createArtLayer,
+  normalizeArtLayers,
+  syncPrimaryFromLayers,
+  updateLayerTransform,
+  type DesignMockupArtLayer,
+} from "@/lib/design-studio-layers";
 import {
   composedPreviewCacheKey,
   garmentFingerprint,
@@ -84,9 +99,38 @@ function imprintTitle(imprint: JobImprint): string {
   return imprint.customLabel?.trim() || imprint.label;
 }
 
-export function OrderDesignStudioTab({ order }: { order: Order }) {
+export function OrderDesignStudioTab({
+  order,
+  onRequestAddBlank,
+  onSave,
+  persistBlankImages = true,
+  canSave = true,
+  messages,
+  blankContextLabel = "order",
+  addBlankLabel = "Add a blank to this order",
+}: {
+  order: Order;
+  onRequestAddBlank?: () => void;
+  onSave?: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    designMockup: OrderDesignMockup,
+    options?: { attachToProof?: boolean; proofLabel?: string }
+  ) => Promise<Order | void>;
+  /** When false, resolved vendor blank URLs stay local (order-request mode). */
+  persistBlankImages?: boolean;
+  canSave?: boolean;
+  messages?: {
+    saved?: string;
+    attached?: string;
+  };
+  blankContextLabel?: string;
+  addBlankLabel?: string;
+}) {
   const { settings } = useShopSettings();
   const { updateImprintDesignMockup } = useSchedule();
+  const saveHandler = onSave ?? updateImprintDesignMockup;
   const entries = useMemo(() => listDesignableImprints(order), [order]);
   const placements = useMemo(
     () => getDesignPlacementPresets(settings.productionDefaults),
@@ -112,6 +156,16 @@ export function OrderDesignStudioTab({ order }: { order: Order }) {
   const handleEditorReady = useCallback(() => {
     setIsSwitching(false);
   }, []);
+
+  if (order.lineItems.length === 0) {
+    return (
+      <DesignStudioBlankRequired
+        contextLabel={blankContextLabel}
+        addBlankLabel={addBlankLabel}
+        onAddBlank={onRequestAddBlank}
+      />
+    );
+  }
 
   if (entries.length === 0) {
     return (
@@ -188,7 +242,10 @@ export function OrderDesignStudioTab({ order }: { order: Order }) {
           job={selected.job}
           imprint={selected.imprint}
           placements={placements}
-          onSave={updateImprintDesignMockup}
+          onSave={saveHandler}
+          persistBlankImages={persistBlankImages}
+          canSave={canSave}
+          messages={messages}
           onReady={handleEditorReady}
         />
       </div>
@@ -202,6 +259,9 @@ function DesignMockupEditor({
   imprint,
   placements,
   onSave,
+  persistBlankImages = true,
+  canSave = true,
+  messages,
   onReady,
 }: {
   order: Order;
@@ -214,7 +274,13 @@ function DesignMockupEditor({
     imprintId: string,
     designMockup: OrderDesignMockup,
     options?: { attachToProof?: boolean; proofLabel?: string }
-  ) => Promise<Order>;
+  ) => Promise<Order | void>;
+  persistBlankImages?: boolean;
+  canSave?: boolean;
+  messages?: {
+    saved?: string;
+    attached?: string;
+  };
   onReady?: () => void;
 }) {
   const { getIdToken } = useAuth();
@@ -295,29 +361,30 @@ function DesignMockupEditor({
   const [blankLoading, setBlankLoading] = useState(
     needsVendorResolve && !cachedBlank?.imageUrl
   );
-  const [artworkUrl, setArtworkUrl] = useState(
-    imprint.designMockup?.artworkUrl
+  const [artLayers, setArtLayers] = useState<DesignMockupArtLayer[]>(() =>
+    normalizeArtLayers(imprint.designMockup)
   );
-  const [artworkCleanUrl, setArtworkCleanUrl] = useState(
-    imprint.designMockup?.artworkCleanUrl
-  );
-  const [backgroundRemoved, setBackgroundRemoved] = useState(
-    imprint.designMockup?.backgroundRemoved === true
-  );
-  const [transform, setTransform] = useState<DesignMockupTransform>(() => {
-    if (imprint.designMockup?.transform) return imprint.designMockup.transform;
-    if (
-      (imprint.designMockup?.stageMode ??
-        defaultStageMode(imprint.locationKey || preset?.locationKey)) ===
-      "color"
-    ) {
-      return defaultColorStageTransform();
-    }
-    return activePreset ? transformFromPreset(activePreset) : defaultTransform();
+  const [selectedLayerId, setSelectedLayerId] = useState<string | null>(() => {
+    const layers = normalizeArtLayers(imprint.designMockup);
+    return layers[layers.length - 1]?.id ?? null;
   });
-  const activeArtUrlSeed = backgroundRemoved
-    ? artworkCleanUrl || artworkUrl
-    : artworkUrl;
+  const selectedLayer =
+    artLayers.find((layer) => layer.id === selectedLayerId) ??
+    artLayers[artLayers.length - 1];
+  const transform =
+    selectedLayer?.transform ??
+    (imprint.designMockup?.stageMode === "color" ||
+    (!imprint.designMockup?.transform &&
+      defaultStageMode(imprint.locationKey || preset?.locationKey) === "color")
+      ? defaultColorStageTransform()
+      : activePreset
+        ? transformFromPreset(activePreset)
+        : defaultTransform());
+  const primaryArt = syncPrimaryFromLayers(artLayers);
+  const artworkUrl = primaryArt.artworkUrl;
+  const activeArtUrlSeed = activeLayerUrl(selectedLayer) ?? artworkUrl;
+  const composeLayers = artLayersForCompose(artLayers);
+  const artLayersKey = artLayersCacheFingerprint(artLayers);
   const initialBlankForCompose = isColorStage
     ? undefined
     : cachedBlank?.imageUrl ??
@@ -325,7 +392,7 @@ function DesignMockupEditor({
       (blankView === "front" ? lineItem?.imageUrl : undefined);
   const initialComposedPreview =
     savedComposedPreviewUrl ??
-    (initialBlankForCompose
+    (initialBlankForCompose || isColorStage
       ? readComposedCache(
           composedPreviewCacheKey({
             orderId: order.id,
@@ -335,7 +402,8 @@ function DesignMockupEditor({
             blankImageUrl: initialBlankForCompose,
             blankColorHex,
             artworkUrl: activeArtUrlSeed,
-            transform,
+            transform: selectedLayer?.transform ?? transform,
+            artLayersKey,
           })
         )
       : undefined);
@@ -378,9 +446,26 @@ function DesignMockupEditor({
   const blankLoadEpochRef = useRef(0);
   const readyNotifiedRef = useRef(false);
 
-  const activeArtUrl = backgroundRemoved
-    ? artworkCleanUrl || artworkUrl
-    : artworkUrl;
+  const activeArtUrl = activeLayerUrl(selectedLayer);
+  const hasArtwork = composeLayers.length > 0;
+
+  const patchSelectedTransform = (
+    patch:
+      | Partial<DesignMockupTransform>
+      | ((current: DesignMockupTransform) => DesignMockupTransform)
+  ) => {
+    if (!selectedLayer) return;
+    setArtLayers((layers) => {
+      const current = layers.find((layer) => layer.id === selectedLayer.id);
+      if (!current) return layers;
+      const nextTransform =
+        typeof patch === "function" ? patch(current.transform) : {
+          ...current.transform,
+          ...patch,
+        };
+      return updateLayerTransform(layers, selectedLayer.id, nextTransform);
+    });
+  };
 
   const isStageLoading =
     blankLoading || !stageReady || (previewComposing && !previewUrl);
@@ -470,6 +555,7 @@ function DesignMockupEditor({
             applyBlank(resolved, false);
 
             if (
+              persistBlankImages &&
               view === "front" &&
               !lineItem.imageUrl &&
               resolved.imageUrl
@@ -561,6 +647,7 @@ function DesignMockupEditor({
     order.id,
     savedMockupStale,
     updateOrderLineItem,
+    persistBlankImages,
   ]);
 
   useEffect(() => {
@@ -576,6 +663,7 @@ function DesignMockupEditor({
       blankColorHex,
       artworkUrl: activeArtUrl,
       transform,
+      artLayersKey,
     });
 
     const cachedPreview = readComposedCache(cacheKey);
@@ -597,6 +685,7 @@ function DesignMockupEditor({
           applyColorOverlay: false,
           artworkUrl: activeArtUrl,
           transform,
+          artworkLayers: artLayersForCompose(artLayers),
         });
         if (cancelled) return;
         writeComposedCache(cacheKey, composed);
@@ -609,7 +698,7 @@ function DesignMockupEditor({
         // stored mockup instead so the work stays visible and editable.
         const saved = imprint.designMockup?.composedPreviewUrl;
         if (saved) setPreviewUrl((current) => current ?? saved);
-        if (err instanceof ArtworkLoadError && activeArtUrl) {
+        if (err instanceof ArtworkLoadError && hasArtwork) {
           setError("Could not load this design's artwork. Re-upload it to keep editing.");
         }
         setPreviewComposing(false);
@@ -630,6 +719,9 @@ function DesignMockupEditor({
     stageMode,
     activeArtUrl,
     transform,
+    artLayersKey,
+    artLayers,
+    hasArtwork,
     order.id,
     lineItem?.id,
   ]);
@@ -659,7 +751,9 @@ function DesignMockupEditor({
   const applyPreset = (nextPlacementId: string) => {
     setPlacementId(nextPlacementId);
     const next = placements.find((entry) => entry.id === nextPlacementId);
-    if (next && !isColorStage) setTransform(transformFromPreset(next));
+    if (next && !isColorStage) {
+      patchSelectedTransform(transformFromPreset(next));
+    }
   };
 
   const switchStageMode = (mode: DesignMockupStageMode) => {
@@ -672,11 +766,11 @@ function DesignMockupEditor({
     if (mode === "color") {
       setBlankLoading(false);
       setBlankIsVendorPhoto(false);
-      if (!artworkUrl) setTransform(defaultColorStageTransform());
+      if (!hasArtwork) patchSelectedTransform(defaultColorStageTransform());
     } else {
       manualBlankOverrideRef.current = false;
-      if (!artworkUrl && activePreset) {
-        setTransform(transformFromPreset(activePreset));
+      if (!hasArtwork && activePreset) {
+        patchSelectedTransform(transformFromPreset(activePreset));
       }
       // blank effect will fetch the garment photo
       setBlankLoading(true);
@@ -741,11 +835,21 @@ function DesignMockupEditor({
       if (!dataUrl.previewUrl) {
         throw new Error(dataUrl.error || "Could not read artwork");
       }
-      setArtworkUrl(dataUrl.previewUrl);
-      setArtworkCleanUrl(undefined);
-      setBackgroundRemoved(false);
+      const baseTransform =
+        isColorStage
+          ? defaultColorStageTransform()
+          : activePreset
+            ? transformFromPreset(activePreset)
+            : defaultTransform();
+      const layer = createArtLayer(
+        dataUrl.previewUrl,
+        baseTransform,
+        `Artwork ${artLayers.length + 1}`
+      );
+      setArtLayers((current) => [...current, layer]);
+      setSelectedLayerId(layer.id);
       setMessage(
-        "Artwork added. You can remove the background, then save the mockup."
+        "Artwork layer added. Select it in Layers to move or delete it, then save."
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not upload artwork");
@@ -785,13 +889,22 @@ function DesignMockupEditor({
   };
 
   const handleRemoveBackground = async () => {
-    if (!artworkUrl) return;
+    if (!selectedLayer) return;
     setBusy("Removing background…");
     setError(null);
     try {
-      const cleaned = await removeImageBackground(artworkUrl);
-      setArtworkCleanUrl(cleaned);
-      setBackgroundRemoved(true);
+      const cleaned = await removeImageBackground(selectedLayer.url);
+      setArtLayers((layers) =>
+        layers.map((layer) =>
+          layer.id === selectedLayer.id
+            ? {
+                ...layer,
+                cleanUrl: cleaned,
+                backgroundRemoved: true,
+              }
+            : layer
+        )
+      );
       setMessage("Background removed — art sits cleanly on the garment.");
     } catch (err) {
       setError(
@@ -802,8 +915,45 @@ function DesignMockupEditor({
     }
   };
 
+  const handleDeleteLayer = (layerId: string) => {
+    setArtLayers((layers) => {
+      const next = layers.filter((layer) => layer.id !== layerId);
+      const nextSelected =
+        selectedLayerId === layerId
+          ? next[next.length - 1]?.id ?? null
+          : selectedLayerId;
+      setSelectedLayerId(nextSelected);
+      return next;
+    });
+    setMessage("Artwork layer removed.");
+  };
+
+  const layerRows: DesignStudioLayerRow[] = [
+    {
+      id: "blank-base",
+      kind: "blank",
+      label: lineItem ? formatBlankLabel(lineItem) : "Blank",
+      detail: isColorStage
+        ? "Color backdrop"
+        : blankIsVendorPhoto
+          ? `${garmentBlankViewLabel(blankView)} vendor photo`
+          : "Garment base",
+      thumbUrl: isColorStage ? undefined : blankImageUrl,
+      thumbColor: blankColorHex,
+      locked: true,
+    },
+    ...artLayers.map((layer, index) => ({
+      id: layer.id,
+      kind: "artwork" as const,
+      label: layer.label || `Artwork ${index + 1}`,
+      detail: layer.backgroundRemoved ? "Background removed" : "Artwork layer",
+      thumbUrl: activeLayerUrl(layer),
+    })),
+  ];
+
   const buildPayload = (): OrderDesignMockup => {
     const existing = imprint.designMockup;
+    const primary = syncPrimaryFromLayers(artLayers);
     return {
       ...seedMockupFromExisting(existing, {
         lineItemId: lineItem?.id,
@@ -812,22 +962,27 @@ function DesignMockupEditor({
         blankColorHex,
         blankImageUrl: isColorStage ? undefined : blankImageUrl,
         locationKey: imprint.locationKey,
-        transform,
+        transform: primary.transform,
         placementPresetId: activePreset?.id,
       }),
       id: existing?.id ?? createDesignMockupId(),
       stageMode,
       blankView,
       garmentKey: lineItem ? garmentFingerprint(lineItem) : undefined,
-      artworkUrl,
-      artworkCleanUrl,
-      backgroundRemoved,
+      artLayers,
+      artworkUrl: primary.artworkUrl,
+      artworkCleanUrl: primary.artworkCleanUrl,
+      backgroundRemoved: primary.backgroundRemoved,
       composedPreviewUrl: previewUrl,
       updatedAt: new Date().toISOString(),
     };
   };
 
   const handleSave = async (attachToProof: boolean) => {
+    if (!canSave) {
+      setError("This request can’t be edited right now.");
+      return;
+    }
     if (!previewUrl) {
       setError("Wait for the preview to finish rendering.");
       return;
@@ -842,8 +997,9 @@ function DesignMockupEditor({
       });
       setMessage(
         attachToProof
-          ? "Mockup saved and attached to the Proofs tab for this event."
-          : "Mockup saved on this event."
+          ? messages?.attached ||
+              "Mockup saved and attached to the Proofs tab for this event."
+          : messages?.saved || "Mockup saved on this event."
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save mockup");
@@ -870,11 +1026,10 @@ function DesignMockupEditor({
     const rect = event.currentTarget.getBoundingClientRect();
     const dx = (event.clientX - dragRef.current.startX) / rect.width;
     const dy = (event.clientY - dragRef.current.startY) / rect.height;
-    setTransform((current) => ({
-      ...current,
-      x: Math.max(0.08, Math.min(0.92, dragRef.current!.originX + dx)),
-      y: Math.max(0.08, Math.min(0.92, dragRef.current!.originY + dy)),
-    }));
+    patchSelectedTransform({
+      x: Math.max(0.08, Math.min(0.92, dragRef.current.originX + dx)),
+      y: Math.max(0.08, Math.min(0.92, dragRef.current.originY + dy)),
+    });
   };
 
   const onPointerUp = () => {
@@ -895,7 +1050,7 @@ function DesignMockupEditor({
             type="button"
             variant="outline"
             className={cn(dashboardControlClass, "h-9")}
-            disabled={Boolean(busy)}
+            disabled={Boolean(busy) || !canSave}
             onClick={() => handleSave(false)}
           >
             {busy?.startsWith("Saving mockup") ? (
@@ -906,7 +1061,7 @@ function DesignMockupEditor({
           <Button
             type="button"
             className={cn(dashboardPrimaryButtonClass, "h-9")}
-            disabled={Boolean(busy) || !previewUrl}
+            disabled={Boolean(busy) || !previewUrl || !canSave}
             onClick={() => handleSave(true)}
           >
             {busy?.includes("attaching") ? (
@@ -987,11 +1142,9 @@ function DesignMockupEditor({
               max={0.7}
               step={0.01}
               value={transform.scale}
+              disabled={!selectedLayer}
               onChange={(event) =>
-                setTransform((current) => ({
-                  ...current,
-                  scale: Number(event.target.value),
-                }))
+                patchSelectedTransform({ scale: Number(event.target.value) })
               }
               className="mt-2 w-full accent-[#2c6ecb]"
             />
@@ -999,6 +1152,13 @@ function DesignMockupEditor({
         </div>
 
         <div className="space-y-4">
+          <DesignStudioLayersPanel
+            layers={layerRows}
+            selectedId={selectedLayerId}
+            onSelect={setSelectedLayerId}
+            onDelete={handleDeleteLayer}
+          />
+
           <div className="space-y-1.5">
             <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
               Backdrop
@@ -1215,16 +1375,17 @@ function DesignMockupEditor({
               onClick={() => artInputRef.current?.click()}
             >
               <Upload className="size-3.5" />
-              {artworkUrl
-                ? "Replace artwork"
+              {hasArtwork
+                ? "Add artwork layer"
                 : isColorStage
                   ? "Upload label / artwork"
                   : "Upload artwork"}
             </Button>
-            {artworkUrl ? (
+            {selectedLayer ? (
               <div className="space-y-2 rounded-lg border border-[#ebebeb] bg-[#fafafa] p-3">
                 <p className="text-[12px] text-[#616161]">
-                  Remove the background so only the design sits on the garment?
+                  Selected layer: {selectedLayer.label || "Artwork"}. Remove the
+                  background so only the design sits on the garment?
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -1237,12 +1398,20 @@ function DesignMockupEditor({
                     <Wand2 className="size-3.5" />
                     Remove background
                   </Button>
-                  {backgroundRemoved ? (
+                  {selectedLayer.backgroundRemoved ? (
                     <Button
                       type="button"
                       variant="ghost"
                       className="h-8"
-                      onClick={() => setBackgroundRemoved(false)}
+                      onClick={() =>
+                        setArtLayers((layers) =>
+                          layers.map((layer) =>
+                            layer.id === selectedLayer.id
+                              ? { ...layer, backgroundRemoved: false }
+                              : layer
+                          )
+                        )
+                      }
                     >
                       Use original
                     </Button>

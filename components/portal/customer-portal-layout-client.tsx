@@ -1,8 +1,12 @@
 "use client";
 
 import { CustomerPortalProvider } from "@/components/portal/customer-portal-provider";
-import { CustomerPortalShell } from "@/components/portal/customer-portal-shell";
+import { PortalTokenPathsProvider } from "@/components/portal/portal-paths";
 
+/**
+ * Token-based layout provider only — claim flow does not use the old shell.
+ * Nested legacy pages that still need the token APIs can opt into the shell.
+ */
 export function CustomerPortalLayoutClient({
   token,
   children,
@@ -12,7 +16,9 @@ export function CustomerPortalLayoutClient({
 }) {
   return (
     <CustomerPortalProvider token={token}>
-      <CustomerPortalShell>{children}</CustomerPortalShell>
+      <PortalTokenPathsProvider token={token}>
+        {children}
+      </PortalTokenPathsProvider>
     </CustomerPortalProvider>
   );
 }

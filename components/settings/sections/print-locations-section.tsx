@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { GripVertical, Plus, Trash2 } from "lucide-react";
 import {
   AdminLockNotice,
@@ -29,7 +29,6 @@ import {
   type PrintLocationOption,
   type ShopProductionDefaults,
 } from "@/lib/shop-settings";
-import { cn } from "@/lib/utils";
 
 function slugifyPrintLocationValue(label: string): string {
   const slug = label
@@ -49,6 +48,13 @@ function slugifyDecorationTypeValue(label: string): string {
   return slug || `dec_${Date.now()}`;
 }
 
+function cloneDefaults() {
+  return {
+    decorationTypes: DEFAULT_DECORATION_TYPES.map((item) => ({ ...item })),
+    printLocations: DEFAULT_PRINT_LOCATIONS.map((item) => ({ ...item })),
+  };
+}
+
 export function PrintLocationsSection() {
   const { settings, isAdmin, updateSettings } = useShopSettings();
   const { draft, setDraft, dirty } = useSectionDraft<ShopProductionDefaults>(
@@ -61,32 +67,88 @@ export function PrintLocationsSection() {
   const [newDecorationType, setNewDecorationType] = useState("");
   const [newLocationDecorationType, setNewLocationDecorationType] =
     useState("screen_print");
+  const seedingRef = useRef(false);
 
   const locations = draft.printLocations ?? [];
+  // Never show a virtual default list — only what's saved (or loaded into draft).
   const decorationTypes = draft.decorationTypes ?? [];
+  const decorationTypeChoices = decorationTypes;
 
-  const decorationTypeChoices = useMemo(() => {
-    if (decorationTypes.length > 0) return decorationTypes;
-    return DEFAULT_DECORATION_TYPES;
-  }, [decorationTypes]);
+  const persistDraft = useCallback(
+    async (next: ShopProductionDefaults) => {
+      setSaving(true);
+      setError(null);
+      setSaved(false);
+      try {
+        await updateSettings({ productionDefaults: next });
+        setSaved(true);
+        window.setTimeout(() => setSaved(false), 2500);
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Could not save decoration locations"
+        );
+        throw err;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [updateSettings]
+  );
+
+  // One-time: if the shop still has the old "empty = show FloPilot defaults"
+  // behavior for decoration types (empty saved types but locations already
+  // customized), materialize the default types so deletes can persist.
+  useEffect(() => {
+    if (!isAdmin || seedingRef.current || saving) return;
+    const storedTypes = settings.productionDefaults?.decorationTypes;
+    const storedLocations = settings.productionDefaults?.printLocations;
+    const typesEmpty =
+      Array.isArray(storedTypes) && storedTypes.length === 0;
+    const hasLocations =
+      Array.isArray(storedLocations) && storedLocations.length > 0;
+    if (!typesEmpty || !hasLocations) return;
+    if (decorationTypes.length > 0) return;
+
+    seedingRef.current = true;
+    const seeded = {
+      ...draft,
+      decorationTypes: DEFAULT_DECORATION_TYPES.map((item) => ({ ...item })),
+    };
+    setDraft(seeded);
+    void persistDraft(seeded).catch(() => {
+      seedingRef.current = false;
+    });
+  }, [
+    isAdmin,
+    saving,
+    settings.productionDefaults?.decorationTypes,
+    settings.productionDefaults?.printLocations,
+    decorationTypes.length,
+    draft,
+    setDraft,
+    persistDraft,
+  ]);
 
   const handleSave = async () => {
-    setSaving(true);
-    setError(null);
-    setSaved(false);
     try {
-      await updateSettings({ productionDefaults: draft });
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 2500);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Could not save decoration locations"
-      );
-    } finally {
-      setSaving(false);
+      await persistDraft(draft);
+    } catch {
+      // error already set
     }
+  };
+
+  const commit = (
+    updater: (current: ShopProductionDefaults) => ShopProductionDefaults
+  ) => {
+    setDraft((current) => {
+      const next = updater(current);
+      void persistDraft(next).catch(() => {
+        // Keep local draft; user can retry via Save.
+      });
+      return next;
+    });
   };
 
   const addDecorationType = () => {
@@ -101,14 +163,17 @@ export function PrintLocationsSection() {
     );
     if (exists) return;
 
-    setDraft((current) => {
+    commit((current) => {
       const base =
         (current.decorationTypes?.length ?? 0) > 0
           ? [...(current.decorationTypes ?? [])]
           : DEFAULT_DECORATION_TYPES.map((item) => ({ ...item }));
       return {
         ...current,
-        decorationTypes: [...base, { value, label } satisfies DecorationTypeOption],
+        decorationTypes: [
+          ...base,
+          { value, label } satisfies DecorationTypeOption,
+        ],
       };
     });
     setNewDecorationType("");
@@ -131,7 +196,7 @@ export function PrintLocationsSection() {
       decorationTypeChoices[0]?.value ||
       "screen_print";
 
-    setDraft((current) => ({
+    commit((current) => ({
       ...current,
       printLocations: [
         ...(current.printLocations ?? []),
@@ -148,7 +213,7 @@ export function PrintLocationsSection() {
   const moveLocation = (index: number, direction: -1 | 1) => {
     const nextIndex = index + direction;
     if (nextIndex < 0 || nextIndex >= locations.length) return;
-    setDraft((current) => {
+    commit((current) => {
       const next = [...(current.printLocations ?? [])];
       const [item] = next.splice(index, 1);
       next.splice(nextIndex, 0, item);
@@ -157,38 +222,63 @@ export function PrintLocationsSection() {
   };
 
   const moveDecorationType = (index: number, direction: -1 | 1) => {
-    const list =
-      decorationTypes.length > 0
-        ? decorationTypes
-        : DEFAULT_DECORATION_TYPES.map((item) => ({ ...item }));
     const nextIndex = index + direction;
-    if (nextIndex < 0 || nextIndex >= list.length) return;
-    const next = [...list];
-    const [item] = next.splice(index, 1);
-    next.splice(nextIndex, 0, item);
-    setDraft((current) => ({ ...current, decorationTypes: next }));
+    if (nextIndex < 0 || nextIndex >= decorationTypes.length) return;
+    commit((current) => {
+      const next = [...(current.decorationTypes ?? [])];
+      const [item] = next.splice(index, 1);
+      next.splice(nextIndex, 0, item);
+      return { ...current, decorationTypes: next };
+    });
   };
 
-  const ensureDecorationTypesEditable = () => {
-    if ((draft.decorationTypes?.length ?? 0) > 0) return;
-    setDraft((current) => ({
+  const removeDecorationType = (index: number) => {
+    commit((current) => {
+      const list = [...(current.decorationTypes ?? [])];
+      const removed = list[index]?.value;
+      const next = list.filter((_, i) => i !== index);
+      return {
+        ...current,
+        decorationTypes: next,
+        printLocations: (current.printLocations ?? []).map((location) =>
+          location.decorationType === removed
+            ? {
+                ...location,
+                decorationType: next[0]?.value ?? "screen_print",
+              }
+            : location
+        ),
+      };
+    });
+  };
+
+  const removeLocation = (index: number) => {
+    commit((current) => ({
+      ...current,
+      printLocations: (current.printLocations ?? []).filter(
+        (_, entryIndex) => entryIndex !== index
+      ),
+    }));
+  };
+
+  const loadStarterLocations = () => {
+    commit((current) => ({
+      ...current,
+      ...cloneDefaults(),
+      decorationTypes:
+        (current.decorationTypes?.length ?? 0) > 0
+          ? current.decorationTypes
+          : DEFAULT_DECORATION_TYPES.map((item) => ({ ...item })),
+    }));
+  };
+
+  const loadStarterTypes = () => {
+    commit((current) => ({
       ...current,
       decorationTypes: DEFAULT_DECORATION_TYPES.map((item) => ({ ...item })),
     }));
   };
 
-  const loadStarterLocations = () => {
-    setDraft((current) => ({
-      ...current,
-      decorationTypes:
-        (current.decorationTypes?.length ?? 0) > 0
-          ? current.decorationTypes
-          : DEFAULT_DECORATION_TYPES.map((item) => ({ ...item })),
-      printLocations: DEFAULT_PRINT_LOCATIONS.map((item) => ({ ...item })),
-    }));
-  };
-
-  // Keep Select value valid if types are edited away
   const safeNewLocationType = decorationTypeChoices.some(
     (entry) => entry.value === newLocationDecorationType
   )
@@ -199,7 +289,7 @@ export function PrintLocationsSection() {
     <SettingsMain>
       <SettingsHeader
         title="Decoration locations"
-        description="Set the decoration methods your shop offers, then map each placement — neck label, left chest, full back — to the right method."
+        description="Set the decoration methods your shop offers, then map each placement — neck label, left chest, full back — to the right method. Deletes and adds save automatically."
       >
         {isAdmin && (
           <SaveButton
@@ -219,33 +309,28 @@ export function PrintLocationsSection() {
         description="Screen Print, Embroidery, DTF, or anything else you run. These power the method dropdown on each location and on orders."
         action={
           isAdmin && decorationTypes.length === 0 ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                setDraft((current) => ({
-                  ...current,
-                  decorationTypes: DEFAULT_DECORATION_TYPES.map((item) => ({
-                    ...item,
-                  })),
-                }))
-              }
-            >
+            <Button variant="outline" size="sm" onClick={loadStarterTypes}>
               Load FloPilot defaults
             </Button>
           ) : null
         }
         bodyClassName="p-0"
       >
-        {decorationTypeChoices.length === 0 ? (
+        {decorationTypes.length === 0 ? (
           <div className="space-y-4 px-5 py-8 text-center">
             <p className="text-sm text-brand-muted">
-              No decoration types yet. Add the methods your shop offers.
+              No decoration types yet. Add the methods your shop offers, or load
+              FloPilot defaults.
             </p>
+            {isAdmin ? (
+              <Button variant="outline" size="sm" onClick={loadStarterTypes}>
+                Load FloPilot defaults
+              </Button>
+            ) : null}
           </div>
         ) : (
           <div className="divide-y divide-[#ebebeb]">
-            {decorationTypeChoices.map((type, index) => (
+            {decorationTypes.map((type, index) => (
               <div
                 key={type.value}
                 className="flex items-center gap-2 px-4 py-3 sm:px-5"
@@ -257,21 +342,18 @@ export function PrintLocationsSection() {
                 <Input
                   value={type.label}
                   disabled={!isAdmin}
-                  onChange={(event) => {
-                    ensureDecorationTypesEditable();
+                  onChange={(event) =>
                     setDraft((current) => {
-                      const list =
-                        (current.decorationTypes?.length ?? 0) > 0
-                          ? [...(current.decorationTypes ?? [])]
-                          : DEFAULT_DECORATION_TYPES.map((item) => ({
-                              ...item,
-                            }));
+                      const list = [...(current.decorationTypes ?? [])];
                       list[index] = {
                         ...list[index],
                         label: event.target.value,
                       };
                       return { ...current, decorationTypes: list };
-                    });
+                    })
+                  }
+                  onBlur={() => {
+                    if (dirty) void handleSave();
                   }}
                   className="h-9 min-w-0 flex-1"
                   placeholder="Decoration type"
@@ -280,7 +362,7 @@ export function PrintLocationsSection() {
                   <div className="flex items-center gap-0.5">
                     <button
                       type="button"
-                      disabled={index === 0}
+                      disabled={index === 0 || saving}
                       onClick={() => moveDecorationType(index, -1)}
                       className="rounded-md px-2 py-1 text-[12px] text-[#616161] hover:bg-[#f1f1f1] disabled:opacity-30"
                     >
@@ -288,7 +370,9 @@ export function PrintLocationsSection() {
                     </button>
                     <button
                       type="button"
-                      disabled={index === decorationTypeChoices.length - 1}
+                      disabled={
+                        index === decorationTypes.length - 1 || saving
+                      }
                       onClick={() => moveDecorationType(index, 1)}
                       className="rounded-md px-2 py-1 text-[12px] text-[#616161] hover:bg-[#f1f1f1] disabled:opacity-30"
                     >
@@ -298,30 +382,8 @@ export function PrintLocationsSection() {
                       variant="ghost"
                       size="icon-sm"
                       className="text-destructive hover:bg-destructive/10"
-                      onClick={() => {
-                        const list =
-                          decorationTypes.length > 0
-                            ? decorationTypes
-                            : DEFAULT_DECORATION_TYPES.map((item) => ({
-                                ...item,
-                              }));
-                        const removed = list[index]?.value;
-                        const next = list.filter((_, i) => i !== index);
-                        setDraft((current) => ({
-                          ...current,
-                          decorationTypes: next,
-                          printLocations: (current.printLocations ?? []).map(
-                            (location) =>
-                              location.decorationType === removed
-                                ? {
-                                    ...location,
-                                    decorationType:
-                                      next[0]?.value ?? "screen_print",
-                                  }
-                                : location
-                          ),
-                        }));
-                      }}
+                      disabled={saving}
+                      onClick={() => removeDecorationType(index)}
                     >
                       <Trash2 className="size-3.5" />
                     </Button>
@@ -351,7 +413,7 @@ export function PrintLocationsSection() {
                 type="button"
                 className="h-10 shrink-0 gap-1.5"
                 onClick={addDecorationType}
-                disabled={!newDecorationType.trim()}
+                disabled={!newDecorationType.trim() || saving}
               >
                 <Plus className="size-3.5" />
                 Add type
@@ -365,15 +427,11 @@ export function PrintLocationsSection() {
         title="Your locations"
         description="These appear when adding decoration events. Set the decoration type on the right so placements like Neck Label default to the right method."
         action={
-          isAdmin && (
-            <div className="flex flex-wrap gap-2">
-              {locations.length === 0 ? (
-                <Button variant="outline" size="sm" onClick={loadStarterLocations}>
-                  Load FloPilot defaults
-                </Button>
-              ) : null}
-            </div>
-          )
+          isAdmin && locations.length === 0 ? (
+            <Button variant="outline" size="sm" onClick={loadStarterLocations}>
+              Load FloPilot defaults
+            </Button>
+          ) : null
         }
         bodyClassName="p-0"
       >
@@ -384,15 +442,13 @@ export function PrintLocationsSection() {
               FloPilot starter list.
             </p>
             {isAdmin ? (
-              <div className="flex flex-wrap justify-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={loadStarterLocations}
-                >
-                  Load FloPilot defaults
-                </Button>
-              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadStarterLocations}
+              >
+                Load FloPilot defaults
+              </Button>
             ) : null}
           </div>
         ) : (
@@ -436,6 +492,9 @@ export function PrintLocationsSection() {
                             ),
                           }))
                         }
+                        onBlur={() => {
+                          if (dirty) void handleSave();
+                        }}
                         className="h-9 min-w-0 flex-1"
                         placeholder="Location name"
                       />
@@ -445,25 +504,28 @@ export function PrintLocationsSection() {
                       <div className="min-w-0 flex-1 sm:w-[180px] sm:flex-none">
                         <Select
                           value={selectValue}
-                          disabled={!isAdmin}
+                          disabled={
+                            !isAdmin || decorationTypeChoices.length === 0
+                          }
                           onValueChange={(value) => {
                             if (!value) return;
-                            setDraft((current) => ({
+                            commit((current) => ({
                               ...current,
-                              printLocations: (current.printLocations ?? []).map(
-                                (entry, entryIndex) =>
-                                  entryIndex === index
-                                    ? { ...entry, decorationType: value }
-                                    : entry
+                              printLocations: (
+                                current.printLocations ?? []
+                              ).map((entry, entryIndex) =>
+                                entryIndex === index
+                                  ? { ...entry, decorationType: value }
+                                  : entry
                               ),
                             }));
                           }}
                         >
-                          <SelectTrigger className="h-9 w-full rounded-lg border-[#e3e3e3] bg-white text-xs">
+                          <SelectTrigger className="h-9 w-full rounded-lg border-[#e3e3e3] bg-white">
                             <LabeledSelectValue
                               value={selectValue}
                               options={decorationTypeChoices}
-                              placeholder="Decoration type"
+                              placeholder="Type"
                             />
                           </SelectTrigger>
                           <SelectContent>
@@ -480,7 +542,7 @@ export function PrintLocationsSection() {
                         <div className="flex shrink-0 items-center gap-0.5">
                           <button
                             type="button"
-                            disabled={index === 0}
+                            disabled={index === 0 || saving}
                             onClick={() => moveLocation(index, -1)}
                             className="rounded-md px-2 py-1 text-[12px] text-[#616161] hover:bg-[#f1f1f1] disabled:opacity-30"
                           >
@@ -488,7 +550,9 @@ export function PrintLocationsSection() {
                           </button>
                           <button
                             type="button"
-                            disabled={index === locations.length - 1}
+                            disabled={
+                              index === locations.length - 1 || saving
+                            }
                             onClick={() => moveLocation(index, 1)}
                             className="rounded-md px-2 py-1 text-[12px] text-[#616161] hover:bg-[#f1f1f1] disabled:opacity-30"
                           >
@@ -498,16 +562,8 @@ export function PrintLocationsSection() {
                             variant="ghost"
                             size="icon-sm"
                             className="text-destructive hover:bg-destructive/10"
-                            onClick={() =>
-                              setDraft((current) => ({
-                                ...current,
-                                printLocations: (
-                                  current.printLocations ?? []
-                                ).filter(
-                                  (_, entryIndex) => entryIndex !== index
-                                ),
-                              }))
-                            }
+                            disabled={saving}
+                            onClick={() => removeLocation(index)}
                           >
                             <Trash2 className="size-3.5" />
                           </Button>
@@ -563,9 +619,9 @@ export function PrintLocationsSection() {
             </Select>
             <Button
               type="button"
-              className={cn("h-10 shrink-0 gap-1.5")}
+              className="h-10 shrink-0 gap-1.5"
               onClick={addLocation}
-              disabled={!newLocation.trim()}
+              disabled={!newLocation.trim() || saving}
             >
               <Plus className="size-3.5" />
               Add location

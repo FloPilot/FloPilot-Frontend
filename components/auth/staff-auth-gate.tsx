@@ -26,12 +26,21 @@ export function StaffAuthGate({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    if (profile?.type === "portal") {
+      router.replace("/portal/app");
+      return;
+    }
+
     if (!profile || profile.type === "none") {
       // Re-resolve tenants once — stale claims can look like "needs registration".
       if (!recoveryAttempted.current) {
         recoveryAttempted.current = true;
         void refreshProfile(true).then((me) => {
           if (me?.type === "staff") return;
+          if (me?.type === "portal") {
+            router.replace("/portal/app");
+            return;
+          }
           if (me?.type === "none" && me.needsRegistration) {
             router.replace("/register-shop");
           }

@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -39,12 +40,14 @@ export function CustomerPortalProvider({
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const hasDashboardRef = useRef(false);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
     setError(null);
+    if (!hasDashboardRef.current) setLoading(true);
     try {
       const data = await fetchCustomerPortal(token);
+      hasDashboardRef.current = true;
       setDashboard(data);
     } catch (err) {
       setError(
@@ -56,6 +59,7 @@ export function CustomerPortalProvider({
   }, [token]);
 
   useEffect(() => {
+    hasDashboardRef.current = false;
     void refresh();
   }, [refresh]);
 
@@ -86,4 +90,8 @@ export function useCustomerPortal() {
     throw new Error("useCustomerPortal must be used within CustomerPortalProvider");
   }
   return ctx;
+}
+
+export function useCustomerPortalOptional() {
+  return useContext(CustomerPortalContext);
 }

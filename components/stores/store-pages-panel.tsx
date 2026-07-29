@@ -69,6 +69,7 @@ export function StorePagesPanel({
       ...theme,
       pages,
       sections: home?.sections || [],
+      navigation: theme.navigation,
     });
     setSelectedId(pages[0]?.id || null);
   };
