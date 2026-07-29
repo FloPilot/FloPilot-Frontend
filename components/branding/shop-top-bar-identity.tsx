@@ -197,7 +197,9 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
     if (cached) persistStaffDisplayName(cached);
   }, [userName, tenants, portals]);
 
-  const currentStaffShop = useMemo((): WorkspaceRow | null => {
+  const currentStaffShop = useMemo((): (UserTenantSummary & {
+    kind: "staff";
+  }) | null => {
     if (!isStaff || !activeTenantId || !tenantName) return null;
     return {
       kind: "staff",
@@ -212,7 +214,7 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
     };
   }, [isStaff, profile, activeTenantId, tenantName, displayName, logoUrl, primaryColor]);
 
-  const currentPortalShop = useMemo((): WorkspaceRow | null => {
+  const currentPortalShop = useMemo((): UserPortalSummary | null => {
     if (!isPortal || !activeTenantId || !activeCustomerId || !tenantName) {
       return null;
     }
