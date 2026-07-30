@@ -1,6 +1,23 @@
 export type ClientStoreStatus = "draft" | "published" | "closed";
 
+/** Order = classic buy flow. Review = broker-style include / not-include. */
+export type ClientStoreMode = "order" | "review";
+
 export type ClientStoreSellPriceMode = "markup" | "fixed";
+
+export type ClientStoreReviewDecision = "included" | "excluded";
+
+export type ClientStoreReviewPhase = "voting" | "selection";
+
+export type ClientStoreReviewVote = "up" | "down";
+
+export type ClientStoreVoteSummaryRow = {
+  key: string;
+  productId: string;
+  color?: string;
+  up: number;
+  down: number;
+};
 
 export type ClientStoreSizeOption = {
   size: string;
@@ -66,6 +83,8 @@ export type ClientStoreProduct = {
   id: string;
   name: string;
   description?: string;
+  /** Talking points / insights for review-store browsers. */
+  insights?: string;
   brand?: string;
   /** Primary / first enabled color name (compat + submissions). */
   color?: string;
@@ -101,6 +120,18 @@ export type ClientStoreSettings = {
   collectPhone: boolean;
   collectShippingAddress: boolean;
   orderInstructions?: string;
+  /** Prompt shown on review storefronts. */
+  reviewPrompt?: string;
+  /** Review stores hide prices unless this is true. */
+  showPrices?: boolean;
+  /** Public page canvas background (defaults to white). */
+  pageBackgroundColor?: string;
+  /**
+   * Review stores only.
+   * voting = thumbs up/down for broad internal feedback
+   * selection = include/pass for final picks (vote totals stay visible)
+   */
+  reviewPhase?: ClientStoreReviewPhase;
 };
 
 export type ClientStore = {
@@ -112,6 +143,7 @@ export type ClientStore = {
   name: string;
   slug: string;
   status: ClientStoreStatus;
+  mode?: ClientStoreMode;
   headline?: string;
   description?: string;
   logoUrl?: string;
@@ -131,6 +163,8 @@ export type ClientStore = {
   createdBy?: string;
   shareToken?: string;
   shareUrl?: string;
+  /** Aggregated thumbs for review stores. */
+  voteSummary?: ClientStoreVoteSummaryRow[];
 };
 
 export type ClientStoreSubmissionStatus =
@@ -149,12 +183,25 @@ export type ClientStoreSubmissionItem = {
   lineTotal: number;
 };
 
+export type ClientStoreReviewDecisionRow = {
+  productId: string;
+  productName: string;
+  brand?: string;
+  /** Color option reviewed (when the product offers multiple colors). */
+  color?: string;
+  colorHex?: string;
+  mockupUrl?: string;
+  decision: ClientStoreReviewDecision;
+  note?: string;
+};
+
 export type ClientStoreSubmission = {
   id: string;
   storeId: string;
   shareId: string;
   customerId: string;
   storeName: string;
+  kind?: "order" | "review";
   status: ClientStoreSubmissionStatus;
   shopper: {
     name: string;
@@ -170,6 +217,9 @@ export type ClientStoreSubmission = {
     };
   };
   items: ClientStoreSubmissionItem[];
+  decisions?: ClientStoreReviewDecisionRow[];
+  includedCount?: number;
+  excludedCount?: number;
   subtotal: number;
   /** Set when converted into a FloPilot sales order */
   orderId?: string;
@@ -183,6 +233,7 @@ export type PublicClientStoreProduct = {
   id: string;
   name: string;
   description?: string;
+  insights?: string;
   brand?: string;
   color?: string;
   colors?: string[];
@@ -191,7 +242,7 @@ export type PublicClientStoreProduct = {
   mockupUrl?: string;
   galleryUrls?: string[];
   tags?: string[];
-  sellPrice: number;
+  sellPrice?: number;
 };
 
 export type PublicClientStore = {
@@ -199,6 +250,7 @@ export type PublicClientStore = {
   name: string;
   slug: string;
   status: ClientStoreStatus;
+  mode?: ClientStoreMode;
   headline?: string;
   description?: string;
   logoUrl?: string;
@@ -215,6 +267,8 @@ export type PublicClientStore = {
   settings: ClientStoreSettings;
   products: PublicClientStoreProduct[];
   theme?: import("./client-store-theme").ClientStoreTheme;
+  /** Aggregated thumbs for review stores. */
+  voteSummary?: ClientStoreVoteSummaryRow[];
 };
 
 export const CLIENT_STORE_DEFAULT_SIZES = [
@@ -294,6 +348,28 @@ export function clientStoreStatusLabel(status: ClientStoreStatus): string {
   if (status === "published") return "Live";
   if (status === "closed") return "Closed";
   return "Draft";
+}
+
+export function clientStoreModeLabel(mode?: ClientStoreMode): string {
+  return mode === "review" ? "Review" : "Order";
+}
+
+export function isClientStoreReviewMode(store?: {
+  mode?: ClientStoreMode;
+} | null): boolean {
+  return store?.mode === "review";
+}
+
+export function clientStoreReviewPhase(
+  store?: { settings?: { reviewPhase?: ClientStoreReviewPhase } } | null
+): ClientStoreReviewPhase {
+  return store?.settings?.reviewPhase === "voting" ? "voting" : "selection";
+}
+
+export function clientStoreReviewPhaseLabel(
+  phase?: ClientStoreReviewPhase
+): string {
+  return phase === "voting" ? "Voting" : "Selection";
 }
 
 /**

@@ -2202,11 +2202,13 @@ export async function createClientStore(
   body: {
     customerId: string;
     name?: string;
+    mode?: import("@/lib/client-stores").ClientStoreMode;
     headline?: string;
     description?: string;
     opensAt?: string | null;
     closesAt?: string | null;
     password?: string;
+    settings?: Partial<import("@/lib/client-stores").ClientStoreSettings>;
   }
 ) {
   return callApi<{ store: import("@/lib/client-stores").ClientStore }>(
@@ -2329,17 +2331,50 @@ export async function submitClientStoreOrder(
       state?: string;
       postalCode?: string;
     };
-    items: {
+    items?: {
       productId: string;
       size: string;
       color?: string;
       qty: number;
+    }[];
+    decisions?: {
+      productId: string;
+      color?: string;
+      decision: import("@/lib/client-stores").ClientStoreReviewDecision;
+      note?: string;
     }[];
   }
 ) {
   return callApi<{
     submission: import("@/lib/client-stores").ClientStoreSubmission;
   }>("submitClientStoreOrder", {
+    method: "POST",
+    body: { token, ...body },
+  });
+}
+
+export async function submitClientStoreVote(
+  token: string,
+  body: {
+    voterId: string;
+    voterName?: string;
+    productId: string;
+    color?: string;
+    vote: import("@/lib/client-stores").ClientStoreReviewVote;
+    password?: string;
+  }
+) {
+  return callApi<{
+    vote: {
+      id: string;
+      productId: string;
+      color?: string;
+      vote: import("@/lib/client-stores").ClientStoreReviewVote;
+      voterId: string;
+      voterName?: string;
+    };
+    voteSummary: import("@/lib/client-stores").ClientStoreVoteSummaryRow[];
+  }>("submitClientStoreVote", {
     method: "POST",
     body: { token, ...body },
   });

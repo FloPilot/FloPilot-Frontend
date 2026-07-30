@@ -160,6 +160,8 @@ export function StoreCustomizeBuilder({
   description,
   onHeadlineChange,
   onDescriptionChange,
+  pageBackgroundColor,
+  onPageBackgroundColorChange,
   onSave,
   onUploadLogo,
   onUploadHero,
@@ -179,6 +181,8 @@ export function StoreCustomizeBuilder({
   description: string;
   onHeadlineChange: (value: string) => void;
   onDescriptionChange: (value: string) => void;
+  pageBackgroundColor?: string;
+  onPageBackgroundColorChange?: (value: string) => void;
   onSave: () => void;
   onUploadLogo: (file: File | null) => void;
   onUploadHero: (file: File | null) => void;
@@ -480,7 +484,12 @@ export function StoreCustomizeBuilder({
         {/* Center preview */}
         <div className="min-h-[420px] overflow-y-auto bg-[#e8e8ea]">
           <div className="mx-auto max-w-[1100px] py-4 sm:py-6">
-            <div className="overflow-hidden rounded-lg border border-[#d4d4d4] bg-white shadow-sm">
+            <div
+              className="overflow-hidden rounded-lg border border-[#d4d4d4] shadow-sm"
+              style={{
+                background: pageBackgroundColor || "#ffffff",
+              }}
+            >
               <div className="flex h-12 items-center justify-between gap-3 border-b border-[#e3e3e3] px-4">
                 <div className="flex min-w-0 items-center gap-2">
                   {theme.navigation?.logoMode === "none" ? null : (
@@ -629,6 +638,13 @@ export function StoreCustomizeBuilder({
                   />
                 </div>
               </div>
+              {onPageBackgroundColorChange ? (
+                <ColorField
+                  label="Page background"
+                  value={pageBackgroundColor || "#ffffff"}
+                  onChange={onPageBackgroundColorChange}
+                />
+              ) : null}
               <AssetUploadField
                 label="Logo"
                 url={store.logoUrl}

@@ -17,6 +17,8 @@ import {
   Package,
   Plus,
   Settings2,
+  ThumbsDown,
+  ThumbsUp,
   Trash2,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -43,15 +45,23 @@ import {
   type ClientStoreTheme,
 } from "@/lib/client-store-theme";
 import {
+  clientStoreModeLabel,
+  clientStoreReviewPhase,
+  clientStoreReviewPhaseLabel,
   clientStoreStatusLabel,
   computeClientStoreEconomics,
   getEnabledColorVariants,
   getPrimaryMockupUrl,
+  isClientStoreReviewMode,
   resolveClientStoreShareUrl,
   type ClientStore,
+  type ClientStoreMode,
   type ClientStoreProduct,
+  type ClientStoreReviewPhase,
   type ClientStoreSubmission,
+  type ClientStoreVoteSummaryRow,
 } from "@/lib/client-stores";
+import { reviewDecisionKey } from "@/lib/client-store-review";
 import { supplierProviderLabel } from "@/lib/supplier-integrations";
 import {
   dashboardCardClass,
@@ -106,6 +116,11 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   const [closesAt, setClosesAt] = useState("");
   const [password, setPassword] = useState("");
   const [orderInstructions, setOrderInstructions] = useState("");
+  const [reviewPrompt, setReviewPrompt] = useState("");
+  const [reviewPhase, setReviewPhase] =
+    useState<ClientStoreReviewPhase>("selection");
+  const [showPrices, setShowPrices] = useState(false);
+  const [pageBackgroundColor, setPageBackgroundColor] = useState("#ffffff");
   const [accentColorKey, setAccentColorKey] =
     useState<CustomerAccentKey | null>(null);
   const [theme, setTheme] = useState<ClientStoreTheme>(() =>
@@ -130,6 +145,12 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       setOpensAt(storeRes.store.opensAt?.slice(0, 16) || "");
       setClosesAt(storeRes.store.closesAt?.slice(0, 16) || "");
       setOrderInstructions(storeRes.store.settings?.orderInstructions || "");
+      setReviewPrompt(storeRes.store.settings?.reviewPrompt || "");
+      setReviewPhase(clientStoreReviewPhase(storeRes.store));
+      setShowPrices(storeRes.store.settings?.showPrices === true);
+      setPageBackgroundColor(
+        storeRes.store.settings?.pageBackgroundColor || "#ffffff"
+      );
       setAccentColorKey(
         (CUSTOMER_ACCENT_OPTIONS.find(
           (opt) => opt.key === storeRes.store.accentColorKey
@@ -184,6 +205,10 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         settings: {
           ...store.settings,
           orderInstructions: orderInstructions.trim() || undefined,
+          reviewPrompt: reviewPrompt.trim() || undefined,
+          reviewPhase,
+          showPrices,
+          pageBackgroundColor: pageBackgroundColor.trim() || "#ffffff",
         },
         ...(password.trim()
           ? { password: password.trim(), passwordProtected: true }
@@ -209,6 +234,10 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         description: description.trim() || undefined,
         accentColorKey: accentColorKey ?? null,
         theme,
+        settings: {
+          ...store.settings,
+          pageBackgroundColor: pageBackgroundColor.trim() || "#ffffff",
+        },
       });
       setStore(res.store);
       setTheme(
@@ -231,15 +260,21 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     if (!token || !store) return;
 
     if (status === "published") {
-      const readyProducts = (store.products || []).filter(
-        (product) => product.enabled && product.sellPrice > 0
-      );
-      if (readyProducts.length === 0) {
-        setError(
-          "Add at least one enabled product with a shopper price before publishing."
-        );
+      const enabled = (store.products || []).filter((product) => product.enabled);
+      if (enabled.length === 0) {
+        setError("Add at least one enabled product before publishing.");
         setTab("products");
         return;
+      }
+      if (store.mode !== "review") {
+        const readyProducts = enabled.filter((product) => product.sellPrice > 0);
+        if (readyProducts.length === 0) {
+          setError(
+            "Add at least one enabled product with a shopper price before publishing."
+          );
+          setTab("products");
+          return;
+        }
       }
     }
 
@@ -409,7 +444,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     { id: "share", label: "Share", icon: Link2 },
     {
       id: "orders",
-      label: `Orders (${submissions.length})`,
+      label: `${isClientStoreReviewMode(store) ? "Reviews" : "Orders"} (${submissions.length})`,
       icon: ListOrdered,
     },
   ];
@@ -430,6 +465,8 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
           </h1>
           <p className={cn(dashboardTaskDetailClass, "mt-1")}>
             {store.company || store.customerName || "Client store"}
+            {" · "}
+            {clientStoreModeLabel(store.mode)} store
             {" · "}
             {clientStoreStatusLabel(store.status)}
           </p>
@@ -499,6 +536,68 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         <div className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
           <div className={cn(dashboardCardClass, "space-y-4 p-4 sm:p-5")}>
             <div>
+              <Label className="text-[13px]">Store type</Label>
+              <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+                {(
+                  [
+                    {
+                      value: "order" as ClientStoreMode,
+                      title: "Order store",
+                      body: "Shoppers pick sizes and submit a buy request.",
+                    },
+                    {
+                      value: "review" as ClientStoreMode,
+                      title: "Review store",
+                      body: "Clients browse products for feedback — vote first, then select.",
+                    },
+                  ] as const
+                ).map((option) => {
+                  const active = (store.mode || "order") === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => {
+                        void (async () => {
+                          const token = await getIdToken();
+                          if (!token || !store) return;
+                          setSaving(true);
+                          setError(null);
+                          try {
+                            const res = await updateClientStore(token, store.id, {
+                              mode: option.value,
+                            });
+                            setStore(res.store);
+                          } catch (err) {
+                            setError(
+                              err instanceof Error
+                                ? err.message
+                                : "Could not update store type"
+                            );
+                          } finally {
+                            setSaving(false);
+                          }
+                        })();
+                      }}
+                      className={cn(
+                        "rounded-xl border px-3 py-3 text-left transition-colors",
+                        active
+                          ? "border-brand-primary/40 bg-[#f4f7ff]"
+                          : "border-[#e3e3e3] bg-white hover:border-[#c9cccf]"
+                      )}
+                    >
+                      <p className="text-[13px] font-semibold text-[#303030]">
+                        {option.title}
+                      </p>
+                      <p className="mt-1 text-[12px] leading-relaxed text-[#8a8a8a]">
+                        {option.body}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
               <Label className="text-[13px]">Store name</Label>
               <Input
                 value={name}
@@ -527,14 +626,136 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
               </div>
             </div>
             <div>
-              <Label className="text-[13px]">Order instructions</Label>
+              <Label className="text-[13px]">
+                {isClientStoreReviewMode(store)
+                  ? "Review instructions"
+                  : "Order instructions"}
+              </Label>
               <Textarea
                 value={orderInstructions}
                 onChange={(e) => setOrderInstructions(e.target.value)}
-                placeholder="Shown at checkout — pickup notes, deadlines, etc."
+                placeholder={
+                  isClientStoreReviewMode(store)
+                    ? "Shown near submit — deadlines, who to include, etc."
+                    : "Shown at checkout — pickup notes, deadlines, etc."
+                }
                 className="mt-1.5 min-h-[80px] border-[#e3e3e3] text-[13px]"
               />
             </div>
+            {isClientStoreReviewMode(store) ? (
+              <>
+                <div>
+                  <Label className="text-[13px]">Review phase</Label>
+                  <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+                    {(
+                      [
+                        {
+                          value: "voting" as ClientStoreReviewPhase,
+                          title: "Voting",
+                          body: "Anyone with the link can thumbs up or down. Best for broad internal feedback.",
+                        },
+                        {
+                          value: "selection" as ClientStoreReviewPhase,
+                          title: "Selection",
+                          body: "Turn on include / pass for final picks. Vote totals stay visible.",
+                        },
+                      ] as const
+                    ).map((option) => {
+                      const active = reviewPhase === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setReviewPhase(option.value)}
+                          className={cn(
+                            "rounded-xl border px-3 py-3 text-left transition-colors",
+                            active
+                              ? "border-brand-primary/40 bg-[#f4f7ff]"
+                              : "border-[#e3e3e3] bg-white hover:border-[#c9cccf]"
+                          )}
+                        >
+                          <p className="text-[13px] font-semibold text-[#303030]">
+                            {option.title}
+                          </p>
+                          <p className="mt-1 text-[12px] leading-relaxed text-[#8a8a8a]">
+                            {option.body}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-[#8a8a8a]">
+                    Current: {clientStoreReviewPhaseLabel(reviewPhase)}. Save
+                    overview to apply. Share internally in Voting first, then
+                    switch to Selection when you’re ready for final include /
+                    pass.
+                  </p>
+                </div>
+                <div>
+                  <Label className="text-[13px]">Review prompt</Label>
+                  <Textarea
+                    value={reviewPrompt}
+                    onChange={(e) => setReviewPrompt(e.target.value)}
+                    placeholder={
+                      reviewPhase === "voting"
+                        ? "Browse each style and thumbs up or down the colors your team likes."
+                        : "Browse each style and mark what you’d like included for this program."
+                    }
+                    className="mt-1.5 min-h-[72px] border-[#e3e3e3] text-[13px]"
+                  />
+                  <p className="mt-1 text-[11px] text-[#8a8a8a]">
+                    Shown at the top of the public review storefront.
+                  </p>
+                </div>
+                <label className="flex items-start gap-2.5 rounded-lg border border-[#ebebeb] bg-[#fafafa] px-3 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={showPrices}
+                    onChange={(e) => setShowPrices(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block text-[13px] font-medium text-[#303030]">
+                      Show prices on the review storefront
+                    </span>
+                    <span className="mt-0.5 block text-[12px] text-[#8a8a8a]">
+                      Off by default so clients focus on product fit, not cost.
+                    </span>
+                  </span>
+                </label>
+                <div>
+                  <Label className="text-[13px]">Page background</Label>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    {["#ffffff", "#f6f6f7", "#f7f5f1", "#f4f7ff", "#0f172a"].map(
+                      (color) => (
+                        <button
+                          key={color}
+                          type="button"
+                          title={color}
+                          onClick={() => setPageBackgroundColor(color)}
+                          className={cn(
+                            "size-8 rounded-md border",
+                            pageBackgroundColor === color
+                              ? "ring-2 ring-brand-primary/40"
+                              : "border-[#e3e3e3]"
+                          )}
+                          style={{ background: color }}
+                        />
+                      )
+                    )}
+                    <Input
+                      value={pageBackgroundColor}
+                      onChange={(e) => setPageBackgroundColor(e.target.value)}
+                      placeholder="#ffffff"
+                      className="h-9 w-28 border-[#e3e3e3] text-[12px]"
+                    />
+                  </div>
+                  <p className="mt-1 text-[11px] text-[#8a8a8a]">
+                    Matches the live review storefront. Defaults to white.
+                  </p>
+                </div>
+              </>
+            ) : null}
             <div>
               <Label className="text-[13px]">Store password (optional)</Label>
               <Input
@@ -884,6 +1105,8 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
           description={description}
           onHeadlineChange={setHeadline}
           onDescriptionChange={setDescription}
+          pageBackgroundColor={pageBackgroundColor}
+          onPageBackgroundColorChange={setPageBackgroundColor}
           onSave={saveCustomize}
           onUploadLogo={(file) => void handleAssetUpload("logo", file)}
           onUploadHero={(file) => {
@@ -1101,21 +1324,91 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       ) : null}
 
       {tab === "orders" ? (
+        <div className="space-y-4">
+          {isClientStoreReviewMode(store) ? (
+            <div className={cn(dashboardCardClass, "overflow-hidden")}>
+              <div className="border-b border-[#ebebeb] px-4 py-3 sm:px-5">
+                <p className="text-[14px] font-semibold text-[#303030]">
+                  Team votes
+                </p>
+                <p className="mt-0.5 text-[12px] text-[#8a8a8a]">
+                  Live thumbs from everyone who opened the share link
+                  {clientStoreReviewPhase(store) === "voting"
+                    ? " · store is in Voting mode"
+                    : " · store is in Selection mode (votes stay visible)"}
+                  .
+                </p>
+              </div>
+              {(store.voteSummary || []).length === 0 ? (
+                <div className="px-4 py-10 text-center text-[13px] text-[#8a8a8a] sm:px-5">
+                  No votes yet. Share the link internally to start collecting
+                  thumbs.
+                </div>
+              ) : (
+                <ul className="divide-y divide-[#ebebeb]">
+                  {[...(store.voteSummary || [])]
+                    .sort((a, b) => b.up + b.down - (a.up + a.down) || b.up - a.up)
+                    .map((row: ClientStoreVoteSummaryRow) => {
+                      const product = (store.products || []).find(
+                        (p) => p.id === row.productId
+                      );
+                      return (
+                        <li
+                          key={row.key || reviewDecisionKey(row.productId, row.color)}
+                          className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-[13px] font-medium text-[#303030]">
+                              {product?.name || row.productId}
+                              {row.color ? (
+                                <span className="font-normal text-[#8a8a8a]">
+                                  {" "}
+                                  · {row.color}
+                                </span>
+                              ) : null}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-3 text-[12px] font-semibold tabular-nums">
+                            <span className="inline-flex items-center gap-1 text-emerald-700">
+                              <ThumbsUp className="size-3.5" />
+                              {row.up}
+                            </span>
+                            <span className="inline-flex items-center gap-1 text-[#8a8a8a]">
+                              <ThumbsDown className="size-3.5" />
+                              {row.down}
+                            </span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                </ul>
+              )}
+            </div>
+          ) : null}
+
         <div className={cn(dashboardCardClass, "overflow-hidden")}>
           {submissions.length === 0 ? (
             <div className="px-6 py-14 text-center">
               <p className="text-[15px] font-semibold text-[#303030]">
-                No store orders yet
+                {isClientStoreReviewMode(store)
+                  ? "No selection reviews yet"
+                  : "No store orders yet"}
               </p>
               <p className="mt-1 text-[13px] text-[#616161]">
-                When shoppers submit sizes and contact info, they’ll show up
-                here for review before you create a sales order.
+                {isClientStoreReviewMode(store)
+                  ? clientStoreReviewPhase(store) === "voting"
+                    ? "Include / pass submissions appear here after you switch the store to Selection mode."
+                    : "When clients mark products as include or pass, their responses show up here."
+                  : "When shoppers submit sizes and contact info, they’ll show up here for review before you create a sales order."}
               </p>
             </div>
           ) : (
             <div className="divide-y divide-[#ebebeb]">
               {submissions.map((submission) => {
                 const isConverted = Boolean(submission.orderId);
+                const isReview =
+                  submission.kind === "review" ||
+                  isClientStoreReviewMode(store);
                 return (
                   <div key={submission.id} className="px-4 py-4 sm:px-5">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1151,9 +1444,16 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        <span className="text-[13px] font-semibold tabular-nums text-[#303030]">
-                          {formatCurrency(submission.subtotal)}
-                        </span>
+                        {isReview ? (
+                          <span className="text-[13px] font-semibold tabular-nums text-[#303030]">
+                            {submission.includedCount ?? 0} include ·{" "}
+                            {submission.excludedCount ?? 0} pass
+                          </span>
+                        ) : (
+                          <span className="text-[13px] font-semibold tabular-nums text-[#303030]">
+                            {formatCurrency(submission.subtotal)}
+                          </span>
+                        )}
                         {isConverted ? (
                           <Link
                             href={`/app/orders/${submission.orderId}`}
@@ -1195,32 +1495,65 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                               <option value="reviewed">Reviewed</option>
                               <option value="cancelled">Cancel</option>
                             </select>
-                            <Button
-                              type="button"
-                              className={cn(
-                                dashboardPrimaryButtonClass,
-                                "h-8 px-3 text-[12px]"
-                              )}
-                              onClick={() => setConvertSubmission(submission)}
-                            >
-                              Create order
-                            </Button>
+                            {!isReview ? (
+                              <Button
+                                type="button"
+                                className={cn(
+                                  dashboardPrimaryButtonClass,
+                                  "h-8 px-3 text-[12px]"
+                                )}
+                                onClick={() => setConvertSubmission(submission)}
+                              >
+                                Create order
+                              </Button>
+                            ) : null}
                           </>
                         ) : null}
                       </div>
                     </div>
-                    <ul className="mt-3 space-y-1">
-                      {submission.items.map((item, index) => (
-                        <li
-                          key={`${submission.id}-${index}`}
-                          className="text-[12px] text-[#616161]"
-                        >
-                          {item.qty}× {item.productName}
-                          {item.color ? ` · ${item.color}` : ""} · {item.size} ·{" "}
-                          {formatCurrency(item.lineTotal)}
-                        </li>
-                      ))}
-                    </ul>
+                    {isReview ? (
+                      <ul className="mt-3 space-y-1.5">
+                        {(submission.decisions || []).map((row) => (
+                          <li
+                            key={`${submission.id}-${row.productId}`}
+                            className="flex items-start justify-between gap-3 text-[12px] text-[#616161]"
+                          >
+                            <span className="min-w-0">
+                              <span
+                                className={cn(
+                                  "mr-2 inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                                  row.decision === "included"
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : "bg-[#f1f1f1] text-[#616161]"
+                                )}
+                              >
+                                {row.decision === "included" ? "Include" : "Pass"}
+                              </span>
+                              {row.productName}
+                              {row.color ? ` · ${row.color}` : ""}
+                              {row.note ? (
+                                <span className="mt-0.5 block text-[#8a8a8a]">
+                                  Note: {row.note}
+                                </span>
+                              ) : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <ul className="mt-3 space-y-1">
+                        {submission.items.map((item, index) => (
+                          <li
+                            key={`${submission.id}-${index}`}
+                            className="text-[12px] text-[#616161]"
+                          >
+                            {item.qty}× {item.productName}
+                            {item.color ? ` · ${item.color}` : ""} · {item.size}{" "}
+                            · {formatCurrency(item.lineTotal)}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     {submission.shopper.notes ? (
                       <p className="mt-2 text-[12px] text-[#8a8a8a]">
                         Note: {submission.shopper.notes}
@@ -1231,6 +1564,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
               })}
             </div>
           )}
+        </div>
         </div>
       ) : null}
 
@@ -1259,8 +1593,13 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
               Store is live
             </h3>
             <p className="mt-2 text-center text-[13px] leading-relaxed text-[#5a6478]">
-              Copy this link and send it to {store.company || store.customerName || "your client"}.
-              Their team can open it and place size requests.
+              Copy this link and send it to{" "}
+              {store.company || store.customerName || "your client"}.
+              {isClientStoreReviewMode(store)
+                ? clientStoreReviewPhase(store) === "voting"
+                  ? " Their team can open it and thumbs up or down products."
+                  : " Their team can open it, review products, and mark what to include."
+                : " Their team can open it and place size requests."}
             </p>
             <div className="mt-5 flex gap-2">
               <Input
