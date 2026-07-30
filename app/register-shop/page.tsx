@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Store } from "lucide-react";
 import { AuthPageShell } from "@/components/auth/auth-page-shell";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -72,28 +72,35 @@ async function resolveAccountAdminName({
 function RegisterShopForm() {
   const { user, profile, getIdToken, refreshProfile, switchShop } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // From workspace switcher “Create shop” — allow an additional workspace.
+  const creatingAdditional = searchParams.get("new") === "1";
 
   const [shopName, setShopName] = useState("");
   const [slug, setSlug] = useState("");
   const [slugTouched, setSlugTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [checkingExisting, setCheckingExisting] = useState(true);
+  const [checkingExisting, setCheckingExisting] = useState(!creatingAdditional);
 
   const suggestedSlug = useMemo(() => slugifyShopName(shopName), [shopName]);
 
   useEffect(() => {
     if (!user) {
-      router.replace("/login?next=/register-shop");
+      const next = creatingAdditional
+        ? "/register-shop?new=1"
+        : "/register-shop";
+      router.replace(`/login?next=${encodeURIComponent(next)}`);
     }
-  }, [user, router]);
+  }, [user, router, creatingAdditional]);
 
-  // Existing members should never see create-shop — send them into their workspace.
+  // Signup path only: existing members should never see create-shop.
+  // Additional-shop path (`?new=1`) must keep the form open.
   useEffect(() => {
     let cancelled = false;
 
     async function redirectIfAlreadyInShop() {
-      if (!user) {
+      if (!user || creatingAdditional) {
         setCheckingExisting(false);
         return;
       }
@@ -133,7 +140,15 @@ function RegisterShopForm() {
     return () => {
       cancelled = true;
     };
-  }, [user, profile?.type, refreshProfile, getIdToken, router, switchShop]);
+  }, [
+    user,
+    creatingAdditional,
+    profile?.type,
+    refreshProfile,
+    getIdToken,
+    router,
+    switchShop,
+  ]);
 
   useEffect(() => {
     if (slugTouched) return;
@@ -170,7 +185,12 @@ function RegisterShopForm() {
 
       if (result.user?.name) persistStaffDisplayName(result.user.name);
 
+      // Claims already point at the new shop; refresh so the session picks it up.
+      // switchShop is a no-op if we're already on that tenant after refresh.
       await refreshProfile(true);
+      if (result.tenantId && switchShop) {
+        await switchShop(result.tenantId);
+      }
       markShopSetupPending();
       router.push("/app/dashboard?setup=1");
     } catch (err) {
@@ -190,13 +210,29 @@ function RegisterShopForm() {
 
   return (
     <AuthPageShell
-      eyebrow="Create a shop"
-      title="Name your shop"
-      subtitle="This is how your team and customers will see your workspace. You’ll be the admin for this shop."
+      eyebrow={creatingAdditional ? "Add a shop" : "Create a shop"}
+      title={creatingAdditional ? "Name your new shop" : "Name your shop"}
+      subtitle={
+        creatingAdditional
+          ? "You’ll be the admin for this workspace. Your other shops stay in the account switcher."
+          : "This is how your team and customers will see your workspace. You’ll be the admin for this shop."
+      }
       footer={
         <p className="text-xs">
           Creating as admin · signed in as{" "}
           <span className="font-medium text-brand-ink">{user.email}</span>
+          {creatingAdditional ? (
+            <>
+              {" · "}
+              <button
+                type="button"
+                className="font-medium text-brand-ink underline-offset-2 hover:underline"
+                onClick={() => router.push("/app/dashboard")}
+              >
+                Cancel
+              </button>
+            </>
+          ) : null}
         </p>
       }
     >

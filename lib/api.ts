@@ -624,8 +624,11 @@ export async function inviteTeamMember(
   body: { email: string; name: string; role: StaffRole; access?: StaffAccess | null }
 ) {
   return callApi<{
-    invite: TeamInvite;
-    inviteUrl: string;
+    invite: TeamInvite | null;
+    inviteUrl: string | null;
+    addedDirectly?: boolean;
+    member?: TeamMember | null;
+    message?: string;
     email: { sent: boolean; dev?: boolean; message?: string; error?: string };
   }>("inviteTeamMember", { method: "POST", body, token });
 }
