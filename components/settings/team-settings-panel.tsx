@@ -95,9 +95,10 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
   const [inviteAccess, setInviteAccess] = useState<StaffAccess | null>(null);
   const [inviting, setInviting] = useState(false);
   const [inviteResult, setInviteResult] = useState<{
-    inviteUrl: string;
+    inviteUrl: string | null;
     emailSent: boolean;
     message?: string;
+    addedDirectly?: boolean;
   } | null>(null);
   const [copied, setCopied] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -148,7 +149,9 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
       setInviteResult({
         inviteUrl: result.inviteUrl,
         emailSent: result.email.sent,
-        message: result.email.message || result.email.error,
+        message:
+          result.message || result.email.message || result.email.error,
+        addedDirectly: Boolean(result.addedDirectly),
       });
       await loadTeam();
     } catch (err) {
@@ -391,34 +394,49 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
               <div
                 className={cn(
                   "rounded-xl border px-4 py-3 text-sm",
-                  inviteResult.emailSent
+                  inviteResult.addedDirectly || inviteResult.emailSent
                     ? "border-emerald-200 bg-emerald-50/60 text-emerald-950"
                     : "border-amber-200 bg-amber-50/60 text-amber-950"
                 )}
               >
-                {inviteResult.emailSent
-                  ? "Invitation email sent successfully."
-                  : inviteResult.message ||
-                    "Email is not configured — copy the invite link below and send it to your teammate."}
+                {inviteResult.addedDirectly
+                  ? inviteResult.message ||
+                    "This person already has a FloPilot account and was added to this shop. They can switch into it from their account menu."
+                  : inviteResult.emailSent
+                    ? "Invitation email sent successfully."
+                    : inviteResult.message ||
+                      "Email is not configured — copy the invite link below and send it to your teammate."}
               </div>
-              <div className="space-y-2">
-                <Label>Invite link</Label>
-                <div className="flex gap-2">
-                  <Input readOnly value={inviteResult.inviteUrl} className="text-xs" />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={async () => {
-                      await navigator.clipboard.writeText(inviteResult.inviteUrl);
-                      setCopied(true);
-                      window.setTimeout(() => setCopied(false), 2000);
-                    }}
-                  >
-                    {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-                  </Button>
+              {!inviteResult.addedDirectly && inviteResult.inviteUrl ? (
+                <div className="space-y-2">
+                  <Label>Invite link</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      readOnly
+                      value={inviteResult.inviteUrl}
+                      className="text-xs"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(
+                          inviteResult.inviteUrl || ""
+                        );
+                        setCopied(true);
+                        window.setTimeout(() => setCopied(false), 2000);
+                      }}
+                    >
+                      {copied ? (
+                        <Check className="size-4" />
+                      ) : (
+                        <Copy className="size-4" />
+                      )}
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              ) : null}
               <DialogFooter>
                 <Button onClick={resetInviteDialog}>Done</Button>
               </DialogFooter>
