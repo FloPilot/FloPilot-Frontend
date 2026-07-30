@@ -178,6 +178,7 @@ export function DesignPlacementsSection() {
                   >
                     <SelectTrigger className="h-9 w-full justify-between rounded-lg border-[#e3e3e3]">
                       <LabeledSelectValue
+                        value={preset.locationKey}
                         options={locationOptions.map((option) => ({
                           value: option.value,
                           label: option.label,

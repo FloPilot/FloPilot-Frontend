@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { GripVertical, Plus, Trash2 } from "lucide-react";
 import {
   AdminLockNotice,
@@ -55,6 +55,17 @@ function cloneDefaults() {
   };
 }
 
+function resolveSelectValue(
+  preferred: string | undefined,
+  choices: DecorationTypeOption[]
+): string | null {
+  if (choices.length === 0) return null;
+  if (preferred && choices.some((entry) => entry.value === preferred)) {
+    return preferred;
+  }
+  return choices[0]?.value ?? null;
+}
+
 export function PrintLocationsSection() {
   const { settings, isAdmin, updateSettings } = useShopSettings();
   const { draft, setDraft, dirty } = useSectionDraft<ShopProductionDefaults>(
@@ -67,12 +78,15 @@ export function PrintLocationsSection() {
   const [newDecorationType, setNewDecorationType] = useState("");
   const [newLocationDecorationType, setNewLocationDecorationType] =
     useState("screen_print");
-  const seedingRef = useRef(false);
 
   const locations = draft.printLocations ?? [];
   // Never show a virtual default list — only what's saved (or loaded into draft).
   const decorationTypes = draft.decorationTypes ?? [];
   const decorationTypeChoices = decorationTypes;
+  const safeNewLocationType = resolveSelectValue(
+    newLocationDecorationType,
+    decorationTypeChoices
+  );
 
   const persistDraft = useCallback(
     async (next: ShopProductionDefaults) => {
@@ -96,40 +110,6 @@ export function PrintLocationsSection() {
     },
     [updateSettings]
   );
-
-  // One-time: if the shop still has the old "empty = show FloPilot defaults"
-  // behavior for decoration types (empty saved types but locations already
-  // customized), materialize the default types so deletes can persist.
-  useEffect(() => {
-    if (!isAdmin || seedingRef.current || saving) return;
-    const storedTypes = settings.productionDefaults?.decorationTypes;
-    const storedLocations = settings.productionDefaults?.printLocations;
-    const typesEmpty =
-      Array.isArray(storedTypes) && storedTypes.length === 0;
-    const hasLocations =
-      Array.isArray(storedLocations) && storedLocations.length > 0;
-    if (!typesEmpty || !hasLocations) return;
-    if (decorationTypes.length > 0) return;
-
-    seedingRef.current = true;
-    const seeded = {
-      ...draft,
-      decorationTypes: DEFAULT_DECORATION_TYPES.map((item) => ({ ...item })),
-    };
-    setDraft(seeded);
-    void persistDraft(seeded).catch(() => {
-      seedingRef.current = false;
-    });
-  }, [
-    isAdmin,
-    saving,
-    settings.productionDefaults?.decorationTypes,
-    settings.productionDefaults?.printLocations,
-    decorationTypes.length,
-    draft,
-    setDraft,
-    persistDraft,
-  ]);
 
   const handleSave = async () => {
     try {
@@ -192,7 +172,7 @@ export function PrintLocationsSection() {
     if (exists) return;
 
     const decorationType =
-      newLocationDecorationType ||
+      safeNewLocationType ||
       decorationTypeChoices[0]?.value ||
       "screen_print";
 
@@ -278,12 +258,6 @@ export function PrintLocationsSection() {
       decorationTypes: DEFAULT_DECORATION_TYPES.map((item) => ({ ...item })),
     }));
   };
-
-  const safeNewLocationType = decorationTypeChoices.some(
-    (entry) => entry.value === newLocationDecorationType
-  )
-    ? newLocationDecorationType
-    : decorationTypeChoices[0]?.value ?? "screen_print";
 
   return (
     <SettingsMain>
@@ -462,11 +436,10 @@ export function PrintLocationsSection() {
             <div className="divide-y divide-[#ebebeb]">
               {locations.map((location, index) => {
                 const typeValue = resolvePrintLocationDecorationType(location);
-                const selectValue = decorationTypeChoices.some(
-                  (entry) => entry.value === typeValue
-                )
-                  ? typeValue
-                  : decorationTypeChoices[0]?.value ?? "screen_print";
+                const selectValue = resolveSelectValue(
+                  typeValue,
+                  decorationTypeChoices
+                );
 
                 return (
                   <div
@@ -502,40 +475,47 @@ export function PrintLocationsSection() {
 
                     <div className="flex items-center gap-2 sm:contents">
                       <div className="min-w-0 flex-1 sm:w-[180px] sm:flex-none">
-                        <Select
-                          value={selectValue}
-                          disabled={
-                            !isAdmin || decorationTypeChoices.length === 0
-                          }
-                          onValueChange={(value) => {
-                            if (!value) return;
-                            commit((current) => ({
-                              ...current,
-                              printLocations: (
-                                current.printLocations ?? []
-                              ).map((entry, entryIndex) =>
-                                entryIndex === index
-                                  ? { ...entry, decorationType: value }
-                                  : entry
-                              ),
-                            }));
-                          }}
-                        >
-                          <SelectTrigger className="h-9 w-full rounded-lg border-[#e3e3e3] bg-white">
-                            <LabeledSelectValue
-                              value={selectValue}
-                              options={decorationTypeChoices}
-                              placeholder="Type"
-                            />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {decorationTypeChoices.map((type) => (
-                              <SelectItem key={type.value} value={type.value}>
-                                {type.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        {selectValue ? (
+                          <Select
+                            value={selectValue}
+                            disabled={!isAdmin}
+                            onValueChange={(value) => {
+                              if (!value) return;
+                              const currentType =
+                                resolvePrintLocationDecorationType(location);
+                              if (value === currentType) return;
+                              commit((current) => ({
+                                ...current,
+                                printLocations: (
+                                  current.printLocations ?? []
+                                ).map((entry, entryIndex) =>
+                                  entryIndex === index
+                                    ? { ...entry, decorationType: value }
+                                    : entry
+                                ),
+                              }));
+                            }}
+                          >
+                            <SelectTrigger className="h-9 w-full rounded-lg border-[#e3e3e3] bg-white">
+                              <LabeledSelectValue
+                                value={selectValue}
+                                options={decorationTypeChoices}
+                                placeholder="Type"
+                              />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {decorationTypeChoices.map((type) => (
+                                <SelectItem key={type.value} value={type.value}>
+                                  {type.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <p className="flex h-9 items-center rounded-lg border border-dashed border-[#e3e3e3] px-3 text-[12px] text-[#8a8a8a]">
+                            Add a decoration type first
+                          </p>
+                        )}
                       </div>
 
                       {isAdmin ? (
@@ -596,32 +576,38 @@ export function PrintLocationsSection() {
                 }
               }}
             />
-            <Select
-              value={safeNewLocationType}
-              onValueChange={(value) => {
-                if (value) setNewLocationDecorationType(value);
-              }}
-            >
-              <SelectTrigger className="h-10 w-full rounded-lg border-[#e3e3e3] bg-white lg:w-[200px]">
-                <LabeledSelectValue
-                  value={safeNewLocationType}
-                  options={decorationTypeChoices}
-                  placeholder="Decoration type"
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {decorationTypeChoices.map((type) => (
-                  <SelectItem key={type.value} value={type.value}>
-                    {type.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {safeNewLocationType ? (
+              <Select
+                value={safeNewLocationType}
+                onValueChange={(value) => {
+                  if (value) setNewLocationDecorationType(value);
+                }}
+              >
+                <SelectTrigger className="h-10 w-full rounded-lg border-[#e3e3e3] bg-white lg:w-[200px]">
+                  <LabeledSelectValue
+                    value={safeNewLocationType}
+                    options={decorationTypeChoices}
+                    placeholder="Decoration type"
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {decorationTypeChoices.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      {type.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <p className="flex h-10 items-center rounded-lg border border-dashed border-[#e3e3e3] px-3 text-[12px] text-[#8a8a8a] lg:w-[200px]">
+                Add a type first
+              </p>
+            )}
             <Button
               type="button"
               className="h-10 shrink-0 gap-1.5"
               onClick={addLocation}
-              disabled={!newLocation.trim() || saving}
+              disabled={!newLocation.trim() || saving || !safeNewLocationType}
             >
               <Plus className="size-3.5" />
               Add location
