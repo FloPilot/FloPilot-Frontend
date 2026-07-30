@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/table";
 import { listClientStores } from "@/lib/api";
 import {
+  clientStoreModeLabel,
   clientStoreStatusLabel,
   resolveClientStoreShareUrl,
   type ClientStore,
@@ -262,11 +263,10 @@ export function StoresListView() {
                         <p className="truncate text-[13px] font-semibold text-[#303030]">
                           {store.name}
                         </p>
-                        {store.headline ? (
-                          <p className="truncate text-[12px] text-[#8a8a8a]">
-                            {store.headline}
-                          </p>
-                        ) : null}
+                        <p className="truncate text-[12px] text-[#8a8a8a]">
+                          {clientStoreModeLabel(store.mode)}
+                          {store.headline ? ` · ${store.headline}` : ""}
+                        </p>
                       </div>
                     </div>
                   </TableCell>

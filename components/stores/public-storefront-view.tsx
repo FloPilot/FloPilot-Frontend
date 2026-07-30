@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { FloPilotWatermark } from "@/components/branding/flopilot-watermark";
+import { PublicReviewStorefrontView } from "@/components/stores/public-review-storefront-view";
 import { StoreProductDetailInteractive, StoreProductMediaThumb } from "@/components/stores/store-product-detail";
 import { StoreSectionRenderer } from "@/components/stores/store-section-renderer";
 import { Button } from "@/components/ui/button";
@@ -641,7 +642,7 @@ export function PublicStorefrontView({ token }: { token: string }) {
           size,
           color: color || undefined,
           qty,
-          unitPrice: selected.sellPrice,
+          unitPrice: selected.sellPrice || 0,
           mockupUrl: activeMockup || selected.mockupUrl,
         },
       ];
@@ -702,6 +703,10 @@ export function PublicStorefrontView({ token }: { token: string }) {
   }
 
   if (!store) return null;
+
+  if (store.mode === "review") {
+    return <PublicReviewStorefrontView token={token} />;
+  }
 
   if (store.passwordProtected && !store.unlocked) {
     return (
@@ -861,7 +866,9 @@ export function PublicStorefrontView({ token }: { token: string }) {
                         "Apparel"}
                     </p>
                     <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
-                      {formatCurrency(product.sellPrice)}
+                      {product.sellPrice != null
+                        ? formatCurrency(product.sellPrice)
+                        : null}
                     </p>
                   </button>
                 ))}

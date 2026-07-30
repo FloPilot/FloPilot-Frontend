@@ -45,6 +45,7 @@ export function CreateStoreDialog({
   const [customerId, setCustomerId] = useState(presetCustomerId || "");
   const [customerQuery, setCustomerQuery] = useState("");
   const [name, setName] = useState("");
+  const [mode, setMode] = useState<"order" | "review">("order");
   const [headline, setHeadline] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
@@ -56,6 +57,7 @@ export function CreateStoreDialog({
     setCustomerId(presetCustomerId || "");
     setCustomerQuery("");
     setName("");
+    setMode("order");
     setHeadline("");
     setDescription("");
     setError(null);
@@ -94,8 +96,12 @@ export function CreateStoreDialog({
     const customer = activeCustomers.find((c) => c.id === id);
     if (!customer) return;
     const company = customer.company || customer.name || "Client";
-    setName(`${company} gear`);
-    setHeadline(`Official ${company} apparel`);
+    setName(mode === "review" ? `${company} review` : `${company} gear`);
+    setHeadline(
+      mode === "review"
+        ? `Review ${company} apparel options`
+        : `Official ${company} apparel`
+    );
   };
 
   const goToDetails = () => {
@@ -124,8 +130,18 @@ export function CreateStoreDialog({
       const res = await createClientStore(token, {
         customerId,
         name: name.trim(),
+        mode,
         headline: headline.trim() || undefined,
         description: description.trim() || undefined,
+        settings:
+          mode === "review"
+            ? {
+                reviewPhase: "voting",
+                reviewPrompt:
+                  "Browse each style and give a thumbs up or down on the colors your team likes.",
+                showPrices: false,
+              }
+            : undefined,
       });
       if (!res.store?.id) {
         throw new Error("Store was created but no id was returned.");
@@ -283,6 +299,67 @@ export function CreateStoreDialog({
               ) : null}
 
               <div className="space-y-4">
+                <div>
+                  <Label className="text-[13px] font-medium text-[#303030]">
+                    Store type
+                  </Label>
+                  <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+                    {(
+                      [
+                        {
+                          value: "order" as const,
+                          title: "Order store",
+                          body: "Clients buy / request sizes.",
+                        },
+                        {
+                          value: "review" as const,
+                          title: "Review store",
+                          body: "Clients mark include or pass.",
+                        },
+                      ] as const
+                    ).map((option) => {
+                      const active = mode === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            setMode(option.value);
+                            if (selectedCustomer) {
+                              const company =
+                                selectedCustomer.company ||
+                                selectedCustomer.name ||
+                                "Client";
+                              setName(
+                                option.value === "review"
+                                  ? `${company} review`
+                                  : `${company} gear`
+                              );
+                              setHeadline(
+                                option.value === "review"
+                                  ? `Review ${company} apparel options`
+                                  : `Official ${company} apparel`
+                              );
+                            }
+                          }}
+                          className={cn(
+                            "rounded-xl border px-3 py-3 text-left transition-colors",
+                            active
+                              ? "border-brand-primary/40 bg-[#f4f7ff]"
+                              : "border-[#e3e3e3] bg-white hover:border-[#c9cccf]"
+                          )}
+                        >
+                          <p className="text-[13px] font-semibold text-[#303030]">
+                            {option.title}
+                          </p>
+                          <p className="mt-1 text-[12px] leading-relaxed text-[#8a8a8a]">
+                            {option.body}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
                 <div>
                   <Label
                     htmlFor="store-name"

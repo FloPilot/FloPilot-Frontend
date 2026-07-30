@@ -98,6 +98,7 @@ function emptyProduct(): ClientStoreProduct {
     id: `cprod-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     name: "",
     description: "",
+    insights: "",
     brand: "",
     color: "",
     colors: [],
@@ -1548,6 +1549,27 @@ export function StoreProductEditor({
                           updateDraft({ description: e.target.value })
                         }
                         placeholder="Fit notes, decoration location, or what’s included."
+                        className="mt-1.5 min-h-[88px] rounded-lg border-[#e3e3e3] bg-white text-[13px] shadow-none focus-visible:border-brand-primary/40 focus-visible:ring-2 focus-visible:ring-brand-primary/15"
+                      />
+                    </div>
+
+                    <div>
+                      <Label
+                        htmlFor="product-insights"
+                        className="text-[13px] font-medium text-[#303030]"
+                      >
+                        Review insights
+                        <span className="ml-1 font-normal text-[#8a8a8a]">
+                          Optional · great for review stores
+                        </span>
+                      </Label>
+                      <Textarea
+                        id="product-insights"
+                        value={draft.insights || ""}
+                        onChange={(e) =>
+                          updateDraft({ insights: e.target.value })
+                        }
+                        placeholder="Why this style works for brokers — durability, decoration sweet spot, popular use cases…"
                         className="mt-1.5 min-h-[88px] rounded-lg border-[#e3e3e3] bg-white text-[13px] shadow-none focus-visible:border-brand-primary/40 focus-visible:ring-2 focus-visible:ring-brand-primary/15"
                       />
                     </div>

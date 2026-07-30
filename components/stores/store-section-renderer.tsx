@@ -112,7 +112,7 @@ function ProductCard({
         {[product.brand, product.color].filter(Boolean).join(" · ") || "Apparel"}
       </p>
       <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
-        {formatCurrency(product.sellPrice)}
+        {product.sellPrice != null ? formatCurrency(product.sellPrice) : null}
       </p>
     </button>
   );

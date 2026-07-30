@@ -412,7 +412,9 @@ export function StoreProductDetailInteractive({
             {product.name}
           </h1>
           <p className="mt-3 text-[1.25rem] font-semibold tabular-nums">
-            {formatCurrency(product.sellPrice)}
+            {product.sellPrice != null
+              ? formatCurrency(product.sellPrice)
+              : null}
           </p>
           {product.description ? (
             <p className="mt-4 text-[14px] leading-relaxed opacity-80">
