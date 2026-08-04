@@ -180,12 +180,14 @@ export function StoreCollectionsPanel({
   products,
   onSave,
   saving,
+  showSave = true,
 }: {
   theme: ClientStoreTheme;
   onThemeChange: (theme: ClientStoreTheme) => void;
   products: ClientStoreProduct[];
   onSave: () => void;
   saving: boolean;
+  showSave?: boolean;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(
     theme.collections[0]?.id || null
@@ -348,15 +350,17 @@ export function StoreCollectionsPanel({
             <Plus className="size-3.5" />
             Add collection
           </Button>
-          <Button
-            type="button"
-            className={dashboardPrimaryButtonClass}
-            disabled={saving}
-            onClick={onSave}
-          >
-            {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-            Save
-          </Button>
+          {showSave ? (
+            <Button
+              type="button"
+              className={dashboardPrimaryButtonClass}
+              disabled={saving}
+              onClick={onSave}
+            >
+              {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+              Save
+            </Button>
+          ) : null}
         </div>
       </div>
 

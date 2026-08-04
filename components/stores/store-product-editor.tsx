@@ -172,6 +172,10 @@ export function StoreProductEditor({
   onBack,
   onSave,
   onDelete,
+  onDirtyChange,
+  onBindUnsavedActions,
+  onLeaveBlocked,
+  onSavingChange,
 }: {
   product: ClientStoreProduct | null;
   collections?: ClientStoreCollection[];
@@ -179,6 +183,12 @@ export function StoreProductEditor({
   onBack: () => void;
   onSave: (product: ClientStoreProduct) => Promise<void>;
   onDelete?: () => Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void;
+  onSavingChange?: (saving: boolean) => void;
+  onBindUnsavedActions?: (
+    actions: { save: () => Promise<void>; discard: () => void } | null
+  ) => void;
+  onLeaveBlocked?: () => void;
 }) {
   const { getIdToken } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -252,6 +262,40 @@ export function StoreProductEditor({
   useEffect(() => {
     tagsRef.current = draft.tags || [];
   }, [draft.tags]);
+
+  const initialSnapshot = useMemo(
+    () =>
+      JSON.stringify(
+        product
+          ? { ...product, tags: product.tags || [] }
+          : emptyProduct()
+      ),
+    [product]
+  );
+
+  const productDirty = useMemo(() => {
+    const current = JSON.stringify({
+      ...draft,
+      tags: draft.tags || [],
+    });
+    if (current !== initialSnapshot) return true;
+    if (tagDraft.trim()) return true;
+    if (mode === "configure" || mode === "mockups" || mode === "design") {
+      return true;
+    }
+    return false;
+  }, [draft, initialSnapshot, tagDraft, mode]);
+
+  useEffect(() => {
+    onDirtyChange?.(productDirty);
+  }, [productDirty, onDirtyChange]);
+
+  useEffect(() => {
+    onSavingChange?.(saving);
+  }, [saving, onSavingChange]);
+
+  const saveActionRef = useRef<(() => Promise<void>) | null>(null);
+  const discardActionRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -693,6 +737,45 @@ export function StoreProductEditor({
     }
   };
 
+  const discardProductDraft = () => {
+    const next = product
+      ? { ...product, tags: product.tags || [] }
+      : emptyProduct();
+    setDraft(next);
+    tagsRef.current = next.tags || [];
+    setTagDraft("");
+    setMode("edit");
+    setQuery("");
+    setDebouncedQuery("");
+    setBrandFilter(null);
+    setResults([]);
+    setError(null);
+    setSearchError(null);
+    setStyleDetail(null);
+    setSelectedColorKeys(new Set());
+    setConfigureSizes([]);
+    setWizardVariants([]);
+    setGalleryIndex(0);
+    // Parent handles closing / clearing dirty — do not call onBack() here
+    // (onBack is leave-guarded and would shake the save bar).
+  };
+
+  saveActionRef.current = handleSave;
+  discardActionRef.current = discardProductDraft;
+
+  useEffect(() => {
+    if (!onBindUnsavedActions) return;
+    onBindUnsavedActions({
+      save: async () => {
+        await saveActionRef.current?.();
+      },
+      discard: () => {
+        discardActionRef.current?.();
+      },
+    });
+    return () => onBindUnsavedActions(null);
+  }, [onBindUnsavedActions]);
+
   const resultsLabel = brandFilter
     ? debouncedQuery.length >= 2
       ? `${results.length} result${results.length !== 1 ? "s" : ""} in ${brandFilter}`
@@ -713,6 +796,10 @@ export function StoreProductEditor({
     }
     if (mode === "configure") {
       setMode("search");
+      return;
+    }
+    if (productDirty) {
+      onLeaveBlocked?.();
       return;
     }
     onBack();

@@ -57,6 +57,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
+      data-scroll-behavior="smooth"
       className={`${geistSans.variable} h-full scroll-smooth`}
       suppressHydrationWarning
     >

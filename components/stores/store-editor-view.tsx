@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -22,6 +22,10 @@ import {
   Trash2,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import {
+  useRegisterUnsavedChanges,
+  useStaffUnsavedChanges,
+} from "@/components/layout/staff-unsaved-changes-provider";
 import { StoreCollectionsPanel } from "@/components/stores/store-collections-panel";
 import { StoreConvertSubmissionDialog } from "@/components/stores/store-convert-submission-dialog";
 import { StoreCustomizeBuilder } from "@/components/stores/store-customize-builder";
@@ -88,8 +92,43 @@ type EditorTab =
   | "share"
   | "orders";
 
+type StoreDraftSnapshotInput = {
+  name: string;
+  headline: string;
+  description: string;
+  opensAt: string;
+  closesAt: string;
+  password: string;
+  orderInstructions: string;
+  reviewPrompt: string;
+  reviewPhase: ClientStoreReviewPhase;
+  showPrices: boolean;
+  pageBackgroundColor: string;
+  accentColorKey: CustomerAccentKey | null;
+  theme: ClientStoreTheme;
+};
+
+function serializeStoreDraft(input: StoreDraftSnapshotInput): string {
+  return JSON.stringify({
+    name: input.name.trim(),
+    headline: input.headline.trim(),
+    description: input.description.trim(),
+    opensAt: input.opensAt,
+    closesAt: input.closesAt,
+    password: input.password.trim(),
+    orderInstructions: input.orderInstructions.trim(),
+    reviewPrompt: input.reviewPrompt.trim(),
+    reviewPhase: input.reviewPhase,
+    showPrices: input.showPrices,
+    pageBackgroundColor: input.pageBackgroundColor.trim() || "#ffffff",
+    accentColorKey: input.accentColorKey,
+    theme: input.theme,
+  });
+}
+
 export function StoreEditorView({ storeId }: { storeId: string }) {
   const { getIdToken } = useAuth();
+  const { requestLeave } = useStaffUnsavedChanges();
   const [store, setStore] = useState<ClientStore | null>(null);
   const [submissions, setSubmissions] = useState<ClientStoreSubmission[]>([]);
   const [tab, setTab] = useState<EditorTab>("overview");
@@ -103,6 +142,13 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   const [editingProduct, setEditingProduct] = useState<ClientStoreProduct | null>(
     null
   );
+  const [productDirty, setProductDirty] = useState(false);
+  const [productSaving, setProductSaving] = useState(false);
+  const productActionsRef = useRef<{
+    save: () => Promise<void>;
+    discard: () => void;
+  } | null>(null);
+  const [draftBaseline, setDraftBaseline] = useState("");
   const [convertSubmission, setConvertSubmission] =
     useState<ClientStoreSubmission | null>(null);
   const [uploadingAsset, setUploadingAsset] = useState<"logo" | "hero" | null>(
@@ -139,43 +185,61 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       ]);
       setStore(storeRes.store);
       setSubmissions(submissionRes.submissions);
-      setName(storeRes.store.name || "");
-      setHeadline(storeRes.store.headline || "");
-      setDescription(storeRes.store.description || "");
-      setOpensAt(storeRes.store.opensAt?.slice(0, 16) || "");
-      setClosesAt(storeRes.store.closesAt?.slice(0, 16) || "");
-      setOrderInstructions(storeRes.store.settings?.orderInstructions || "");
-      setReviewPrompt(storeRes.store.settings?.reviewPrompt || "");
-      setReviewPhase(clientStoreReviewPhase(storeRes.store));
-      setShowPrices(storeRes.store.settings?.showPrices === true);
-      setPageBackgroundColor(
-        storeRes.store.settings?.pageBackgroundColor || "#ffffff"
-      );
-      setAccentColorKey(
+      const nextName = storeRes.store.name || "";
+      const nextHeadline = storeRes.store.headline || "";
+      const nextDescription = storeRes.store.description || "";
+      const nextOpensAt = storeRes.store.opensAt?.slice(0, 16) || "";
+      const nextClosesAt = storeRes.store.closesAt?.slice(0, 16) || "";
+      const nextOrderInstructions =
+        storeRes.store.settings?.orderInstructions || "";
+      const nextReviewPrompt = storeRes.store.settings?.reviewPrompt || "";
+      const nextReviewPhase = clientStoreReviewPhase(storeRes.store);
+      const nextShowPrices = storeRes.store.settings?.showPrices === true;
+      const nextPageBackgroundColor =
+        storeRes.store.settings?.pageBackgroundColor || "#ffffff";
+      const nextAccent =
         (CUSTOMER_ACCENT_OPTIONS.find(
           (opt) => opt.key === storeRes.store.accentColorKey
-        )?.key as CustomerAccentKey | undefined) || null
-      );
-      setTheme(
-        ensureStoreTheme(storeRes.store.theme, {
-          name: storeRes.store.name,
-          headline: storeRes.store.headline,
-          description: storeRes.store.description,
-          heroImageUrl: storeRes.store.heroImageUrl,
-        })
-      );
+        )?.key as CustomerAccentKey | undefined) || null;
+      const nextTheme = ensureStoreTheme(storeRes.store.theme, {
+        name: storeRes.store.name,
+        headline: storeRes.store.headline,
+        description: storeRes.store.description,
+        heroImageUrl: storeRes.store.heroImageUrl,
+      });
+      setName(nextName);
+      setHeadline(nextHeadline);
+      setDescription(nextDescription);
+      setOpensAt(nextOpensAt);
+      setClosesAt(nextClosesAt);
+      setOrderInstructions(nextOrderInstructions);
+      setReviewPrompt(nextReviewPrompt);
+      setReviewPhase(nextReviewPhase);
+      setShowPrices(nextShowPrices);
+      setPageBackgroundColor(nextPageBackgroundColor);
+      setAccentColorKey(nextAccent);
+      setTheme(nextTheme);
       setActivePageId((current) => {
-        const nextTheme = ensureStoreTheme(storeRes.store.theme, {
-          name: storeRes.store.name,
-          headline: storeRes.store.headline,
-          description: storeRes.store.description,
-          heroImageUrl: storeRes.store.heroImageUrl,
-        });
         if (current && nextTheme.pages.some((page) => page.id === current)) {
           return current;
         }
         return nextTheme.pages[0]?.id || null;
       });
+      setDraftBaseline(serializeStoreDraft({
+        name: nextName,
+        headline: nextHeadline,
+        description: nextDescription,
+        opensAt: nextOpensAt,
+        closesAt: nextClosesAt,
+        password: "",
+        orderInstructions: nextOrderInstructions,
+        reviewPrompt: nextReviewPrompt,
+        reviewPhase: nextReviewPhase,
+        showPrices: nextShowPrices,
+        pageBackgroundColor: nextPageBackgroundColor,
+        accentColorKey: nextAccent,
+        theme: nextTheme,
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load store");
     } finally {
@@ -192,7 +256,117 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     [store]
   );
 
-  const saveOverview = async () => {
+  const draftSnapshot = useMemo(
+    () =>
+      serializeStoreDraft({
+        name,
+        headline,
+        description,
+        opensAt,
+        closesAt,
+        password,
+        orderInstructions,
+        reviewPrompt,
+        reviewPhase,
+        showPrices,
+        pageBackgroundColor,
+        accentColorKey,
+        theme,
+      }),
+    [
+      name,
+      headline,
+      description,
+      opensAt,
+      closesAt,
+      password,
+      orderInstructions,
+      reviewPrompt,
+      reviewPhase,
+      showPrices,
+      pageBackgroundColor,
+      accentColorKey,
+      theme,
+    ]
+  );
+
+  const storeDirty =
+    Boolean(store) && !loading && draftSnapshot !== draftBaseline;
+
+  const requestTabChange = useCallback(
+    (nextTab: EditorTab) => {
+      if (nextTab === tab && !productOpen) return;
+
+      const blocked = productOpen ? productDirty : storeDirty;
+      if (blocked) {
+        requestLeave();
+        return;
+      }
+
+      if (productOpen) {
+        setProductOpen(false);
+        setEditingProduct(null);
+        setProductDirty(false);
+        setProductSaving(false);
+      }
+      setTab(nextTab);
+    },
+    [tab, productOpen, productDirty, storeDirty, requestLeave]
+  );
+
+  const discardStoreDraft = useCallback(() => {
+    if (!store) return;
+    const nextName = store.name || "";
+    const nextHeadline = store.headline || "";
+    const nextDescription = store.description || "";
+    const nextOpensAt = store.opensAt?.slice(0, 16) || "";
+    const nextClosesAt = store.closesAt?.slice(0, 16) || "";
+    const nextOrderInstructions = store.settings?.orderInstructions || "";
+    const nextReviewPrompt = store.settings?.reviewPrompt || "";
+    const nextReviewPhase = clientStoreReviewPhase(store);
+    const nextShowPrices = store.settings?.showPrices === true;
+    const nextPageBackgroundColor =
+      store.settings?.pageBackgroundColor || "#ffffff";
+    const nextAccent =
+      (CUSTOMER_ACCENT_OPTIONS.find((opt) => opt.key === store.accentColorKey)
+        ?.key as CustomerAccentKey | undefined) || null;
+    const nextTheme = ensureStoreTheme(store.theme, {
+      name: store.name,
+      headline: store.headline,
+      description: store.description,
+      heroImageUrl: store.heroImageUrl,
+    });
+    setName(nextName);
+    setHeadline(nextHeadline);
+    setDescription(nextDescription);
+    setOpensAt(nextOpensAt);
+    setClosesAt(nextClosesAt);
+    setPassword("");
+    setOrderInstructions(nextOrderInstructions);
+    setReviewPrompt(nextReviewPrompt);
+    setReviewPhase(nextReviewPhase);
+    setShowPrices(nextShowPrices);
+    setPageBackgroundColor(nextPageBackgroundColor);
+    setAccentColorKey(nextAccent);
+    setTheme(nextTheme);
+    setDraftBaseline(serializeStoreDraft({
+      name: nextName,
+      headline: nextHeadline,
+      description: nextDescription,
+      opensAt: nextOpensAt,
+      closesAt: nextClosesAt,
+      password: "",
+      orderInstructions: nextOrderInstructions,
+      reviewPrompt: nextReviewPrompt,
+      reviewPhase: nextReviewPhase,
+      showPrices: nextShowPrices,
+      pageBackgroundColor: nextPageBackgroundColor,
+      accentColorKey: nextAccent,
+      theme: nextTheme,
+    }));
+  }, [store]);
+
+  const saveDrafts = async () => {
     const token = await getIdToken();
     if (!token || !store) return;
     setSaving(true);
@@ -202,6 +376,10 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         name: name.trim(),
         opensAt: opensAt ? new Date(opensAt).toISOString() : null,
         closesAt: closesAt ? new Date(closesAt).toISOString() : null,
+        headline: headline.trim() || undefined,
+        description: description.trim() || undefined,
+        accentColorKey: accentColorKey ?? null,
+        theme,
         settings: {
           ...store.settings,
           orderInstructions: orderInstructions.trim() || undefined,
@@ -216,6 +394,49 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       });
       setStore(res.store);
       setPassword("");
+      const nextTheme = ensureStoreTheme(res.store.theme, {
+        name: res.store.name,
+        headline: res.store.headline,
+        description: res.store.description,
+        heroImageUrl: res.store.heroImageUrl,
+      });
+      setTheme(nextTheme);
+      setHeadline(res.store.headline || "");
+      setDescription(res.store.description || "");
+      setName(res.store.name || "");
+      setOpensAt(res.store.opensAt?.slice(0, 16) || "");
+      setClosesAt(res.store.closesAt?.slice(0, 16) || "");
+      setOrderInstructions(res.store.settings?.orderInstructions || "");
+      setReviewPrompt(res.store.settings?.reviewPrompt || "");
+      setReviewPhase(clientStoreReviewPhase(res.store));
+      setShowPrices(res.store.settings?.showPrices === true);
+      setPageBackgroundColor(
+        res.store.settings?.pageBackgroundColor || "#ffffff"
+      );
+      setAccentColorKey(
+        (CUSTOMER_ACCENT_OPTIONS.find(
+          (opt) => opt.key === res.store.accentColorKey
+        )?.key as CustomerAccentKey | undefined) || null
+      );
+      setDraftBaseline(serializeStoreDraft({
+        name: res.store.name || "",
+        headline: res.store.headline || "",
+        description: res.store.description || "",
+        opensAt: res.store.opensAt?.slice(0, 16) || "",
+        closesAt: res.store.closesAt?.slice(0, 16) || "",
+        password: "",
+        orderInstructions: res.store.settings?.orderInstructions || "",
+        reviewPrompt: res.store.settings?.reviewPrompt || "",
+        reviewPhase: clientStoreReviewPhase(res.store),
+        showPrices: res.store.settings?.showPrices === true,
+        pageBackgroundColor:
+          res.store.settings?.pageBackgroundColor || "#ffffff",
+        accentColorKey:
+          (CUSTOMER_ACCENT_OPTIONS.find(
+            (opt) => opt.key === res.store.accentColorKey
+          )?.key as CustomerAccentKey | undefined) || null,
+        theme: nextTheme,
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save store");
     } finally {
@@ -223,36 +444,34 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     }
   };
 
+  useRegisterUnsavedChanges(
+    productOpen
+      ? {
+          dirty: productDirty,
+          saving: productSaving || saving,
+          label: "Unsaved product",
+          onSave: async () => {
+            await productActionsRef.current?.save();
+          },
+          onDiscard: () => {
+            productActionsRef.current?.discard();
+            setProductDirty(false);
+            setProductSaving(false);
+            setProductOpen(false);
+            setEditingProduct(null);
+          },
+        }
+      : {
+          dirty: storeDirty,
+          saving,
+          label: "Unsaved changes",
+          onSave: () => saveDrafts(),
+          onDiscard: discardStoreDraft,
+        }
+  );
+
   const saveCustomize = async () => {
-    const token = await getIdToken();
-    if (!token || !store) return;
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await updateClientStore(token, store.id, {
-        headline: headline.trim() || undefined,
-        description: description.trim() || undefined,
-        accentColorKey: accentColorKey ?? null,
-        theme,
-        settings: {
-          ...store.settings,
-          pageBackgroundColor: pageBackgroundColor.trim() || "#ffffff",
-        },
-      });
-      setStore(res.store);
-      setTheme(
-        ensureStoreTheme(res.store.theme, {
-          name: res.store.name,
-          headline: res.store.headline,
-          description: res.store.description,
-          heroImageUrl: res.store.heroImageUrl,
-        })
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save store look");
-    } finally {
-      setSaving(false);
-    }
+    await saveDrafts();
   };
 
   const setStatus = async (status: ClientStore["status"]) => {
@@ -517,7 +736,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
             <button
               key={item.id}
               type="button"
-              onClick={() => setTab(item.id)}
+              onClick={() => requestTabChange(item.id)}
               className={cn(
                 "inline-flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-[13px] font-medium transition-colors",
                 tab === item.id
@@ -770,15 +989,6 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                 className="mt-1.5 h-9 border-[#e3e3e3] text-[13px]"
               />
             </div>
-            <Button
-              type="button"
-              className={dashboardPrimaryButtonClass}
-              disabled={saving}
-              onClick={() => void saveOverview()}
-            >
-              {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-              Save changes
-            </Button>
           </div>
 
           <div className="space-y-4">
@@ -793,7 +1003,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
               <Button
                 type="button"
                 className={cn(dashboardControlClass, "mt-4")}
-                onClick={() => setTab("customize")}
+                onClick={() => requestTabChange("customize")}
               >
                 Open Customize
               </Button>
@@ -821,13 +1031,24 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
             product={editingProduct}
             collections={theme.collections || []}
             onOpenCollections={() => {
-              setProductOpen(false);
-              setEditingProduct(null);
-              setTab("collections");
+              requestTabChange("collections");
             }}
             onBack={() => {
+              if (productDirty) {
+                requestLeave();
+                return;
+              }
               setProductOpen(false);
               setEditingProduct(null);
+              setProductDirty(false);
+            }}
+            onLeaveBlocked={() => {
+              requestLeave();
+            }}
+            onDirtyChange={setProductDirty}
+            onSavingChange={setProductSaving}
+            onBindUnsavedActions={(actions) => {
+              productActionsRef.current = actions;
             }}
             onSave={async (product) => {
               const products = [...(store.products || [])];
@@ -837,6 +1058,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
               await saveProducts(products);
               setProductOpen(false);
               setEditingProduct(null);
+              setProductDirty(false);
             }}
             onDelete={
               editingProduct
@@ -1065,6 +1287,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
           products={store.products || []}
           onSave={() => void saveCustomize()}
           saving={saving}
+          showSave={false}
         />
       ) : null}
 
@@ -1073,11 +1296,16 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
           theme={theme}
           onThemeChange={setTheme}
           onCustomizePage={(pageId) => {
+            if (storeDirty) {
+              requestLeave();
+              return;
+            }
             setActivePageId(pageId);
             setTab("customize");
           }}
           onSave={() => void saveCustomize()}
           saving={saving}
+          showSave={false}
         />
       ) : null}
 
@@ -1089,6 +1317,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
           onThemeChange={setTheme}
           onSave={() => void saveCustomize()}
           saving={saving}
+          showSave={false}
         />
       ) : null}
 
@@ -1108,6 +1337,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
           pageBackgroundColor={pageBackgroundColor}
           onPageBackgroundColorChange={setPageBackgroundColor}
           onSave={saveCustomize}
+          showSave={false}
           onUploadLogo={(file) => void handleAssetUpload("logo", file)}
           onUploadHero={(file) => {
             void handleAssetUpload("hero", file);

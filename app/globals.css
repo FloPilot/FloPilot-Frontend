@@ -140,6 +140,28 @@
   }
 }
 
+@keyframes unsaved-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  16% {
+    transform: translateX(-5px);
+  }
+  32% {
+    transform: translateX(5px);
+  }
+  48% {
+    transform: translateX(-4px);
+  }
+  64% {
+    transform: translateX(4px);
+  }
+  80% {
+    transform: translateX(-2px);
+  }
+}
+
 @keyframes loader-orbit-reverse {
   to {
     transform: rotate(-360deg);
