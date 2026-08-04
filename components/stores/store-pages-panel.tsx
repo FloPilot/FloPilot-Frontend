@@ -35,12 +35,14 @@ export function StorePagesPanel({
   onCustomizePage,
   onSave,
   saving,
+  showSave = true,
 }: {
   theme: ClientStoreTheme;
   onThemeChange: (theme: ClientStoreTheme) => void;
   onCustomizePage: (pageId: string) => void;
   onSave: () => void;
   saving: boolean;
+  showSave?: boolean;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(
     theme.pages[0]?.id || null
@@ -83,15 +85,17 @@ export function StorePagesPanel({
             Manage storefront pages, then open Customize to edit their layout.
           </p>
         </div>
-        <Button
-          type="button"
-          className={dashboardPrimaryButtonClass}
-          disabled={saving}
-          onClick={onSave}
-        >
-          {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-          Save
-        </Button>
+        {showSave ? (
+          <Button
+            type="button"
+            className={dashboardPrimaryButtonClass}
+            disabled={saving}
+            onClick={onSave}
+          >
+            {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+            Save
+          </Button>
+        ) : null}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">

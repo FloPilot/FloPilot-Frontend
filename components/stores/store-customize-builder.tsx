@@ -169,6 +169,7 @@ export function StoreCustomizeBuilder({
   onClearHero,
   saving,
   uploadingAsset,
+  showSave = true,
 }: {
   store: ClientStore;
   theme: ClientStoreTheme;
@@ -190,6 +191,7 @@ export function StoreCustomizeBuilder({
   onClearHero: () => void;
   saving: boolean;
   uploadingAsset: "logo" | "hero" | null;
+  showSave?: boolean;
 }) {
   const activePage = getPageById(theme, activePageId);
   const pageSections = activePage?.sections || [];
@@ -387,15 +389,17 @@ export function StoreCustomizeBuilder({
             </button>
           ))}
         </div>
-        <Button
-          type="button"
-          className={dashboardPrimaryButtonClass}
-          disabled={saving}
-          onClick={onSave}
-        >
-          {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-          Save customize
-        </Button>
+        {showSave ? (
+          <Button
+            type="button"
+            className={dashboardPrimaryButtonClass}
+            disabled={saving}
+            onClick={onSave}
+          >
+            {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+            Save customize
+          </Button>
+        ) : null}
       </div>
 
       <div className="grid min-h-[640px] lg:grid-cols-[220px_minmax(0,1fr)_300px]">

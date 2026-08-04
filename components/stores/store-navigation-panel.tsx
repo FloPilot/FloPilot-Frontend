@@ -391,6 +391,7 @@ export function StoreNavigationPanel({
   onThemeChange,
   onSave,
   saving,
+  showSave = true,
 }: {
   theme: ClientStoreTheme;
   storeName: string;
@@ -398,6 +399,7 @@ export function StoreNavigationPanel({
   onThemeChange: (theme: ClientStoreTheme) => void;
   onSave: () => void;
   saving: boolean;
+  showSave?: boolean;
 }) {
   const navigation = useMemo(
     () => ensureStoreNavigation(theme.navigation, theme.pages),
@@ -575,15 +577,17 @@ export function StoreNavigationPanel({
             Build the storefront header — including dropdown submenus.
           </p>
         </div>
-        <Button
-          type="button"
-          className={dashboardPrimaryButtonClass}
-          disabled={saving}
-          onClick={onSave}
-        >
-          {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-          Save
-        </Button>
+        {showSave ? (
+          <Button
+            type="button"
+            className={dashboardPrimaryButtonClass}
+            disabled={saving}
+            onClick={onSave}
+          >
+            {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+            Save
+          </Button>
+        ) : null}
       </div>
 
       <div className={cn(dashboardCardClass, "overflow-hidden p-0")}>
