@@ -340,6 +340,13 @@ export function IntegrationsSection() {
             >
               Accounting
             </Link>
+            . For invoice card payments, use{" "}
+            <Link
+              href="/app/settings/integrations/payments"
+              className="font-medium text-brand-primary hover:underline"
+            >
+              Payments
+            </Link>
             .
           </p>
         </div>

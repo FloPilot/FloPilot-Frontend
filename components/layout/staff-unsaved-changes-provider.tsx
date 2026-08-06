@@ -16,6 +16,11 @@ export type UnsavedChangesRegistration = {
   dirty: boolean;
   saving?: boolean;
   label?: string;
+  /**
+   * When true, in-page tab switches may proceed while this surface is dirty
+   * because state is kept in a parent that stays mounted.
+   */
+  persistAcrossTabs?: boolean;
   onSave: () => void | Promise<void>;
   onDiscard: () => void;
 };
@@ -26,11 +31,18 @@ type StaffUnsavedChangesContextValue = {
   label: string;
   shaking: boolean;
   attention: boolean;
-  register: (registration: UnsavedChangesRegistration | null) => void;
+  /** Register or clear a named surface. Multiple surfaces can be dirty at once. */
+  register: (
+    id: string,
+    registration: UnsavedChangesRegistration | null
+  ) => void;
   save: () => Promise<void>;
   discard: () => void;
   /** Flash + shake the save bar. Returns false when leave is blocked. */
-  requestLeave: (href?: string) => boolean;
+  requestLeave: (
+    href?: string,
+    options?: { inPage?: boolean }
+  ) => boolean;
 };
 
 const StaffUnsavedChangesContext =
@@ -50,6 +62,29 @@ function isInternalNavigationHref(href: string): boolean {
   return href.startsWith("/");
 }
 
+function summarizeRegistrations(
+  entries: Map<string, UnsavedChangesRegistration>
+) {
+  const list = [...entries.values()];
+  const dirtyEntries = list.filter((entry) => entry.dirty);
+  const dirty = dirtyEntries.length > 0;
+  const saving = list.some((entry) => entry.saving);
+  const labels = [
+    ...new Set(
+      dirtyEntries
+        .map((entry) => entry.label?.trim())
+        .filter((label): label is string => Boolean(label))
+    ),
+  ];
+  const label =
+    labels.length === 0
+      ? "Unsaved changes"
+      : labels.length === 1
+        ? labels[0]
+        : `${labels.length} unsaved sections`;
+  return { dirty, saving, label, dirtyEntries };
+}
+
 export function StaffUnsavedChangesProvider({
   children,
 }: {
@@ -57,7 +92,9 @@ export function StaffUnsavedChangesProvider({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const registrationRef = useRef<UnsavedChangesRegistration | null>(null);
+  const registrationsRef = useRef(
+    new Map<string, UnsavedChangesRegistration>()
+  );
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [label, setLabel] = useState("Unsaved changes");
@@ -68,21 +105,23 @@ export function StaffUnsavedChangesProvider({
   const allowLeaveRef = useRef(false);
   const pathnameRef = useRef(pathname);
 
-  const syncFromRegistration = useCallback(
-    (registration: UnsavedChangesRegistration | null) => {
-      registrationRef.current = registration;
-      setDirty(Boolean(registration?.dirty));
-      setSaving(Boolean(registration?.saving));
-      setLabel(registration?.label?.trim() || "Unsaved changes");
-    },
-    []
-  );
+  const syncFromRegistrations = useCallback(() => {
+    const summary = summarizeRegistrations(registrationsRef.current);
+    setDirty(summary.dirty);
+    setSaving(summary.saving);
+    setLabel(summary.label);
+  }, []);
 
   const register = useCallback(
-    (registration: UnsavedChangesRegistration | null) => {
-      syncFromRegistration(registration);
+    (id: string, registration: UnsavedChangesRegistration | null) => {
+      if (!registration) {
+        registrationsRef.current.delete(id);
+      } else {
+        registrationsRef.current.set(id, registration);
+      }
+      syncFromRegistrations();
     },
-    [syncFromRegistration]
+    [syncFromRegistrations]
   );
 
   const pulseAttention = useCallback(() => {
@@ -95,8 +134,14 @@ export function StaffUnsavedChangesProvider({
   }, []);
 
   const requestLeave = useCallback(
-    (href?: string) => {
-      if (!registrationRef.current?.dirty || allowLeaveRef.current) {
+    (href?: string, options?: { inPage?: boolean }) => {
+      const { dirtyEntries } = summarizeRegistrations(
+        registrationsRef.current
+      );
+      const blockingEntries = options?.inPage
+        ? dirtyEntries.filter((entry) => !entry.persistAcrossTabs)
+        : dirtyEntries;
+      if (blockingEntries.length === 0 || allowLeaveRef.current) {
         if (href) {
           allowLeaveRef.current = true;
           router.push(href);
@@ -109,14 +154,28 @@ export function StaffUnsavedChangesProvider({
     [pulseAttention, router]
   );
 
+  const saveInFlightRef = useRef(false);
+
   const save = useCallback(async () => {
-    const current = registrationRef.current;
-    if (!current?.dirty || current.saving) return;
-    await current.onSave();
+    if (saveInFlightRef.current) return;
+    const { dirtyEntries } = summarizeRegistrations(registrationsRef.current);
+    if (dirtyEntries.length === 0) return;
+    saveInFlightRef.current = true;
+    try {
+      for (const entry of dirtyEntries) {
+        await entry.onSave();
+      }
+    } finally {
+      saveInFlightRef.current = false;
+    }
   }, []);
 
   const discard = useCallback(() => {
-    registrationRef.current?.onDiscard();
+    if (saveInFlightRef.current) return;
+    const { dirtyEntries } = summarizeRegistrations(registrationsRef.current);
+    for (const entry of dirtyEntries) {
+      entry.onDiscard();
+    }
   }, []);
 
   useEffect(() => {
@@ -225,7 +284,8 @@ export function useStaffUnsavedChanges() {
 
 /** Register the current screen’s dirty save/discard handlers with the top bar. */
 export function useRegisterUnsavedChanges(
-  registration: UnsavedChangesRegistration | null
+  registration: UnsavedChangesRegistration | null,
+  id = "default"
 ) {
   const { register } = useStaffUnsavedChanges();
   const onSaveRef = useRef(registration?.onSave);
@@ -241,16 +301,17 @@ export function useRegisterUnsavedChanges(
 
   useEffect(() => {
     if (!active) {
-      register(null);
+      register(id, null);
       return;
     }
-    register({
+    register(id, {
       dirty,
       saving,
       label,
+      persistAcrossTabs: registration?.persistAcrossTabs,
       onSave: () => onSaveRef.current?.(),
       onDiscard: () => onDiscardRef.current?.(),
     });
-    return () => register(null);
-  }, [active, dirty, saving, label, register]);
+    return () => register(id, null);
+  }, [id, active, dirty, saving, label, registration?.persistAcrossTabs, register]);
 }

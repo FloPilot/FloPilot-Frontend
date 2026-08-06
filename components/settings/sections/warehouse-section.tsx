@@ -9,6 +9,7 @@ import {
   SettingsHeader,
   SettingsMain,
   SettingsPanel,
+  useRegisterSectionUnsavedChanges,
   useSectionDraft,
 } from "@/components/settings/settings-kit";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -51,7 +52,7 @@ export function WarehouseSection() {
     }),
     [settings.warehouses, settings.productionDefaults.finishingSteps]
   );
-  const { draft, setDraft, dirty } = useSectionDraft<WarehouseDraft>(initial);
+  const { draft, setDraft, dirty, discard } = useSectionDraft<WarehouseDraft>(initial);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +80,15 @@ export function WarehouseSection() {
       setSaving(false);
     }
   };
+
+  useRegisterSectionUnsavedChanges({
+    dirty,
+    saving,
+    enabled: isAdmin,
+    label: "Unsaved warehouse",
+    onSave: () => handleSave(),
+    onDiscard: discard,
+  });
 
   const addWarehouse = () => {
     setDraft((current) => ({

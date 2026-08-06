@@ -125,13 +125,28 @@ export function artLayersForCompose(layers: DesignMockupArtLayer[]): Array<{
     );
 }
 
+function shortUrlFingerprint(url: string): string {
+  // Data URLs share the same long `data:image/png;base64,` prefix — hashing
+  // only the head makes every cleaned PNG look identical in the compose cache.
+  const len = url.length;
+  if (len <= 96) return url;
+  const head = url.slice(0, 24);
+  const mid = url.slice(Math.floor(len / 2) - 16, Math.floor(len / 2) + 16);
+  const tail = url.slice(-32);
+  let hash = 0;
+  for (let i = 0; i < url.length; i += Math.max(1, Math.floor(url.length / 200))) {
+    hash = (hash * 33 + url.charCodeAt(i)) >>> 0;
+  }
+  return `${len}:${head}:${mid}:${tail}:${hash.toString(36)}`;
+}
+
 export function artLayersCacheFingerprint(
   layers: DesignMockupArtLayer[]
 ): string {
   return artLayersForCompose(layers)
     .map(
       (layer) =>
-        `${layer.url.slice(0, 64)}@${layer.transform.x.toFixed(3)},${layer.transform.y.toFixed(3)},${layer.transform.scale.toFixed(3)},${layer.transform.rotation ?? 0}`
+        `${shortUrlFingerprint(layer.url)}@${layer.transform.x.toFixed(3)},${layer.transform.y.toFixed(3)},${layer.transform.scale.toFixed(3)},${layer.transform.rotation ?? 0}`
     )
     .join("|");
 }

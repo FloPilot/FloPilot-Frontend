@@ -92,6 +92,24 @@ export type PortalInvoiceSummary = {
   producedPieces: number;
   orderedPieces: number;
   hasVariance: boolean;
+  /** Existing Stripe Checkout URL when available */
+  payUrl?: string | null;
+  /** Shop has Stripe Connect ready and balance is due */
+  canPayOnline?: boolean;
+  stripePaidAt?: string | null;
+  stripePaidAmount?: number | null;
+};
+
+export type CustomerPortalMember = {
+  id: string;
+  email: string;
+  name: string;
+  role: "owner" | "reviewer";
+  status: "pending" | "active";
+  firebaseUid?: string | null;
+  invitedAt?: string | null;
+  invitedBy?: string | null;
+  linkedAt?: string | null;
 };
 
 export type CustomerPortalProfile = {
@@ -122,6 +140,14 @@ export type CustomerPortalProfileResponse = {
   shop?: CustomerPortalDashboard["shop"];
   profile?: CustomerPortalProfile;
   portalExpiresAt?: string | null;
+  members?: CustomerPortalMember[];
+  viewer?: {
+    id: string;
+    email: string;
+    name: string;
+    role: "owner" | "reviewer";
+    status: "pending" | "active";
+  } | null;
 };
 
 export type CustomerPortalPricingResponse = {
@@ -216,6 +242,32 @@ export async function fetchCustomerPortalOrder(
   return portalFetch<CustomerPortalOrderSession>(
     `getCustomerPortalOrder?token=${encodeURIComponent(tokenOrAuth)}&orderId=${encodeURIComponent(orderId)}`
   );
+}
+
+export async function createPortalInvoiceCheckout(
+  tokenOrAuth: string,
+  orderId: string,
+  options?: { mode?: "invite" | "auth" }
+) {
+  if (options?.mode === "auth") {
+    return portalFetch<{
+      payUrl: string;
+      sessionId: string;
+      balance: number;
+    }>("createPortalInvoiceCheckout", {
+      method: "POST",
+      authToken: tokenOrAuth,
+      body: JSON.stringify({ orderId }),
+    });
+  }
+  return portalFetch<{
+    payUrl: string;
+    sessionId: string;
+    balance: number;
+  }>("createPortalInvoiceCheckout", {
+    method: "POST",
+    body: JSON.stringify({ token: tokenOrAuth, orderId }),
+  });
 }
 
 export async function submitCustomerPortalAction(
@@ -436,6 +488,37 @@ export async function updateCustomerPortalProfile(
       body: JSON.stringify({ token: tokenOrAuth, ...body }),
     }
   );
+}
+
+export async function inviteCustomerPortalReviewer(
+  authToken: string,
+  body: { email: string; name?: string }
+) {
+  return portalFetch<{
+    ok: boolean;
+    member: CustomerPortalMember;
+    members: CustomerPortalMember[];
+    inviteUrl?: string;
+    email?: { sent?: boolean; error?: string; message?: string; inviteUrl?: string };
+  }>("inviteCustomerPortalReviewer", {
+    method: "POST",
+    authToken,
+    body: JSON.stringify(body),
+  });
+}
+
+export async function removeCustomerPortalReviewer(
+  authToken: string,
+  memberId: string
+) {
+  return portalFetch<{
+    ok: boolean;
+    members: CustomerPortalMember[];
+  }>("removeCustomerPortalReviewer", {
+    method: "POST",
+    authToken,
+    body: JSON.stringify({ memberId }),
+  });
 }
 
 export async function analyzePortalOrderRequestExportTemplate(

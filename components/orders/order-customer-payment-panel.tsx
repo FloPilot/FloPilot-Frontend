@@ -1,19 +1,32 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  CheckCircle2,
+  Copy,
+  CreditCard,
+  ExternalLink,
+  Loader2,
+} from "lucide-react";
 import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { useAuth } from "@/components/providers/auth-provider";
 import { RevisionNotesPanel } from "@/components/orders/revision-notes-panel";
 import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
+import {
+  createOrderPaymentCheckout,
+  fetchPaymentIntegrations,
+} from "@/lib/api";
+import { isStripeConnected } from "@/lib/payment-integrations";
 import {
   dashboardControlClass,
   dashboardInsetSurfaceClass,
   dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import {
   computeEstimateTotals,
   computeInvoiceTotals,
@@ -223,6 +236,7 @@ function round2(n: number): number {
 
 export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
   const { settings } = useShopSettings();
+  const { getIdToken } = useAuth();
   const {
     getCustomerById,
     approveOrderEstimate,
@@ -249,6 +263,48 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
     [order, settings.taxRate, pricingMatrix, customer, useInvoiceTotals]
   );
 
+  const [stripeReady, setStripeReady] = useState(false);
+  const [stripeLoading, setStripeLoading] = useState(true);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [localPayUrl, setLocalPayUrl] = useState<string | null>(
+    order.invoice?.payUrl || null
+  );
+  const [amountDraft, setAmountDraft] = useState(
+    totals.balance > 0 ? totals.balance.toFixed(2) : ""
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLocalPayUrl(order.invoice?.payUrl || null);
+  }, [order.invoice?.payUrl, order.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadStripe() {
+      setStripeLoading(true);
+      try {
+        const token = await getIdToken();
+        if (!token) return;
+        const result = await fetchPaymentIntegrations(token);
+        const stripe = result.integrations?.find(
+          (entry) => entry.provider === "stripe"
+        );
+        if (!cancelled) setStripeReady(isStripeConnected(stripe));
+      } catch {
+        if (!cancelled) setStripeReady(false);
+      } finally {
+        if (!cancelled) setStripeLoading(false);
+      }
+    }
+    void loadStripe();
+    return () => {
+      cancelled = true;
+    };
+  }, [getIdToken]);
+
   const paymentDisplay = useMemo(() => {
     return getOrderPaymentDisplay({
       ...order,
@@ -257,12 +313,6 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
       balance: totals.balance,
     });
   }, [order, totals]);
-
-  const [amountDraft, setAmountDraft] = useState(
-    totals.balance > 0 ? totals.balance.toFixed(2) : ""
-  );
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const canComplete = canTransitionOrderStatus(order.status, "completed");
   const isPaid = totals.balance <= 0 && totals.total > 0;
@@ -274,6 +324,8 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
     Boolean(order.invoice?.sentAt) ||
     totals.paid > 0 ||
     totals.balance > 0;
+  const showStripeCardSection =
+    showPaymentActions && !isPaid && totals.balance > 0;
 
   const applyPayment = async (paidTotal: number, markCompleted: boolean) => {
     setSaving(true);
@@ -323,6 +375,39 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
     }
   };
 
+  const handleCreatePayLink = async () => {
+    setCheckoutBusy(true);
+    setCheckoutError(null);
+    setCopied(false);
+    try {
+      const token = await getIdToken();
+      if (!token) throw new Error("You must be signed in.");
+      const result = await createOrderPaymentCheckout(token, {
+        orderId: order.id,
+      });
+      setLocalPayUrl(result.payUrl);
+    } catch (err) {
+      setCheckoutError(
+        err instanceof Error
+          ? err.message
+          : "Could not create a card payment link."
+      );
+    } finally {
+      setCheckoutBusy(false);
+    }
+  };
+
+  const handleCopyPayLink = async () => {
+    if (!localPayUrl) return;
+    try {
+      await navigator.clipboard.writeText(localPayUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCheckoutError("Could not copy the link. Select and copy it manually.");
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -350,6 +435,117 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
         <p className="text-[13px] text-[#616161]">{paymentDisplay.detail}</p>
       ) : null}
 
+      {order.invoice?.stripePaidAt ? (
+        <div className="inline-flex items-center gap-2 rounded-lg border border-[#86d4a8] bg-[#e8f5ee] px-3.5 py-2.5 text-[13px] font-medium text-[#0d5c2e]">
+          <CreditCard className="size-3.5 shrink-0" />
+          Paid by card via Stripe
+          {order.invoice.stripePaidAmount
+            ? ` · ${formatCurrency(order.invoice.stripePaidAmount)}`
+            : ""}
+          {order.invoice.stripePaidAt
+            ? ` · ${formatDateTime(order.invoice.stripePaidAt)}`
+            : ""}
+        </div>
+      ) : null}
+
+      {showStripeCardSection ? (
+        <div className={cn(dashboardInsetSurfaceClass, "space-y-3 p-4")}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[13px] font-semibold text-[#303030]">
+                Card payment link
+              </p>
+              <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+                Create a Stripe Checkout link for the open balance. Customers
+                also get this when you send the invoice email (if Stripe is
+                connected).
+              </p>
+            </div>
+            {!stripeLoading && !stripeReady ? (
+              <Link
+                href="/app/settings/integrations/payments"
+                className="text-[12px] font-semibold text-brand-primary hover:underline"
+              >
+                Connect Stripe
+              </Link>
+            ) : null}
+          </div>
+
+          {stripeLoading ? (
+            <p className="inline-flex items-center gap-2 text-[13px] text-[#616161]">
+              <Loader2 className="size-3.5 animate-spin" />
+              Checking Stripe…
+            </p>
+          ) : stripeReady ? (
+            <div className="space-y-2.5">
+              {localPayUrl ? (
+                <div className="rounded-lg border border-[#e3e3e3] bg-white px-3 py-2.5">
+                  <p className="truncate font-mono text-[11px] text-[#616161]">
+                    {localPayUrl}
+                  </p>
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={checkoutBusy}
+                  onClick={() => void handleCreatePayLink()}
+                  className={cn(
+                    dashboardPrimaryButtonClass,
+                    "h-9 px-3 text-[13px] disabled:opacity-60"
+                  )}
+                >
+                  {checkoutBusy ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <CreditCard className="size-3.5" />
+                  )}
+                  {localPayUrl ? "Refresh pay link" : "Create pay link"}
+                </button>
+                {localPayUrl ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyPayLink()}
+                      className={cn(
+                        dashboardControlClass,
+                        "h-9 px-3 text-[13px]"
+                      )}
+                    >
+                      <Copy className="size-3.5" />
+                      {copied ? "Copied" : "Copy link"}
+                    </button>
+                    <a
+                      href={localPayUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={cn(
+                        dashboardControlClass,
+                        "inline-flex h-9 items-center gap-1.5 px-3 text-[13px]"
+                      )}
+                    >
+                      Open
+                      <ExternalLink className="size-3.5" />
+                    </a>
+                  </>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <p className="text-[13px] text-[#616161]">
+              Connect Stripe under Settings → Integrations → Payments to let
+              customers pay this invoice by card.
+            </p>
+          )}
+
+          {checkoutError ? (
+            <p className="text-[12px] font-medium text-[#b42318]">
+              {checkoutError}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {showPaymentActions ? (
         <div className={cn(dashboardInsetSurfaceClass, "space-y-3 p-4")}>
           <div>
@@ -357,8 +553,8 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
               Record payment
             </p>
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-              Mark money received against this order. When the balance is
-              cleared, complete the order to close it out.
+              Mark money received against this order (check, cash, ACH, etc.).
+              When the balance is cleared, complete the order to close it out.
             </p>
           </div>
 
