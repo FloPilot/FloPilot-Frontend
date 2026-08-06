@@ -1,9 +1,19 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { CheckCircle2, FileText, Mail } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import {
+  CheckCircle2,
+  CreditCard,
+  FileText,
+  Loader2,
+  Mail,
+} from "lucide-react";
 import { CustomerEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
-import type { PortalInvoiceSummary } from "@/lib/customer-portal-api";
+import {
+  createPortalInvoiceCheckout,
+  type PortalInvoiceSummary,
+} from "@/lib/customer-portal-api";
 import type { OrderProductionRun } from "@/types";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -15,6 +25,10 @@ export function CustomerPortalInvoicePanel({
   shopName,
   highlight = false,
   productionRun,
+  orderId,
+  accessToken,
+  portalMode = "invite",
+  onPaidReturn,
 }: {
   invoice: PortalInvoiceSummary;
   accent: string;
@@ -25,15 +39,52 @@ export function CustomerPortalInvoicePanel({
     OrderProductionRun,
     "id" | "members" | "combinedQuantity"
   >;
+  orderId: string;
+  accessToken: string;
+  portalMode?: "invite" | "auth";
+  onPaidReturn?: () => void;
 }) {
   const ref = useRef<HTMLElement>(null);
+  const searchParams = useSearchParams();
   const amountDue = Math.max(0, invoice.balance);
   const paidInFull = invoice.balance <= 0 && invoice.total > 0;
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+  const [showPaidBanner, setShowPaidBanner] = useState(
+    () => searchParams.get("paid") === "1"
+  );
 
   useEffect(() => {
     if (!highlight || !ref.current) return;
     ref.current.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [highlight]);
+
+  useEffect(() => {
+    if (searchParams.get("paid") !== "1") return;
+    setShowPaidBanner(true);
+    onPaidReturn?.();
+  }, [searchParams, onPaidReturn]);
+
+  const handlePayNow = async () => {
+    setPaying(true);
+    setPayError(null);
+    try {
+      const result = await createPortalInvoiceCheckout(accessToken, orderId, {
+        mode: portalMode,
+      });
+      if (!result.payUrl) {
+        throw new Error("Checkout link was not created.");
+      }
+      window.location.href = result.payUrl;
+    } catch (err) {
+      setPayError(
+        err instanceof Error
+          ? err.message
+          : "Could not start card payment. Try again or contact the shop."
+      );
+      setPaying(false);
+    }
+  };
 
   return (
     <section
@@ -77,6 +128,19 @@ export function CustomerPortalInvoicePanel({
       </div>
 
       <div className="space-y-4 p-5">
+        {showPaidBanner && (paidInFull || searchParams.get("paid") === "1") ? (
+          <div className="flex items-start gap-2.5 rounded-xl border border-[#cdeccd] bg-[#f1faf1] px-3.5 py-3 text-[13px] text-[#0d5c2e]">
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+            <div>
+              <p className="font-semibold">Payment received</p>
+              <p className="mt-0.5 text-[#1f6b3a]/90">
+                Thanks — your card payment is being confirmed. This page will
+                update once the shop’s books reflect the payment.
+              </p>
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex flex-wrap gap-2">
           {invoice.sentAt ? (
             <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#f1faf1] px-2.5 py-1 text-[12px] font-medium text-[#0d5c2e]">
@@ -89,6 +153,15 @@ export function CustomerPortalInvoicePanel({
               Invoice ready
             </span>
           )}
+          {invoice.stripePaidAt ? (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-[#f1faf1] px-2.5 py-1 text-[12px] font-medium text-[#0d5c2e]">
+              <CreditCard className="size-3.5" />
+              Paid by card
+              {invoice.stripePaidAmount
+                ? ` · ${formatCurrency(invoice.stripePaidAmount)}`
+                : ""}
+            </span>
+          ) : null}
           {invoice.hasVariance ? (
             <span className="inline-flex rounded-lg bg-[#fff8eb] px-2.5 py-1 text-[12px] font-medium text-[#8a6116]">
               {invoice.producedPieces} pcs produced
@@ -130,12 +203,49 @@ export function CustomerPortalInvoicePanel({
               Thank you — this invoice is paid in full.
             </p>
           ) : (
-            <div className="space-y-1.5">
-              <p className="text-[13px] font-semibold text-[#303030]">
-                How to pay
-              </p>
+            <div className="space-y-3">
+              <div>
+                <p className="text-[13px] font-semibold text-[#303030]">
+                  How to pay
+                </p>
+                <p className="mt-1 text-[13px] leading-relaxed text-[#616161]">
+                  {invoice.canPayOnline
+                    ? "Pay securely by card, or contact the shop if you prefer another method."
+                    : "Contact the shop to arrange payment. A PDF copy was also attached to your invoice email."}
+                </p>
+              </div>
+
+              {invoice.canPayOnline ? (
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    disabled={paying || !accessToken}
+                    onClick={() => void handlePayNow()}
+                    className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl px-4 text-[14px] font-semibold text-white transition-opacity disabled:opacity-60 sm:w-auto sm:min-w-[200px]"
+                    style={{ backgroundColor: accent }}
+                  >
+                    {paying ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <CreditCard className="size-4" />
+                    )}
+                    {paying
+                      ? "Opening secure checkout…"
+                      : `Pay ${formatCurrency(amountDue)} now`}
+                  </button>
+                  <p className="text-[11px] text-[#8a8a8a]">
+                    You’ll complete payment on Stripe’s secure checkout page.
+                  </p>
+                  {payError ? (
+                    <p className="text-[12px] font-medium text-[#b42318]">
+                      {payError}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
               <p className="text-[13px] leading-relaxed text-[#616161]">
-                Reply to your invoice email or contact{" "}
+                Prefer another method? Reply to your invoice email or contact{" "}
                 {shopName || "the shop"}
                 {shopEmail ? (
                   <>
@@ -150,8 +260,8 @@ export function CustomerPortalInvoicePanel({
                       {shopEmail}
                     </a>
                   </>
-                ) : null}{" "}
-                to arrange payment. A PDF copy was also attached to your email.
+                ) : null}
+                .
               </p>
             </div>
           )}

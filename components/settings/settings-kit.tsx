@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Loader2, Lock } from "lucide-react";
+import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { Button } from "@/components/ui/button";
 import {
   dashboardCardClass,
@@ -144,6 +145,8 @@ export function SaveButton({
 /** Tracks a local draft for a slice of settings + dirty state. */
 export function useSectionDraft<T>(value: T) {
   const [draft, setDraft] = useState<T>(value);
+  const valueRef = useRef(value);
+  valueRef.current = value;
   const serialized = JSON.stringify(value);
   useEffect(() => {
     setDraft(value);
@@ -153,5 +156,40 @@ export function useSectionDraft<T>(value: T) {
     () => JSON.stringify(draft) !== serialized,
     [draft, serialized]
   );
-  return { draft, setDraft, dirty };
+  const discard = useCallback(() => {
+    setDraft(valueRef.current);
+  }, []);
+  return { draft, setDraft, dirty, discard };
+}
+
+/** Wire a settings section into the staff header save bar. */
+export function useRegisterSectionUnsavedChanges({
+  dirty,
+  saving,
+  enabled = true,
+  label = "Unsaved settings",
+  onSave,
+  onDiscard,
+  id = "settings",
+}: {
+  dirty: boolean;
+  saving: boolean;
+  enabled?: boolean;
+  label?: string;
+  onSave: () => void | Promise<void>;
+  onDiscard: () => void;
+  id?: string;
+}) {
+  useRegisterUnsavedChanges(
+    enabled
+      ? {
+          dirty,
+          saving,
+          label,
+          onSave,
+          onDiscard,
+        }
+      : null,
+    id
+  );
 }

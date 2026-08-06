@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Building2,
   Calculator,
+  CreditCard,
   DollarSign,
   Factory,
   FileText,
@@ -148,6 +149,11 @@ const GROUPS: SettingsNavGroup[] = [
         href: "/app/settings/integrations/accounting",
         label: "Accounting",
         icon: Calculator,
+      },
+      {
+        href: "/app/settings/integrations/payments",
+        label: "Payments",
+        icon: CreditCard,
       },
     ],
   },

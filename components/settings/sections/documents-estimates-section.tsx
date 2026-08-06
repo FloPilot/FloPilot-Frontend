@@ -35,6 +35,7 @@ import {
   SettingsError,
   SettingsHeader,
   SettingsPanel,
+  useRegisterSectionUnsavedChanges,
   useSectionDraft,
 } from "@/components/settings/settings-kit";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -149,7 +150,7 @@ function scrubAbsorbedBlocks(
 
 export function DocumentsEstimatesSection() {
   const { settings, isAdmin, updateSettings } = useShopSettings();
-  const { draft, setDraft, dirty } = useSectionDraft<EstimateDocumentSettings>(
+  const { draft, setDraft, dirty, discard } = useSectionDraft<EstimateDocumentSettings>(
     normalizeEstimateDocument(settings.estimateDocument)
   );
   const [saving, setSaving] = useState(false);
@@ -248,6 +249,15 @@ export function DocumentsEstimatesSection() {
       setSaving(false);
     }
   };
+
+  useRegisterSectionUnsavedChanges({
+    dirty,
+    saving,
+    enabled: isAdmin,
+    label: "Unsaved estimate docs",
+    onSave: () => handleSave(),
+    onDiscard: discard,
+  });
 
   return (
     <main className="mx-auto w-full max-w-7xl space-y-8 p-4 sm:p-6 lg:p-8">

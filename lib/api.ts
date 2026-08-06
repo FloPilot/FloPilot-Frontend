@@ -443,6 +443,54 @@ export async function disconnectQuickBooks(token: string) {
   }>("disconnectQuickBooks", { method: "POST", token, body: {} });
 }
 
+// ─── Payments / Stripe ──────────────────────────────────────────────────────
+
+export async function fetchPaymentIntegrations(token: string) {
+  return callApi<{
+    integrations: import("@/lib/payment-integrations").PaymentIntegration[];
+    appConfigured: boolean;
+    mode: "test" | "live";
+    publishableKey?: string | null;
+    platformFeePercent?: number;
+  }>("getPaymentIntegrations", { token });
+}
+
+export async function startStripeConnect(token: string) {
+  return callApi<{
+    authorizeUrl: string;
+    accountId: string;
+    integration: import("@/lib/payment-integrations").PaymentIntegration;
+  }>("startStripeConnect", { method: "POST", token, body: {} });
+}
+
+export async function refreshStripeConnect(token: string) {
+  return callApi<{
+    integration: import("@/lib/payment-integrations").PaymentIntegration;
+  }>("refreshStripeConnect", { method: "POST", token, body: {} });
+}
+
+export async function disconnectStripe(token: string) {
+  return callApi<{
+    integration: import("@/lib/payment-integrations").PaymentIntegration;
+  }>("disconnectStripe", { method: "POST", token, body: {} });
+}
+
+export async function createOrderPaymentCheckout(
+  token: string,
+  input: { orderId: string; successUrl?: string; cancelUrl?: string }
+) {
+  return callApi<{
+    payUrl: string;
+    sessionId: string;
+    balance: number;
+    order: import("@/types").Order;
+  }>("createOrderPaymentCheckout", {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
 export async function updateQuickBooksSettings(
   token: string,
   settings: Partial<import("@/lib/accounting-integrations").QuickBooksSettings>
@@ -1179,6 +1227,23 @@ export async function uploadOrderFile(
   });
 }
 
+export async function updateOrderFile(
+  token: string,
+  orderId: string,
+  fileId: string,
+  updates: {
+    kind?: import("@/types").OrderFileKind;
+    kinds?: import("@/types").OrderFileKind[];
+    notes?: string | null;
+  }
+) {
+  return callApi<{ order: Order }>("updateOrderFile", {
+    method: "POST",
+    body: { orderId, fileId, ...updates },
+    token,
+  });
+}
+
 export async function deleteOrderFile(
   token: string,
   orderId: string,
@@ -1387,7 +1452,12 @@ export async function updateImprintDesignMockup(
   jobId: string,
   imprintId: string,
   designMockup: import("@/types").OrderDesignMockup,
-  options?: { attachToProof?: boolean; proofLabel?: string }
+  options?: {
+    attachToProof?: boolean;
+    proofLabel?: string;
+    /** Clean proof sheet (title + specs). Falls back to composed mockup. */
+    proofPreviewUrl?: string;
+  }
 ) {
   return callApi<{ order: Order }>("updateImprintDesignMockup", {
     method: "PATCH",
@@ -1398,6 +1468,7 @@ export async function updateImprintDesignMockup(
       designMockup,
       attachToProof: options?.attachToProof === true,
       proofLabel: options?.proofLabel,
+      proofPreviewUrl: options?.proofPreviewUrl,
     },
     token,
   });
@@ -2302,16 +2373,21 @@ export async function convertClientStoreSubmission(
 
 export async function getPublicClientStore(
   token: string,
-  options: { password?: string } = {}
+  options: { password?: string; employeeCode?: string } = {}
 ) {
+  const needsPost = Boolean(options.password || options.employeeCode);
   return callApi<{ store: import("@/lib/client-stores").PublicClientStore }>(
     "getPublicClientStore",
     {
-      method: options.password ? "POST" : "GET",
-      body: options.password
-        ? { token, password: options.password }
+      method: needsPost ? "POST" : "GET",
+      body: needsPost
+        ? {
+            token,
+            password: options.password,
+            employeeCode: options.employeeCode,
+          }
         : undefined,
-      query: options.password ? undefined : { token },
+      query: needsPost ? undefined : { token },
     }
   );
 }
@@ -2324,6 +2400,7 @@ export async function submitClientStoreOrder(
     phone?: string;
     notes?: string;
     password?: string;
+    employeeCode?: string;
     shippingAddress?: {
       line1?: string;
       line2?: string;
@@ -2350,6 +2427,137 @@ export async function submitClientStoreOrder(
   }>("submitClientStoreOrder", {
     method: "POST",
     body: { token, ...body },
+  });
+}
+
+export async function createClientStoreCheckout(
+  token: string,
+  body: {
+    name: string;
+    email?: string;
+    phone?: string;
+    notes?: string;
+    password?: string;
+    employeeCode?: string;
+    shippingAddress?: {
+      line1?: string;
+      line2?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+    };
+    items: {
+      productId: string;
+      size: string;
+      color?: string;
+      qty: number;
+    }[];
+  }
+) {
+  return callApi<{
+    paid?: boolean;
+    payUrl: string | null;
+    sessionId?: string;
+    submissionId: string;
+    amount: number;
+    creditApplied?: number;
+    orderId?: string | null;
+  }>("createClientStoreCheckout", {
+    method: "POST",
+    body: { token, ...body },
+  });
+}
+
+export async function listClientStoreEmployees(
+  token: string,
+  storeId: string,
+  options: { status?: string } = {}
+) {
+  return callApi<{
+    employees: import("@/lib/client-stores").ClientStoreEmployee[];
+    summary: import("@/lib/client-stores").ClientStoreEmployeeSummary;
+  }>("listClientStoreEmployees", {
+    token,
+    query: { storeId, status: options.status },
+  });
+}
+
+export async function importClientStoreEmployees(
+  token: string,
+  storeId: string,
+  body: {
+    csvText?: string;
+    rows?: {
+      email: string;
+      name?: string;
+      creditBalance?: number;
+      initialCredit?: number;
+      code?: string;
+    }[];
+    defaultCreditAmount?: number;
+    resetBalances?: boolean;
+    topUp?: boolean;
+  }
+) {
+  return callApi<{
+    created: number;
+    updated: number;
+    errors: { email: string | null; line: number | null; message: string }[];
+    employees: import("@/lib/client-stores").ClientStoreEmployee[];
+  }>("importClientStoreEmployees", {
+    method: "POST",
+    token,
+    body: { storeId, ...body },
+  });
+}
+
+export async function updateClientStoreEmployee(
+  token: string,
+  storeId: string,
+  employeeId: string,
+  updates: Partial<{
+    name: string;
+    email: string;
+    creditBalance: number;
+    initialCredit: number;
+    status: "active" | "revoked";
+    code: string;
+  }>
+) {
+  return callApi<{
+    employee: import("@/lib/client-stores").ClientStoreEmployee;
+  }>("updateClientStoreEmployee", {
+    method: "POST",
+    token,
+    body: { storeId, employeeId, ...updates },
+  });
+}
+
+export async function emailClientStoreEmployees(
+  token: string,
+  storeId: string,
+  body: {
+    employeeIds?: string[];
+    onlyUnsent?: boolean;
+  } = {}
+) {
+  return callApi<{
+    sent: number;
+    failed: number;
+    storeUrl?: string;
+    message?: string;
+    results: {
+      employeeId: string;
+      email: string;
+      sent: boolean;
+      dev?: boolean;
+      error?: string | null;
+      message?: string | null;
+    }[];
+  }>("emailClientStoreEmployees", {
+    method: "POST",
+    token,
+    body: { storeId, ...body },
   });
 }
 

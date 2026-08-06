@@ -14,6 +14,7 @@ import {
   Users,
 } from "lucide-react";
 import { CustomerShippingLocationsSection } from "@/components/customers/customer-shipping-locations-section";
+import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { OrderShippingDeleteDialog } from "@/components/orders/order-shipping-delete-dialog";
 import { OrderShippingSwitchDialog } from "@/components/orders/order-shipping-switch-dialog";
 import type { ShippingModeSwitch } from "@/components/orders/order-shipping-switch-dialog";
@@ -191,6 +192,11 @@ export function OrderShippingTab({ order }: { order: Order }) {
     );
   }, [shipments, settings, order.shipments, order.shipping]);
 
+  const discardChanges = () => {
+    setShipments(order.shipments ?? []);
+    setSettings(order.shipping ?? {});
+  };
+
   const handleSave = async (overrideShipments?: Shipment[]) => {
     setSaving(true);
     setSavedFlash(false);
@@ -212,6 +218,17 @@ export function OrderShippingTab({ order }: { order: Order }) {
       setSaving(false);
     }
   };
+
+  useRegisterUnsavedChanges(
+    {
+      dirty: isDirty,
+      saving,
+      label: willCallMode ? "Unsaved pickup" : "Unsaved shipping",
+      onSave: () => handleSave(),
+      onDiscard: discardChanges,
+    },
+    "order-shipping"
+  );
 
   const markShipmentFulfilled = async (
     shipmentId: string,

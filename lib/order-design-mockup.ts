@@ -387,6 +387,100 @@ export async function composeDesignMockup(options: {
   return canvas.toDataURL("image/jpeg", 0.88);
 }
 
+/**
+ * Clean customer-facing proof sheet: mockup on white with title + production specs.
+ * Keeps the live studio preview chrome-free while exports look shop-ready.
+ */
+export async function composeCleanProofSheet(options: {
+  mockupDataUrl: string;
+  title: string;
+  subtitle?: string;
+  specs?: string[];
+  notes?: string;
+  /** Output width in px (height grows with content). */
+  width?: number;
+}): Promise<string> {
+  const width = options.width ?? 900;
+  const pad = 40;
+  const mockupSize = Math.min(720, width - pad * 2);
+  const mockup = await loadImageElement(options.mockupDataUrl);
+
+  const title = (options.title || "Design mockup").trim().slice(0, 80);
+  const subtitle = (options.subtitle || "").trim().slice(0, 120);
+  const specs = (options.specs || []).map((s) => s.trim()).filter(Boolean).slice(0, 6);
+  const notes = (options.notes || "").trim().slice(0, 280);
+
+  const titleBlock = 72 + (subtitle ? 22 : 0);
+  const specsBlock = specs.length ? 18 + specs.length * 22 : 0;
+  const notesBlock = notes ? 28 + Math.ceil(notes.length / 70) * 18 : 0;
+  const height =
+    pad + titleBlock + mockupSize + 24 + specsBlock + notesBlock + pad;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas unavailable");
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = "#303030";
+  ctx.font = "600 28px system-ui, -apple-system, sans-serif";
+  ctx.fillText(title, pad, pad + 28);
+
+  if (subtitle) {
+    ctx.fillStyle = "#8a8a8a";
+    ctx.font = "400 14px system-ui, -apple-system, sans-serif";
+    ctx.fillText(subtitle, pad, pad + 52);
+  }
+
+  const mockupX = (width - mockupSize) / 2;
+  const mockupY = pad + titleBlock;
+  ctx.fillStyle = "#f6f6f7";
+  ctx.fillRect(mockupX, mockupY, mockupSize, mockupSize);
+
+  const scale = Math.min(mockupSize / mockup.width, mockupSize / mockup.height);
+  const dw = mockup.width * scale;
+  const dh = mockup.height * scale;
+  ctx.drawImage(
+    mockup,
+    mockupX + (mockupSize - dw) / 2,
+    mockupY + (mockupSize - dh) / 2,
+    dw,
+    dh
+  );
+
+  let y = mockupY + mockupSize + 28;
+  ctx.fillStyle = "#616161";
+  ctx.font = "500 13px system-ui, -apple-system, sans-serif";
+  for (const line of specs) {
+    ctx.fillText(line, pad, y);
+    y += 22;
+  }
+
+  if (notes) {
+    y += 8;
+    ctx.fillStyle = "#8a8a8a";
+    ctx.font = "400 12px system-ui, -apple-system, sans-serif";
+    const words = notes.split(/\s+/);
+    let line = "";
+    for (const word of words) {
+      const next = line ? `${line} ${word}` : word;
+      if (ctx.measureText(next).width > width - pad * 2) {
+        ctx.fillText(line, pad, y);
+        y += 18;
+        line = word;
+      } else {
+        line = next;
+      }
+    }
+    if (line) ctx.fillText(line, pad, y);
+  }
+
+  return canvas.toDataURL("image/jpeg", 0.92);
+}
+
 function drawShirtSilhouette(
   ctx: CanvasRenderingContext2D,
   size: number,

@@ -271,6 +271,13 @@ export function CustomerPortalOrderView({ orderId }: { orderId: string }) {
           shopName={session.shop?.name}
           highlight={focusInvoice}
           productionRun={session.order.productionRun}
+          orderId={orderId}
+          accessToken={accessToken || ""}
+          portalMode={mode === "auth" ? "auth" : "invite"}
+          onPaidReturn={() => {
+            void load();
+            void refreshDashboard();
+          }}
         />
       ) : null}
 

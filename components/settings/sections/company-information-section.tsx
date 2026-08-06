@@ -20,6 +20,7 @@ import {
   SettingsHeader,
   SettingsMain,
   SettingsPanel,
+  useRegisterSectionUnsavedChanges,
   useSectionDraft,
 } from "@/components/settings/settings-kit";
 import { Button } from "@/components/ui/button";
@@ -90,7 +91,7 @@ export function CompanyInformationSection() {
     address: { ...profile.address },
   };
 
-  const { draft, setDraft, dirty } = useSectionDraft(initial);
+  const { draft, setDraft, dirty, discard } = useSectionDraft(initial);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -125,6 +126,19 @@ export function CompanyInformationSection() {
       setSaving(false);
     }
   };
+
+  useRegisterSectionUnsavedChanges({
+    dirty,
+    saving,
+    enabled: isAdmin && editing,
+    label: "Unsaved company info",
+    onSave: () => handleSave(),
+    onDiscard: () => {
+      discard();
+      setEditing(false);
+      setError(null);
+    },
+  });
 
   const setAddr = (key: keyof CompanyAddress, value: string) =>
     setDraft((current) => ({

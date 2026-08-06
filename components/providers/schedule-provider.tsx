@@ -36,6 +36,7 @@ import {
   addJobRunNote as apiAddJobRunNote,
   addOrderFile as apiAddOrderFile,
   uploadOrderFile as apiUploadOrderFile,
+  updateOrderFile as apiUpdateOrderFile,
   deleteOrderFile as apiDeleteOrderFile,
   addOrderInternalNote as apiAddOrderInternalNote,
   addOrderLineItem as apiAddOrderLineItem,
@@ -255,7 +256,11 @@ type ScheduleContextValue = {
     jobId: string,
     imprintId: string,
     designMockup: import("@/types").OrderDesignMockup,
-    options?: { attachToProof?: boolean; proofLabel?: string }
+    options?: {
+      attachToProof?: boolean;
+      proofLabel?: string;
+      proofPreviewUrl?: string;
+    }
   ) => Promise<Order>;
   updateProofSlides: (
     orderId: string,
@@ -306,6 +311,15 @@ type ScheduleContextValue = {
       notes?: string;
       jobId?: string;
       imprintId?: string;
+    }
+  ) => Promise<void>;
+  updateOrderFile: (
+    orderId: string,
+    fileId: string,
+    updates: {
+      kind?: OrderFile["kind"];
+      kinds?: OrderFile["kind"][];
+      notes?: string | null;
     }
   ) => Promise<void>;
   deleteOrderFile: (orderId: string, fileId: string) => Promise<void>;
@@ -1321,7 +1335,11 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       jobId: string,
       imprintId: string,
       designMockup: import("@/types").OrderDesignMockup,
-      options?: { attachToProof?: boolean; proofLabel?: string }
+      options?: {
+        attachToProof?: boolean;
+        proofLabel?: string;
+        proofPreviewUrl?: string;
+      }
     ) => {
       const token = await getIdToken();
       if (!token) throw new Error("Not signed in");
@@ -1485,6 +1503,30 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       if (!token) return;
 
       const { order } = await apiUploadOrderFile(token, orderId, payload);
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderFile = useCallback(
+    async (
+      orderId: string,
+      fileId: string,
+      updates: {
+        kind?: OrderFile["kind"];
+        kinds?: OrderFile["kind"][];
+        notes?: string | null;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateOrderFile(
+        token,
+        orderId,
+        fileId,
+        updates
+      );
       applyOrderUpdate(order);
     },
     [getIdToken, applyOrderUpdate]
@@ -2092,6 +2134,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       applyDesignToOrder,
       addOrderFile,
       uploadOrderFile,
+      updateOrderFile,
       deleteOrderFile,
       addInternalNote,
       sendProofToCustomer,
@@ -2181,6 +2224,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       applyDesignToOrder,
       addOrderFile,
       uploadOrderFile,
+      updateOrderFile,
       deleteOrderFile,
       addInternalNote,
       sendProofToCustomer,

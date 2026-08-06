@@ -9,6 +9,7 @@ import {
   SettingsHeader,
   SettingsMain,
   SettingsPanel,
+  useRegisterSectionUnsavedChanges,
   useSectionDraft,
 } from "@/components/settings/settings-kit";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -16,7 +17,7 @@ import type { TenantBranding } from "@/lib/tenant-branding";
 
 export function AppearanceSection() {
   const { settings, isAdmin, updateSettings } = useShopSettings();
-  const { draft, setDraft, dirty } = useSectionDraft<TenantBranding>(
+  const { draft, setDraft, dirty, discard } = useSectionDraft<TenantBranding>(
     settings.branding
   );
   const [saving, setSaving] = useState(false);
@@ -37,6 +38,15 @@ export function AppearanceSection() {
       setSaving(false);
     }
   };
+
+  useRegisterSectionUnsavedChanges({
+    dirty,
+    saving,
+    enabled: isAdmin,
+    label: "Unsaved appearance",
+    onSave: () => handleSave(),
+    onDiscard: discard,
+  });
 
   return (
     <SettingsMain>

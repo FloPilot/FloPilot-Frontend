@@ -14,9 +14,11 @@ import {
 } from "lucide-react";
 import { usePortalAccess } from "@/components/portal/use-portal-access";
 import { PortalOrderRequestExportSettings } from "@/components/portal/portal-order-request-export-settings";
+import { PortalReviewersSection } from "@/components/portal/portal-reviewers-section";
 import {
   fetchCustomerPortalProfile,
   updateCustomerPortalProfile,
+  type CustomerPortalMember,
   type CustomerPortalProfile,
 } from "@/lib/customer-portal-api";
 import {
@@ -85,6 +87,10 @@ const labelClass = "mb-1.5 block text-[13px] font-medium text-[#616161]";
 export function CustomerPortalBusinessView() {
   const { mode, accent, getAccessToken } = usePortalAccess();
   const [profile, setProfile] = useState<CustomerPortalProfile | null>(null);
+  const [members, setMembers] = useState<CustomerPortalMember[]>([]);
+  const [viewerRole, setViewerRole] = useState<"owner" | "reviewer" | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -159,6 +165,8 @@ export function CustomerPortalBusinessView() {
           setPendingExportContentType(null);
           setClearExportReference(false);
         }
+        setMembers(result.members ?? []);
+        setViewerRole(result.viewer?.role ?? null);
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -491,6 +499,16 @@ export function CustomerPortalBusinessView() {
           </div>
         </div>
       </section>
+
+      {mode === "auth" ? (
+        <PortalReviewersSection
+          members={members}
+          canManage={viewerRole !== "reviewer"}
+          accent={accent}
+          getAccessToken={getAccessToken}
+          onMembersChange={setMembers}
+        />
+      ) : null}
 
       <section className={dashboardCardClass}>
         <div className="flex items-start gap-3 border-b border-[#ebebeb] px-4 py-3 sm:px-5">

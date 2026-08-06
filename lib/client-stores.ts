@@ -132,6 +132,14 @@ export type ClientStoreSettings = {
    * selection = include/pass for final picks (vote totals stay visible)
    */
   reviewPhase?: ClientStoreReviewPhase;
+  /** Employee gift / store-credit program. */
+  creditsEnabled?: boolean;
+  /** Lock catalog until a valid employee access code is entered. */
+  requireEmployeeAccess?: boolean;
+  /** Default $ balance when importing employees without a credit column. */
+  defaultCreditAmount?: number;
+  /** Allow paying cart remainder by card when over employee credit. */
+  allowCreditOverage?: boolean;
 };
 
 export type ClientStore = {
@@ -169,6 +177,7 @@ export type ClientStore = {
 
 export type ClientStoreSubmissionStatus =
   | "new"
+  | "awaiting_payment"
   | "reviewed"
   | "converted"
   | "cancelled";
@@ -221,6 +230,15 @@ export type ClientStoreSubmission = {
   includedCount?: number;
   excludedCount?: number;
   subtotal: number;
+  payment?: {
+    status?: "pending" | "paid" | "failed";
+    provider?: string;
+    amount?: number;
+    paidAt?: string | null;
+    checkoutSessionId?: string | null;
+    applicationFeeCents?: number | null;
+    platformFeePercent?: number | null;
+  };
   /** Set when converted into a FloPilot sales order */
   orderId?: string;
   orderNumber?: string;
@@ -245,6 +263,42 @@ export type PublicClientStoreProduct = {
   sellPrice?: number;
 };
 
+export type ClientStoreEmployee = {
+  id: string;
+  storeId: string;
+  name?: string;
+  email: string;
+  code: string;
+  creditBalance: number;
+  initialCredit: number;
+  redeemedTotal: number;
+  status: "active" | "revoked";
+  invitedAt?: string | null;
+  lastEmailAt?: string | null;
+  emailCount?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ClientStoreEmployeeSummary = {
+  total: number;
+  active: number;
+  revoked: number;
+  creditRemaining: number;
+  creditIssued: number;
+  creditRedeemed: number;
+};
+
+export type PublicClientStoreEmployee = {
+  id: string;
+  name?: string;
+  email: string;
+  code: string;
+  creditBalance: number;
+  initialCredit: number;
+  status: "active" | "revoked";
+};
+
 export type PublicClientStore = {
   shareId: string;
   name: string;
@@ -261,14 +315,21 @@ export type PublicClientStore = {
   opensAt?: string | null;
   closesAt?: string | null;
   passwordProtected: boolean;
+  employeeAccessRequired?: boolean;
   unlocked: boolean;
   isOpen: boolean;
   closedReason?: "closed" | "outside_window" | null;
+  /** True when the shop’s Stripe Connect account can take card payments */
+  paymentsEnabled?: boolean;
+  /** FloPilot take-rate on paid checkouts (informational; not charged to shopper) */
+  platformFeePercent?: number | null;
   settings: ClientStoreSettings;
   products: PublicClientStoreProduct[];
   theme?: import("./client-store-theme").ClientStoreTheme;
   /** Aggregated thumbs for review stores. */
   voteSummary?: ClientStoreVoteSummaryRow[];
+  /** Present when unlocked with a valid employee code. */
+  employee?: PublicClientStoreEmployee | null;
 };
 
 export const CLIENT_STORE_DEFAULT_SIZES = [

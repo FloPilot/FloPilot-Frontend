@@ -46,9 +46,11 @@ export function PortalClaimForm({ token }: { token: string }) {
   const {
     user,
     loading: authLoading,
+    profile,
     configured,
     signIn,
     signUp,
+    signOut,
     claimPortalInvite,
   } = useAuth();
 
@@ -63,12 +65,16 @@ export function PortalClaimForm({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [autoClaiming, setAutoClaiming] = useState(false);
   const autoClaimAttempted = useRef(false);
+  const claimInFlight = useRef(false);
 
   const nextPath = useMemo(
     () => resolveNextPath(searchParams, token),
     [searchParams, token]
   );
   const accent = invite?.shop?.primaryColor || "#2c6ecb";
+  const isStaffSession = profile?.type === "staff";
+  const expectedEmail =
+    invite?.accountEmail || invite?.customer?.email || null;
 
   useEffect(() => {
     let cancelled = false;
@@ -98,38 +104,41 @@ export function PortalClaimForm({ token }: { token: string }) {
   }, [token]);
 
   useEffect(() => {
+    // Wait until auth + invite are ready. Staff must sign out first — claiming
+    // would overwrite their shop claims with portal claims.
     if (authLoading || inviteLoading || !invite || invite.expired) return;
-    if (!user || autoClaimAttempted.current) return;
+    if (!user || isStaffSession) return;
+    if (autoClaimAttempted.current || claimInFlight.current) return;
 
     autoClaimAttempted.current = true;
-    let cancelled = false;
+    claimInFlight.current = true;
+    setAutoClaiming(true);
+    setError(null);
+
     void (async () => {
-      setAutoClaiming(true);
-      setError(null);
       try {
         await claimPortalInvite(token, { name: name || undefined });
-        if (!cancelled) router.replace(nextPath);
+        // Always navigate after a successful claim. Do not bail on effect
+        // re-runs — refreshProfile flips authLoading and used to cancel this.
+        router.replace(nextPath);
       } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Could not connect this portal to your account."
-          );
-          setAutoClaiming(false);
-          autoClaimAttempted.current = false;
-        }
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Could not connect this portal to your account."
+        );
+        setAutoClaiming(false);
+        autoClaimAttempted.current = false;
+      } finally {
+        claimInFlight.current = false;
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [
     authLoading,
     inviteLoading,
     invite,
     user,
+    isStaffSession,
     token,
     name,
     nextPath,
@@ -142,6 +151,7 @@ export function PortalClaimForm({ token }: { token: string }) {
     setError(null);
     setSubmitting(true);
     autoClaimAttempted.current = true;
+    claimInFlight.current = true;
     try {
       if (mode === "signup") {
         await signUp(email, password);
@@ -154,11 +164,18 @@ export function PortalClaimForm({ token }: { token: string }) {
       autoClaimAttempted.current = false;
       setError(err instanceof Error ? err.message : "Authentication failed");
     } finally {
+      claimInFlight.current = false;
       setSubmitting(false);
     }
   }
 
-  if (inviteLoading || authLoading || autoClaiming) {
+  // Keep the connecting screen up while claim is in flight even if authLoading
+  // flips during refreshProfile — that flip is what caused the infinite hang.
+  if (
+    inviteLoading ||
+    (authLoading && !autoClaiming && !claimInFlight.current) ||
+    autoClaiming
+  ) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-[#f6f6f7] text-[#616161]">
         <Loader2 className="size-6 animate-spin" style={{ color: accent }} />
@@ -209,6 +226,53 @@ export function PortalClaimForm({ token }: { token: string }) {
     );
   }
 
+  if (isStaffSession && user) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-[#f6f6f7] px-4">
+        <div className="max-w-md rounded-2xl border border-[#ebebeb] bg-white p-8 text-center shadow-sm">
+          <p className="text-[18px] font-semibold text-[#303030]">
+            Signed in as shop staff
+          </p>
+          <p className="mt-2 text-[14px] text-[#616161]">
+            This customer portal invite needs the customer&apos;s account
+            {expectedEmail ? (
+              <>
+                {" "}
+                (<span className="font-medium text-[#303030]">
+                  ({expectedEmail})
+                </span>
+              </>
+            ) : null}
+            . Sign out of the shop app first, then open this link again — or use
+            an incognito window.
+          </p>
+          <div className="mt-6 flex flex-col gap-2">
+            <Button
+              type="button"
+              className="h-11 w-full text-[14px] font-semibold text-white"
+              style={{ backgroundColor: accent }}
+              onClick={() => {
+                void signOut().then(() => {
+                  autoClaimAttempted.current = false;
+                });
+              }}
+            >
+              Sign out & continue as customer
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full"
+              onClick={() => router.replace("/portal")}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const shopName = invite.shop?.name || "your print shop";
   const isSignup = mode === "signup";
 
@@ -222,10 +286,14 @@ export function PortalClaimForm({ token }: { token: string }) {
       }
       subtitle={
         isSignup
-          ? "Set an email and password once — review estimates, artwork, and invoices anytime."
+          ? expectedEmail
+            ? `Use ${expectedEmail} — the address that received this invite — then review estimates, artwork, and invoices anytime.`
+            : "Set an email and password once — review estimates, artwork, and invoices anytime."
           : invite.hasAccount
-            ? `Sign in with ${invite.accountEmail || "your portal email"} to continue.`
-            : "Use the account you created for this shop’s customer portal."
+            ? `Sign in with ${invite.accountEmail || expectedEmail || "your portal email"} to continue.`
+            : expectedEmail
+              ? `Sign in with ${expectedEmail} to open this shop’s customer portal.`
+              : "Use the account you created for this shop’s customer portal."
       }
       footer={
         <p>

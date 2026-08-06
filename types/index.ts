@@ -402,6 +402,15 @@ export interface OrderInvoiceMeta {
   subtotal?: number;
   tax?: number;
   total?: number;
+  /** Stripe Checkout URL for the open balance (cleared after payment) */
+  payUrl?: string | null;
+  stripeCheckoutSessionId?: string | null;
+  stripePaymentIntentId?: string | null;
+  stripeAccountId?: string | null;
+  stripeCheckoutCreatedAt?: string | null;
+  stripeAmountDue?: number | null;
+  stripePaidAt?: string | null;
+  stripePaidAmount?: number | null;
 }
 
 /** @deprecated Prefer order.materials — kept for backward compatibility */
@@ -415,7 +424,10 @@ export interface OrderGarments {
 export interface OrderFile {
   id: string;
   name: string;
+  /** Primary category — kept in sync with kinds[0] for older clients. */
   kind: OrderFileKind;
+  /** One or more categories this file belongs to. */
+  kinds?: OrderFileKind[];
   uploadedAt: string;
   uploadedBy: string;
   /** Web-friendly preview image URL (e.g. PNG rendered from a TIFF). */
@@ -450,6 +462,7 @@ export type OrderActivityType =
   | "note"
   | "status"
   | "file_uploaded"
+  | "file_updated"
   | "file_deleted"
   | "proof_sent"
   | "ink_updated"
@@ -588,6 +601,14 @@ export interface OrderDesignMockup {
   placementPresetId?: string;
   locationKey?: ImprintLocationKey;
   transform: DesignMockupTransform;
+  /** Suggested print width in inches (studio + proof). */
+  printWidthIn?: number;
+  /** Suggested print height in inches (locked to art aspect when set from width). */
+  printHeightIn?: number;
+  /** Distance below collar / neckline in inches. */
+  offsetBelowCollarIn?: number;
+  /** Shop / customer-facing notes baked into proof sheets. */
+  productionNotes?: string;
   /** Flattened mockup preview ready for proofs */
   composedPreviewUrl?: string;
   updatedAt: string;

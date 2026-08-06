@@ -9,6 +9,7 @@ import {
   SettingsHeader,
   SettingsMain,
   SettingsPanel,
+  useRegisterSectionUnsavedChanges,
   useSectionDraft,
 } from "@/components/settings/settings-kit";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -35,7 +36,7 @@ function createPresetId(): string {
 
 export function DesignPlacementsSection() {
   const { settings, isAdmin, updateSettings } = useShopSettings();
-  const { draft, setDraft, dirty } = useSectionDraft<ShopProductionDefaults>(
+  const { draft, setDraft, dirty, discard } = useSectionDraft<ShopProductionDefaults>(
     settings.productionDefaults
   );
   const [saving, setSaving] = useState(false);
@@ -82,6 +83,15 @@ export function DesignPlacementsSection() {
       setSaving(false);
     }
   };
+
+  useRegisterSectionUnsavedChanges({
+    dirty,
+    saving,
+    enabled: isAdmin,
+    label: "Unsaved placements",
+    onSave: () => handleSave(),
+    onDiscard: discard,
+  });
 
   const addPreset = () => {
     const unused = locationOptions.find(

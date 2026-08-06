@@ -1,7 +1,11 @@
 "use client";
 
-import { use } from "react";
+import { Suspense, use } from "react";
 import { PublicStorefrontView } from "@/components/stores/public-storefront-view";
+
+function PublicStorePageInner({ token }: { token: string }) {
+  return <PublicStorefrontView token={token} />;
+}
 
 export default function PublicStorePage({
   params,
@@ -9,5 +13,15 @@ export default function PublicStorePage({
   params: Promise<{ token: string }>;
 }) {
   const { token } = use(params);
-  return <PublicStorefrontView token={decodeURIComponent(token)} />;
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-dvh items-center justify-center text-[13px] text-[#616161]">
+          Loading store…
+        </div>
+      }
+    >
+      <PublicStorePageInner token={decodeURIComponent(token)} />
+    </Suspense>
+  );
 }

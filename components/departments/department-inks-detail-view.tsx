@@ -432,8 +432,8 @@ export function DepartmentInksDetailView({ orderId }: { orderId: string }) {
               ) : null}
             </h3>
             <p className={dashboardTaskDetailClass}>
-              Check off each color as it is mixed, or edit PMS, mesh, and
-              squeegee here. Changes sync back to the order and proofs.
+              Check off each color as it is mixed, or edit Pantone codes here.
+              Changes sync back to the order and proofs.
             </p>
           </div>
           <InkPrepLocationCard

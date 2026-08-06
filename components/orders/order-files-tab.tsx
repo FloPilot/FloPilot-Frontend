@@ -14,6 +14,7 @@ import {
 import { MockupCompare } from "@/components/orders/artwork/mockup-compare";
 import { MockupPreview } from "@/components/orders/artwork/mockup-preview";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
+import { OrderFileCategoryDialog } from "@/components/orders/order-file-category-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
 import {
@@ -66,6 +67,7 @@ export function OrderFilesTab({
     uploadArtworkVersion,
     addProofSlide,
     uploadOrderFile,
+    updateOrderFile,
     deleteOrderFile,
     sendProofToCustomer,
   } = useSchedule();
@@ -135,6 +137,9 @@ export function OrderFilesTab({
   const [selectedDownloads, setSelectedDownloads] = useState<
     Record<string, { name: string; url: string }>
   >({});
+  const [categoryFile, setCategoryFile] = useState<OrderFileItem | null>(null);
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
 
   useEffect(() => {
     if (focusImprint) {
@@ -347,6 +352,33 @@ export function OrderFilesTab({
     category === "mockups" || category === "artwork"
       ? "Upload artwork"
       : `Upload ${FILE_CATEGORY_TABS.find((t) => t.id === category)?.label.toLowerCase() ?? "file"}`;
+
+  const openFileDetails = (file: OrderFileItem) => {
+    setCategoryError(null);
+    setCategoryFile(file);
+  };
+
+  const handleSaveFileCategory = async (updates: {
+    kinds: OrderFileKind[];
+    kind: OrderFileKind;
+    notes: string | null;
+  }) => {
+    if (!categoryFile || categoryFile.source !== "order") return;
+    setSavingCategory(true);
+    setCategoryError(null);
+    try {
+      await updateOrderFile(order.id, categoryFile.id, updates);
+      setCategoryFile(null);
+    } catch (err) {
+      setCategoryError(
+        err instanceof Error
+          ? err.message
+          : "Could not update this file. Please try again."
+      );
+    } finally {
+      setSavingCategory(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -693,6 +725,7 @@ export function OrderFilesTab({
                 items={filteredList}
                 onUploadImprint={triggerImprintUpload}
                 onReplaceOrderFile={triggerOrderFileReplace}
+                onOpenFile={openFileDetails}
                 replacingId={replacingId}
                 selectedDownloads={selectedDownloads}
                 onToggleDownload={toggleDownload}
@@ -701,6 +734,7 @@ export function OrderFilesTab({
               <ArtworkByLocation
                 items={filteredList}
                 onUpload={triggerImprintUpload}
+                onOpenFile={openFileDetails}
                 selectedDownloads={selectedDownloads}
                 onToggleDownload={toggleDownload}
               />
@@ -708,6 +742,7 @@ export function OrderFilesTab({
               <FileList
                 items={filteredList}
                 onReplaceOrderFile={triggerOrderFileReplace}
+                onOpenFile={openFileDetails}
                 replacingId={replacingId}
                 selectedDownloads={selectedDownloads}
                 onToggleDownload={toggleDownload}
@@ -716,6 +751,20 @@ export function OrderFilesTab({
           </CardContent>
         </Card>
       )}
+
+      <OrderFileCategoryDialog
+        open={Boolean(categoryFile)}
+        file={categoryFile}
+        saving={savingCategory}
+        error={categoryError}
+        onOpenChange={(open) => {
+          if (!open && !savingCategory) {
+            setCategoryFile(null);
+            setCategoryError(null);
+          }
+        }}
+        onSave={handleSaveFileCategory}
+      />
     </div>
   );
 }
@@ -723,12 +772,14 @@ export function OrderFilesTab({
 function FileList({
   items,
   onReplaceOrderFile,
+  onOpenFile,
   replacingId,
   selectedDownloads,
   onToggleDownload,
 }: {
   items: OrderFileItem[];
   onReplaceOrderFile?: (file: OrderFileItem) => void;
+  onOpenFile?: (file: OrderFileItem) => void;
   replacingId?: string | null;
   selectedDownloads: DownloadSelection;
   onToggleDownload: (
@@ -742,6 +793,7 @@ function FileList({
         <FileRow
           key={file.id}
           file={file}
+          onOpen={onOpenFile ? () => onOpenFile(file) : undefined}
           onReplace={
             onReplaceOrderFile && file.source === "order"
               ? () => onReplaceOrderFile(file)
@@ -768,6 +820,7 @@ function AllFilesGrouped({
   items,
   onUploadImprint,
   onReplaceOrderFile,
+  onOpenFile,
   replacingId,
   selectedDownloads,
   onToggleDownload,
@@ -775,6 +828,7 @@ function AllFilesGrouped({
   items: OrderFileItem[];
   onUploadImprint: (jobId: string, imprintId: string, kind: OrderFileKind) => void;
   onReplaceOrderFile?: (file: OrderFileItem) => void;
+  onOpenFile?: (file: OrderFileItem) => void;
   replacingId?: string | null;
   selectedDownloads: DownloadSelection;
   onToggleDownload: (
@@ -805,6 +859,7 @@ function AllFilesGrouped({
               <FileRow
                 key={file.id}
                 file={file}
+                onOpen={onOpenFile ? () => onOpenFile(file) : undefined}
                 onUpload={
                   file.source === "imprint" &&
                   file.jobId &&
@@ -848,11 +903,13 @@ function AllFilesGrouped({
 function ArtworkByLocation({
   items,
   onUpload,
+  onOpenFile,
   selectedDownloads,
   onToggleDownload,
 }: {
   items: OrderFileItem[];
   onUpload: (jobId: string, imprintId: string, kind: OrderFileKind) => void;
+  onOpenFile?: (file: OrderFileItem) => void;
   selectedDownloads: DownloadSelection;
   onToggleDownload: (
     key: string,
@@ -908,6 +965,7 @@ function ArtworkByLocation({
                 <FileRow
                   key={`${file.source}:${file.id}`}
                   file={file}
+                  onOpen={onOpenFile ? () => onOpenFile(file) : undefined}
                   selected={Boolean(
                     selectedDownloads[`file:${file.source}:${file.id}`]
                   )}
@@ -932,6 +990,7 @@ function ArtworkByLocation({
 
 function FileRow({
   file,
+  onOpen,
   onUpload,
   onReplace,
   replacing,
@@ -939,6 +998,7 @@ function FileRow({
   onToggleSelect,
 }: {
   file: OrderFileItem;
+  onOpen?: () => void;
   onUpload?: () => void;
   onReplace?: () => void;
   replacing?: boolean;
@@ -947,9 +1007,24 @@ function FileRow({
 }) {
   return (
     <div
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onClick={onOpen}
+      onKeyDown={
+        onOpen
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onOpen();
+              }
+            }
+          : undefined
+      }
       className={cn(
         "flex flex-wrap items-center justify-between gap-3 py-3 border-b border-border/60 last:border-0",
-        file.archived && "opacity-60"
+        file.archived && "opacity-60",
+        onOpen &&
+          "cursor-pointer rounded-lg px-2 -mx-2 transition-colors hover:bg-[#f6f6f7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2c6ecb]/40"
       )}
     >
       <div className="min-w-0 flex-1 flex items-center gap-3">
@@ -958,11 +1033,13 @@ function FileRow({
             type="checkbox"
             className="size-4 shrink-0 cursor-pointer accent-[#2c6ecb]"
             checked={selected}
+            onClick={(event) => event.stopPropagation()}
             onChange={onToggleSelect}
             aria-label={`Select ${file.name} for download`}
           />
         ) : null}
         {file.previewUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={file.previewUrl}
             alt=""
@@ -971,18 +1048,26 @@ function FileRow({
         ) : null}
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium truncate">{file.name}</p>
-        <p className="text-xs text-muted-foreground">
-          {ORDER_FILE_KIND_LABELS[file.kind]}
-          {file.imprintLabel && ` · ${file.imprintLabel}`}
-          {file.version != null && ` · v${file.version}`}
-          {" · "}
-          {formatDateTime(file.uploadedAt)}
-          {file.uploadedBy && ` · ${file.uploadedBy}`}
-          {file.notes && ` · ${file.notes}`}
-        </p>
+          <p className="text-xs text-muted-foreground">
+            {(file.kinds?.length ? file.kinds : [file.kind])
+              .map((kind) => ORDER_FILE_KIND_LABELS[kind])
+              .join(" · ")}
+            {file.imprintLabel && ` · ${file.imprintLabel}`}
+            {file.version != null && ` · v${file.version}`}
+            {" · "}
+            {formatDateTime(file.uploadedAt)}
+            {file.uploadedBy && ` · ${file.uploadedBy}`}
+            {file.notes && ` · ${file.notes}`}
+            {onOpen && file.source === "order" ? (
+              <span className="text-[#2c6ecb]"> · Edit category</span>
+            ) : null}
+          </p>
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div
+        className="flex items-center gap-2 shrink-0"
+        onClick={(event) => event.stopPropagation()}
+      >
         {file.status && <ArtworkStatusBadge status={file.status} />}
         {file.downloadUrl || file.previewUrl ? (
           <a

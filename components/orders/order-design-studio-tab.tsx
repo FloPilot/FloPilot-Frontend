@@ -5,19 +5,26 @@ import {
   Check,
   ImagePlus,
   Loader2,
+  Redo2,
   Sparkles,
+  Undo2,
   Upload,
-  Wand2,
 } from "lucide-react";
 import { DesignStudioBlankRequired } from "@/components/design-studio/design-studio-blank-required";
+import { DesignStudioArtworkCleanup } from "@/components/design-studio/design-studio-artwork-cleanup";
 import {
   DesignStudioLayersPanel,
   type DesignStudioLayerRow,
 } from "@/components/design-studio/design-studio-layers-panel";
+import {
+  useRegisterUnsavedChanges,
+  useStaffUnsavedChanges,
+} from "@/components/layout/staff-unsaved-changes-provider";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -26,6 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { isImageUpload, readImagePreviewDataUrl } from "@/lib/artwork-preview";
 import {
   dashboardCardClass,
@@ -35,6 +43,18 @@ import {
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
+import {
+  formatPrintSpecLine,
+  offsetBelowCollarInToY,
+  printHeightFromWidth,
+  printWidthInToScale,
+  scaleToPrintWidthIn,
+  yToOffsetBelowCollarIn,
+} from "@/lib/design-studio-placement";
+import {
+  formatDetectedColorsForNotes,
+  type DetectedArtworkColor,
+} from "@/lib/artwork-color-tools";
 import {
   activeLayerUrl,
   artLayersCacheFingerprint,
@@ -60,6 +80,7 @@ import {
 } from "@/lib/order-design-blank-cache";
 import {
   ArtworkLoadError,
+  composeCleanProofSheet,
   composeDesignMockup,
   createDesignMockupId,
   defaultColorStageTransform,
@@ -68,7 +89,6 @@ import {
   garmentBlankViewLabel,
   listDesignableImprints,
   normalizeGarmentBlankView,
-  removeImageBackground,
   resolveBlankColorHex,
   resolveGarmentBlankView,
   seedMockupFromExisting,
@@ -99,6 +119,12 @@ function imprintTitle(imprint: JobImprint): string {
   return imprint.customLabel?.trim() || imprint.label;
 }
 
+type DesignMockupSaveOptions = {
+  attachToProof?: boolean;
+  proofLabel?: string;
+  proofPreviewUrl?: string;
+};
+
 export function OrderDesignStudioTab({
   order,
   onRequestAddBlank,
@@ -116,7 +142,7 @@ export function OrderDesignStudioTab({
     jobId: string,
     imprintId: string,
     designMockup: OrderDesignMockup,
-    options?: { attachToProof?: boolean; proofLabel?: string }
+    options?: DesignMockupSaveOptions
   ) => Promise<Order | void>;
   /** When false, resolved vendor blank URLs stay local (order-request mode). */
   persistBlankImages?: boolean;
@@ -130,6 +156,7 @@ export function OrderDesignStudioTab({
 }) {
   const { settings } = useShopSettings();
   const { updateImprintDesignMockup } = useSchedule();
+  const { requestLeave } = useStaffUnsavedChanges();
   const saveHandler = onSave ?? updateImprintDesignMockup;
   const entries = useMemo(() => listDesignableImprints(order), [order]);
   const placements = useMemo(
@@ -141,6 +168,7 @@ export function OrderDesignStudioTab({
     entries[0]?.key ?? null
   );
   const [isSwitching, setIsSwitching] = useState(false);
+  const [editorEpoch, setEditorEpoch] = useState(0);
   const selected = entries.find((entry) => entry.key === selectedKey) ?? entries[0];
 
   useEffect(() => {
@@ -149,12 +177,17 @@ export function OrderDesignStudioTab({
 
   const selectLocation = (key: string) => {
     if (key === selectedKey) return;
+    if (!requestLeave(undefined, { inPage: true })) return;
     setIsSwitching(true);
     setSelectedKey(key);
   };
 
   const handleEditorReady = useCallback(() => {
     setIsSwitching(false);
+  }, []);
+
+  const handleDiscardEditor = useCallback(() => {
+    setEditorEpoch((value) => value + 1);
   }, []);
 
   if (order.lineItems.length === 0) {
@@ -186,12 +219,17 @@ export function OrderDesignStudioTab({
   if (!selected) return null;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-      <aside className={cn(dashboardCardClass, "h-fit overflow-hidden")}>
+    <div className="flex h-full min-h-0 flex-col gap-4 lg:flex-row lg:items-stretch">
+      <aside
+        className={cn(
+          dashboardCardClass,
+          "w-full shrink-0 overflow-y-auto overscroll-contain lg:max-h-full lg:w-[200px]"
+        )}
+      >
         <div className="border-b border-[#ebebeb] px-4 py-3">
           <p className="text-[13px] font-semibold text-[#303030]">Locations</p>
           <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-            Build a mockup per event
+            Edit one at a time — click to switch
           </p>
         </div>
         <div className="divide-y divide-[#ebebeb]">
@@ -206,9 +244,7 @@ export function OrderDesignStudioTab({
                 disabled={isSwitching && key !== selected.key}
                 className={cn(
                   "flex w-full items-start gap-2 px-4 py-3 text-left transition-colors",
-                  active
-                    ? "bg-[#f4f7fd]"
-                    : "bg-white hover:bg-[#fafafa]"
+                  active ? "bg-[#f4f7fd]" : "bg-white hover:bg-[#fafafa]"
                 )}
               >
                 <div className="min-w-0 flex-1">
@@ -232,12 +268,12 @@ export function OrderDesignStudioTab({
 
       <div
         className={cn(
-          "min-w-0 transition-opacity duration-200 ease-out",
+          "min-h-0 min-w-0 flex-1 transition-opacity duration-200 ease-out",
           isSwitching ? "opacity-60" : "opacity-100"
         )}
       >
         <DesignMockupEditor
-          key={selected.key}
+          key={`${selected.key}-${editorEpoch}`}
           order={order}
           job={selected.job}
           imprint={selected.imprint}
@@ -247,6 +283,7 @@ export function OrderDesignStudioTab({
           canSave={canSave}
           messages={messages}
           onReady={handleEditorReady}
+          onDiscardRequest={handleDiscardEditor}
         />
       </div>
     </div>
@@ -263,6 +300,7 @@ function DesignMockupEditor({
   canSave = true,
   messages,
   onReady,
+  onDiscardRequest,
 }: {
   order: Order;
   job: Job;
@@ -273,7 +311,7 @@ function DesignMockupEditor({
     jobId: string,
     imprintId: string,
     designMockup: OrderDesignMockup,
-    options?: { attachToProof?: boolean; proofLabel?: string }
+    options?: DesignMockupSaveOptions
   ) => Promise<Order | void>;
   persistBlankImages?: boolean;
   canSave?: boolean;
@@ -282,6 +320,7 @@ function DesignMockupEditor({
     attached?: string;
   };
   onReady?: () => void;
+  onDiscardRequest?: () => void;
 }) {
   const { getIdToken } = useAuth();
   const { updateOrderLineItem } = useSchedule();
@@ -431,10 +470,135 @@ function DesignMockupEditor({
     )
   );
   const [busy, setBusy] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  /** Explicit dirty flag — never inferred from snapshots (post-save URL sync breaks that). */
+  const [userDirty, setUserDirty] = useState(false);
+  const allowDirtyRef = useRef(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [productionNotes, setProductionNotes] = useState(
+    () => imprint.designMockup?.productionNotes ?? ""
+  );
+  const [artAspectRatio, setArtAspectRatio] = useState(1);
+  const [historyPast, setHistoryPast] = useState<
+    Array<{
+      artLayers: DesignMockupArtLayer[];
+      selectedLayerId: string | null;
+      productionNotes: string;
+    }>
+  >([]);
+  const [historyFuture, setHistoryFuture] = useState<
+    Array<{
+      artLayers: DesignMockupArtLayer[];
+      selectedLayerId: string | null;
+      productionNotes: string;
+    }>
+  >([]);
+  const skippingHistoryRef = useRef(false);
+
+  const markDirty = useCallback(() => {
+    if (!allowDirtyRef.current || isSaving) return;
+    setUserDirty(true);
+  }, [isSaving]);
+
+  const clearDirty = useCallback(() => {
+    setUserDirty(false);
+    // Ignore any sync/recompose side-effects for a couple frames after save/discard.
+    allowDirtyRef.current = false;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        allowDirtyRef.current = true;
+      });
+    });
+  }, []);
+
+  // Don't treat auto blank/preview settle as edits.
+  useEffect(() => {
+    if (!stageReady || blankLoading || previewComposing) return;
+    const timer = window.setTimeout(() => {
+      allowDirtyRef.current = true;
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [stageReady, blankLoading, previewComposing]);
+
+  const cloneArtLayers = (layers: DesignMockupArtLayer[]) =>
+    JSON.parse(JSON.stringify(layers)) as DesignMockupArtLayer[];
+
+  const pushDesignHistory = useCallback(() => {
+    if (skippingHistoryRef.current) return;
+    markDirty();
+    setHistoryPast((past) =>
+      [
+        ...past,
+        {
+          artLayers: cloneArtLayers(artLayers),
+          selectedLayerId,
+          productionNotes,
+        },
+      ].slice(-40)
+    );
+    setHistoryFuture([]);
+  }, [artLayers, selectedLayerId, productionNotes, markDirty]);
+
+  const undoDesign = () => {
+    if (historyPast.length === 0) return;
+    const previous = historyPast[historyPast.length - 1];
+    skippingHistoryRef.current = true;
+    markDirty();
+    setHistoryFuture((future) =>
+      [
+        {
+          artLayers: cloneArtLayers(artLayers),
+          selectedLayerId,
+          productionNotes,
+        },
+        ...future,
+      ].slice(0, 40)
+    );
+    setHistoryPast((past) => past.slice(0, -1));
+    setArtLayers(previous.artLayers);
+    setSelectedLayerId(previous.selectedLayerId);
+    setProductionNotes(previous.productionNotes);
+    setPreviewComposing(true);
+    setFadeIn(false);
+    setMessage("Undid last design change.");
+    requestAnimationFrame(() => {
+      skippingHistoryRef.current = false;
+    });
+  };
+
+  const redoDesign = () => {
+    if (historyFuture.length === 0) return;
+    const next = historyFuture[0];
+    skippingHistoryRef.current = true;
+    markDirty();
+    setHistoryPast((past) =>
+      [
+        ...past,
+        {
+          artLayers: cloneArtLayers(artLayers),
+          selectedLayerId,
+          productionNotes,
+        },
+      ].slice(-40)
+    );
+    setHistoryFuture((future) => future.slice(1));
+    setArtLayers(next.artLayers);
+    setSelectedLayerId(next.selectedLayerId);
+    setProductionNotes(next.productionNotes);
+    setPreviewComposing(true);
+    setFadeIn(false);
+    setMessage("Redid design change.");
+    requestAnimationFrame(() => {
+      skippingHistoryRef.current = false;
+    });
+  };
+
+  const mockupDirty = canSave && (userDirty || isSaving);
   const artInputRef = useRef<HTMLInputElement>(null);
   const blankInputRef = useRef<HTMLInputElement>(null);
+  const mockupColumnRef = useRef<HTMLDivElement | null>(null);
+  const controlsScrollRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{
     startX: number;
     startY: number;
@@ -449,12 +613,22 @@ function DesignMockupEditor({
   const activeArtUrl = activeLayerUrl(selectedLayer);
   const hasArtwork = composeLayers.length > 0;
 
+  const specLine = formatPrintSpecLine({
+    widthIn: scaleToPrintWidthIn(transform.scale),
+    heightIn: printHeightFromWidth(
+      scaleToPrintWidthIn(transform.scale),
+      artAspectRatio
+    ),
+    offsetBelowCollarIn: yToOffsetBelowCollarIn(transform.y),
+  });
+
   const patchSelectedTransform = (
     patch:
       | Partial<DesignMockupTransform>
       | ((current: DesignMockupTransform) => DesignMockupTransform)
   ) => {
     if (!selectedLayer) return;
+    markDirty();
     setArtLayers((layers) => {
       const current = layers.find((layer) => layer.id === selectedLayer.id);
       if (!current) return layers;
@@ -466,6 +640,21 @@ function DesignMockupEditor({
       return updateLayerTransform(layers, selectedLayer.id, nextTransform);
     });
   };
+
+  useEffect(() => {
+    const url = activeArtUrl;
+    if (!url) {
+      setArtAspectRatio(1);
+      return;
+    }
+    const img = new Image();
+    img.onload = () => {
+      if (img.width > 0) {
+        setArtAspectRatio(img.height / img.width);
+      }
+    };
+    img.src = url;
+  }, [activeArtUrl]);
 
   const isStageLoading =
     blankLoading || !stageReady || (previewComposing && !previewUrl);
@@ -749,6 +938,7 @@ function DesignMockupEditor({
   }, [isStageLoading, onReady]);
 
   const applyPreset = (nextPlacementId: string) => {
+    markDirty();
     setPlacementId(nextPlacementId);
     const next = placements.find((entry) => entry.id === nextPlacementId);
     if (next && !isColorStage) {
@@ -758,6 +948,7 @@ function DesignMockupEditor({
 
   const switchStageMode = (mode: DesignMockupStageMode) => {
     if (mode === stageMode) return;
+    markDirty();
     setStageMode(mode);
     setFadeIn(false);
     setStageReady(false);
@@ -779,6 +970,7 @@ function DesignMockupEditor({
 
   const switchBlankView = (view: GarmentBlankView) => {
     if (view === blankView) return;
+    markDirty();
     manualBlankOverrideRef.current = false;
     setBlankView(view);
     setFadeIn(false);
@@ -846,6 +1038,7 @@ function DesignMockupEditor({
         baseTransform,
         `Artwork ${artLayers.length + 1}`
       );
+      pushDesignHistory();
       setArtLayers((current) => [...current, layer]);
       setSelectedLayerId(layer.id);
       setMessage(
@@ -871,6 +1064,7 @@ function DesignMockupEditor({
       if (!dataUrl.previewUrl) {
         throw new Error(dataUrl.error || "Could not read blank image");
       }
+      markDirty();
       manualBlankOverrideRef.current = true;
       setBlankImageUrl(dataUrl.previewUrl);
       setBlankIsVendorPhoto(false);
@@ -888,34 +1082,47 @@ function DesignMockupEditor({
     }
   };
 
-  const handleRemoveBackground = async () => {
+  const handleApplyArtworkClean = (cleanUrl: string) => {
     if (!selectedLayer) return;
-    setBusy("Removing background…");
-    setError(null);
-    try {
-      const cleaned = await removeImageBackground(selectedLayer.url);
-      setArtLayers((layers) =>
-        layers.map((layer) =>
-          layer.id === selectedLayer.id
-            ? {
-                ...layer,
-                cleanUrl: cleaned,
-                backgroundRemoved: true,
-              }
-            : layer
-        )
-      );
-      setMessage("Background removed — art sits cleanly on the garment.");
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Could not remove background"
-      );
-    } finally {
-      setBusy(null);
-    }
+    const isOriginal = cleanUrl === selectedLayer.url;
+    pushDesignHistory();
+    setArtLayers((layers) =>
+      layers.map((layer) =>
+        layer.id === selectedLayer.id
+          ? {
+              ...layer,
+              cleanUrl: isOriginal ? undefined : cleanUrl,
+              backgroundRemoved: !isOriginal,
+            }
+          : layer
+      )
+    );
+    // Force the stage to rebuild immediately (don't wait for a drag/nudge).
+    setPreviewComposing(true);
+    setFadeIn(false);
+    setMessage(
+      isOriginal
+        ? "Using original artwork."
+        : "Artwork updated on the mockup."
+    );
   };
 
+  const handleDetectedColors = useCallback(
+    (colors: DetectedArtworkColor[]) => {
+      if (colors.length === 0) return;
+      // Only seed empty notes during initial settle — never after the user can edit.
+      if (allowDirtyRef.current) return;
+      const hint = formatDetectedColorsForNotes(colors);
+      setProductionNotes((current) => {
+        if (current.trim()) return current;
+        return `Detected ink colors: ${hint}`;
+      });
+    },
+    []
+  );
+
   const handleDeleteLayer = (layerId: string) => {
+    pushDesignHistory();
     setArtLayers((layers) => {
       const next = layers.filter((layer) => layer.id !== layerId);
       const nextSelected =
@@ -954,6 +1161,9 @@ function DesignMockupEditor({
   const buildPayload = (): OrderDesignMockup => {
     const existing = imprint.designMockup;
     const primary = syncPrimaryFromLayers(artLayers);
+    const widthIn = scaleToPrintWidthIn(transform.scale);
+    const heightIn = printHeightFromWidth(widthIn, artAspectRatio);
+    const offsetIn = yToOffsetBelowCollarIn(transform.y);
     return {
       ...seedMockupFromExisting(existing, {
         lineItemId: lineItem?.id,
@@ -973,6 +1183,10 @@ function DesignMockupEditor({
       artworkUrl: primary.artworkUrl,
       artworkCleanUrl: primary.artworkCleanUrl,
       backgroundRemoved: primary.backgroundRemoved,
+      printWidthIn: widthIn,
+      printHeightIn: heightIn,
+      offsetBelowCollarIn: offsetIn,
+      productionNotes: productionNotes.trim() || undefined,
       composedPreviewUrl: previewUrl,
       updatedAt: new Date().toISOString(),
     };
@@ -987,14 +1201,73 @@ function DesignMockupEditor({
       setError("Wait for the preview to finish rendering.");
       return;
     }
+    if (isSaving) return;
+    setIsSaving(true);
     setBusy(attachToProof ? "Saving & attaching to proof…" : "Saving mockup…");
     setError(null);
     setMessage(null);
     try {
-      await onSave(order.id, job.id, imprint.id, buildPayload(), {
+      const widthIn = scaleToPrintWidthIn(transform.scale);
+      const heightIn = printHeightFromWidth(widthIn, artAspectRatio);
+      const offsetIn = yToOffsetBelowCollarIn(transform.y);
+      const saveOptions: DesignMockupSaveOptions = {
         attachToProof,
         proofLabel: `${imprintTitle(imprint)} mockup`,
-      });
+      };
+
+      if (attachToProof) {
+        saveOptions.proofPreviewUrl = await composeCleanProofSheet({
+          mockupDataUrl: previewUrl,
+          title: imprintTitle(imprint),
+          subtitle: lineItem
+            ? `${job.name} · ${formatBlankLabel(lineItem)}`
+            : job.name,
+          specs: [
+            formatPrintSpecLine({
+              widthIn,
+              heightIn,
+              offsetBelowCollarIn: offsetIn,
+              locationLabel: imprintTitle(imprint),
+            }),
+          ],
+          notes: productionNotes.trim() || undefined,
+        });
+      }
+
+      const savedOrder = await onSave(
+        order.id,
+        job.id,
+        imprint.id,
+        buildPayload(),
+        saveOptions
+      );
+
+      // Prefer the server mockup (storage URLs) so local data: URLs don't keep
+      // the editor "dirty" after a successful save.
+      const savedMockup = savedOrder
+        ? savedOrder.jobs
+            .find((entry) => entry.id === job.id)
+            ?.imprints?.find((entry) => entry.id === imprint.id)?.designMockup
+        : undefined;
+
+      if (savedMockup) {
+        skippingHistoryRef.current = true;
+        setArtLayers(normalizeArtLayers(savedMockup));
+        setProductionNotes(savedMockup.productionNotes ?? "");
+        if (savedMockup.lineItemId) setLineItemId(savedMockup.lineItemId);
+        if (savedMockup.placementPresetId) {
+          setPlacementId(savedMockup.placementPresetId);
+        }
+        if (savedMockup.stageMode) setStageMode(savedMockup.stageMode);
+        if (savedMockup.blankView) {
+          setBlankView(normalizeGarmentBlankView(savedMockup.blankView));
+        }
+        requestAnimationFrame(() => {
+          skippingHistoryRef.current = false;
+        });
+      }
+
+      clearDirty();
       setMessage(
         attachToProof
           ? messages?.attached ||
@@ -1005,8 +1278,29 @@ function DesignMockupEditor({
       setError(err instanceof Error ? err.message : "Could not save mockup");
     } finally {
       setBusy(null);
+      setIsSaving(false);
     }
   };
+
+  useRegisterUnsavedChanges(
+    canSave
+      ? {
+          dirty: mockupDirty,
+          saving: isSaving,
+          label: "Unsaved mockup",
+          onSave: async () => {
+            await handleSave(false);
+          },
+          onDiscard: () => {
+            setError(null);
+            setMessage(null);
+            clearDirty();
+            onDiscardRequest?.();
+          },
+        }
+      : null,
+    `design-studio-${imprint.id}`
+  );
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!activeArtUrl) return;
@@ -1017,6 +1311,7 @@ function DesignMockupEditor({
       originX: transform.x,
       originY: transform.y,
     };
+    pushDesignHistory();
     event.currentTarget.setPointerCapture(event.pointerId);
     void rect;
   };
@@ -1036,9 +1331,39 @@ function DesignMockupEditor({
     dragRef.current = null;
   };
 
+  const liveWidthIn = scaleToPrintWidthIn(transform.scale);
+  const liveHeightIn = printHeightFromWidth(liveWidthIn, artAspectRatio);
+  const liveOffsetIn = yToOffsetBelowCollarIn(transform.y);
+
+  // Any wheel on the editor (outside the controls pane) scrolls the right sidebar.
+  useEffect(() => {
+    const stage = mockupColumnRef.current;
+    const panel = controlsScrollRef.current;
+    if (!stage || !panel) return;
+
+    const root = stage.closest("section");
+    if (!root) return;
+
+    const onWheel = (event: WheelEvent) => {
+      if (window.matchMedia("(max-width: 1023px)").matches) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.("[data-design-controls-scroll]")) return;
+      event.preventDefault();
+      panel.scrollTop += event.deltaY;
+    };
+
+    root.addEventListener("wheel", onWheel, { passive: false });
+    return () => root.removeEventListener("wheel", onWheel);
+  }, []);
+
   return (
-    <section className={dashboardCardClass}>
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
+    <section
+      className={cn(
+        dashboardCardClass,
+        "flex flex-col lg:h-full lg:min-h-0 lg:overflow-hidden"
+      )}
+    >
+      <div className="flex shrink-0 flex-wrap items-start justify-between gap-3 border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
         <div>
           <h2 className={dashboardTaskTitleClass}>{imprintTitle(imprint)}</h2>
           <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
@@ -1046,6 +1371,28 @@ function DesignMockupEditor({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            className={cn(dashboardControlClass, "h-9 px-2.5")}
+            disabled={historyPast.length === 0 || Boolean(busy)}
+            onClick={undoDesign}
+            title="Undo"
+            aria-label="Undo"
+          >
+            <Undo2 className="size-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={cn(dashboardControlClass, "h-9 px-2.5")}
+            disabled={historyFuture.length === 0 || Boolean(busy)}
+            onClick={redoDesign}
+            title="Redo"
+            aria-label="Redo"
+          >
+            <Redo2 className="size-3.5" />
+          </Button>
           <Button
             type="button"
             variant="outline"
@@ -1074,170 +1421,142 @@ function DesignMockupEditor({
         </div>
       </div>
 
-      <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_300px] sm:p-5">
-        <div>
-          <div
-            className={cn(
-              dashboardInsetSurfaceClass,
-              "relative aspect-square overflow-hidden rounded-xl transition-colors",
-              isStageLoading ? "pointer-events-none" : null
-            )}
-            style={
-              !isStageLoading
-                ? {
-                    backgroundColor:
-                      stageBgColor ||
-                      (isColorStage ? blankColorHex : undefined),
-                  }
-                : undefined
-            }
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-          >
-            {previewUrl && !isStageLoading ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={previewUrl.slice(0, 48)}
-                src={previewUrl}
-                alt="Design mockup preview"
-                className={cn(
-                  "size-full object-contain transition-opacity duration-300 ease-out",
-                  fadeIn ? "opacity-100" : "opacity-0"
-                )}
-                draggable={false}
-                onLoad={() => setFadeIn(true)}
-              />
-            ) : null}
-
-            {isStageLoading ? (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#f7f7f8]/90 backdrop-blur-[1px]">
-                <Loader2 className="size-5 animate-spin text-[#2c6ecb]" />
-                <p className="text-[13px] font-medium text-[#616161]">
-                  {isColorStage
-                    ? "Preparing color backdrop…"
-                    : blankLoading
-                      ? "Loading garment…"
-                      : "Preparing mockup…"}
-                </p>
-              </div>
-            ) : null}
-
-            {!isStageLoading && activeArtUrl ? (
-              <p className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-[#616161]">
-                {isColorStage
-                  ? "Drag to reposition on color"
-                  : "Drag artwork to reposition"}
-              </p>
-            ) : null}
-          </div>
-          <div className="mt-3">
-            <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-              Art size
-            </Label>
-            <input
-              type="range"
-              min={0.08}
-              max={0.7}
-              step={0.01}
-              value={transform.scale}
-              disabled={!selectedLayer}
-              onChange={(event) =>
-                patchSelectedTransform({ scale: Number(event.target.value) })
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row lg:overflow-hidden">
+        <div
+          ref={mockupColumnRef}
+          className="flex flex-col items-center justify-center gap-3 border-b border-[#ebebeb] p-4 sm:p-6 lg:min-h-0 lg:min-w-0 lg:flex-1 lg:overflow-hidden lg:border-b-0 lg:border-r lg:px-6 lg:py-6"
+        >
+          <div className="w-full max-w-[min(460px,100%)] shrink-0">
+            <div
+              className={cn(
+                dashboardInsetSurfaceClass,
+                "relative aspect-square w-full overflow-hidden rounded-lg transition-colors",
+                isStageLoading ? "pointer-events-none" : null
+              )}
+              style={
+                !isStageLoading
+                  ? {
+                      backgroundColor:
+                        stageBgColor ||
+                        (isColorStage ? blankColorHex : undefined),
+                    }
+                  : undefined
               }
-              className="mt-2 w-full accent-[#2c6ecb]"
-            />
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerCancel={onPointerUp}
+            >
+              {previewUrl && !isStageLoading ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={previewUrl.slice(0, 48)}
+                  src={previewUrl}
+                  alt="Design mockup preview"
+                  className={cn(
+                    "absolute inset-0 size-full object-contain transition-opacity duration-300 ease-out",
+                    fadeIn ? "opacity-100" : "opacity-0"
+                  )}
+                  draggable={false}
+                  onLoad={() => setFadeIn(true)}
+                />
+              ) : null}
+
+              {isStageLoading ? (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#f7f7f8]/90">
+                  <Loader2 className="size-5 animate-spin text-[#2c6ecb]" />
+                  <p className="text-[13px] font-medium text-[#616161]">
+                    {isColorStage
+                      ? "Preparing color backdrop…"
+                      : blankLoading
+                        ? "Loading garment…"
+                        : "Preparing mockup…"}
+                  </p>
+                </div>
+              ) : null}
+
+              {!isStageLoading && activeArtUrl ? (
+                <p className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-[#616161]">
+                  Drag artwork to reposition
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="w-full max-w-[min(460px,100%)] shrink-0">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-[160px] flex-1">
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                  Art size
+                </Label>
+                <input
+                  type="range"
+                  min={0.08}
+                  max={0.7}
+                  step={0.01}
+                  value={transform.scale}
+                  disabled={!selectedLayer}
+                  onChange={(event) =>
+                    patchSelectedTransform({ scale: Number(event.target.value) })
+                  }
+                  className="mt-2 w-full accent-[#2c6ecb]"
+                />
+              </div>
+              {specLine ? (
+                <p className="text-[12px] text-[#8a8a8a]">{specLine}</p>
+              ) : null}
+            </div>
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div
+          ref={controlsScrollRef}
+          data-design-controls-scroll
+          className="min-h-0 min-w-0 space-y-4 overflow-y-auto overscroll-contain p-4 sm:p-5 lg:w-[320px] lg:shrink-0"
+        >
+          <div className="space-y-2">
+            <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+              Artwork
+            </Label>
+            <input
+              ref={artInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={(event) => {
+                void handleArtUpload(event.target.files?.[0] ?? null);
+                event.target.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              className={cn(dashboardPrimaryButtonClass, "h-10 w-full justify-center")}
+              onClick={() => artInputRef.current?.click()}
+            >
+              <Upload className="size-3.5" />
+              {hasArtwork
+                ? "Add artwork layer"
+                : isColorStage
+                  ? "Upload label / artwork"
+                  : "Upload artwork"}
+            </Button>
+            {selectedLayer ? (
+              <DesignStudioArtworkCleanup
+                originalUrl={selectedLayer.url}
+                workingUrl={activeLayerUrl(selectedLayer) || selectedLayer.url}
+                disabled={Boolean(busy) || !canSave}
+                onApplyCleanUrl={handleApplyArtworkClean}
+                onDetectedColors={handleDetectedColors}
+              />
+            ) : null}
+          </div>
+
           <DesignStudioLayersPanel
             layers={layerRows}
             selectedId={selectedLayerId}
             onSelect={setSelectedLayerId}
             onDelete={handleDeleteLayer}
           />
-
-          <div className="space-y-1.5">
-            <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-              Backdrop
-            </Label>
-            <div
-              className={cn(
-                "grid h-10 w-full grid-cols-2 gap-0.5 rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5",
-                "shadow-[0_1px_0_rgba(26,26,26,0.05)]"
-              )}
-              role="group"
-              aria-label="Mockup backdrop"
-            >
-              <button
-                type="button"
-                onClick={() => switchStageMode("garment")}
-                className={cn(
-                  "rounded-md text-[12px] font-semibold transition-colors",
-                  stageMode === "garment"
-                    ? "bg-white text-[#303030] shadow-sm"
-                    : "text-[#8a8a8a] hover:text-[#616161]"
-                )}
-              >
-                Garment
-              </button>
-              <button
-                type="button"
-                onClick={() => switchStageMode("color")}
-                className={cn(
-                  "rounded-md text-[12px] font-semibold transition-colors",
-                  stageMode === "color"
-                    ? "bg-white text-[#303030] shadow-sm"
-                    : "text-[#8a8a8a] hover:text-[#616161]"
-                )}
-              >
-                Color
-              </button>
-            </div>
-            <p className={dashboardTaskDetailClass}>
-              {isColorStage
-                ? "Solid backdrop matches the blank color — ideal for neck labels and tags."
-                : "Place artwork on the vendor garment photo."}
-            </p>
-          </div>
-
-          {!isColorStage ? (
-            <div className="space-y-1.5">
-              <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                Blank view
-              </Label>
-              <div
-                className={cn(
-                  "grid h-10 w-full grid-cols-2 gap-0.5 rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5",
-                  "shadow-[0_1px_0_rgba(26,26,26,0.05)]"
-                )}
-                role="group"
-                aria-label="Blank garment view"
-              >
-                {(["front", "back"] as GarmentBlankView[]).map((view) => (
-                  <button
-                    key={view}
-                    type="button"
-                    onClick={() => switchBlankView(view)}
-                    className={cn(
-                      "rounded-md text-[12px] font-semibold transition-colors",
-                      blankView === view
-                        ? "bg-white text-[#303030] shadow-sm"
-                        : "text-[#8a8a8a] hover:text-[#616161]"
-                    )}
-                  >
-                    {garmentBlankViewLabel(view)}
-                  </button>
-                ))}
-              </div>
-              <p className={dashboardTaskDetailClass}>
-                Defaults from the event — switch anytime. Views are cached after
-                the first load.
-              </p>
-            </div>
-          ) : null}
 
           <div className="space-y-1.5">
             <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
@@ -1248,6 +1567,7 @@ function DesignMockupEditor({
                 value={lineItem?.id}
                 onValueChange={(value) => {
                   if (!value) return;
+                  markDirty();
                   manualBlankOverrideRef.current = false;
                   setLineItemId(value);
                 }}
@@ -1272,55 +1592,106 @@ function DesignMockupEditor({
                 Add blanks on the Blanks / Garments tab first.
               </p>
             )}
-            <div className="flex items-center gap-2 pt-1">
-              <span
-                className="inline-block size-4 rounded-full border border-[#e3e3e3]"
-                style={{ backgroundColor: blankColorHex }}
-                title={
-                  isColorStage
-                    ? "Backdrop color"
-                    : blankIsVendorPhoto
-                      ? "Vendor color"
-                      : "Fallback color"
-                }
-              />
-              <p className="text-[12px] text-[#616161]">
-                {isColorStage
-                  ? "Backdrop inherits this blank’s color"
-                  : blankLoading
-                    ? "Loading vendor garment photo…"
+            <p className={dashboardTaskDetailClass}>
+              {isColorStage
+                ? "Color backdrop for labels and tags"
+                : blankLoading
+                  ? "Loading vendor garment photo…"
                   : blankIsVendorPhoto
-                      ? `Vendor ${garmentBlankViewLabel(blankView).toLowerCase()} photo for this blank`
-                      : "No vendor photo — showing color silhouette"}
-              </p>
-            </div>
-            {!isColorStage ? (
-              <>
-                <input
-                  ref={blankInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  className="hidden"
-                  onChange={(event) => {
-                    void handleBlankUpload(event.target.files?.[0] ?? null);
-                    event.target.value = "";
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className={cn(
-                    dashboardControlClass,
-                    "mt-1 h-9 w-full justify-center"
-                  )}
-                  onClick={() => blankInputRef.current?.click()}
-                >
-                  <ImagePlus className="size-3.5" />
-                  {blankImageUrl ? "Replace blank photo" : "Upload blank photo"}
-                </Button>
-              </>
-            ) : null}
+                    ? `Vendor ${garmentBlankViewLabel(blankView).toLowerCase()} photo`
+                    : "Color silhouette — upload a blank photo if needed"}
+            </p>
           </div>
+
+          <div className={cn("grid gap-3", isColorStage ? "grid-cols-1" : "grid-cols-2")}>
+            {!isColorStage ? (
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                  View
+                </Label>
+                <div
+                  className="grid h-9 grid-cols-2 gap-0.5 rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5"
+                  role="group"
+                  aria-label="Blank garment view"
+                >
+                  {(["front", "back"] as GarmentBlankView[]).map((view) => (
+                    <button
+                      key={view}
+                      type="button"
+                      onClick={() => switchBlankView(view)}
+                      className={cn(
+                        "rounded-md text-[12px] font-semibold transition-colors",
+                        blankView === view
+                          ? "bg-white text-[#303030] shadow-sm"
+                          : "text-[#8a8a8a] hover:text-[#616161]"
+                      )}
+                    >
+                      {garmentBlankViewLabel(view)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            <div className="space-y-1.5">
+              <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                Backdrop
+              </Label>
+              <div
+                className="grid h-9 grid-cols-2 gap-0.5 rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5"
+                role="group"
+                aria-label="Mockup backdrop"
+              >
+                <button
+                  type="button"
+                  onClick={() => switchStageMode("garment")}
+                  className={cn(
+                    "rounded-md text-[12px] font-semibold transition-colors",
+                    stageMode === "garment"
+                      ? "bg-white text-[#303030] shadow-sm"
+                      : "text-[#8a8a8a] hover:text-[#616161]"
+                  )}
+                >
+                  Garment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchStageMode("color")}
+                  className={cn(
+                    "rounded-md text-[12px] font-semibold transition-colors",
+                    stageMode === "color"
+                      ? "bg-white text-[#303030] shadow-sm"
+                      : "text-[#8a8a8a] hover:text-[#616161]"
+                  )}
+                >
+                  Color
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {!isColorStage ? (
+            <>
+              <input
+                ref={blankInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(event) => {
+                  void handleBlankUpload(event.target.files?.[0] ?? null);
+                  event.target.value = "";
+                }}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className={cn(dashboardControlClass, "h-9 w-full justify-center")}
+                onClick={() => blankInputRef.current?.click()}
+              >
+                <ImagePlus className="size-3.5" />
+                {blankImageUrl ? "Replace blank photo" : "Upload blank photo"}
+              </Button>
+            </>
+          ) : null}
 
           <div className="space-y-1.5">
             <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
@@ -1350,75 +1721,101 @@ function DesignMockupEditor({
                 ))}
               </SelectContent>
             </Select>
-            <p className={dashboardTaskDetailClass}>
-              Defaults come from Settings → Design placements.
-            </p>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-2 rounded-lg border border-[#ebebeb] bg-[#fafafa] p-3">
             <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-              Artwork
+              Print size
             </Label>
-            <input
-              ref={artInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={(event) => {
-                void handleArtUpload(event.target.files?.[0] ?? null);
-                event.target.value = "";
-              }}
-            />
-            <Button
-              type="button"
-              className={cn(dashboardPrimaryButtonClass, "h-10 w-full justify-center")}
-              onClick={() => artInputRef.current?.click()}
-            >
-              <Upload className="size-3.5" />
-              {hasArtwork
-                ? "Add artwork layer"
-                : isColorStage
-                  ? "Upload label / artwork"
-                  : "Upload artwork"}
-            </Button>
-            {selectedLayer ? (
-              <div className="space-y-2 rounded-lg border border-[#ebebeb] bg-[#fafafa] p-3">
-                <p className="text-[12px] text-[#616161]">
-                  Selected layer: {selectedLayer.label || "Artwork"}. Remove the
-                  background so only the design sits on the garment?
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className={cn(dashboardControlClass, "h-8")}
-                    disabled={Boolean(busy)}
-                    onClick={handleRemoveBackground}
-                  >
-                    <Wand2 className="size-3.5" />
-                    Remove background
-                  </Button>
-                  {selectedLayer.backgroundRemoved ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-8"
-                      onClick={() =>
-                        setArtLayers((layers) =>
-                          layers.map((layer) =>
-                            layer.id === selectedLayer.id
-                              ? { ...layer, backgroundRemoved: false }
-                              : layer
-                          )
-                        )
-                      }
-                    >
-                      Use original
-                    </Button>
-                  ) : null}
-                </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <Label
+                  htmlFor={`print-width-${imprint.id}`}
+                  className="text-[11px] text-[#8a8a8a]"
+                >
+                  W (in)
+                </Label>
+                <Input
+                  id={`print-width-${imprint.id}`}
+                  type="number"
+                  min={0.5}
+                  max={16}
+                  step={0.1}
+                  value={liveWidthIn}
+                  disabled={!selectedLayer}
+                  className={cn(dashboardControlClass, "h-9 px-2")}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    if (!Number.isFinite(next)) return;
+                    patchSelectedTransform({
+                      scale: printWidthInToScale(next),
+                    });
+                  }}
+                />
               </div>
-            ) : null}
+              <div className="space-y-1">
+                <Label
+                  htmlFor={`print-height-${imprint.id}`}
+                  className="text-[11px] text-[#8a8a8a]"
+                >
+                  H (in)
+                </Label>
+                <Input
+                  id={`print-height-${imprint.id}`}
+                  type="number"
+                  readOnly
+                  value={liveHeightIn}
+                  className={cn(
+                    dashboardControlClass,
+                    "h-9 bg-[#f6f6f7] px-2 text-[#616161]"
+                  )}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label
+                  htmlFor={`print-offset-${imprint.id}`}
+                  className="text-[11px] text-[#8a8a8a]"
+                >
+                  Below (in)
+                </Label>
+                <Input
+                  id={`print-offset-${imprint.id}`}
+                  type="number"
+                  min={0}
+                  max={14}
+                  step={0.1}
+                  value={liveOffsetIn}
+                  disabled={!selectedLayer}
+                  className={cn(dashboardControlClass, "h-9 px-2")}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    if (!Number.isFinite(next)) return;
+                    patchSelectedTransform({
+                      y: offsetBelowCollarInToY(next),
+                    });
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label
+              htmlFor={`production-notes-${imprint.id}`}
+              className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]"
+            >
+              Notes
+            </Label>
+            <Textarea
+              id={`production-notes-${imprint.id}`}
+              value={productionNotes}
+              onChange={(event) => {
+                markDirty();
+                setProductionNotes(event.target.value);
+              }}
+              placeholder="PMS, special placement, customer notes…"
+              className={cn(dashboardControlClass, "min-h-[72px] text-[13px]")}
+            />
           </div>
 
           {busy ? (

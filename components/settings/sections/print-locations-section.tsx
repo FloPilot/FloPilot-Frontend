@@ -9,6 +9,7 @@ import {
   SettingsHeader,
   SettingsMain,
   SettingsPanel,
+  useRegisterSectionUnsavedChanges,
   useSectionDraft,
 } from "@/components/settings/settings-kit";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -68,7 +69,7 @@ function resolveSelectValue(
 
 export function PrintLocationsSection() {
   const { settings, isAdmin, updateSettings } = useShopSettings();
-  const { draft, setDraft, dirty } = useSectionDraft<ShopProductionDefaults>(
+  const { draft, setDraft, dirty, discard } = useSectionDraft<ShopProductionDefaults>(
     settings.productionDefaults
   );
   const [saving, setSaving] = useState(false);
@@ -118,6 +119,15 @@ export function PrintLocationsSection() {
       // error already set
     }
   };
+
+  useRegisterSectionUnsavedChanges({
+    dirty,
+    saving,
+    enabled: isAdmin,
+    label: "Unsaved print locations",
+    onSave: () => handleSave(),
+    onDiscard: discard,
+  });
 
   const commit = (
     updater: (current: ShopProductionDefaults) => ShopProductionDefaults

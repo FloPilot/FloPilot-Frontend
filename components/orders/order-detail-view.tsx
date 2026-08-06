@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { useStaffUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { OrderMaterialsPanel } from "@/components/orders/order-materials-panel";
 import { OrderDesignTab } from "@/components/orders/order-design-tab";
 import { OrderDesignStudioTab } from "@/components/orders/order-design-studio-tab";
@@ -158,6 +159,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
   const { isAdmin } = useStaffAccess();
   const searchParams = useSearchParams();
   const parsedTab = parseOrderDetailTab(searchParams.get("tab"));
+  const { requestLeave } = useStaffUnsavedChanges();
   const {
     getOrderById,
     getCustomerById,
@@ -193,6 +195,15 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     message: string;
     type: "success" | "error" | "loading";
   } | null>(null);
+
+  const changeTab = useCallback(
+    (tab: OrderDetailTab) => {
+      if (tab === activeTab) return;
+      if (!requestLeave(undefined, { inPage: true })) return;
+      setActiveTab(tab);
+    },
+    [activeTab, requestLeave]
+  );
 
   const showActionToast = (
     message: string,
@@ -255,6 +266,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
   };
 
   const openFiles = (jobId: string, imprintId: string) => {
+    if (!requestLeave(undefined, { inPage: true })) return;
     setFilesFocus({ jobId, imprintId });
     setActiveTab("files");
   };
@@ -262,7 +274,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
   const handleAddProductionJob = async (job: Job) => {
     try {
       await addProductionJob(orderId, job);
-      setActiveTab("events");
+      changeTab("events");
     } catch (err) {
       showActionToast(
         err instanceof Error ? err.message : "Could not add event. Please try again.",
@@ -277,7 +289,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     switch (actionId) {
       case "send_estimate":
       case "send_proofs": {
-        setActiveTab("proof");
+        changeTab("proof");
         showActionToast("Sending proofs & estimate…", "loading", false);
         try {
           const email = await sendProofsAndEstimate(order.id);
@@ -299,18 +311,18 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
         if (firstUnscheduledStep) {
           openScheduleStep(firstUnscheduledStep);
         } else {
-          setActiveTab("events");
+          changeTab("events");
         }
         break;
       case "add_production":
         setAddStepOpen(true);
         break;
       case "message_customer":
-        setActiveTab("customer");
+        changeTab("customer");
         setCustomerSection("messages");
         break;
       case "finish_receiving":
-        setActiveTab(defaultReceivingTab(order));
+        changeTab(defaultReceivingTab(order));
         break;
       case "view_tasks":
         router.push("/app/tasks");
@@ -336,36 +348,47 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
   }
 
   return (
-    <main className="flex w-full flex-1 flex-col gap-5 p-4 sm:p-6 lg:p-8">
-      <OrderDetailHeader
-        order={order}
-        summary={summary}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        subCustomers={customer?.subCustomers}
-        onEndBusinessSave={(subCustomerId) =>
-          updateOrderEndBusiness(order.id, subCustomerId)
-        }
-        onSalesRepSave={(salesRepId) =>
-          updateOrderSalesRep(order.id, salesRepId)
-        }
-        orders={orders}
-        onProductionRunSave={(linkedOrderIds) =>
-          updateOrderProductionRun(order.id, linkedOrderIds)
-        }
-        onCustomLabelSave={(customLabel) =>
-          updateOrderCustomLabel(order.id, customLabel)
-        }
-      />
+    <main
+      className={cn(
+        "flex w-full flex-col",
+        activeTab === "design"
+          ? "min-h-0 flex-1 gap-3 px-4 pb-[5px] pt-4 sm:px-6 sm:pt-6 lg:h-full lg:overflow-hidden lg:px-8 lg:pt-8"
+          : "flex-1 gap-5 p-4 sm:p-6 lg:p-8"
+      )}
+    >
+      <div className={activeTab === "design" ? "shrink-0" : undefined}>
+        <OrderDetailHeader
+          order={order}
+          summary={summary}
+          activeTab={activeTab}
+          onTabChange={changeTab}
+          subCustomers={customer?.subCustomers}
+          onEndBusinessSave={(subCustomerId) =>
+            updateOrderEndBusiness(order.id, subCustomerId)
+          }
+          onSalesRepSave={(salesRepId) =>
+            updateOrderSalesRep(order.id, salesRepId)
+          }
+          orders={orders}
+          onProductionRunSave={(linkedOrderIds) =>
+            updateOrderProductionRun(order.id, linkedOrderIds)
+          }
+          onCustomLabelSave={(customLabel) =>
+            updateOrderCustomLabel(order.id, customLabel)
+          }
+        />
+      </div>
 
-      {activeTab !== "produced_goods" && activeTab !== "invoice" ? (
+      {activeTab !== "produced_goods" &&
+      activeTab !== "invoice" &&
+      activeTab !== "design" ? (
         <OrderProducedGoodsCallout order={order} />
       ) : null}
 
       {actionToast ? (
         <div
           className={cn(
-            "flex items-center gap-2 rounded-lg border px-3.5 py-2.5 text-[13px] font-medium",
+            "flex shrink-0 items-center gap-2 rounded-lg border px-3.5 py-2.5 text-[13px] font-medium",
             actionToast.type === "error"
               ? "border-[#e7b4b4] bg-[#fdf2f2] text-[#b42318]"
               : actionToast.type === "loading"
@@ -384,8 +407,22 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
         </div>
       ) : null}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start">
-        <div className="order-2 min-w-0 space-y-4 xl:order-none">
+      <div
+        className={cn(
+          "grid gap-5 xl:items-start",
+          activeTab === "design"
+            ? "min-h-0 grid-rows-1 lg:flex-1 xl:grid-cols-1"
+            : "xl:grid-cols-[minmax(0,1fr)_300px]"
+        )}
+      >
+        <div
+          className={cn(
+            "order-2 min-w-0 xl:order-none",
+            activeTab === "design"
+              ? "flex min-h-0 flex-col lg:h-full"
+              : "space-y-4"
+          )}
+        >
           {activeTab === "events" ? (
             <>
               <OrderEventsTab
@@ -395,7 +432,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
                 onAddEvent={() => setAddStepOpen(true)}
                 onScheduleStep={openScheduleStep}
                 onOpenDesign={openFiles}
-                onOpenTab={setActiveTab}
+                onOpenTab={changeTab}
               />
 
               {canSchedule && orderBlocks.length > 0 ? (
@@ -447,7 +484,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
           {activeTab === "design" ? (
             <OrderDesignStudioTab
               order={order}
-              onRequestAddBlank={() => setActiveTab("blanks")}
+              onRequestAddBlank={() => changeTab("blanks")}
             />
           ) : null}
 
@@ -567,17 +604,19 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
           ) : null}
         </div>
 
-        <div className="order-1 space-y-4 xl:order-none xl:sticky xl:top-6 xl:z-10 xl:self-start">
-          <OrderActionPanel
-            order={order}
-            summary={summary}
-            canSchedule={canSchedule}
-            onAction={handlePanelAction}
-            onStatusChange={(status) => updateOrderStatus(order.id, status)}
-            onRushChange={(rush) => setOrderRush(order.id, rush)}
-          />
-          {isAdmin ? <OrderArchivePanel order={order} /> : null}
-        </div>
+        {activeTab !== "design" ? (
+          <div className="order-1 space-y-4 xl:order-none xl:sticky xl:top-6 xl:z-10 xl:self-start">
+            <OrderActionPanel
+              order={order}
+              summary={summary}
+              canSchedule={canSchedule}
+              onAction={handlePanelAction}
+              onStatusChange={(status) => updateOrderStatus(order.id, status)}
+              onRushChange={(rush) => setOrderRush(order.id, rush)}
+            />
+            {isAdmin ? <OrderArchivePanel order={order} /> : null}
+          </div>
+        ) : null}
       </div>
 
       <AddProductionStepDialog

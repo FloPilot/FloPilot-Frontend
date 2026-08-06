@@ -1,11 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Check,
   ChevronDown,
+  CreditCard,
   Loader2,
+  Minus,
+  Plus,
   ShoppingBag,
   Trash2,
   X,
@@ -25,6 +29,7 @@ import {
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  createClientStoreCheckout,
   getPublicClientStore,
   submitClientStoreOrder,
 } from "@/lib/api";
@@ -432,7 +437,8 @@ export function PublicStorefrontView({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
-  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [employeeCode, setEmployeeCode] = useState("");
+  const [accessError, setAccessError] = useState<string | null>(null);
   const [selected, setSelected] = useState<PublicClientStoreProduct | null>(
     null
   );
@@ -447,28 +453,56 @@ export function PublicStorefrontView({ token }: { token: string }) {
   const [cart, setCart] = useState<CartLine[]>([]);
   const [cartHydrated, setCartHydrated] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutStep, setCheckoutStep] = useState<"cart" | "checkout">("cart");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [paidOnline, setPaidOnline] = useState(false);
+  const searchParams = useSearchParams();
+
+  const openCart = useCallback(() => {
+    setCheckoutStep("cart");
+    setError(null);
+    setCheckoutOpen(true);
+  }, []);
+
+  const closeCheckoutPanel = useCallback((open: boolean) => {
+    setCheckoutOpen(open);
+    if (!open) {
+      setCheckoutStep("cart");
+      setError(null);
+    }
+  }, []);
 
   const load = useCallback(
-    async (pwd?: string) => {
+    async (opts?: { password?: string; employeeCode?: string }) => {
       setLoading(true);
       setError(null);
-      setPasswordError(null);
+      setAccessError(null);
+      const pwd = opts?.password !== undefined ? opts.password : password;
+      const code =
+        opts?.employeeCode !== undefined ? opts.employeeCode : employeeCode;
       try {
         const res = await getPublicClientStore(token, {
           password: pwd || undefined,
+          employeeCode: code || undefined,
         });
         setStore(res.store);
+        if (res.store.unlocked && code) {
+          try {
+            sessionStorage.setItem(`store-employee-code:${token}`, code);
+          } catch {
+            // ignore
+          }
+        }
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Could not load store";
-        if (/password/i.test(message)) {
-          setPasswordError(message);
+        if (/password|access code|employee/i.test(message)) {
+          setAccessError(message);
         } else {
           setError(message);
         }
@@ -476,12 +510,35 @@ export function PublicStorefrontView({ token }: { token: string }) {
         setLoading(false);
       }
     },
-    [token]
+    [token, password, employeeCode]
   );
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    let saved = "";
+    try {
+      saved = sessionStorage.getItem(`store-employee-code:${token}`) || "";
+    } catch {
+      // ignore
+    }
+    if (saved) setEmployeeCode(saved);
+    void load({ employeeCode: saved || undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  useEffect(() => {
+    if (!store?.employee) return;
+    setEmail((prev) => prev || store.employee?.email || "");
+    setName((prev) => prev || store.employee?.name || "");
+  }, [store?.employee]);
+
+  useEffect(() => {
+    if (searchParams.get("paid") === "1") {
+      setPaidOnline(true);
+      setSubmitted(true);
+      setCart([]);
+      clearClientStoreCart(token);
+    }
+  }, [searchParams, token]);
 
   useEffect(() => {
     const stored = readClientStoreCart(token);
@@ -622,6 +679,13 @@ export function PublicStorefrontView({ token }: { token: string }) {
     () => cart.reduce((sum, line) => sum + line.unitPrice * line.qty, 0),
     [cart]
   );
+  const creditBalance = store?.employee?.creditBalance ?? 0;
+  const creditsEnabled = store?.settings?.creditsEnabled === true;
+  const creditAppliedPreview =
+    creditsEnabled && creditBalance > 0
+      ? Math.min(creditBalance, cartTotal)
+      : 0;
+  const amountDuePreview = Math.max(0, cartTotal - creditAppliedPreview);
 
   const addToCart = () => {
     if (!selected || !size) return;
@@ -647,35 +711,67 @@ export function PublicStorefrontView({ token }: { token: string }) {
         },
       ];
     });
+    setCheckoutStep("cart");
     setCheckoutOpen(true);
   };
 
   const submitOrder = async () => {
     if (!store) return;
+    if (store.settings.collectEmail !== false && !email.trim()) {
+      setError("Email is required.");
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
-      await submitClientStoreOrder(token, {
+      const payload = {
         name: name.trim(),
         email: email.trim() || undefined,
         phone: phone.trim() || undefined,
         notes: notes.trim() || undefined,
         password: password || undefined,
+        employeeCode: employeeCode.trim() || undefined,
         items: cart.map((line) => ({
           productId: line.productId,
           size: line.size,
           color: line.color,
           qty: line.qty,
         })),
-      });
+      };
+
+      const usePaidCheckout =
+        store.paymentsEnabled ||
+        (store.settings.creditsEnabled === true && Boolean(employeeCode.trim()));
+
+      if (usePaidCheckout) {
+        const result = await createClientStoreCheckout(token, payload);
+        if (result.paid) {
+          setSubmitted(true);
+          setPaidOnline(true);
+          setCart([]);
+          clearClientStoreCart(token);
+          setCheckoutOpen(false);
+          setSelected(null);
+          // Refresh employee balance after full-credit checkout
+          void load({ employeeCode: employeeCode.trim() });
+          return;
+        }
+        if (!result.payUrl) {
+          throw new Error("Checkout link was not created.");
+        }
+        window.location.href = result.payUrl;
+        return;
+      }
+
+      await submitClientStoreOrder(token, payload);
       setSubmitted(true);
+      setPaidOnline(false);
       setCart([]);
       clearClientStoreCart(token);
       setCheckoutOpen(false);
       setSelected(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not submit order");
-    } finally {
       setSubmitting(false);
     }
   };
@@ -708,7 +804,10 @@ export function PublicStorefrontView({ token }: { token: string }) {
     return <PublicReviewStorefrontView token={token} />;
   }
 
-  if (store.passwordProtected && !store.unlocked) {
+  if (
+    (store.passwordProtected || store.employeeAccessRequired) &&
+    !store.unlocked
+  ) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-[#f6f6f7] px-4">
         <div className="w-full max-w-sm rounded-xl border border-[#e3e3e3] bg-white p-6 shadow-sm">
@@ -724,26 +823,60 @@ export function PublicStorefrontView({ token }: { token: string }) {
             {store.name}
           </h1>
           <p className="mt-1 text-center text-[13px] text-[#616161]">
-            Enter the store password to continue.
+            {store.employeeAccessRequired
+              ? "Enter your employee access code to continue."
+              : "Enter the store password to continue."}
           </p>
-          <Input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void load(password);
-            }}
-            className="mt-5 h-10 rounded-lg border-[#e3e3e3]"
-            placeholder="Password"
-          />
-          {passwordError ? (
-            <p className="mt-2 text-[12px] text-red-700">{passwordError}</p>
+          {store.passwordProtected ? (
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  void load({
+                    password,
+                    employeeCode: employeeCode.trim() || undefined,
+                  });
+                }
+              }}
+              className="mt-5 h-10 rounded-lg border-[#e3e3e3]"
+              placeholder="Store password"
+            />
+          ) : null}
+          {store.employeeAccessRequired ? (
+            <Input
+              value={employeeCode}
+              onChange={(e) => setEmployeeCode(e.target.value.toUpperCase())}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  void load({
+                    password: password || undefined,
+                    employeeCode: employeeCode.trim(),
+                  });
+                }
+              }}
+              className={cn(
+                "h-10 rounded-lg border-[#e3e3e3] font-mono tracking-wide",
+                store.passwordProtected ? "mt-3" : "mt-5"
+              )}
+              placeholder="FLO-XXXX-XXXX"
+              autoComplete="off"
+            />
+          ) : null}
+          {accessError ? (
+            <p className="mt-2 text-[12px] text-red-700">{accessError}</p>
           ) : null}
           <Button
             type="button"
             className="mt-4 h-10 w-full rounded-lg text-white hover:opacity-95"
             style={{ background: accentHex }}
-            onClick={() => void load(password)}
+            onClick={() =>
+              void load({
+                password: password || undefined,
+                employeeCode: employeeCode.trim() || undefined,
+              })
+            }
           >
             Enter store
           </Button>
@@ -775,16 +908,28 @@ export function PublicStorefrontView({ token }: { token: string }) {
               <Check className="size-5" />
             </div>
             <p className="mt-5 text-[22px] font-semibold tracking-tight text-[#303030]">
-              Order received
+              {paidOnline ? "Payment received" : "Order received"}
             </p>
             <p className="mt-2 text-[14px] leading-relaxed text-[#616161]">
-              Thanks — the shop has your sizes and will follow up on fulfillment.
+              {paidOnline
+                ? "Thanks — your card payment went through. The shop has your order and will follow up on fulfillment."
+                : "Thanks — the shop has your sizes and will follow up on fulfillment."}
             </p>
             <Button
               type="button"
               className="mt-6 h-10 rounded-lg px-5 text-white hover:opacity-95"
               style={{ background: accentHex }}
-              onClick={() => setSubmitted(false)}
+              onClick={() => {
+                setSubmitted(false);
+                setPaidOnline(false);
+                if (typeof window !== "undefined") {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete("paid");
+                  url.searchParams.delete("submission");
+                  url.searchParams.delete("checkout");
+                  window.history.replaceState({}, "", url.pathname + url.search);
+                }
+              }}
             >
               Continue shopping
             </Button>
@@ -805,7 +950,7 @@ export function PublicStorefrontView({ token }: { token: string }) {
         activeCollectionId={activeCollectionId}
         accentHex={accentHex}
         cartCount={cartCount}
-        onCart={() => setCheckoutOpen(true)}
+        onCart={openCart}
         onNavItem={handleNavItem}
       />
 
@@ -956,162 +1101,360 @@ export function PublicStorefrontView({ token }: { token: string }) {
 
       <FloPilotWatermark />
 
-      <Sheet open={checkoutOpen} onOpenChange={setCheckoutOpen}>
+      <Sheet open={checkoutOpen} onOpenChange={closeCheckoutPanel}>
         <SheetContent
           side="right"
           showCloseButton={false}
           className={cn(
-            "w-full gap-0 border-l border-[#e3e3e3] bg-white p-0 shadow-xl sm:max-w-lg data-[side=right]:sm:max-w-lg",
+            "flex w-full flex-col gap-0 border-l border-[#e3e3e3] bg-white p-0 shadow-xl sm:max-w-lg data-[side=right]:sm:max-w-lg",
             "duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
             "data-[side=right]:data-starting-style:translate-x-full",
             "data-[side=right]:data-ending-style:translate-x-full"
           )}
         >
           <SheetHeader className="flex flex-row items-center justify-between space-y-0 border-b border-[#ebebeb] px-5 py-4">
-            <SheetTitle className="text-[16px] font-semibold text-[#303030]">
-              Cart
-            </SheetTitle>
+            <div className="flex min-w-0 items-center gap-2">
+              {checkoutStep === "checkout" ? (
+                <button
+                  type="button"
+                  className="rounded-md p-1.5 text-[#616161] transition-colors hover:bg-[#f6f6f7]"
+                  onClick={() => {
+                    setCheckoutStep("cart");
+                    setError(null);
+                  }}
+                  disabled={submitting}
+                >
+                  <ArrowLeft className="size-4" />
+                  <span className="sr-only">Back to cart</span>
+                </button>
+              ) : null}
+              <SheetTitle className="text-[16px] font-semibold text-[#303030]">
+                {checkoutStep === "checkout" ? "Checkout" : "Cart"}
+              </SheetTitle>
+            </div>
             <button
               type="button"
               className="rounded-md p-1.5 text-[#616161] transition-colors hover:bg-[#f6f6f7]"
-              onClick={() => setCheckoutOpen(false)}
+              onClick={() => closeCheckoutPanel(false)}
             >
               <X className="size-4" />
-              <span className="sr-only">Close cart</span>
+              <span className="sr-only">Close</span>
             </button>
           </SheetHeader>
 
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
-              {cart.length === 0 ? (
-                <p className="py-16 text-center text-[13px] text-[#8a8a8a]">
-                  Your cart is empty.
-                </p>
-              ) : (
-                cart.map((line) => (
-                  <div
-                    key={line.key}
-                    className="flex gap-3 animate-in fade-in-0 slide-in-from-right-2 duration-300"
-                  >
-                    <StoreProductMediaThumb
-                      imageUrl={line.mockupUrl}
-                      settings={productMediaSettings}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium text-[#303030]">
-                        {line.productName}
-                      </p>
-                      <p className="mt-0.5 text-[12px] text-[#8a8a8a]">
-                        {line.color ? `${line.color} / ` : ""}
-                        {line.size} · Qty {line.qty}
-                      </p>
-                      <p className="mt-1 text-[13px] font-semibold tabular-nums">
-                        {formatCurrency(line.unitPrice * line.qty)}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      className="self-start p-1 text-[#8a8a8a] transition-colors hover:text-red-700"
-                      onClick={() =>
-                        setCart((prev) =>
-                          prev.filter((row) => row.key !== line.key)
-                        )
-                      }
+          {checkoutStep === "cart" ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+                {cart.length === 0 ? (
+                  <p className="py-16 text-center text-[13px] text-[#8a8a8a]">
+                    Your cart is empty.
+                  </p>
+                ) : (
+                  cart.map((line) => (
+                    <div
+                      key={line.key}
+                      className="flex gap-3 animate-in fade-in-0 slide-in-from-right-2 duration-300"
                     >
-                      <Trash2 className="size-3.5" />
-                    </button>
-                  </div>
-                ))
-              )}
+                      <StoreProductMediaThumb
+                        imageUrl={line.mockupUrl}
+                        settings={productMediaSettings}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] font-medium text-[#303030]">
+                          {line.productName}
+                        </p>
+                        <p className="mt-0.5 text-[12px] text-[#8a8a8a]">
+                          {line.color ? `${line.color} / ` : ""}
+                          {line.size}
+                        </p>
+                        <p className="mt-1 text-[13px] font-semibold tabular-nums">
+                          {formatCurrency(line.unitPrice * line.qty)}
+                        </p>
+                        <div className="mt-2 inline-flex items-center rounded-lg border border-[#e3e3e3]">
+                          <button
+                            type="button"
+                            className="flex size-8 items-center justify-center text-[#616161] transition-colors hover:bg-[#f6f6f7]"
+                            onClick={() =>
+                              setCart((prev) =>
+                                prev
+                                  .map((row) =>
+                                    row.key === line.key
+                                      ? { ...row, qty: row.qty - 1 }
+                                      : row
+                                  )
+                                  .filter((row) => row.qty > 0)
+                              )
+                            }
+                          >
+                            <Minus className="size-3.5" />
+                          </button>
+                          <span className="min-w-8 text-center text-[13px] tabular-nums text-[#303030]">
+                            {line.qty}
+                          </span>
+                          <button
+                            type="button"
+                            className="flex size-8 items-center justify-center text-[#616161] transition-colors hover:bg-[#f6f6f7]"
+                            onClick={() =>
+                              setCart((prev) =>
+                                prev.map((row) =>
+                                  row.key === line.key
+                                    ? { ...row, qty: row.qty + 1 }
+                                    : row
+                                )
+                              )
+                            }
+                          >
+                            <Plus className="size-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className="self-start p-1 text-[#8a8a8a] transition-colors hover:text-red-700"
+                        onClick={() =>
+                          setCart((prev) =>
+                            prev.filter((row) => row.key !== line.key)
+                          )
+                        }
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
 
               {cart.length > 0 ? (
-                <>
-                  <div className="flex items-center justify-between border-t border-[#ebebeb] pt-4 text-[14px] font-semibold">
+                <div className="border-t border-[#ebebeb] px-5 py-4">
+                  <div className="mb-3 flex items-center justify-between text-[14px] font-semibold">
                     <span>Subtotal</span>
                     <span className="tabular-nums">
                       {formatCurrency(cartTotal)}
                     </span>
                   </div>
-                  {store.settings.orderInstructions ? (
-                    <p className="rounded-lg bg-[#f6f6f7] px-3 py-2.5 text-[12px] leading-relaxed text-[#616161]">
-                      {store.settings.orderInstructions}
+                  <Button
+                    type="button"
+                    disabled={!store.isOpen}
+                    onClick={() => {
+                      setError(null);
+                      setCheckoutStep("checkout");
+                    }}
+                    className="h-11 w-full rounded-lg text-[13px] font-semibold text-white transition-opacity hover:opacity-95"
+                    style={{ background: accentHex }}
+                  >
+                    Checkout
+                  </Button>
+                  <p className="mt-2 text-center text-[11px] text-[#8a8a8a]">
+                    {store.paymentsEnabled
+                      ? "Next: your details, then secure card payment."
+                      : "Next: your details, then submit to the shop."}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+                <div className="rounded-xl border border-[#ebebeb] bg-[#fafafa] px-3.5 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                        Order summary
+                      </p>
+                      <p className="mt-1 text-[13px] text-[#616161]">
+                        {cartCount} {cartCount === 1 ? "item" : "items"}
+                      </p>
+                    </div>
+                    <p className="text-[15px] font-semibold tabular-nums text-[#303030]">
+                      {formatCurrency(cartTotal)}
                     </p>
+                  </div>
+                  <ul className="mt-3 space-y-1.5 border-t border-[#ebebeb] pt-3">
+                    {cart.map((line) => (
+                      <li
+                        key={line.key}
+                        className="flex justify-between gap-3 text-[12px] text-[#616161]"
+                      >
+                        <span className="min-w-0 truncate">
+                          {line.productName}
+                          {line.color ? ` · ${line.color}` : ""} · {line.size} ×{" "}
+                          {line.qty}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-[#303030]">
+                          {formatCurrency(line.unitPrice * line.qty)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {creditAppliedPreview > 0 ? (
+                    <div className="mt-3 space-y-1 border-t border-[#ebebeb] pt-3 text-[12px]">
+                      <div className="flex justify-between text-emerald-800">
+                        <span>Store credit</span>
+                        <span className="tabular-nums">
+                          −{formatCurrency(creditAppliedPreview)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between font-semibold text-[#303030]">
+                        <span>Amount due</span>
+                        <span className="tabular-nums">
+                          {formatCurrency(amountDuePreview)}
+                        </span>
+                      </div>
+                    </div>
                   ) : null}
-                  <div className="space-y-3 border-t border-[#ebebeb] pt-4">
+                </div>
+
+                {creditsEnabled ? (
+                  <div className="rounded-xl border border-[#ebebeb] px-3.5 py-3">
+                    <Label className="text-[12px] text-[#616161]">
+                      Employee access code
+                    </Label>
+                    <Input
+                      value={employeeCode}
+                      onChange={(e) =>
+                        setEmployeeCode(e.target.value.toUpperCase())
+                      }
+                      onBlur={() => {
+                        if (employeeCode.trim()) {
+                          void load({
+                            employeeCode: employeeCode.trim(),
+                            password: password || undefined,
+                          });
+                        }
+                      }}
+                      className="mt-1 h-10 rounded-lg border-[#e3e3e3] font-mono tracking-wide"
+                      placeholder="FLO-XXXX-XXXX"
+                      autoComplete="off"
+                    />
+                    {store.employee ? (
+                      <p className="mt-2 text-[12px] text-emerald-800">
+                        {formatCurrency(store.employee.creditBalance)} credit
+                        available
+                        {store.employee.name
+                          ? ` · ${store.employee.name}`
+                          : ""}
+                      </p>
+                    ) : (
+                      <p className="mt-2 text-[12px] text-[#8a8a8a]">
+                        Enter the code from your invite email to apply credit.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
+
+                {store.settings.orderInstructions ? (
+                  <p className="rounded-lg bg-[#f6f6f7] px-3 py-2.5 text-[12px] leading-relaxed text-[#616161]">
+                    {store.settings.orderInstructions}
+                  </p>
+                ) : null}
+
+                <div className="space-y-3">
+                  <div>
                     <p className="text-[13px] font-semibold text-[#303030]">
-                      Your details
+                      Contact
                     </p>
+                    <p className="mt-0.5 text-[12px] text-[#8a8a8a]">
+                      So the shop can confirm your order
+                      {store.paymentsEnabled ? " and send a receipt" : ""}.
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-[12px] text-[#616161]">Name</Label>
+                    <Input
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      autoComplete="name"
+                      className="mt-1 h-10 rounded-lg border-[#e3e3e3]"
+                    />
+                  </div>
+                  {store.settings.collectEmail !== false ? (
                     <div>
-                      <Label className="text-[12px] text-[#616161]">Name</Label>
+                      <Label className="text-[12px] text-[#616161]">
+                        Email
+                      </Label>
                       <Input
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        autoComplete="email"
                         className="mt-1 h-10 rounded-lg border-[#e3e3e3]"
                       />
                     </div>
-                    {store.settings.collectEmail !== false ? (
-                      <div>
-                        <Label className="text-[12px] text-[#616161]">
-                          Email
-                        </Label>
-                        <Input
-                          type="email"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          className="mt-1 h-10 rounded-lg border-[#e3e3e3]"
-                        />
-                      </div>
-                    ) : null}
-                    {store.settings.collectPhone ? (
-                      <div>
-                        <Label className="text-[12px] text-[#616161]">
-                          Phone
-                        </Label>
-                        <Input
-                          value={phone}
-                          onChange={(e) => setPhone(e.target.value)}
-                          className="mt-1 h-10 rounded-lg border-[#e3e3e3]"
-                        />
-                      </div>
-                    ) : null}
+                  ) : null}
+                  {store.settings.collectPhone ? (
                     <div>
                       <Label className="text-[12px] text-[#616161]">
-                        Notes (optional)
+                        Phone
                       </Label>
-                      <Textarea
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        className="mt-1 min-h-[72px] rounded-lg border-[#e3e3e3]"
+                      <Input
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        autoComplete="tel"
+                        className="mt-1 h-10 rounded-lg border-[#e3e3e3]"
                       />
                     </div>
-                  </div>
-                  {error ? (
-                    <p className="text-[13px] text-red-700">{error}</p>
                   ) : null}
-                </>
-              ) : null}
-            </div>
+                  <div>
+                    <Label className="text-[12px] text-[#616161]">
+                      Notes (optional)
+                    </Label>
+                    <Textarea
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Sizing notes, delivery timing, etc."
+                      className="mt-1 min-h-[72px] rounded-lg border-[#e3e3e3]"
+                    />
+                  </div>
+                </div>
 
-            {cart.length > 0 ? (
+                {error ? (
+                  <p className="text-[13px] text-red-700">{error}</p>
+                ) : null}
+              </div>
+
               <div className="border-t border-[#ebebeb] px-5 py-4">
                 <Button
                   type="button"
-                  disabled={submitting || !store.isOpen || !name.trim()}
+                  disabled={
+                    submitting ||
+                    !store.isOpen ||
+                    !name.trim() ||
+                    (store.settings.collectEmail !== false && !email.trim())
+                  }
                   onClick={() => void submitOrder()}
                   className="h-11 w-full rounded-lg text-[13px] font-semibold text-white transition-opacity hover:opacity-95"
                   style={{ background: accentHex }}
                 >
                   {submitting ? (
                     <Loader2 className="size-4 animate-spin" />
+                  ) : amountDuePreview > 0 &&
+                    (store.paymentsEnabled || creditAppliedPreview > 0) ? (
+                    <CreditCard className="size-4" />
                   ) : null}
-                  Submit order request
+                  {submitting
+                    ? amountDuePreview > 0 && store.paymentsEnabled
+                      ? "Opening secure payment…"
+                      : "Submitting…"
+                    : amountDuePreview <= 0 && creditAppliedPreview > 0
+                      ? `Pay with ${formatCurrency(creditAppliedPreview)} credit`
+                      : store.paymentsEnabled
+                        ? `Pay ${formatCurrency(amountDuePreview || cartTotal)}`
+                        : creditsEnabled && employeeCode.trim()
+                          ? `Checkout ${formatCurrency(cartTotal)}`
+                          : "Submit order request"}
                 </Button>
-                <p className="mt-2 text-center text-[11px] text-[#8a8a8a]">
-                  No payment collected here — the shop will follow up.
+                <p className="mt-2 text-center text-[11px] leading-relaxed text-[#8a8a8a]">
+                  {amountDuePreview <= 0 && creditAppliedPreview > 0
+                    ? "Your store credit covers this order — no card needed."
+                    : creditAppliedPreview > 0 && store.paymentsEnabled
+                      ? "Credit applies first; you’ll pay any remainder on Stripe."
+                      : store.paymentsEnabled
+                        ? "You’ll complete card payment on Stripe’s secure page, then return here."
+                        : "No payment collected here — the shop will follow up."}
                 </p>
               </div>
-            ) : null}
-          </div>
+            </div>
+          )}
         </SheetContent>
       </Sheet>
     </div>

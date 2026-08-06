@@ -9,6 +9,7 @@ import {
   SettingsHeader,
   SettingsMain,
   SettingsPanel,
+  useRegisterSectionUnsavedChanges,
   useSectionDraft,
 } from "@/components/settings/settings-kit";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -80,7 +81,7 @@ function Switch({
 
 export function WorkspaceSection() {
   const { settings, isAdmin, updateSettings } = useShopSettings();
-  const { draft, setDraft, dirty } = useSectionDraft<WorkspaceDraft>({
+  const { draft, setDraft, dirty, discard } = useSectionDraft<WorkspaceDraft>({
     modules: settings.modules,
     timezone: settings.timezone,
     taxRate: settings.taxRate,
@@ -109,6 +110,15 @@ export function WorkspaceSection() {
       setSaving(false);
     }
   };
+
+  useRegisterSectionUnsavedChanges({
+    dirty,
+    saving,
+    enabled: isAdmin,
+    label: "Unsaved workspace",
+    onSave: () => handleSave(),
+    onDiscard: discard,
+  });
 
   const setModule = (key: ShopModuleKey, enabled: boolean) =>
     setDraft((current) => ({

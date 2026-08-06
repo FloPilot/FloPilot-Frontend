@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { DesignActivityFeed } from "@/components/artwork/design-activity-feed";
 import { DesignVersionModal } from "@/components/artwork/design-version-modal";
+import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { MockupPreview } from "@/components/orders/artwork/mockup-preview";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { ImprintInkColorsEditor } from "@/components/orders/imprint-ink-colors-editor";
@@ -494,6 +495,68 @@ export function DesignDetailView({ designId }: { designId: string }) {
   const activity = design?.activity ?? [];
   const versions = design?.versions ?? [];
 
+  const resetDraftFromDesign = useCallback(() => {
+    if (!design) return;
+    setName(design.name);
+    setTagsText((design.tags ?? []).join(", "));
+    setDimensions(design.notes?.dimensions ?? "");
+    setPlacement(design.notes?.placement ?? "");
+    setInkTypeDraft(design.notes?.inkType ?? "");
+    setColorCountDraft(
+      design.notes?.colorCount != null ? String(design.notes.colorCount) : ""
+    );
+    setFlashCountDraft(
+      design.notes?.flashCount != null ? String(design.notes.flashCount) : ""
+    );
+    setInstructions(design.notes?.instructions ?? "");
+    setDraftInks(design.inkColors ?? []);
+  }, [design]);
+
+  const dirty = useMemo(() => {
+    if (!design || !editing) return false;
+    const nextTags = tagsText
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    const nextName = name.trim() || design.name;
+    const isScreenPrint = design.decoration === "screen_print";
+    const nextNotes: ImprintProductionNotes = {
+      ...design.notes,
+      dimensions: dimensions.trim() || undefined,
+      placement: placement.trim() || undefined,
+      instructions: instructions.trim() || undefined,
+      inkType: isScreenPrint ? inkTypeDraft || undefined : design.notes?.inkType,
+      colorCount: isScreenPrint
+        ? colorCountDraft
+          ? Number(colorCountDraft)
+          : undefined
+        : design.notes?.colorCount,
+      flashCount: isScreenPrint
+        ? flashCountDraft
+          ? Number(flashCountDraft)
+          : undefined
+        : design.notes?.flashCount,
+    };
+    return (
+      nextName !== design.name ||
+      nextTags.join("|") !== (design.tags ?? []).join("|") ||
+      JSON.stringify(nextNotes) !== JSON.stringify(design.notes ?? {}) ||
+      JSON.stringify(draftInks) !== JSON.stringify(design.inkColors ?? [])
+    );
+  }, [
+    design,
+    editing,
+    name,
+    tagsText,
+    dimensions,
+    placement,
+    instructions,
+    inkTypeDraft,
+    colorCountDraft,
+    flashCountDraft,
+    draftInks,
+  ]);
+
   const handleSave = async () => {
     if (!design) return;
     const token = await getIdToken();
@@ -567,6 +630,23 @@ export function DesignDetailView({ designId }: { designId: string }) {
       setSaving(false);
     }
   };
+
+  useRegisterUnsavedChanges(
+    editing
+      ? {
+          dirty,
+          saving,
+          label: "Unsaved design",
+          onSave: () => handleSave(),
+          onDiscard: () => {
+            resetDraftFromDesign();
+            setEditing(false);
+            setError(null);
+          },
+        }
+      : null,
+    "artwork-design"
+  );
 
   const handleRestoreVersion = async (versionId: string) => {
     if (!design) return;
@@ -876,6 +956,7 @@ export function DesignDetailView({ designId }: { designId: string }) {
                     type="button"
                     className={cn(dashboardGhostButtonClass, "h-9")}
                     onClick={() => {
+                      resetDraftFromDesign();
                       setEditing(false);
                       setError(null);
                     }}

@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
+import {
+  useRegisterUnsavedChanges,
+  useStaffUnsavedChanges,
+} from "@/components/layout/staff-unsaved-changes-provider";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import {
@@ -76,6 +80,7 @@ export function OrderRequestDetailView({ requestId }: { requestId: string }) {
   const searchParams = useSearchParams();
   const { getIdToken } = useAuth();
   const { getCustomerById } = useSchedule();
+  const { requestLeave } = useStaffUnsavedChanges();
   const [request, setRequest] = useState<OrderRequestDetail | null>(null);
   const [draft, setDraft] = useState<OrderRequestDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -222,6 +227,24 @@ export function OrderRequestDetailView({ requestId }: { requestId: string }) {
       setBusy(null);
     }
   };
+
+  useRegisterUnsavedChanges(
+    editable && draft
+      ? {
+          dirty,
+          saving: busy === "save",
+          label: "Unsaved request",
+          persistAcrossTabs: true,
+          onSave: () => saveChanges(),
+          onDiscard: () => {
+            if (request) setDraft(cloneRequest(request));
+            setActionError(null);
+            setSaveMessage(null);
+          },
+        }
+      : null,
+    "order-request"
+  );
 
   const convertRequest = async () => {
     const token = await getIdToken();
@@ -476,7 +499,11 @@ export function OrderRequestDetailView({ requestId }: { requestId: string }) {
             <button
               key={tab.id}
               type="button"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                if (tab.id === activeTab) return;
+                if (!requestLeave(undefined, { inPage: true })) return;
+                setActiveTab(tab.id);
+              }}
               className={cn(
                 dashboardControlClass,
                 "h-9 px-3 text-[13px]",

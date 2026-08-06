@@ -19,6 +19,7 @@ const ACTIVITY_ICONS: Record<OrderActivityEvent["type"], string> = {
   note: "note",
   status: "status",
   file_uploaded: "file",
+  file_updated: "file",
   file_deleted: "file",
   proof_sent: "send",
   ink_updated: "ink",

@@ -9,6 +9,7 @@ import {
   SettingsHeader,
   SettingsMain,
   SettingsPanel,
+  useRegisterSectionUnsavedChanges,
   useSectionDraft,
 } from "@/components/settings/settings-kit";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -40,7 +41,7 @@ function newId(prefix: string) {
 
 export function ScreenPrintSection() {
   const { settings, isAdmin, updateSettings } = useShopSettings();
-  const { draft, setDraft, dirty } = useSectionDraft<ShopProductionDefaults>(
+  const { draft, setDraft, dirty, discard } = useSectionDraft<ShopProductionDefaults>(
     settings.productionDefaults
   );
   const [saving, setSaving] = useState(false);
@@ -66,6 +67,15 @@ export function ScreenPrintSection() {
       setSaving(false);
     }
   };
+
+  useRegisterSectionUnsavedChanges({
+    dirty,
+    saving,
+    enabled: isAdmin,
+    label: "Unsaved screen print",
+    onSave: () => handleSave(),
+    onDiscard: discard,
+  });
 
   const addSqueegee = () => {
     const label = newSqueegee.trim();

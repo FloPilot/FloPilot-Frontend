@@ -17,9 +17,11 @@ import {
   Package,
   Plus,
   Settings2,
+  CreditCard,
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  Users,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
@@ -29,6 +31,7 @@ import {
 import { StoreCollectionsPanel } from "@/components/stores/store-collections-panel";
 import { StoreConvertSubmissionDialog } from "@/components/stores/store-convert-submission-dialog";
 import { StoreCustomizeBuilder } from "@/components/stores/store-customize-builder";
+import { StoreEmployeesPanel } from "@/components/stores/store-employees-panel";
 import { StoreNavigationPanel } from "@/components/stores/store-navigation-panel";
 import { StorePagesPanel } from "@/components/stores/store-pages-panel";
 import { StoreProductEditor } from "@/components/stores/store-product-editor";
@@ -38,11 +41,13 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   deleteClientStore,
+  fetchPaymentIntegrations,
   getClientStore,
   listClientStoreSubmissions,
   updateClientStore,
   updateClientStoreSubmission,
 } from "@/lib/api";
+import { isStripeConnected } from "@/lib/payment-integrations";
 import { readStoreMockupDataUrl } from "@/lib/artwork-preview";
 import {
   ensureStoreTheme,
@@ -90,6 +95,7 @@ type EditorTab =
   | "navigation"
   | "customize"
   | "share"
+  | "employees"
   | "orders";
 
 type StoreDraftSnapshotInput = {
@@ -154,6 +160,8 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   const [uploadingAsset, setUploadingAsset] = useState<"logo" | "hero" | null>(
     null
   );
+  const [stripeReady, setStripeReady] = useState(false);
+  const [stripeLoading, setStripeLoading] = useState(true);
 
   const [name, setName] = useState("");
   const [headline, setHeadline] = useState("");
@@ -250,6 +258,30 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadStripe() {
+      setStripeLoading(true);
+      try {
+        const token = await getIdToken();
+        if (!token) return;
+        const result = await fetchPaymentIntegrations(token);
+        const stripe = result.integrations?.find(
+          (entry) => entry.provider === "stripe"
+        );
+        if (!cancelled) setStripeReady(isStripeConnected(stripe));
+      } catch {
+        if (!cancelled) setStripeReady(false);
+      } finally {
+        if (!cancelled) setStripeLoading(false);
+      }
+    }
+    void loadStripe();
+    return () => {
+      cancelled = true;
+    };
+  }, [getIdToken]);
 
   const enabledProducts = useMemo(
     () => (store?.products || []).filter((p) => p.enabled),
@@ -661,6 +693,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     },
     { id: "customize", label: "Customize", icon: LayoutTemplate },
     { id: "share", label: "Share", icon: Link2 },
+    ...(!isClientStoreReviewMode(store)
+      ? [{ id: "employees" as const, label: "Employees", icon: Users }]
+      : []),
     {
       id: "orders",
       label: `${isClientStoreReviewMode(store) ? "Reviews" : "Orders"} (${submissions.length})`,
@@ -762,7 +797,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                     {
                       value: "order" as ClientStoreMode,
                       title: "Order store",
-                      body: "Shoppers pick sizes and submit a buy request.",
+                      body: "Shoppers pick sizes and pay by card at checkout when Stripe is connected.",
                     },
                     {
                       value: "review" as ClientStoreMode,
@@ -816,6 +851,42 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                 })}
               </div>
             </div>
+
+            {(store.mode || "order") === "order" ? (
+              <div
+                className={cn(
+                  "rounded-xl border px-3.5 py-3",
+                  stripeReady
+                    ? "border-[#cdeccd] bg-[#f1faf1]"
+                    : "border-[#ebebeb] bg-[#fafafa]"
+                )}
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="inline-flex items-center gap-1.5 text-[13px] font-semibold text-[#303030]">
+                      <CreditCard className="size-3.5" />
+                      Card checkout
+                    </p>
+                    <p className="mt-1 text-[12px] leading-relaxed text-[#616161]">
+                      {stripeLoading
+                        ? "Checking Stripe…"
+                        : stripeReady
+                          ? "Stripe is connected. Shoppers will pay by card at checkout; FloPilot takes a small platform fee from your payout (not added to the shopper’s total)."
+                          : "Connect Stripe under Settings → Payments so this store can take card payments. Until then, shoppers can only submit an unpaid order request."}
+                    </p>
+                  </div>
+                  {!stripeLoading && !stripeReady ? (
+                    <Link
+                      href="/app/settings/integrations/payments"
+                      className="text-[12px] font-semibold text-brand-primary hover:underline"
+                    >
+                      Connect Stripe
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
             <div>
               <Label className="text-[13px]">Store name</Label>
               <Input
@@ -1553,6 +1624,13 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         </div>
       ) : null}
 
+      {tab === "employees" && !isClientStoreReviewMode(store) ? (
+        <StoreEmployeesPanel
+          store={store}
+          onStoreUpdated={(next) => setStore(next)}
+        />
+      ) : null}
+
       {tab === "orders" ? (
         <div className="space-y-4">
           {isClientStoreReviewMode(store) ? (
@@ -1654,6 +1732,14 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                           ) : submission.status === "cancelled" ? (
                             <span className="inline-flex rounded-md bg-[#f1f1f1] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161]">
                               Cancelled
+                            </span>
+                          ) : submission.status === "awaiting_payment" ? (
+                            <span className="inline-flex rounded-md bg-[#fff8eb] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#8a6116]">
+                              Awaiting payment
+                            </span>
+                          ) : submission.payment?.status === "paid" ? (
+                            <span className="inline-flex rounded-md bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                              Paid
                             </span>
                           ) : submission.status === "reviewed" ? (
                             <span className="inline-flex rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800">

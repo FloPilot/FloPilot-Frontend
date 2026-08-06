@@ -8,8 +8,6 @@ import {
   Plus,
   Zap,
 } from "lucide-react";
-import { useShopSettings } from "@/components/providers/shop-settings-provider";
-import { ShopPresetSelect } from "@/components/orders/shop-preset-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -26,10 +24,6 @@ import {
 } from "@/lib/ink-prep";
 import { decorationLabel } from "@/lib/format";
 import { imprintInkConfigured } from "@/lib/order-receiving-checkpoints";
-import {
-  getMeshPresetOptions,
-  getSqueegeeOptions,
-} from "@/lib/shop-settings";
 import { useDebouncedCallback } from "@/lib/use-debounced-callback";
 import {
   dashboardControlClass,
@@ -81,8 +75,6 @@ function InkPrepColorRow({
   index,
   prepped,
   disabled,
-  meshOptions,
-  squeegeeOptions,
   onTogglePrep,
   onPatch,
 }: {
@@ -90,8 +82,6 @@ function InkPrepColorRow({
   index: number;
   prepped: boolean;
   disabled?: boolean;
-  meshOptions: { value: string; label: string }[];
-  squeegeeOptions: { value: string; label: string }[];
   onTogglePrep: (prepped: boolean) => Promise<void>;
   onPatch: (
     patch: Partial<ImprintInkColor>,
@@ -137,7 +127,7 @@ function InkPrepColorRow({
     <div
       className={cn(
         "grid gap-2 border-t border-[#f0f0f0] px-3 py-2.5",
-        "grid-cols-1 sm:grid-cols-[28px_28px_minmax(0,1fr)_96px_108px] sm:items-center sm:gap-2",
+        "grid-cols-1 sm:grid-cols-[28px_28px_minmax(0,1fr)] sm:items-center sm:gap-2",
         row.isFlash ? "bg-amber-50/40" : prepped ? "bg-[#f6fbf5]/60" : "bg-white"
       )}
     >
@@ -193,55 +183,6 @@ function InkPrepColorRow({
           />
         )}
       </div>
-
-      <div className="min-w-0 sm:col-start-4">
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:sr-only">
-          Mesh
-        </p>
-        {row.isFlash ? (
-          <span className="text-[12px] text-[#8a8a8a]">—</span>
-        ) : (
-          <ShopPresetSelect
-            value={row.mesh != null ? String(row.mesh) : ""}
-            options={meshOptions}
-            onChange={(value) => {
-              const parsed = Number(value);
-              onPatch(
-                {
-                  mesh:
-                    Number.isFinite(parsed) && parsed > 0
-                      ? Math.round(parsed)
-                      : undefined,
-                },
-                { immediate: true }
-              );
-            }}
-            disabled={disabled}
-            size="sm"
-            className={cn(compactFieldClass, "w-full text-[12px]")}
-            placeholder="Mesh"
-          />
-        )}
-      </div>
-
-      <div className="min-w-0 sm:col-start-5">
-        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:sr-only">
-          Squeegee
-        </p>
-        {row.isFlash ? (
-          <span className="text-[12px] text-[#8a8a8a]">—</span>
-        ) : (
-          <ShopPresetSelect
-            value={row.squeegee ?? "medium"}
-            options={squeegeeOptions}
-            onChange={(value) => onPatch({ squeegee: value }, { immediate: true })}
-            disabled={disabled}
-            size="sm"
-            className={cn(compactFieldClass, "w-full text-[12px]")}
-            placeholder="Squeegee"
-          />
-        )}
-      </div>
     </div>
   );
 }
@@ -265,7 +206,6 @@ export function InkPrepLocationCard({
   onPersistInkColors: (inkColors: ImprintInkColor[]) => void | Promise<void>;
   defaultExpanded?: boolean;
 }) {
-  const { settings } = useShopSettings();
   const [expanded, setExpanded] = useState(
     defaultExpanded ?? line.status !== "received"
   );
@@ -295,25 +235,6 @@ export function InkPrepLocationCard({
     if (togglingPrepRef.current) return;
     setLocalPreppedIds(line.preppedInkColorIds ?? []);
   }, [line.preppedInkColorIds, line.updatedAt]);
-
-  const meshOptions = useMemo(() => {
-    const presets = getMeshPresetOptions(settings.productionDefaults);
-    const seen = new Set(presets.map((option) => option.value));
-    const extras: { value: string; label: string }[] = [];
-    for (const row of draftColors) {
-      if (row.mesh == null || row.isFlash) continue;
-      const value = String(row.mesh);
-      if (seen.has(value)) continue;
-      seen.add(value);
-      extras.push({ value, label: `${row.mesh}` });
-    }
-    return [...presets, ...extras];
-  }, [draftColors, settings.productionDefaults]);
-
-  const squeegeeOptions = useMemo(
-    () => getSqueegeeOptions(settings.productionDefaults),
-    [settings.productionDefaults]
-  );
 
   const runPersist = useCallback(
     async (next: ImprintInkColor[]) => {
@@ -484,32 +405,28 @@ export function InkPrepLocationCard({
           ) : (
             <>
               <div className="overflow-x-auto">
-                <div className="min-w-[480px]">
-                  <div className="hidden border-b border-[#ebebeb] bg-[#fafafa] px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:grid sm:grid-cols-[28px_28px_minmax(0,1fr)_96px_108px] sm:gap-2">
+                <div className="min-w-0">
+                  <div className="hidden border-b border-[#ebebeb] bg-[#fafafa] px-3 py-2 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:grid sm:grid-cols-[28px_28px_minmax(0,1fr)] sm:gap-2">
                     <span>#</span>
                     <span className="sr-only">Prepped</span>
                     <span className="sm:col-start-3">Pantone</span>
-                    <span className="sm:col-start-4">Mesh</span>
-                    <span className="sm:col-start-5">Squeegee</span>
                   </div>
                   {draftColors.map((row, index) => {
                     const colorId = inkColorStableId(row, index);
                     return (
-                    <InkPrepColorRow
-                      key={colorId}
-                      row={{ ...row, id: colorId }}
-                      index={index}
-                      prepped={preppedIdSet.has(colorId)}
-                      disabled={saving}
-                      meshOptions={meshOptions}
-                      squeegeeOptions={squeegeeOptions}
-                      onTogglePrep={(prepped) =>
-                        handleToggleColorPrep(colorId, prepped)
-                      }
-                      onPatch={(patch, options) =>
-                        patchColor(colorId, patch, options)
-                      }
-                    />
+                      <InkPrepColorRow
+                        key={colorId}
+                        row={{ ...row, id: colorId }}
+                        index={index}
+                        prepped={preppedIdSet.has(colorId)}
+                        disabled={saving}
+                        onTogglePrep={(prepped) =>
+                          handleToggleColorPrep(colorId, prepped)
+                        }
+                        onPatch={(patch, options) =>
+                          patchColor(colorId, patch, options)
+                        }
+                      />
                     );
                   })}
                 </div>

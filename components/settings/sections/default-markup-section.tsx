@@ -9,6 +9,7 @@ import {
   SettingsHeader,
   SettingsMain,
   SettingsPanel,
+  useRegisterSectionUnsavedChanges,
 } from "@/components/settings/settings-kit";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { Input } from "@/components/ui/input";
@@ -80,6 +81,18 @@ export function DefaultMarkupSection() {
       setSaving(false);
     }
   };
+
+  useRegisterSectionUnsavedChanges({
+    dirty,
+    saving,
+    enabled: isAdmin,
+    label: "Unsaved markup",
+    onSave: () => handleSave(),
+    onDiscard: () => {
+      setMarkupInput(String(lastSavedMarkup));
+      setError(null);
+    },
+  });
 
   return (
     <SettingsMain>
