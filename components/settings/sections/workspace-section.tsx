@@ -49,11 +49,13 @@ function Switch({
   onCheckedChange,
   disabled,
   id,
+  label,
 }: {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;
   id?: string;
+  label: string;
 }) {
   return (
     <button
@@ -61,6 +63,7 @@ function Switch({
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={label}
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
@@ -118,6 +121,7 @@ export function WorkspaceSection() {
     label: "Unsaved workspace",
     onSave: () => handleSave(),
     onDiscard: discard,
+    id: "settings-workspace",
   });
 
   const setModule = (key: ShopModuleKey, enabled: boolean) =>
@@ -133,6 +137,7 @@ export function WorkspaceSection() {
         description="Turn modules on or off and set regional defaults for scheduling and tax."
       >
         <SaveButton
+            headerBar
           dirty={dirty}
           saving={saving}
           saved={saved}
@@ -190,6 +195,7 @@ export function WorkspaceSection() {
                         </div>
                         <Switch
                           id={`module-${module.key}`}
+                          label={`${module.label} module`}
                           checked={enabled}
                           disabled={!isAdmin}
                           onCheckedChange={(next) => setModule(module.key, next)}

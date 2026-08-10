@@ -77,11 +77,12 @@ export function BrandingSettingsPanel({
           })}
         </div>
         <div className="space-y-2">
-          <Label htmlFor="custom-brand-color">Custom hex</Label>
+          <Label htmlFor="custom-brand-hex">Custom hex</Label>
           <div className="flex items-center gap-2">
             <input
-              id="custom-brand-color"
+              id="custom-brand-swatch"
               type="color"
+              aria-label="Pick brand color"
               disabled={disabled}
               value={customColor}
               onChange={(event) =>
@@ -90,12 +91,18 @@ export function BrandingSettingsPanel({
               className="h-11 w-14 cursor-pointer rounded-xl border border-border bg-white p-1"
             />
             <Input
+              id="custom-brand-hex"
+              aria-label="Custom hex color"
               value={branding.primaryColor}
               disabled={disabled}
+              onFocus={(event) => event.currentTarget.select()}
               onChange={(event) => {
                 const value = event.target.value.trim();
-                if (value.startsWith("#")) {
-                  onChange({ ...branding, primaryColor: value });
+                if (value.startsWith("#") || value === "") {
+                  onChange({
+                    ...branding,
+                    primaryColor: value || branding.primaryColor,
+                  });
                 }
               }}
               placeholder="#2762ff"

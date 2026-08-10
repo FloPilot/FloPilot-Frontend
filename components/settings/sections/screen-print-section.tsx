@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import {
   AdminLockNotice,
+  DecorationMethodOffNotice,
   SaveButton,
   SettingsError,
   SettingsHeader,
@@ -26,6 +27,7 @@ import {
 import {
   DEFAULT_INK_TYPE_OPTIONS,
   DEFAULT_SQUEEGEE_OPTIONS,
+  isDecorationMethodEnabled,
   STARTER_MESH_PRESETS,
   STARTER_SCREEN_SIZES,
   type ShopProductionDefaults,
@@ -75,6 +77,7 @@ export function ScreenPrintSection() {
     label: "Unsaved screen print",
     onSave: () => handleSave(),
     onDiscard: discard,
+    id: "settings-screen-print",
   });
 
   const addSqueegee = () => {
@@ -149,6 +152,7 @@ export function ScreenPrintSection() {
       >
         {isAdmin && (
           <SaveButton
+            headerBar
             dirty={dirty}
             saving={saving}
             saved={saved}
@@ -159,6 +163,9 @@ export function ScreenPrintSection() {
 
       {!isAdmin && <AdminLockNotice />}
       {error && <SettingsError message={error} />}
+      {!isDecorationMethodEnabled(settings, "screen_print") ? (
+        <DecorationMethodOffNotice methodLabel="Screen print" />
+      ) : null}
 
       <SettingsPanel
         title="Screen sizes"
@@ -605,6 +612,7 @@ export function ScreenPrintSection() {
       {isAdmin && dirty && (
         <div className="flex justify-end">
           <SaveButton
+            headerBar
             dirty={dirty}
             saving={saving}
             saved={saved}

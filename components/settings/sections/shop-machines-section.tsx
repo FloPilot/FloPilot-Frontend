@@ -183,19 +183,25 @@ export function ShopMachinesSection() {
 
           {filtered.length === 0 ? (
             <div className="px-4 py-14 text-center sm:px-5">
-              <p className="text-sm font-medium text-brand-ink">No machines yet</p>
-              <p className={cn("mt-1", dashboardTaskDetailClass)}>
-                Add your first press or workstation to start scheduling jobs.
+              <p className="text-sm font-medium text-brand-ink">
+                {machines.length === 0
+                  ? "No machines yet"
+                  : "No machines match this filter"}
               </p>
-              {canManage && (
+              <p className={cn("mx-auto mt-1 max-w-md", dashboardTaskDetailClass)}>
+                {machines.length === 0
+                  ? "Add presses, dryers, and workstations here so they show up on the production calendar and floor stations."
+                  : "Try switching to All, or clear the Active / Inactive filter."}
+              </p>
+              {canManage && machines.length === 0 ? (
                 <Button
                   className={cn(dashboardPrimaryButtonClass, "mt-4")}
                   onClick={openCreate}
                 >
                   <Plus className="size-3.5" />
-                  New machine
+                  Add your first machine
                 </Button>
-              )}
+              ) : null}
             </div>
           ) : (
             <div className="-mx-px overflow-x-auto">

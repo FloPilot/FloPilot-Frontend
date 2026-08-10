@@ -12,6 +12,18 @@ export const dashboardControlClass = [
   dashboardElevatedShadow,
 ].join(" ");
 
+/** Dropdown / select popup that sits under dashboard controls */
+export const dashboardSelectContentClass = [
+  "z-50 min-w-[200px] overflow-hidden border border-[#e3e3e3] bg-white p-1 text-[#303030]",
+  dashboardRadiusClass,
+  "shadow-[0_4px_16px_rgba(26,26,26,0.12),0_1px_0_rgba(26,26,26,0.05)]",
+  "ring-0",
+].join(" ");
+
+/** Option row inside dashboard select menus */
+export const dashboardSelectItemClass =
+  "cursor-pointer rounded-md py-2 pr-8 pl-2.5 text-[13px] text-[#303030] outline-none data-highlighted:bg-[#f4f7fd] data-highlighted:text-[#303030] focus:bg-[#f4f7fd] focus:text-[#303030] data-[selected]:bg-[#eef3fb] data-[selected]:font-semibold data-[selected]:text-[#2c6ecb]";
+
 /** Primary action — New order, New customer, etc. */
 export const dashboardPrimaryButtonClass = [
   "inline-flex h-9 min-w-0 items-center gap-2 border border-brand-primary bg-brand-primary px-3 text-[13px] font-medium text-white transition-colors hover:border-brand-primary/90 hover:bg-brand-primary/90",

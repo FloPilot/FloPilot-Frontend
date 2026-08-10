@@ -138,6 +138,7 @@ export function CompanyInformationSection() {
       setEditing(false);
       setError(null);
     },
+    id: "settings-company",
   });
 
   const setAddr = (key: keyof CompanyAddress, value: string) =>

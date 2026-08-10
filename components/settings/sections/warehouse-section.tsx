@@ -88,6 +88,7 @@ export function WarehouseSection() {
     label: "Unsaved warehouse",
     onSave: () => handleSave(),
     onDiscard: discard,
+    id: "settings-warehouse",
   });
 
   const addWarehouse = () => {
@@ -139,6 +140,7 @@ export function WarehouseSection() {
       >
         {isAdmin && (
           <SaveButton
+            headerBar
             dirty={dirty}
             saving={saving}
             saved={saved}
@@ -477,6 +479,7 @@ export function WarehouseSection() {
       {isAdmin && dirty && (
         <div className="flex justify-end">
           <SaveButton
+            headerBar
             dirty={dirty}
             saving={saving}
             saved={saved}

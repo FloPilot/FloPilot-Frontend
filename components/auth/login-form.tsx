@@ -33,15 +33,19 @@ export function LoginForm() {
     try {
       if (mode === "signup") {
         await signUp(email, password);
-        const me = await refreshProfile(true);
-        // Existing shop membership (e.g. invited before completing UI): skip create-shop
-        if (me?.type === "staff") {
-          router.push(next);
-          return;
-        }
-        if (me?.type === "portal") {
-          router.push("/portal/app");
-          return;
+        try {
+          const me = await refreshProfile(true);
+          // Existing shop membership (e.g. invited before completing UI): skip create-shop
+          if (me?.type === "staff") {
+            router.push(next.startsWith("/register-shop") ? "/app/dashboard" : next);
+            return;
+          }
+          if (me?.type === "portal") {
+            router.push("/portal/app");
+            return;
+          }
+        } catch {
+          // Still send them to create their first shop — never leave signup hanging.
         }
         router.push("/register-shop");
         return;

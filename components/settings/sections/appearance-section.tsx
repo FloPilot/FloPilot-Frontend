@@ -46,6 +46,7 @@ export function AppearanceSection() {
     label: "Unsaved appearance",
     onSave: () => handleSave(),
     onDiscard: discard,
+    id: "settings-appearance",
   });
 
   return (
@@ -55,6 +56,7 @@ export function AppearanceSection() {
         description="Your logo appears across the workspace. Your brand color is applied to customer-facing estimates and proof emails."
       >
         <SaveButton
+            headerBar
           dirty={dirty}
           saving={saving}
           saved={saved}

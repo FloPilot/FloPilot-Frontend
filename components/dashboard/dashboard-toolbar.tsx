@@ -35,7 +35,11 @@ import {
   type DashboardFilters,
   type DashboardOptionalFilterKey,
 } from "@/lib/dashboard-filters";
-import { dashboardControlClass } from "@/lib/dashboard-styles";
+import {
+  dashboardControlClass,
+  dashboardSelectContentClass,
+  dashboardSelectItemClass,
+} from "@/lib/dashboard-styles";
 import { cn } from "@/lib/utils";
 
 type AlertChip = {
@@ -49,6 +53,7 @@ type AlertChip = {
 function FilterSelect({
   icon: Icon,
   value,
+  label,
   placeholder,
   onValueChange,
   onRemove,
@@ -56,6 +61,7 @@ function FilterSelect({
 }: {
   icon: typeof CalendarDays;
   value: string;
+  label: string;
   placeholder: string;
   onValueChange: (value: string | null) => void;
   onRemove?: () => void;
@@ -67,14 +73,28 @@ function FilterSelect({
         <SelectTrigger
           className={cn(
             dashboardControlClass,
-            "w-auto min-w-[148px] data-[size=default]:h-9",
+            "w-auto min-w-[9.5rem] justify-between gap-2 data-[size=default]:h-9",
+            "focus-visible:border-[#2c6ecb] focus-visible:ring-[#2c6ecb]/20",
             onRemove && "rounded-r-none border-r-0 pr-2"
           )}
         >
-          <Icon className="size-4 shrink-0 text-[#616161]" strokeWidth={1.75} />
-          <SelectValue placeholder={placeholder} />
+          <span className="flex min-w-0 items-center gap-2">
+            <Icon
+              className="size-3.5 shrink-0 text-[#8a8a8a]"
+              strokeWidth={1.75}
+            />
+            <SelectValue placeholder={placeholder} className="truncate">
+              {label}
+            </SelectValue>
+          </span>
         </SelectTrigger>
-        <SelectContent align="end" className="min-w-[200px] rounded-lg">
+        <SelectContent
+          align="start"
+          side="bottom"
+          sideOffset={6}
+          alignItemWithTrigger={false}
+          className={cn(dashboardSelectContentClass, "min-w-[220px]")}
+        >
           {children}
         </SelectContent>
       </Select>
@@ -198,6 +218,16 @@ export function DashboardToolbar({
   const availableOptionalFilters = getAvailableOptionalFilters(filters);
   const showCustomerFilter = filters.activeOptionalFilters.includes("customer");
 
+  const dateRangeLabel =
+    DASHBOARD_DATE_RANGES.find((range) => range.key === filters.dateRangeKey)
+      ?.label ?? "Date range";
+  const machineLabel =
+    machineOptions.find((machine) => machine.id === filters.machineId)?.label ??
+    "All machines";
+  const customerLabel =
+    customerOptions.find((customer) => customer.id === filters.customerId)
+      ?.label ?? "All customers";
+
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -226,6 +256,7 @@ export function DashboardToolbar({
         <FilterSelect
           icon={CalendarDays}
           value={filters.dateRangeKey}
+          label={dateRangeLabel}
           placeholder="Date range"
           onValueChange={(value) => {
             if (!value) return;
@@ -236,7 +267,11 @@ export function DashboardToolbar({
           }}
         >
           {DASHBOARD_DATE_RANGES.map((range) => (
-            <SelectItem key={range.key} value={range.key}>
+            <SelectItem
+              key={range.key}
+              value={range.key}
+              className={dashboardSelectItemClass}
+            >
               {range.label}
             </SelectItem>
           ))}
@@ -245,6 +280,7 @@ export function DashboardToolbar({
         <FilterSelect
           icon={Cog}
           value={filters.machineId ?? "all"}
+          label={machineLabel}
           placeholder="All machines"
           onValueChange={(value) => {
             if (!value) return;
@@ -254,9 +290,15 @@ export function DashboardToolbar({
             });
           }}
         >
-          <SelectItem value="all">All machines</SelectItem>
+          <SelectItem value="all" className={dashboardSelectItemClass}>
+            All machines
+          </SelectItem>
           {machineOptions.map((machine) => (
-            <SelectItem key={machine.id} value={machine.id}>
+            <SelectItem
+              key={machine.id}
+              value={machine.id}
+              className={dashboardSelectItemClass}
+            >
               {machine.label}
             </SelectItem>
           ))}
@@ -266,6 +308,7 @@ export function DashboardToolbar({
           <FilterSelect
             icon={Building2}
             value={filters.customerId ?? "all"}
+            label={customerLabel}
             placeholder="All customers"
             onValueChange={(value) => {
               if (!value) return;
@@ -278,9 +321,15 @@ export function DashboardToolbar({
               onFiltersChange(removeOptionalFilter(filters, "customer"))
             }
           >
-            <SelectItem value="all">All customers</SelectItem>
+            <SelectItem value="all" className={dashboardSelectItemClass}>
+              All customers
+            </SelectItem>
             {customerOptions.map((customer) => (
-              <SelectItem key={customer.id} value={customer.id}>
+              <SelectItem
+                key={customer.id}
+                value={customer.id}
+                className={dashboardSelectItemClass}
+              >
                 {customer.label}
                 {customer.orderCount > 0 ? ` (${customer.orderCount})` : ""}
               </SelectItem>
@@ -293,13 +342,19 @@ export function DashboardToolbar({
             <DropdownMenuTrigger
               className={cn(
                 dashboardControlClass,
-                "size-9 justify-center px-0"
+                "size-9 justify-center px-0",
+                "focus-visible:border-[#2c6ecb] focus-visible:ring-[#2c6ecb]/20"
               )}
               aria-label="Add filter"
             >
               <Plus className="size-4 text-[#616161]" strokeWidth={1.75} />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[160px]">
+            <DropdownMenuContent
+              align="end"
+              side="bottom"
+              sideOffset={6}
+              className={cn(dashboardSelectContentClass, "min-w-[180px]")}
+            >
               {availableOptionalFilters.map((key) => {
                 const option = DASHBOARD_OPTIONAL_FILTERS.find(
                   (filter) => filter.key === key
@@ -308,6 +363,7 @@ export function DashboardToolbar({
                 return (
                   <DropdownMenuItem
                     key={key}
+                    className={dashboardSelectItemClass}
                     onClick={() =>
                       onFiltersChange(addOptionalFilter(filters, key))
                     }

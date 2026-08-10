@@ -257,6 +257,7 @@ export function DocumentsEstimatesSection() {
     label: "Unsaved estimate docs",
     onSave: () => handleSave(),
     onDiscard: discard,
+    id: "settings-estimates",
   });
 
   return (
@@ -277,6 +278,7 @@ export function DocumentsEstimatesSection() {
             Reset classic
           </Button>
           <SaveButton
+            headerBar
             dirty={dirty}
             saving={saving}
             saved={saved}

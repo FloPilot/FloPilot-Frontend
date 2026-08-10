@@ -253,9 +253,17 @@ export function PaymentIntegrationsSection() {
     <SettingsMain>
       <SettingsHeader
         title="Payments"
-        description="Connect Stripe so customers can pay open invoices by card from email and the customer portal. Payouts go straight to your Stripe account."
+        description="Connect Stripe when you’re ready so customers can pay invoices by card. Payouts go to your Stripe account — nothing is charged until Connect is complete."
       />
 
+      {appConfigured && !connected && !loading ? (
+        <div className="mb-4 rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-4 py-3 text-[13px] text-[#616161]">
+          Not connected yet — use{" "}
+          <span className="font-medium text-[#303030]">Connect Stripe</span>{" "}
+          below to start Express onboarding. Invoice pay links unlock after
+          verification.
+        </div>
+      ) : null}
       {!appConfigured ? (
         <div className="mb-4 rounded-xl border border-[#f0d9a8] bg-[#fff8eb] px-4 py-3 text-[13px] text-[#8a6116]">
           Stripe keys are not configured on this environment yet. Add{" "}

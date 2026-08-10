@@ -50,6 +50,7 @@ export function StaffAuthGate({ children }: { children: React.ReactNode }) {
 
       if (profile?.needsRegistration) {
         router.replace("/register-shop");
+        return;
       }
     }
   }, [user, profile, loading, configured, router, pathname, refreshProfile]);

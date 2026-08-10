@@ -91,6 +91,7 @@ export function DesignPlacementsSection() {
     label: "Unsaved placements",
     onSave: () => handleSave(),
     onDiscard: discard,
+    id: "settings-design-placements",
   });
 
   const addPreset = () => {
@@ -128,6 +129,7 @@ export function DesignPlacementsSection() {
       >
         {isAdmin ? (
           <SaveButton
+            headerBar
             dirty={dirty}
             saving={saving}
             saved={saved}

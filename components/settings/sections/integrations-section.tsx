@@ -479,10 +479,16 @@ export function IntegrationsSection() {
                   ) : null}
                 </div>
               ) : (
-                <span className="inline-flex w-fit items-center gap-1 rounded-full bg-[#ededed] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#7a7a7a]">
-                  <Clock className="size-3" />
-                  Soon
-                </span>
+                <div className="space-y-2">
+                  <span className="inline-flex w-fit items-center gap-1 rounded-full bg-[#ededed] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#7a7a7a]">
+                    <Clock className="size-3" />
+                    Coming soon
+                  </span>
+                  <p className="text-[12px] leading-relaxed text-[#8a8a8a]">
+                    This supplier isn’t live in FloPilot yet. Use S&amp;S or
+                    SanMar, or keep adding blanks manually on orders.
+                  </p>
+                </div>
               )}
             </div>
           );

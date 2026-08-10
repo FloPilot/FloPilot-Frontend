@@ -174,6 +174,33 @@ export type DtfTransferTypeOption = {
   label: string;
 };
 
+/** Embroidery hoop sizes — same shape as DTF imprint areas for consistency */
+export type EmbroideryHoopSizePreset = {
+  id: string;
+  label: string;
+  widthIn: number;
+  heightIn: number;
+  notes: string;
+};
+
+export type EmbroideryBackingTypeOption = {
+  value: string;
+  label: string;
+};
+
+/**
+ * Which decoration methods this shop offers.
+ * Controls which Shop Setup sidebar sections appear.
+ * Missing keys default to enabled so existing shops keep full access.
+ */
+export type ShopDecorationMethodKey =
+  | "screen_print"
+  | "embroidery"
+  | "dtf"
+  | "vinyl";
+
+export type ShopDecorationMethods = Record<ShopDecorationMethodKey, boolean>;
+
 export type FinishingStepPreset = {
   id: string;
   name: string;
@@ -187,6 +214,8 @@ export type ShopWarehouse = {
   code: string;
   description: string;
   isDefault: boolean;
+  /** Optional physical address — useful when a shop has multiple locations */
+  address: CompanyAddress;
 };
 
 export type ShopProductionDefaults = {
@@ -198,6 +227,10 @@ export type ShopProductionDefaults = {
   dtfImprintAreas?: DtfImprintAreaPreset[];
   /** Custom DTF transfer types beyond built-in cold / hot peel */
   dtfTransferTypes?: DtfTransferTypeOption[];
+  /** Embroidery hoop sizes for proofs and order setup */
+  embroideryHoopSizes?: EmbroideryHoopSizePreset[];
+  /** Custom embroidery backing types beyond built-in defaults */
+  embroideryBackingTypes?: EmbroideryBackingTypeOption[];
   /** Common mesh counts used on the floor */
   meshPresets?: MeshPreset[];
   /** Custom ink types beyond built-in defaults */
@@ -242,6 +275,11 @@ export type ShopSettings = {
   pricingMatrix: PricingMatrix;
   /** Named shop pricing sheets staff can choose on an order. */
   pricingRateSheets?: ShopPricingRateSheet[];
+  /**
+   * Decoration methods this shop runs (Shop Setup overview).
+   * When unset on an existing shop, treat every method as enabled.
+   */
+  decorationMethods: ShopDecorationMethods;
   productionDefaults: ShopProductionDefaults;
   warehouses: ShopWarehouse[];
   onboarding: ShopOnboarding;
@@ -297,11 +335,65 @@ export const DEFAULT_PRICING_MATRIX: PricingMatrix = {
   blankMarkupPercent: 0,
 };
 
+export const SHOP_DECORATION_METHOD_KEYS: ShopDecorationMethodKey[] = [
+  "screen_print",
+  "embroidery",
+  "dtf",
+  "vinyl",
+];
+
+/** Existing shops default to all methods on so nothing disappears from nav. */
+export const DEFAULT_SHOP_DECORATION_METHODS: ShopDecorationMethods = {
+  screen_print: true,
+  embroidery: true,
+  dtf: true,
+  vinyl: true,
+};
+
+export type ShopDecorationMethodDefinition = {
+  key: ShopDecorationMethodKey;
+  label: string;
+  description: string;
+  /** Dedicated Shop Setup settings page, if any */
+  settingsHref?: string;
+};
+
+export const SHOP_DECORATION_METHOD_DEFINITIONS: ShopDecorationMethodDefinition[] =
+  [
+    {
+      key: "screen_print",
+      label: "Screen print",
+      description:
+        "Mesh, inks, squeegees, and screen sizes for your print floor.",
+      settingsHref: "/app/settings/shop/screen-print",
+    },
+    {
+      key: "embroidery",
+      label: "Embroidery",
+      description: "Hoop sizes, backing types, and embroidery defaults.",
+      settingsHref: "/app/settings/shop/embroidery",
+    },
+    {
+      key: "dtf",
+      label: "DTF",
+      description: "Transfer imprint areas and peel types for DTF orders.",
+      settingsHref: "/app/settings/shop/dtf",
+    },
+    {
+      key: "vinyl",
+      label: "Vinyl / heat transfer",
+      description:
+        "Cut vinyl and heat-applied transfers. Uses shared decoration locations.",
+    },
+  ];
+
 export const DEFAULT_PRODUCTION_DEFAULTS: ShopProductionDefaults = {
   squeegeeOptions: [],
   screenSizes: [],
   dtfImprintAreas: [],
   dtfTransferTypes: [],
+  embroideryHoopSizes: [],
+  embroideryBackingTypes: [],
   meshPresets: [],
   inkTypes: [],
   decorationTypes: [],
@@ -317,6 +409,7 @@ export const DEFAULT_SHOP_SETTINGS: ShopSettings = {
   phone: "",
   timezone: "America/Los_Angeles",
   taxRate: 0.08,
+  decorationMethods: { ...DEFAULT_SHOP_DECORATION_METHODS },
   modules: { ...DEFAULT_SHOP_MODULES },
   branding: { ...DEFAULT_TENANT_BRANDING },
   companyProfile: {
@@ -903,6 +996,77 @@ export function normalizeProductionDefaults(
         .slice(0, 24)
     : [];
 
+  const seenEmbroideryHoopIds = new Set<string>();
+  const embroideryHoopSizes = Array.isArray(input.embroideryHoopSizes)
+    ? input.embroideryHoopSizes
+        .map((item, index) => {
+          const widthIn = Number(item?.widthIn);
+          const heightIn = Number(item?.heightIn);
+          if (
+            !Number.isFinite(widthIn) ||
+            !Number.isFinite(heightIn) ||
+            widthIn <= 0 ||
+            heightIn <= 0
+          ) {
+            return null;
+          }
+          const label =
+            typeof item?.label === "string" && item.label.trim()
+              ? item.label.trim().slice(0, 80)
+              : `${widthIn} × ${heightIn}`;
+          const id =
+            typeof item?.id === "string" && item.id.trim()
+              ? item.id.trim().slice(0, 64)
+              : `hoop-${index}`;
+          if (seenEmbroideryHoopIds.has(id)) return null;
+          seenEmbroideryHoopIds.add(id);
+          return {
+            id,
+            label,
+            widthIn: Math.round(widthIn * 10) / 10,
+            heightIn: Math.round(heightIn * 10) / 10,
+            notes:
+              typeof item?.notes === "string"
+                ? item.notes.trim().slice(0, 280)
+                : "",
+          };
+        })
+        .filter((item): item is EmbroideryHoopSizePreset => item !== null)
+        .slice(0, 40)
+    : [];
+
+  const presetBackingValues = new Set(
+    DEFAULT_EMBROIDERY_BACKING_TYPES.map((o) => o.value)
+  );
+  const seenBackingTypes = new Set<string>();
+  const embroideryBackingTypes = Array.isArray(input.embroideryBackingTypes)
+    ? input.embroideryBackingTypes
+        .map((option) => {
+          const label =
+            typeof option?.label === "string" ? option.label.trim() : "";
+          const value =
+            typeof option?.value === "string" && option.value.trim()
+              ? option.value.trim()
+              : label
+                ? slugifySqueegeeValue(label)
+                : "";
+          if (
+            !label ||
+            !value ||
+            presetBackingValues.has(value) ||
+            seenBackingTypes.has(value)
+          ) {
+            return null;
+          }
+          seenBackingTypes.add(value);
+          return { value, label };
+        })
+        .filter(
+          (option): option is EmbroideryBackingTypeOption => option !== null
+        )
+        .slice(0, 24)
+    : [];
+
   const seenMesh = new Set<number>();
   const meshPresets = Array.isArray(input.meshPresets)
     ? input.meshPresets
@@ -953,34 +1117,36 @@ export function normalizeProductionDefaults(
     : [];
 
   const seenPrintLocations = new Set<string>();
-  const seenPrintLabels = new Set<string>();
+  const seenPrintLabelTypes = new Set<string>();
   const printLocations = Array.isArray(input.printLocations)
     ? input.printLocations
         .map((option) => {
           const label =
             typeof option?.label === "string" ? option.label.trim().slice(0, 80) : "";
-          const value =
-            typeof option?.value === "string" && option.value.trim()
-              ? option.value.trim().slice(0, 64)
-              : label
-                ? slugifySqueegeeValue(label)
-                : "";
-          const labelKey = label.toLowerCase();
-          if (
-            !label ||
-            !value ||
-            seenPrintLocations.has(value) ||
-            seenPrintLabels.has(labelKey)
-          ) {
-            return null;
-          }
-          seenPrintLocations.add(value);
-          seenPrintLabels.add(labelKey);
           const decorationType =
             typeof option?.decorationType === "string" &&
             option.decorationType.trim()
               ? option.decorationType.trim().slice(0, 64)
               : undefined;
+          const value =
+            typeof option?.value === "string" && option.value.trim()
+              ? option.value.trim().slice(0, 64)
+              : label
+                ? slugifySqueegeeValue(
+                    decorationType ? `${label} ${decorationType}` : label
+                  )
+                : "";
+          const pairKey = `${label.toLowerCase()}::${decorationType ?? ""}`;
+          if (
+            !label ||
+            !value ||
+            seenPrintLocations.has(value) ||
+            seenPrintLabelTypes.has(pairKey)
+          ) {
+            return null;
+          }
+          seenPrintLocations.add(value);
+          seenPrintLabelTypes.add(pairKey);
           return {
             value,
             label,
@@ -1113,6 +1279,8 @@ export function normalizeProductionDefaults(
     screenSizes,
     dtfImprintAreas,
     dtfTransferTypes,
+    embroideryHoopSizes,
+    embroideryBackingTypes,
     meshPresets,
     inkTypes,
     decorationTypes,
@@ -1142,6 +1310,8 @@ export function normalizeWarehouses(
           : `warehouse-${index}`;
       if (seenIds.has(id)) return null;
       seenIds.add(id);
+      const addressInput =
+        item?.address && typeof item.address === "object" ? item.address : {};
       return {
         id,
         name,
@@ -1152,6 +1322,14 @@ export function normalizeWarehouses(
             ? item.description.trim().slice(0, 280)
             : "",
         isDefault: item?.isDefault === true,
+        address: {
+          line1: cleanStr(addressInput.line1),
+          line2: cleanStr(addressInput.line2),
+          city: cleanStr(addressInput.city),
+          state: cleanStr(addressInput.state),
+          postalCode: cleanStr(addressInput.postalCode),
+          country: cleanStr(addressInput.country),
+        },
       };
     })
     .filter((item): item is ShopWarehouse => item !== null)
@@ -1356,6 +1534,37 @@ export const STARTER_SCREEN_SIZES: ScreenSizePreset[] = [
 export const DEFAULT_DTF_TRANSFER_TYPES: DtfTransferTypeOption[] = [
   { value: "cold-peel", label: "Cold peel" },
   { value: "hot-peel", label: "Hot peel" },
+];
+
+export const DEFAULT_EMBROIDERY_BACKING_TYPES: EmbroideryBackingTypeOption[] = [
+  { value: "cutaway", label: "Cutaway" },
+  { value: "tearaway", label: "Tearaway" },
+  { value: "washaway", label: "Washaway" },
+  { value: "no_backing", label: "No backing" },
+];
+
+export const STARTER_EMBROIDERY_HOOP_SIZES: EmbroideryHoopSizePreset[] = [
+  {
+    id: "hoop-4x4",
+    label: "4 × 4",
+    widthIn: 4,
+    heightIn: 4,
+    notes: "Left chest / small logos",
+  },
+  {
+    id: "hoop-5x7",
+    label: "5 × 7",
+    widthIn: 5,
+    heightIn: 7,
+    notes: "Standard chest",
+  },
+  {
+    id: "hoop-6x10",
+    label: "6 × 10",
+    widthIn: 6,
+    heightIn: 10,
+    notes: "Larger front / jacket",
+  },
 ];
 
 export const STARTER_DTF_IMPRINT_AREAS: DtfImprintAreaPreset[] = [
@@ -1601,6 +1810,7 @@ export function normalizeShopSettings(raw?: Partial<ShopSettings> | null): ShopS
     invoiceDocument: normalizeInvoiceDocument(input.invoiceDocument),
     pricingMatrix: syncedMatrix,
     pricingRateSheets,
+    decorationMethods: normalizeDecorationMethods(input.decorationMethods),
     productionDefaults: normalizeProductionDefaults(input.productionDefaults),
     warehouses: normalizeWarehouses(input.warehouses),
     onboarding: hasOnboardingField
@@ -1615,6 +1825,27 @@ export function normalizeShopSettings(raw?: Partial<ShopSettings> | null): ShopS
             branding: normalizeTenantBranding(input.branding),
           }),
   };
+}
+
+export function normalizeDecorationMethods(
+  raw?: Partial<ShopDecorationMethods> | null
+): ShopDecorationMethods {
+  const normalized = { ...DEFAULT_SHOP_DECORATION_METHODS };
+  if (!raw || typeof raw !== "object") return normalized;
+  for (const key of SHOP_DECORATION_METHOD_KEYS) {
+    if (typeof raw[key] === "boolean") {
+      normalized[key] = raw[key];
+    }
+  }
+  return normalized;
+}
+
+export function isDecorationMethodEnabled(
+  settings: ShopSettings | null | undefined,
+  methodKey: ShopDecorationMethodKey
+): boolean {
+  if (!settings) return DEFAULT_SHOP_DECORATION_METHODS[methodKey];
+  return settings.decorationMethods?.[methodKey] !== false;
 }
 
 export function isModuleEnabled(

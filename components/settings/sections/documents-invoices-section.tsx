@@ -257,6 +257,7 @@ export function DocumentsInvoicesSection() {
     label: "Unsaved invoice docs",
     onSave: () => handleSave(),
     onDiscard: discard,
+    id: "settings-invoices",
   });
 
   return (
@@ -277,6 +278,7 @@ export function DocumentsInvoicesSection() {
             Reset classic
           </Button>
           <SaveButton
+            headerBar
             dirty={dirty}
             saving={saving}
             saved={saved}

@@ -127,6 +127,7 @@ export function PrintLocationsSection() {
     label: "Unsaved print locations",
     onSave: () => handleSave(),
     onDiscard: discard,
+    id: "settings-print-locations",
   });
 
   const commit = (
@@ -277,6 +278,7 @@ export function PrintLocationsSection() {
       >
         {isAdmin && (
           <SaveButton
+            headerBar
             dirty={dirty}
             saving={saving}
             saved={saved}

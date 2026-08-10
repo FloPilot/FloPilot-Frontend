@@ -92,6 +92,7 @@ export function DefaultMarkupSection() {
       setMarkupInput(String(lastSavedMarkup));
       setError(null);
     },
+    id: "settings-default-markup",
   });
 
   return (
@@ -101,6 +102,7 @@ export function DefaultMarkupSection() {
         description="Applied to shop-ordered blanks on new orders. Override per line anytime on the order."
       >
         <SaveButton
+            headerBar
           dirty={dirty}
           saving={saving}
           saved={saved}

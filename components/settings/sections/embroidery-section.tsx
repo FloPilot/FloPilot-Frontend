@@ -25,9 +25,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  DEFAULT_DTF_TRANSFER_TYPES,
+  DEFAULT_EMBROIDERY_BACKING_TYPES,
   isDecorationMethodEnabled,
-  STARTER_DTF_IMPRINT_AREAS,
+  STARTER_EMBROIDERY_HOOP_SIZES,
   type ShopProductionDefaults,
 } from "@/lib/shop-settings";
 
@@ -38,7 +38,7 @@ function newId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function DtfSection() {
+export function EmbroiderySection() {
   const { settings, isAdmin, updateSettings } = useShopSettings();
   const { draft, setDraft, dirty, discard } = useSectionDraft<ShopProductionDefaults>(
     settings.productionDefaults
@@ -46,7 +46,7 @@ export function DtfSection() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [newTransferType, setNewTransferType] = useState("");
+  const [newBackingType, setNewBackingType] = useState("");
 
   const handleSave = async () => {
     setSaving(true);
@@ -58,7 +58,7 @@ export function DtfSection() {
       window.setTimeout(() => setSaved(false), 2500);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not save DTF setup"
+        err instanceof Error ? err.message : "Could not save embroidery setup"
       );
     } finally {
       setSaving(false);
@@ -69,57 +69,57 @@ export function DtfSection() {
     dirty,
     saving,
     enabled: isAdmin,
-    label: "Unsaved DTF settings",
+    label: "Unsaved embroidery",
     onSave: () => handleSave(),
     onDiscard: discard,
-    id: "settings-dtf",
+    id: "settings-embroidery",
   });
 
-  const addImprintArea = () => {
+  const addHoop = () => {
     setDraft((current) => ({
       ...current,
-      dtfImprintAreas: [
-        ...(current.dtfImprintAreas ?? []),
+      embroideryHoopSizes: [
+        ...(current.embroideryHoopSizes ?? []),
         {
-          id: newId("dtf"),
+          id: newId("hoop"),
           label: "",
-          widthIn: 5,
-          heightIn: 5,
+          widthIn: 4,
+          heightIn: 4,
           notes: "",
         },
       ],
     }));
   };
 
-  const addTransferType = () => {
-    const label = newTransferType.trim();
+  const addBackingType = () => {
+    const label = newBackingType.trim();
     if (!label) return;
     const value = `custom-${label
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")}`;
     const existing = [
-      ...DEFAULT_DTF_TRANSFER_TYPES,
-      ...(draft.dtfTransferTypes ?? []),
+      ...DEFAULT_EMBROIDERY_BACKING_TYPES,
+      ...(draft.embroideryBackingTypes ?? []),
     ].some((option) => option.label.toLowerCase() === label.toLowerCase());
     if (existing) return;
     setDraft((current) => ({
       ...current,
-      dtfTransferTypes: [
-        ...(current.dtfTransferTypes ?? []),
+      embroideryBackingTypes: [
+        ...(current.embroideryBackingTypes ?? []),
         { value, label },
       ],
     }));
-    setNewTransferType("");
+    setNewBackingType("");
   };
 
   return (
     <SettingsMain>
       <SettingsHeader
-        title="DTF setup"
-        description="Define imprint areas your team picks from on DTF orders. Pricing tiers live in the pricing matrix — these sizes match those columns."
+        title="Embroidery setup"
+        description="Define hoop sizes and backing types your team picks from on embroidery orders."
       >
-        {isAdmin && (
+        {isAdmin ? (
           <SaveButton
             headerBar
             dirty={dirty}
@@ -127,29 +127,29 @@ export function DtfSection() {
             saved={saved}
             onSave={() => void handleSave()}
           />
-        )}
+        ) : null}
       </SettingsHeader>
 
-      {!isAdmin && <AdminLockNotice />}
-      {error && <SettingsError message={error} />}
-      {!isDecorationMethodEnabled(settings, "dtf") ? (
-        <DecorationMethodOffNotice methodLabel="DTF" />
+      {!isAdmin ? <AdminLockNotice /> : null}
+      {error ? <SettingsError message={error} /> : null}
+      {!isDecorationMethodEnabled(settings, "embroidery") ? (
+        <DecorationMethodOffNotice methodLabel="Embroidery" />
       ) : null}
 
       <SettingsPanel
-        title="Imprint areas"
-        description="Transfer sizes available on the proofs tab for DTF decoration (e.g. 5 × 5 chest, 12 × 18 full back)."
+        title="Hoop sizes"
+        description="Common hoop dimensions for left chest, jackets, hats, and large fronts."
         action={
-          isAdmin && (
+          isAdmin ? (
             <div className="flex gap-2">
-              {(draft.dtfImprintAreas ?? []).length === 0 && (
+              {(draft.embroideryHoopSizes ?? []).length === 0 ? (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() =>
                     setDraft((current) => ({
                       ...current,
-                      dtfImprintAreas: STARTER_DTF_IMPRINT_AREAS.map(
+                      embroideryHoopSizes: STARTER_EMBROIDERY_HOOP_SIZES.map(
                         (item) => ({ ...item })
                       ),
                     }))
@@ -157,19 +157,19 @@ export function DtfSection() {
                 >
                   Load common sizes
                 </Button>
-              )}
-              <Button size="sm" onClick={addImprintArea}>
+              ) : null}
+              <Button size="sm" onClick={addHoop}>
                 <Plus className="size-3.5" />
-                Add area
+                Add hoop
               </Button>
             </div>
-          )
+          ) : null
         }
         bodyClassName="p-0"
       >
-        {(draft.dtfImprintAreas ?? []).length === 0 ? (
+        {(draft.embroideryHoopSizes ?? []).length === 0 ? (
           <p className="px-5 py-8 text-center text-sm text-brand-muted">
-            No imprint areas yet. Load common presets or add your own.
+            No hoop sizes yet. Load common presets or add your own.
           </p>
         ) : (
           <div className="overflow-x-auto">
@@ -188,13 +188,13 @@ export function DtfSection() {
                   <TableHead className="h-9 bg-[#fafafa] text-[12px] font-medium text-[#616161]">
                     Notes
                   </TableHead>
-                  {isAdmin && (
+                  {isAdmin ? (
                     <TableHead className="h-9 w-12 bg-[#fafafa] pr-5" />
-                  )}
+                  ) : null}
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(draft.dtfImprintAreas ?? []).map((row, index) => (
+                {(draft.embroideryHoopSizes ?? []).map((row, index) => (
                   <TableRow key={row.id} className="border-[#ebebeb]">
                     <TableCell className="pl-5">
                       <Input
@@ -204,8 +204,8 @@ export function DtfSection() {
                         onChange={(event) =>
                           setDraft((current) => ({
                             ...current,
-                            dtfImprintAreas: (
-                              current.dtfImprintAreas ?? []
+                            embroideryHoopSizes: (
+                              current.embroideryHoopSizes ?? []
                             ).map((item, i) =>
                               i === index
                                 ? { ...item, label: event.target.value }
@@ -226,8 +226,8 @@ export function DtfSection() {
                         onChange={(event) =>
                           setDraft((current) => ({
                             ...current,
-                            dtfImprintAreas: (
-                              current.dtfImprintAreas ?? []
+                            embroideryHoopSizes: (
+                              current.embroideryHoopSizes ?? []
                             ).map((item, i) =>
                               i === index
                                 ? {
@@ -251,8 +251,8 @@ export function DtfSection() {
                         onChange={(event) =>
                           setDraft((current) => ({
                             ...current,
-                            dtfImprintAreas: (
-                              current.dtfImprintAreas ?? []
+                            embroideryHoopSizes: (
+                              current.embroideryHoopSizes ?? []
                             ).map((item, i) =>
                               i === index
                                 ? {
@@ -274,8 +274,8 @@ export function DtfSection() {
                         onChange={(event) =>
                           setDraft((current) => ({
                             ...current,
-                            dtfImprintAreas: (
-                              current.dtfImprintAreas ?? []
+                            embroideryHoopSizes: (
+                              current.embroideryHoopSizes ?? []
                             ).map((item, i) =>
                               i === index
                                 ? { ...item, notes: event.target.value }
@@ -286,7 +286,7 @@ export function DtfSection() {
                         className="h-9"
                       />
                     </TableCell>
-                    {isAdmin && (
+                    {isAdmin ? (
                       <TableCell className="pr-5 text-right">
                         <Button
                           type="button"
@@ -296,8 +296,8 @@ export function DtfSection() {
                           onClick={() =>
                             setDraft((current) => ({
                               ...current,
-                              dtfImprintAreas: (
-                                current.dtfImprintAreas ?? []
+                              embroideryHoopSizes: (
+                                current.embroideryHoopSizes ?? []
                               ).filter((_, i) => i !== index),
                             }))
                           }
@@ -305,7 +305,7 @@ export function DtfSection() {
                           <Trash2 className="size-3.5" />
                         </Button>
                       </TableCell>
-                    )}
+                    ) : null}
                   </TableRow>
                 ))}
               </TableBody>
@@ -315,67 +315,70 @@ export function DtfSection() {
       </SettingsPanel>
 
       <SettingsPanel
-        title="Transfer types"
-        description="Cold peel and hot peel are included. Add custom peel types your team uses on the floor."
+        title="Backing types"
+        description="Built-in cutaway / tearaway / washaway, plus any custom backing your shop uses."
       >
-        <div className="flex flex-wrap gap-1.5">
-          {DEFAULT_DTF_TRANSFER_TYPES.map((option) => (
-            <span
-              key={option.value}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[#e3e3e3] bg-[#fafafa] px-2.5 py-1 text-[12px] font-medium text-[#616161]"
-            >
-              <span className="size-1.5 rounded-full bg-current opacity-50" />
+        <ul className="mb-4 space-y-1.5 text-[13px] text-[#616161]">
+          {DEFAULT_EMBROIDERY_BACKING_TYPES.map((option) => (
+            <li key={option.value} className="flex items-center gap-2">
+              <span className="size-1.5 rounded-full bg-[#c9c9c9]" />
               {option.label}
-              <span className="text-[10px] uppercase tracking-wide opacity-60">
-                Built-in
-              </span>
-            </span>
+              <span className="text-[11px] text-[#8a8a8a]">(built-in)</span>
+            </li>
           ))}
-          {(draft.dtfTransferTypes ?? []).map((option) => (
-            <span
+          {(draft.embroideryBackingTypes ?? []).map((option) => (
+            <li
               key={option.value}
-              className="inline-flex items-center gap-1.5 rounded-md border border-violet-100 bg-violet-50 px-2.5 py-1 text-[12px] font-medium text-violet-700"
+              className="flex items-center justify-between gap-2"
             >
-              <span className="size-1.5 rounded-full bg-current opacity-70" />
-              {option.label}
-              {isAdmin && (
+              <span className="flex items-center gap-2">
+                <span className="size-1.5 rounded-full bg-brand-primary" />
+                {option.label}
+              </span>
+              {isAdmin ? (
                 <button
                   type="button"
-                  className="ml-0.5 rounded p-0.5 hover:bg-violet-100"
+                  className="text-[12px] text-[#8a8a8a] hover:text-destructive"
                   onClick={() =>
                     setDraft((current) => ({
                       ...current,
-                      dtfTransferTypes: (current.dtfTransferTypes ?? []).filter(
-                        (item) => item.value !== option.value
-                      ),
+                      embroideryBackingTypes: (
+                        current.embroideryBackingTypes ?? []
+                      ).filter((entry) => entry.value !== option.value),
                     }))
                   }
                 >
-                  <Trash2 className="size-3" />
+                  Remove
                 </button>
-              )}
-            </span>
+              ) : null}
+            </li>
           ))}
-        </div>
-        {isAdmin && (
-          <div className="mt-4 flex gap-2">
+        </ul>
+        {isAdmin ? (
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Input
-              value={newTransferType}
-              placeholder="e.g. Warm peel"
-              onChange={(event) => setNewTransferType(event.target.value)}
+              value={newBackingType}
+              onChange={(event) => setNewBackingType(event.target.value)}
+              placeholder="e.g. Cap backing, Specialty fusible"
+              className="h-10"
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  addTransferType();
+                  addBackingType();
                 }
               }}
-              className="h-9"
             />
-            <Button variant="outline" onClick={addTransferType}>
-              Add
+            <Button
+              type="button"
+              className="h-10 shrink-0 gap-1.5"
+              onClick={addBackingType}
+              disabled={!newBackingType.trim()}
+            >
+              <Plus className="size-3.5" />
+              Add backing
             </Button>
           </div>
-        )}
+        ) : null}
       </SettingsPanel>
     </SettingsMain>
   );

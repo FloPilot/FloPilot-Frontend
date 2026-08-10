@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -9,8 +10,10 @@ import {
   DollarSign,
   Factory,
   FileText,
+  LayoutDashboard,
   MessageSquarePlus,
   Package,
+  Scissors,
   Palette,
   Percent,
   Plug,
@@ -22,6 +25,11 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
+import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import {
+  isDecorationMethodEnabled,
+  type ShopDecorationMethodKey,
+} from "@/lib/shop-settings";
 import { cn } from "@/lib/utils";
 
 type SettingsNavItem = {
@@ -30,6 +38,8 @@ type SettingsNavItem = {
   icon: LucideIcon;
   exact?: boolean;
   badge?: string;
+  /** When set, item only shows if that decoration method is enabled */
+  requiresDecorationMethod?: ShopDecorationMethodKey;
 };
 
 type SettingsNavGroup = {
@@ -88,14 +98,15 @@ const GROUPS: SettingsNavGroup[] = [
     label: "Shop setup",
     items: [
       {
+        href: "/app/settings/shop",
+        label: "Overview",
+        icon: LayoutDashboard,
+        exact: true,
+      },
+      {
         href: "/app/settings/shop/machines",
         label: "Machines & stations",
         icon: Factory,
-      },
-      {
-        href: "/app/settings/shop/screen-print",
-        label: "Screen print",
-        icon: Printer,
       },
       {
         href: "/app/settings/shop/print-locations",
@@ -106,6 +117,16 @@ const GROUPS: SettingsNavGroup[] = [
         href: "/app/settings/shop/design",
         label: "Design placements",
         icon: Palette,
+      },
+      {
+        href: "/app/settings/shop/screen-print",
+        label: "Screen print",
+        icon: Printer,
+      },
+      {
+        href: "/app/settings/shop/embroidery",
+        label: "Embroidery",
+        icon: Scissors,
       },
       {
         href: "/app/settings/shop/dtf",
@@ -142,7 +163,7 @@ const GROUPS: SettingsNavGroup[] = [
         href: "/app/settings/integrations",
         label: "Suppliers",
         icon: Plug,
-        badge: "Partial",
+        badge: "2 live",
         exact: true,
       },
       {
@@ -169,8 +190,6 @@ const GROUPS: SettingsNavGroup[] = [
   },
 ];
 
-const FLAT_ITEMS = GROUPS.flatMap((group) => group.items);
-
 function isItemActive(pathname: string, item: SettingsNavItem) {
   if (item.exact) return pathname === item.href || pathname === `${item.href}/`;
   return pathname === item.href || pathname.startsWith(`${item.href}/`);
@@ -178,13 +197,34 @@ function isItemActive(pathname: string, item: SettingsNavItem) {
 
 export function SettingsSecondaryNav() {
   const pathname = usePathname();
+  const { settings } = useShopSettings();
+
+  const groups = useMemo(
+    () =>
+      GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter((item) => {
+          if (!item.requiresDecorationMethod) return true;
+          return isDecorationMethodEnabled(
+            settings,
+            item.requiresDecorationMethod
+          );
+        }),
+      })).filter((group) => group.items.length > 0),
+    [settings]
+  );
+
+  const flatItems = useMemo(
+    () => groups.flatMap((group) => group.items),
+    [groups]
+  );
 
   return (
     <>
       {/* Mobile / tablet: horizontal pill scroller */}
       <div className="border-b border-[#e3e3e3] bg-white px-3 py-2 lg:hidden">
         <nav className="flex gap-1.5 overflow-x-auto">
-          {FLAT_ITEMS.map((item) => {
+          {flatItems.map((item) => {
             const active = isItemActive(pathname, item);
             const Icon = item.icon;
             return (
@@ -206,9 +246,9 @@ export function SettingsSecondaryNav() {
         </nav>
       </div>
 
-      {/* Desktop: vertical grouped sidebar */}
-      <aside className="hidden w-[244px] shrink-0 self-start border-[#e3e3e3] lg:sticky lg:top-0 lg:block lg:border-r">
-        <div className="border-b border-[#e3e3e3] px-5 pb-3 pt-5">
+      {/* Desktop: fills settings pane height; list scrolls independently */}
+      <aside className="hidden w-[244px] shrink-0 border-[#e3e3e3] lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden lg:border-r">
+        <div className="shrink-0 border-b border-[#e3e3e3] px-5 pb-3 pt-5">
           <p className={cn("text-base font-bold tracking-tight text-[#303030]")}>
             Settings
           </p>
@@ -216,8 +256,8 @@ export function SettingsSecondaryNav() {
             Manage your workspace configuration
           </p>
         </div>
-        <nav className="space-y-4 px-3 py-4">
-          {GROUPS.map((group) => (
+        <nav className="scrollbar-none scroll-pane min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 py-4">
+          {groups.map((group) => (
             <div key={group.label} className="space-y-1">
               <p className="px-2 text-[11px] font-semibold uppercase tracking-wider text-[#8a8a8a]">
                 {group.label}
