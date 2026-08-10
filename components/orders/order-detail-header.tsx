@@ -33,9 +33,12 @@ export function OrderDetailHeader({
   activeTab,
   onTabChange,
   onCustomLabelSave,
+  onCustomLabelDraftChange,
   subCustomers,
   onEndBusinessSave,
+  onEndBusinessDraftChange,
   onSalesRepSave,
+  onSalesRepDraftChange,
   orders,
   onProductionRunSave,
 }: {
@@ -44,15 +47,18 @@ export function OrderDetailHeader({
   activeTab: OrderDetailTab;
   onTabChange: (tab: OrderDetailTab) => void;
   onCustomLabelSave?: (customLabel: string) => Promise<void | Order>;
+  onCustomLabelDraftChange?: (customLabel: string) => void;
   subCustomers?: SubCustomer[];
   onEndBusinessSave?: (subCustomerId: string | null) => Promise<void | Order>;
+  onEndBusinessDraftChange?: (subCustomerId: string | null) => void;
   onSalesRepSave?: (salesRepId: string | null) => Promise<void | Order>;
+  onSalesRepDraftChange?: (salesRepId: string | null) => void;
   orders?: Order[];
   onProductionRunSave?: (linkedOrderIds: string[]) => Promise<void | Order>;
 }) {
   const tabs = buildOrderDetailTabs(order);
   const showEndBusiness =
-    Boolean(onEndBusinessSave) &&
+    Boolean(onEndBusinessSave || onEndBusinessDraftChange) &&
     Boolean(subCustomers?.length || order.subCustomerId);
 
   const dueLabel =
@@ -92,10 +98,11 @@ export function OrderDetailHeader({
           <h1 className={cn(dashboardSectionTitleClass, "shrink-0")}>
             Order {order.number}
           </h1>
-          {onCustomLabelSave ? (
+          {onCustomLabelSave || onCustomLabelDraftChange ? (
             <OrderCustomLabelEditor
               order={order}
               onSave={onCustomLabelSave}
+              onDraftChange={onCustomLabelDraftChange}
             />
           ) : order.customLabel?.trim() ? (
             <span className="rounded-md border border-[#ebebeb] px-2.5 py-1 text-[13px] font-medium text-[#616161]">
@@ -130,11 +137,16 @@ export function OrderDetailHeader({
               order={order}
               subCustomers={subCustomers ?? []}
               customerId={order.customerId}
-              onSave={onEndBusinessSave!}
+              onSave={onEndBusinessSave}
+              onDraftChange={onEndBusinessDraftChange}
             />
           ) : null}
-          {onSalesRepSave ? (
-            <OrderSalesRepEditor order={order} onSave={onSalesRepSave} />
+          {onSalesRepSave || onSalesRepDraftChange ? (
+            <OrderSalesRepEditor
+              order={order}
+              onSave={onSalesRepSave}
+              onDraftChange={onSalesRepDraftChange}
+            />
           ) : null}
           {orders && onProductionRunSave ? (
             <OrderProductionRunEditor

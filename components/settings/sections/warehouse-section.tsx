@@ -24,6 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  DEFAULT_COMPANY_ADDRESS,
   STARTER_FINISHING_STEPS,
   type FinishingStepPreset,
   type ShopProductionDefaults,
@@ -102,6 +103,7 @@ export function WarehouseSection() {
           code: "",
           description: "",
           isDefault: current.warehouses.length === 0,
+          address: { ...DEFAULT_COMPANY_ADDRESS },
         },
       ],
     }));

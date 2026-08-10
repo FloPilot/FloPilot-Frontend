@@ -1,13 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   BookMarked,
-  Check,
   CheckCircle2,
-  Loader2,
   RotateCcw,
 } from "lucide-react";
+import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { ProofSlidesEditor } from "@/components/orders/artwork/proof-slides-gallery";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
@@ -35,6 +34,7 @@ import {
   EMPTY_INK_COLORS,
   EMPTY_NOTES,
   formatPrintDimensions,
+  inkColorsEqual,
   parsePrintDimensions,
   productionNotesEqual,
 } from "@/lib/imprint-design";
@@ -53,7 +53,6 @@ import {
   getDtfImprintAreaOptions,
   getInkTypeOptions,
 } from "@/lib/shop-settings";
-import { useDebouncedCallback } from "@/lib/use-debounced-callback";
 import type {
   ArtworkFile,
   DecorationType,
@@ -334,100 +333,103 @@ export function ImprintDesignCard({
   const [customNameDraft, setCustomNameDraft] = useState(
     imprint.customLabel ?? ""
   );
-  const [savingCustomName, setSavingCustomName] = useState(false);
-  const [customNameSaved, setCustomNameSaved] = useState(false);
-  const customNameSavedTimeout = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
+  const [savingProofDetails, setSavingProofDetails] = useState(false);
 
   useEffect(() => {
     setCustomNameDraft(imprint.customLabel ?? "");
   }, [imprint.customLabel, imprint.id]);
 
-  useEffect(() => {
-    return () => {
-      if (customNameSavedTimeout.current) {
-        clearTimeout(customNameSavedTimeout.current);
-      }
-    };
-  }, []);
-
-  const saveCustomName = useCallback(async () => {
-    const trimmed = customNameDraft.trim();
-    const current = imprint.customLabel?.trim() ?? "";
-    if (trimmed === current || savingCustomName || readOnly) return;
-    setSavingCustomName(true);
-    setCustomNameSaved(false);
-    try {
-      await persistCustomLabelFn(order.id, job.id, imprint.id, trimmed);
-      setCustomNameSaved(true);
-      if (customNameSavedTimeout.current) {
-        clearTimeout(customNameSavedTimeout.current);
-      }
-      customNameSavedTimeout.current = setTimeout(() => {
-        setCustomNameSaved(false);
-      }, 1800);
-    } finally {
-      setSavingCustomName(false);
-    }
-  }, [
-    customNameDraft,
-    imprint.customLabel,
-    imprint.id,
-    savingCustomName,
-    readOnly,
-    updateImprintCustomLabel,
-    persistCustomLabelFn,
-    order.id,
-    job.id,
-  ]);
-
   const inkColors = imprint.inkColors ?? EMPTY_INK_COLORS;
   const serverNotes = imprint.notes ?? EMPTY_NOTES;
   const serverNotesKey = JSON.stringify(serverNotes);
+  const serverInkKey = JSON.stringify(inkColors);
   const [localNotes, setLocalNotes] = useState<ImprintProductionNotes>(
     serverNotes
   );
-  const notesRef = useRef(serverNotes);
+  const [localInkColors, setLocalInkColors] =
+    useState<ImprintInkColor[]>(inkColors);
 
   useEffect(() => {
     const next = imprint.notes ?? EMPTY_NOTES;
-    setLocalNotes((current) =>
-      productionNotesEqual(current, next) ? current : { ...next }
-    );
-    notesRef.current = productionNotesEqual(notesRef.current, next)
-      ? notesRef.current
-      : { ...next };
+    setLocalNotes({ ...next });
   }, [imprint.id, serverNotesKey]);
+
+  useEffect(() => {
+    setLocalInkColors(imprint.inkColors ?? EMPTY_INK_COLORS);
+  }, [imprint.id, serverInkKey]);
 
   const isFinishing =
     job.kind === "finishing" || imprint.decoration === "finishing";
   const isDtf = isDtfDecoration(imprint.decoration);
   const isScreenPrint = isScreenPrintDecoration(imprint.decoration);
 
-  const persistNotes = useCallback(
-    (next: ImprintProductionNotes) => {
-      void persistNotesFn(order.id, job.id, imprint.id, next);
-    },
-    [persistNotesFn, order.id, job.id, imprint.id]
+  const notesDirty = !productionNotesEqual(localNotes, serverNotes);
+  const nameDirty =
+    customNameDraft.trim() !== (imprint.customLabel?.trim() ?? "");
+  const inkDirty = !inkColorsEqual(localInkColors, inkColors);
+  const proofDirty = notesDirty || nameDirty || inkDirty;
+
+  const discardProofDetails = useCallback(() => {
+    setLocalNotes({ ...(imprint.notes ?? EMPTY_NOTES) });
+    setCustomNameDraft(imprint.customLabel ?? "");
+    setLocalInkColors(imprint.inkColors ?? EMPTY_INK_COLORS);
+  }, [imprint.notes, imprint.customLabel, imprint.inkColors]);
+
+  const saveProofDetails = useCallback(async () => {
+    if (readOnly || !proofDirty) return;
+    setSavingProofDetails(true);
+    try {
+      if (nameDirty) {
+        await persistCustomLabelFn(
+          order.id,
+          job.id,
+          imprint.id,
+          customNameDraft.trim()
+        );
+      }
+      if (notesDirty) {
+        await persistNotesFn(order.id, job.id, imprint.id, localNotes);
+      }
+      if (inkDirty) {
+        await persistInkColorsFn(order.id, job.id, imprint.id, localInkColors);
+      }
+    } finally {
+      setSavingProofDetails(false);
+    }
+  }, [
+    readOnly,
+    proofDirty,
+    nameDirty,
+    notesDirty,
+    inkDirty,
+    persistCustomLabelFn,
+    persistNotesFn,
+    persistInkColorsFn,
+    order.id,
+    job.id,
+    imprint.id,
+    customNameDraft,
+    localNotes,
+    localInkColors,
+  ]);
+
+  useRegisterUnsavedChanges(
+    !readOnly && (proofDirty || savingProofDetails)
+      ? {
+          dirty: true,
+          saving: savingProofDetails,
+          label: "Unsaved proof details",
+          persistAcrossTabs: true,
+          onSave: () => saveProofDetails(),
+          onDiscard: discardProofDetails,
+        }
+      : null,
+    `imprint-proof-${order.id}-${imprint.id}`
   );
 
-  const { debounced: debouncedPersistNotes, flush: flushPersistNotes } =
-    useDebouncedCallback(persistNotes, 600);
-
-  useEffect(() => () => flushPersistNotes(), [flushPersistNotes]);
-
-  const saveNotes = useCallback(
-    (patch: Partial<ImprintProductionNotes>) => {
-      setLocalNotes((current) => {
-        const next = { ...current, ...patch };
-        notesRef.current = next;
-        debouncedPersistNotes(next);
-        return next;
-      });
-    },
-    [debouncedPersistNotes]
-  );
+  const saveNotes = useCallback((patch: Partial<ImprintProductionNotes>) => {
+    setLocalNotes((current) => ({ ...current, ...patch }));
+  }, []);
 
   const notes = localNotes;
 
@@ -620,9 +622,7 @@ export function ImprintDesignCard({
                   value={customNameDraft}
                   onChange={(event) => {
                     setCustomNameDraft(event.target.value);
-                    setCustomNameSaved(false);
                   }}
-                  onBlur={() => void saveCustomName()}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
                       event.preventDefault();
@@ -631,25 +631,13 @@ export function ImprintDesignCard({
                   }}
                   placeholder="e.g. Left neck — Store A"
                   maxLength={120}
-                  disabled={savingCustomName}
-                  className={cn(
-                    dashboardControlClass,
-                    "h-9 shadow-none",
-                    (savingCustomName || customNameSaved) && "pr-9"
-                  )}
+                  disabled={savingProofDetails}
+                  className={cn(dashboardControlClass, "h-9 shadow-none")}
                 />
-                {savingCustomName ? (
-                  <Loader2 className="pointer-events-none absolute right-3 top-1/2 size-3.5 -translate-y-1/2 animate-spin text-[#2c6ecb]" />
-                ) : customNameSaved ? (
-                  <Check
-                    className="pointer-events-none absolute right-3 top-1/2 size-3.5 -translate-y-1/2 text-[#0d5c2e]"
-                    strokeWidth={2.5}
-                  />
-                ) : null}
               </div>
               <p className="text-[11px] text-[#8a8a8a]">
-                Useful when a client has multiple of the same location. Saved to
-                the design library with this name.
+                Useful when a client has multiple of the same location. Use Save
+                in the header to keep this name with the design library.
               </p>
             </div>
           ) : null}
@@ -959,14 +947,12 @@ export function ImprintDesignCard({
                     : "Colors & Pantones"}
               </p>
               <ImprintInkColorsEditor
-                inkColors={inkColors}
+                inkColors={localInkColors}
                 readOnly={readOnly}
                 compact={compact}
                 decoration={imprint.decoration}
                 inputClassName={fieldClassName}
-                onPersist={(next) =>
-                  persistInkColorsFn(order.id, job.id, imprint.id, next)
-                }
+                onChange={setLocalInkColors}
               />
             </div>
           )}

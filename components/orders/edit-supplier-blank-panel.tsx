@@ -15,6 +15,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency } from "@/lib/format";
+import { formatBrandProductName } from "@/lib/format-product-name";
 import {
   buildLineItemFromSupplierSelection,
   existingSupplierSizesOnOrder,
@@ -125,7 +126,7 @@ export function EditSupplierBlankPanel({
             styleName: item.productName,
             partNumber,
             styleId: item.supplierStyleId ?? null,
-            title: `${item.brand} ${item.productName}`.trim(),
+            title: formatBrandProductName(item.brand, item.productName),
             styleImageUrl: item.imageUrl || "",
             styleImageLargeUrl: item.imageUrl || "",
             brandImageUrl: "",
@@ -345,8 +346,11 @@ export function EditSupplierBlankPanel({
           <div className="min-w-0 flex-1">
             <h3 className={dashboardTaskTitleClass}>
               {styleDetail
-                ? `${styleDetail.brandName} ${styleDetail.styleName}`
-                : `${item.brand} ${item.productName}`}
+                ? formatBrandProductName(
+                    styleDetail.brandName,
+                    styleDetail.styleName
+                  )
+                : formatBrandProductName(item.brand, item.productName)}
             </h3>
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
               {selectedColor?.colorName || item.color}

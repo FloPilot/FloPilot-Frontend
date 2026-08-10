@@ -21,7 +21,11 @@ import {
   isQuoteApproved,
 } from "@/lib/order-approval";
 import { resolveEffectivePricingMatrix } from "@/lib/customer-pricing";
-import { computeEstimateTotals } from "@/lib/order-estimate";
+import {
+  computeEstimatePerPieceCosts,
+  computeEstimateTotals,
+} from "@/lib/order-estimate";
+import { countExpectedGarmentPieces } from "@/lib/order-garments";
 import { resolveOrderEstimateStatus } from "@/lib/order-estimate-status";
 import type { Order } from "@/types";
 import { cn } from "@/lib/utils";
@@ -104,6 +108,15 @@ export function OrderEstimateApprovalPanel({ order }: { order: Order }) {
       customer
     );
   }, [order, settings, customer]);
+
+  const perPieceCosts = useMemo(
+    () =>
+      computeEstimatePerPieceCosts(
+        totals,
+        countExpectedGarmentPieces(order)
+      ),
+    [order, totals]
+  );
 
   const showToast = (message: string, type: "success" | "error" = "success") => {
     setToast({ message, type });
@@ -251,6 +264,12 @@ export function OrderEstimateApprovalPanel({ order }: { order: Order }) {
                 <p className="mt-1 text-[1.35rem] font-semibold tabular-nums tracking-tight text-[#303030]">
                   {formatCurrency(totals.total)}
                 </p>
+                {perPieceCosts ? (
+                  <p className="mt-0.5 text-[12px] text-[#616161]">
+                    {formatCurrency(perPieceCosts.subtotalPerPiece)} / pc before
+                    tax · {perPieceCosts.pieceCount.toLocaleString()} pcs
+                  </p>
+                ) : null}
                 {totals.balance > 0 && totals.paid > 0 ? (
                   <p className="mt-0.5 text-[12px] text-[#616161]">
                     Balance due {formatCurrency(totals.balance)}

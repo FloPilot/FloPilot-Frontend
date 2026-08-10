@@ -6,6 +6,7 @@ import {
 } from "@/lib/pricing-matrix-lookup";
 import { buildFeeEstimateRows } from "@/lib/order-contract-fees";
 import { decorationLabel } from "@/lib/format";
+import { formatBrandProductName } from "@/lib/format-product-name";
 import {
   resolveLineItemCustomerUnitPrice,
   shouldShowBlankPricing,
@@ -61,7 +62,7 @@ export function lineItemPieceCount(item: LineItem): number {
 }
 
 export function lineItemDescription(item: LineItem): string {
-  return [item.brand, item.productName, item.color]
+  return [formatBrandProductName(item.brand, item.productName), item.color]
     .map((part) => (part || "").trim())
     .filter(Boolean)
     .join(" · ");
@@ -224,6 +225,37 @@ export function computeEstimateTotals(
     total,
     paid,
     balance,
+  };
+}
+
+export type EstimatePerPieceCosts = {
+  pieceCount: number;
+  garmentsPerPiece: number;
+  decorationPerPiece: number;
+  feesPerPiece: number;
+  /** Pre-tax all-in per piece (what shops usually quote). */
+  subtotalPerPiece: number;
+  /** Tax-inclusive all-in per piece. */
+  totalPerPiece: number;
+};
+
+/** Spread estimate totals across garment pieces for an all-in per-piece view. */
+export function computeEstimatePerPieceCosts(
+  totals: EstimateTotals,
+  pieceCount: number
+): EstimatePerPieceCosts | null {
+  const pieces = Math.max(0, Math.floor(pieceCount));
+  if (pieces <= 0 || totals.subtotal <= 0) return null;
+
+  const per = (amount: number) => round2(amount / pieces);
+
+  return {
+    pieceCount: pieces,
+    garmentsPerPiece: per(totals.garmentSubtotal),
+    decorationPerPiece: per(totals.decorationSubtotal),
+    feesPerPiece: per(totals.feesSubtotal),
+    subtotalPerPiece: per(totals.subtotal),
+    totalPerPiece: per(totals.total),
   };
 }
 

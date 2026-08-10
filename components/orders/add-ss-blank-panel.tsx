@@ -26,6 +26,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency } from "@/lib/format";
+import { formatBrandProductName } from "@/lib/format-product-name";
 import {
   buildLineItemFromSupplierSelection,
   existingSupplierSizesOnOrder,
@@ -67,14 +68,14 @@ const QUICK_BRAND_HINTS_BY_PROVIDER: Record<SupplierProviderId, string[]> = {
     "Sport-Tek",
   ],
   sanMar: [
+    "Gildan",
+    "Comfort Colors",
     "Port & Company",
     "Port Authority",
     "District",
     "Sport-Tek",
-    "Nike",
-    "OGIO",
-    "Eddie Bauer",
     "Bella+Canvas",
+    "Nike",
   ],
 };
 
@@ -472,7 +473,7 @@ export function AddSsBlankPanel({
           styleName: editItem.productName,
           partNumber,
           styleId: editItem.supplierStyleId ?? null,
-          title: `${editItem.brand} ${editItem.productName}`.trim(),
+          title: `${formatBrandProductName(editItem.brand, editItem.productName)}`.trim(),
           styleImageUrl: editItem.imageUrl || "",
           styleImageLargeUrl: editItem.imageUrl || "",
           brandImageUrl: "",
@@ -637,6 +638,14 @@ export function AddSsBlankPanel({
 
   const applyBrandFilter = (brandName: string | null) => {
     setBrandFilter(brandName);
+    // Selecting a brand browses that mill. Clear brand-prefix queries like
+    // "Gil" when choosing Gildan so SanMar doesn't over-filter style titles.
+    if (brandName) {
+      const q = query.trim().toLowerCase();
+      if (q && brandName.toLowerCase().includes(q)) {
+        setQuery("");
+      }
+    }
     setBrandMenuOpen(false);
     inputRef.current?.focus();
   };
@@ -1063,11 +1072,19 @@ export function AddSsBlankPanel({
 
         <div className="mt-3 flex flex-wrap items-start gap-4">
           <div className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#ebebeb] bg-[#fafafa]">
-            {styleDetail.styleImageUrl ? (
+            {selectedColor.colorFrontImageUrl ||
+            selectedColor.colorFrontImageLargeUrl ||
+            styleDetail.styleImageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={styleDetail.styleImageLargeUrl || styleDetail.styleImageUrl}
-                alt=""
+                key={`${selectedColor.colorCode}-${selectedColor.colorName}`}
+                src={
+                  selectedColor.colorFrontImageLargeUrl ||
+                  selectedColor.colorFrontImageUrl ||
+                  styleDetail.styleImageLargeUrl ||
+                  styleDetail.styleImageUrl
+                }
+                alt={`${styleDetail.brandName} ${styleDetail.styleName} — ${selectedColor.colorName}`}
                 className="size-full object-contain"
               />
             ) : (

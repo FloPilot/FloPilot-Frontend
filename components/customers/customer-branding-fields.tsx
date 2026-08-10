@@ -19,6 +19,8 @@ export function CustomerBrandingFields({
   onLogoChange,
   accentColorKey,
   onAccentColorKeyChange,
+  accentFallbackKey,
+  accentHint,
   onError,
 }: {
   company: string;
@@ -27,9 +29,13 @@ export function CustomerBrandingFields({
   onLogoChange: (logo: string | null) => void;
   accentColorKey: CustomerAccentKey | null;
   onAccentColorKeyChange: (value: CustomerAccentKey | null) => void;
+  /** Stable seed for Auto mode — avoid using the live company name while typing. */
+  accentFallbackKey?: string;
+  accentHint?: string;
   onError?: (message: string) => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const accentSeed = accentFallbackKey || customerId || "customer";
 
   const handleLogoPick = async (
     event: React.ChangeEvent<HTMLInputElement>
@@ -54,7 +60,7 @@ export function CustomerBrandingFields({
             logoUrl={logo}
             accentColorKey={accentColorKey}
             customerId={customerId}
-            fallbackKey={company}
+            fallbackKey={accentSeed}
             size="xl"
           />
           <div className="min-w-0 sm:hidden">
@@ -119,7 +125,8 @@ export function CustomerBrandingFields({
                 value={accentColorKey}
                 onChange={onAccentColorKeyChange}
                 customerId={customerId}
-                fallbackKey={company}
+                fallbackKey={accentSeed}
+                hint={accentHint}
               />
             </div>
           </div>

@@ -28,10 +28,12 @@ import {
   customerHasNegotiatedPricing,
   resolveEffectivePricingMatrix,
 } from "@/lib/customer-pricing";
-import { computeEstimateTotals } from "@/lib/order-estimate";
+import { computeEstimateTotals, computeEstimatePerPieceCosts } from "@/lib/order-estimate";
 import { OrderEstimateApprovalPanel } from "@/components/orders/order-estimate-approval-panel";
 import { OrderEstimatePricingPanel } from "@/components/orders/order-estimate-pricing-panel";
+import { EstimatePerPieceSummary } from "@/components/orders/estimate-per-piece-summary";
 import { StaffEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
+import { countExpectedGarmentPieces } from "@/lib/order-garments";
 import { orderHasDtfEvents } from "@/lib/order-materials";
 import {
   filterMatrixMethodsForOrder,
@@ -67,6 +69,15 @@ export function OrderEstimateTab({ order }: { order: Order }) {
   const totals = useMemo(
     () => computeEstimateTotals(order, settings.taxRate, pricingMatrix, customer),
     [order, settings.taxRate, pricingMatrix, customer]
+  );
+
+  const perPieceCosts = useMemo(
+    () =>
+      computeEstimatePerPieceCosts(
+        totals,
+        countExpectedGarmentPieces(order)
+      ),
+    [order, totals]
   );
 
   const pricingMethods = useMemo(
@@ -225,6 +236,9 @@ export function OrderEstimateTab({ order }: { order: Order }) {
 
         <div className="space-y-4 p-4 sm:p-5">
           <OrderEstimatePricingPanel order={order} customer={customer} />
+          {perPieceCosts ? (
+            <EstimatePerPieceSummary costs={perPieceCosts} />
+          ) : null}
           <StaffEstimateBreakdownTable
             totals={totals}
             productionRun={order.productionRun}

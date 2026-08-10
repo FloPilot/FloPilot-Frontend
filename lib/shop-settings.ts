@@ -1310,8 +1310,9 @@ export function normalizeWarehouses(
           : `warehouse-${index}`;
       if (seenIds.has(id)) return null;
       seenIds.add(id);
-      const addressInput =
-        item?.address && typeof item.address === "object" ? item.address : {};
+      const addressInput = (
+        item?.address && typeof item.address === "object" ? item.address : {}
+      ) as Partial<CompanyAddress>;
       return {
         id,
         name,

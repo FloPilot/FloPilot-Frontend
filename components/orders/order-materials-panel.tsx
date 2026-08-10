@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   Download,
@@ -13,6 +13,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { readUploadContent } from "@/lib/artwork-preview";
 import { Input } from "@/components/ui/input";
@@ -68,6 +69,7 @@ import {
 } from "@/lib/blank-pricing";
 import { canEditOrderBlanks, orderBlanksEditHint } from "@/lib/order-blanks";
 import { formatCurrency, formatDateTime } from "@/lib/format";
+import { formatBrandProductName } from "@/lib/format-product-name";
 import {
   compactOrderNumberForLabel,
   NEW_ORDER_COLORS,
@@ -927,22 +929,47 @@ export function OrderMaterialsPanel({
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<OrderFile | null>(null);
   const canEditBlanks = canEditOrderBlanks(order);
-  const [blankSource, setBlankSourceState] = useState<BlankSource | undefined>(
-    () => order.materials?.blankSource
+  const [draftLineItems, setDraftLineItems] = useState<LineItem[]>(
+    () => order.lineItems
+  );
+  const [draftBlankSource, setDraftBlankSource] = useState<
+    BlankSource | undefined
+  >(() => order.materials?.blankSource);
+
+  useEffect(() => {
+    setDraftLineItems(order.lineItems);
+    setDraftBlankSource(order.materials?.blankSource);
+  }, [order.id, order.lineItems, order.materials?.blankSource]);
+
+  const workingOrder = useMemo(
+    () => ({
+      ...order,
+      lineItems: draftLineItems,
+      materials: {
+        lines: order.materials?.lines ?? [],
+        blankSource: draftBlankSource,
+        updatedAt: order.materials?.updatedAt,
+      },
+    }),
+    [order, draftLineItems, draftBlankSource]
   );
 
-  const materials = useMemo(() => mergeOrderMaterials(order), [order]);
+  const blankSource = draftBlankSource;
+  const materials = useMemo(
+    () => mergeOrderMaterials(workingOrder),
+    [workingOrder]
+  );
   const garmentLines = getGarmentReceivingLines(materials);
   const dtfLines = getDtfReceivingLines(materials);
   const screenLine = getScreenSetupLine(materials);
   const inkLines = getInkPrepLines(materials);
-  const pieceCount = countExpectedGarmentPieces(order);
+  const pieceCount = countExpectedGarmentPieces(workingOrder);
   const garmentSubtotal = useMemo(
     () =>
       showBlankPricing
-        ? orderCustomerGarmentSubtotal(order, shopDefaultMarkup)
+        ? orderCustomerGarmentSubtotal(workingOrder, shopDefaultMarkup)
         : 0,
-    [order, shopDefaultMarkup, showBlankPricing]
+    [workingOrder, shopDefaultMarkup, showBlankPricing]
   );
   const screenFiles = useMemo(
     () => (order.files ?? []).filter((file) => file.kind === "separation"),
@@ -976,9 +1003,18 @@ export function OrderMaterialsPanel({
 
   const allReceived = materials.lines.every((line) => line.status === "received");
 
-  useEffect(() => {
-    setBlankSourceState(order.materials?.blankSource ?? materials.blankSource);
-  }, [order.materials?.blankSource, materials.blankSource]);
+  const blanksDirty = useMemo(() => {
+    const sourceChanged =
+      (draftBlankSource ?? null) !== (order.materials?.blankSource ?? null);
+    const itemsChanged =
+      JSON.stringify(draftLineItems) !== JSON.stringify(order.lineItems);
+    return sourceChanged || itemsChanged;
+  }, [
+    draftBlankSource,
+    draftLineItems,
+    order.materials?.blankSource,
+    order.lineItems,
+  ]);
 
   const saveMaterials = async (
     patch: Partial<Pick<import("@/types").OrderMaterials, "lines" | "blankSource">>
@@ -986,7 +1022,7 @@ export function OrderMaterialsPanel({
     const nextBlankSource =
       patch.blankSource !== undefined
         ? patch.blankSource
-        : order.materials?.blankSource ?? materials.blankSource;
+        : draftBlankSource ?? order.materials?.blankSource;
 
     setSaving(true);
     try {
@@ -1003,19 +1039,72 @@ export function OrderMaterialsPanel({
     await saveMaterials({ lines });
   };
 
-  const setBlankSource = async (next: BlankSource) => {
-    if (blankSource === next) return;
+  const discardBlanksDraft = useCallback(() => {
+    setDraftLineItems(order.lineItems);
+    setDraftBlankSource(order.materials?.blankSource);
+  }, [order.lineItems, order.materials?.blankSource]);
 
-    const previous = blankSource;
-    setBlankSourceState(next);
+  const saveBlanksDraft = useCallback(async () => {
+    if (!blanksDirty) return;
+    setSaving(true);
     try {
-      const saved = await saveMaterials({ blankSource: next });
-      if (saved?.materials?.blankSource !== next) {
-        throw new Error("Goods source did not save");
+      const baselineById = new Map(
+        order.lineItems.map((item) => [item.id, item] as const)
+      );
+      for (const item of draftLineItems) {
+        const baseline = baselineById.get(item.id);
+        if (
+          !baseline ||
+          JSON.stringify(item) === JSON.stringify(baseline)
+        ) {
+          continue;
+        }
+        await updateOrderLineItem(
+          order.id,
+          item.id,
+          serializeLineItemForApi(item)
+        );
       }
-    } catch {
-      setBlankSourceState(previous);
+      if (
+        (draftBlankSource ?? null) !== (order.materials?.blankSource ?? null)
+      ) {
+        await updateOrderMaterials(order.id, {
+          lines: order.materials?.lines ?? materials.lines,
+          blankSource: draftBlankSource,
+        });
+      }
+    } finally {
+      setSaving(false);
     }
+  }, [
+    blanksDirty,
+    draftLineItems,
+    draftBlankSource,
+    order.id,
+    order.lineItems,
+    order.materials,
+    materials.lines,
+    updateOrderLineItem,
+    updateOrderMaterials,
+  ]);
+
+  useRegisterUnsavedChanges(
+    canEditBlanks && (blanksDirty || saving)
+      ? {
+          dirty: true,
+          saving,
+          label: "Unsaved blanks",
+          persistAcrossTabs: true,
+          onSave: () => saveBlanksDraft(),
+          onDiscard: discardBlanksDraft,
+        }
+      : null,
+    `order-blanks-${order.id}`
+  );
+
+  const setBlankSource = (next: BlankSource) => {
+    if (draftBlankSource === next) return;
+    setDraftBlankSource(next);
   };
 
   const updateLine = (lineId: string, receivedQty: number) => {
@@ -1028,56 +1117,63 @@ export function OrderMaterialsPanel({
         status: computeMaterialLineStatus(line.expectedQty, nextQty),
       };
     });
-    saveLines(lines);
+    void saveLines(lines);
   };
 
-  const updateOrderedQty = async (
-    line: OrderMaterialLine,
-    quantity: number
-  ) => {
+  const updateOrderedQty = (line: OrderMaterialLine, quantity: number) => {
     if (!line.lineItemId || !line.size) return;
     const rebuilt = rebuildLineItemQuantity(
-      order,
+      workingOrder,
       line.lineItemId,
       line.size,
       quantity
     );
     if (!rebuilt) return;
-
-    setSaving(true);
-    try {
-      await updateOrderLineItem(order.id, line.lineItemId, rebuilt);
-    } finally {
-      setSaving(false);
-    }
+    setDraftLineItems((current) =>
+      current.map((item) => (item.id === rebuilt.id ? rebuilt : item))
+    );
   };
 
-  const updateLineItemPricing = async (
+  const updateLineItemPricing = (
     lineItemId: string,
     patch: { markupPercent?: number; customerUnitPrice?: number }
   ) => {
-    const item = order.lineItems.find((entry) => entry.id === lineItemId);
-    if (!item) return;
+    setDraftLineItems((current) =>
+      current.map((item) => {
+        if (item.id !== lineItemId) return item;
+        const nextItem: LineItem = { ...item };
+        if (patch.markupPercent !== undefined) {
+          nextItem.markupPercent = normalizeMarkupPercent(patch.markupPercent);
+          delete nextItem.customerUnitPrice;
+        }
+        if (patch.customerUnitPrice !== undefined) {
+          nextItem.customerUnitPrice =
+            Math.round(Math.max(0, patch.customerUnitPrice) * 100) / 100;
+          delete nextItem.markupPercent;
+        }
+        return nextItem;
+      })
+    );
+  };
 
-    const nextItem: LineItem = { ...item };
-
-    if (patch.markupPercent !== undefined) {
-      nextItem.markupPercent = normalizeMarkupPercent(patch.markupPercent);
-      delete nextItem.customerUnitPrice;
-    }
-
-    if (patch.customerUnitPrice !== undefined) {
-      nextItem.customerUnitPrice =
-        Math.round(Math.max(0, patch.customerUnitPrice) * 100) / 100;
-      delete nextItem.markupPercent;
-    }
-
+  const persistOrderedQtyImmediate = async (
+    line: OrderMaterialLine,
+    quantity: number
+  ) => {
+    if (!line.lineItemId || !line.size) return;
+    const rebuilt = rebuildLineItemQuantity(
+      workingOrder,
+      line.lineItemId,
+      line.size,
+      quantity
+    );
+    if (!rebuilt) return;
     setSaving(true);
     try {
       await updateOrderLineItem(
         order.id,
-        lineItemId,
-        serializeLineItemForApi(nextItem)
+        line.lineItemId,
+        serializeLineItemForApi(rebuilt)
       );
     } finally {
       setSaving(false);
@@ -1087,7 +1183,7 @@ export function OrderMaterialsPanel({
   const removeGarmentRow = async (line: OrderMaterialLine) => {
     if (!line.lineItemId || !line.size) return;
 
-    const item = order.lineItems.find((entry) => entry.id === line.lineItemId);
+    const item = draftLineItems.find((entry) => entry.id === line.lineItemId);
     if (!item) return;
 
     const remainingSizes = item.sizes.filter(
@@ -1099,7 +1195,7 @@ export function OrderMaterialsPanel({
       if (remainingSizes.length === 0) {
         await removeOrderLineItem(order.id, line.lineItemId);
       } else {
-        await updateOrderedQty(line, 0);
+        await persistOrderedQtyImmediate(line, 0);
       }
       setRemoveTarget(null);
     } finally {
@@ -1210,7 +1306,7 @@ export function OrderMaterialsPanel({
               </tr>
             ) : (
               garmentLines.map((line) => {
-                const lineItem = order.lineItems.find(
+                const lineItem = draftLineItems.find(
                   (entry) => entry.id === line.lineItemId
                 );
                 const shopUnitCost = lineItem?.unitCost ?? 0;
@@ -1230,6 +1326,10 @@ export function OrderMaterialsPanel({
                   line.status === "received"
                     ? undefined
                     : GARMENT_RECEIVE_STATUS_STYLES[line.status];
+                const productTitle = formatBrandProductName(
+                  line.brand,
+                  line.productName ?? line.label
+                );
 
                 return (
                   <tr
@@ -1248,11 +1348,11 @@ export function OrderMaterialsPanel({
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
                               <p className="font-medium text-[#303030]">
-                                {line.productName ?? line.label}
+                                {productTitle || "Item"}
                               </p>
-                              {line.brand ? (
+                              {lineItem?.supplier === "ssActivewear" ||
+                              lineItem?.supplier === "sanMar" ? (
                                 <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-[#8a8a8a]">
-                                  <span>{line.brand}</span>
                                   {lineItem?.supplier === "ssActivewear" ? (
                                     <span className="rounded bg-[#eef1ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-primary">
                                       S&amp;S

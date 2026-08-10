@@ -34,6 +34,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency } from "@/lib/format";
+import { formatBrandProductName } from "@/lib/format-product-name";
 import {
   deriveCustomerUnitPriceFromMarkup,
   resolveLineItemCustomerUnitPrice,
@@ -353,7 +354,10 @@ export function EditBlankItemDialog({
                   </p>
                   <p className="mt-0.5 text-[12px] text-[#616161]">
                     {selectedProduct
-                      ? `${selectedProduct.brand} ${selectedProduct.name}`
+                      ? formatBrandProductName(
+                          selectedProduct.brand,
+                          selectedProduct.name
+                        )
                       : "Adjust sizes for this blank."}
                   </p>
                 </div>

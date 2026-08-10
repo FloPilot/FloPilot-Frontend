@@ -1,4 +1,5 @@
 import { SHIPPING_METHODS } from "@/lib/create-order";
+import { formatBrandProductName } from "@/lib/format-product-name";
 import { resolveSubCustomerShippingLocations } from "@/lib/sub-customers";
 import { lineItemPieceCount } from "@/lib/line-items";
 import {
@@ -111,9 +112,7 @@ export function createCustomerLocationId(): string {
 }
 
 export function formatLineItemLabel(item: LineItem): string {
-  const product = item.productName.startsWith(item.brand)
-    ? item.productName
-    : `${item.brand} ${item.productName}`;
+  const product = formatBrandProductName(item.brand, item.productName);
   return `${product} · ${item.color}`;
 }
 

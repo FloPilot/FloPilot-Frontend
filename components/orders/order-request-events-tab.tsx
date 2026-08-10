@@ -14,7 +14,10 @@ import {
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
-import { EVENT_STATUS_COLUMNS } from "@/lib/event-status-checkpoints";
+import {
+  isEventStatusColumnApplicable,
+  visibleEventStatusColumnsForDecorations,
+} from "@/lib/event-status-checkpoints";
 import type { OrderRequestDetail, OrderRequestEvent } from "@/lib/order-requests";
 import type { DecorationType } from "@/types";
 import { cn } from "@/lib/utils";
@@ -35,28 +38,6 @@ function NotApplicableMark() {
   return <span className="inline-flex text-[11px] text-[#c9c9c9]">—</span>;
 }
 
-function isColumnApplicable(
-  columnKey: string,
-  decorationType: string
-): boolean {
-  const decoration = (decorationType || "").toLowerCase();
-  if (
-    columnKey === "ink" ||
-    columnKey === "screen_files" ||
-    columnKey === "screens"
-  ) {
-    return decoration === "screen_print";
-  }
-  if (columnKey === "dtf_transfers") {
-    return decoration === "dtf";
-  }
-  if (columnKey === "prep") {
-    // Orders hide Setup for screen print (covered by screen columns).
-    return decoration !== "screen_print";
-  }
-  return true;
-}
-
 function blanksColumnLabel(blankSource: OrderRequestDetail["blankSource"]) {
   return blankSource === "customer_supplies" ? "Garments" : "Blanks";
 }
@@ -68,7 +49,9 @@ export function OrderRequestEventsTab({
 }) {
   const events = request.events || [];
 
-  const columnHeaders = EVENT_STATUS_COLUMNS.map((column) => ({
+  const columnHeaders = visibleEventStatusColumnsForDecorations(
+    events.map((event) => event.decorationType)
+  ).map((column) => ({
     key: column.key,
     label:
       column.key === "blanks"
@@ -140,7 +123,10 @@ export function OrderRequestEventsTab({
                 </TableCell>
                 {columnHeaders.map((column) => (
                   <TableCell key={column.key} className="py-2.5">
-                    {isColumnApplicable(column.key, event.decorationType) ? (
+                    {isEventStatusColumnApplicable(
+                      column.key,
+                      event.decorationType
+                    ) ? (
                       <PendingBadge />
                     ) : (
                       <NotApplicableMark />

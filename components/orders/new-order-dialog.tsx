@@ -16,6 +16,10 @@ import {
   X,
 } from "lucide-react";
 import { AddCustomerDialog } from "@/components/customers/add-customer-dialog";
+import {
+  useRegisterUnsavedChanges,
+  useStaffUnsavedChanges,
+} from "@/components/layout/staff-unsaved-changes-provider";
 import { EventQuickPickBrowser } from "@/components/orders/event-quick-picks";
 import { OrderCustomLabelField } from "@/components/orders/order-custom-label-field";
 import { StaffRepSelect } from "@/components/staff/staff-rep-select";
@@ -85,6 +89,10 @@ import { cn } from "@/lib/utils";
 
 const stepIcons = [User, Package, Palette, FileImage] as const;
 
+function formSnapshot(form: NewOrderFormInput) {
+  return JSON.stringify(form);
+}
+
 export function NewOrderDialog({
   open,
   onOpenChange,
@@ -104,6 +112,7 @@ export function NewOrderDialog({
     addCustomer,
   } = useSchedule();
   const { settings } = useShopSettings();
+  const { requestLeave } = useStaffUnsavedChanges();
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<NewOrderFormInput>(() =>
     createEmptyNewOrderForm(initialCustomerId)
@@ -111,14 +120,21 @@ export function NewOrderDialog({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
+  const baselineRef = useRef(formSnapshot(createEmptyNewOrderForm(initialCustomerId)));
+  const allowCloseRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
+    const empty = createEmptyNewOrderForm(initialCustomerId ?? "");
     setStep(1);
-    setForm(createEmptyNewOrderForm(initialCustomerId ?? ""));
+    setForm(empty);
+    baselineRef.current = formSnapshot(empty);
     setError(null);
     setAddCustomerOpen(false);
+    allowCloseRef.current = false;
   }, [open, initialCustomerId]);
+
+  const formDirty = open && formSnapshot(form) !== baselineRef.current;
 
   const selectedCustomer = form.customerId
     ? getCustomerById(form.customerId)
@@ -306,6 +322,8 @@ export function NewOrderDialog({
     setError(null);
     try {
       const order = await createOrderFromForm(form);
+      allowCloseRef.current = true;
+      baselineRef.current = formSnapshot(form);
       onOpenChange(false);
       onCreated?.(order);
     } catch (err) {
@@ -313,6 +331,38 @@ export function NewOrderDialog({
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const discardNewOrder = () => {
+    const empty = createEmptyNewOrderForm(initialCustomerId ?? "");
+    setForm(empty);
+    baselineRef.current = formSnapshot(empty);
+    setStep(1);
+    setError(null);
+    allowCloseRef.current = true;
+    onOpenChange(false);
+  };
+
+  useRegisterUnsavedChanges(
+    open && (formDirty || submitting)
+      ? {
+          dirty: true,
+          saving: submitting,
+          label: "Unsaved new order",
+          onSave: () => handleCreate(),
+          onDiscard: discardNewOrder,
+        }
+      : null,
+    "new-order"
+  );
+
+  const requestClose = () => {
+    if (allowCloseRef.current || !formDirty) {
+      allowCloseRef.current = false;
+      onOpenChange(false);
+      return;
+    }
+    requestLeave();
   };
 
   const stepMeta = NEW_ORDER_STEPS[step - 1];
@@ -329,6 +379,10 @@ export function NewOrderDialog({
         open={open}
         onOpenChange={(nextOpen) => {
           if (!nextOpen && addCustomerOpen) return;
+          if (!nextOpen) {
+            requestClose();
+            return;
+          }
           onOpenChange(nextOpen);
         }}
       >
@@ -434,39 +488,58 @@ export function NewOrderDialog({
                     New customer
                   </Button>
                 </div>
-                <Select
-                  value={form.customerId || null}
-                  items={customerSelectItems}
-                  onValueChange={(value) => {
-                    const customerId = value ?? "";
-                    const nextCustomer = customers.find(
-                      (entry) => entry.id === customerId
-                    );
-                    patchForm({
-                      customerId,
-                      subCustomerId: "",
-                      salesRepId: nextCustomer?.salesRepId ?? "",
-                    });
-                  }}
-                >
-                  <SelectTrigger
+                {customers.length === 0 ? (
+                  <button
+                    type="button"
                     id="new-order-customer"
-                    className={cn(dashboardControlClass, "h-10 w-full")}
+                    onClick={() => setAddCustomerOpen(true)}
+                    className={cn(
+                      dashboardControlClass,
+                      "flex h-10 w-full items-center justify-between gap-2 px-3 text-left text-[13px] text-[#2c6ecb] hover:bg-[#f8fafc]"
+                    )}
                   >
-                    <SelectValue placeholder="Search or select a customer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {customers.map((customer) => (
-                      <SelectItem key={customer.id} value={customer.id}>
-                        {customer.company} — {customer.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                    <span className="inline-flex min-w-0 items-center gap-2 font-medium">
+                      <UserPlus className="size-3.5 shrink-0" />
+                      Make your first customer
+                    </span>
+                    <ArrowRight className="size-3.5 shrink-0 opacity-60" />
+                  </button>
+                ) : (
+                  <Select
+                    value={form.customerId || null}
+                    items={customerSelectItems}
+                    onValueChange={(value) => {
+                      const customerId = value ?? "";
+                      const nextCustomer = customers.find(
+                        (entry) => entry.id === customerId
+                      );
+                      patchForm({
+                        customerId,
+                        subCustomerId: "",
+                        salesRepId: nextCustomer?.salesRepId ?? "",
+                      });
+                    }}
+                  >
+                    <SelectTrigger
+                      id="new-order-customer"
+                      className={cn(dashboardControlClass, "h-10 w-full")}
+                    >
+                      <SelectValue placeholder="Search or select a customer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {customers.map((customer) => (
+                        <SelectItem key={customer.id} value={customer.id}>
+                          {customer.company} — {customer.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 {!selectedCustomer ? (
                   <p className={dashboardTaskDetailClass}>
-                    Walk-in or new account? Add them here and we&apos;ll select
-                    them for this order.
+                    {customers.length === 0
+                      ? "Add your first account and we’ll select them for this order."
+                      : "Walk-in or new account? Add them here and we'll select them for this order."}
                   </p>
                 ) : null}
               </div>
@@ -480,7 +553,10 @@ export function NewOrderDialog({
                     {selectedCustomer.email} · {selectedCustomer.phone}
                   </p>
                   <p className="text-[#616161]">
-                    {selectedCustomer.city}, {selectedCustomer.state}
+                    {[selectedCustomer.city, selectedCustomer.state]
+                      .map((part) => part?.trim())
+                      .filter(Boolean)
+                      .join(", ")}
                   </p>
                 </div>
               )}

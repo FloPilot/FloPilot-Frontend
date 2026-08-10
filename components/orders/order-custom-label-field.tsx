@@ -42,7 +42,7 @@ export function OrderCustomLabelField({
             customLabel: value,
           })}
         </span>
-        . Calendar events will use this name by default.
+        {". Calendar events will use this name by default."}
       </p>
     </div>
   );
@@ -51,21 +51,26 @@ export function OrderCustomLabelField({
 export function OrderCustomLabelEditor({
   order,
   onSave,
+  onDraftChange,
   className,
 }: {
   order: { id: string; number: string; customLabel?: string };
-  onSave: (customLabel: string) => Promise<void | unknown>;
+  onSave?: (customLabel: string) => Promise<void | unknown>;
+  /** When set, edits stay local until the parent Save/Discard bar commits. */
+  onDraftChange?: (customLabel: string) => void;
   className?: string;
 }) {
   const [draft, setDraft] = useState(order.customLabel ?? "");
   const [saving, setSaving] = useState(false);
   const [focused, setFocused] = useState(false);
+  const deferSave = Boolean(onDraftChange);
 
   useEffect(() => {
     setDraft(order.customLabel ?? "");
   }, [order.customLabel]);
 
   const saveIfChanged = async () => {
+    if (deferSave || !onSave) return;
     const trimmed = draft.trim();
     const current = order.customLabel?.trim() ?? "";
     if (trimmed === current || saving) return;
@@ -88,7 +93,11 @@ export function OrderCustomLabelEditor({
       <input
         id={`order-custom-label-${order.id}`}
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => {
+          const next = event.target.value;
+          setDraft(next);
+          onDraftChange?.(next);
+        }}
         onFocus={() => setFocused(true)}
         onBlur={() => {
           setFocused(false);

@@ -69,7 +69,7 @@ export function CustomerAccentPicker({
       </div>
       <p className="text-[11px] text-[#8a8a8a]">
         {hint ||
-          "Used on production boards and customer lists. Auto picks a consistent color from the account name."}
+          "Used on production boards and customer lists. Auto picks a color once and keeps it while you edit."}
       </p>
     </div>
   );

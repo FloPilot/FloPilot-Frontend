@@ -96,6 +96,7 @@ import {
   type GarmentBlankView,
 } from "@/lib/order-design-mockup";
 import { getDesignPlacementPresets } from "@/lib/shop-settings";
+import { formatBrandProductName } from "@/lib/format-product-name";
 import { useImageBackgroundColor } from "@/lib/use-image-background-color";
 import type {
   DesignMockupStageMode,
@@ -109,10 +110,7 @@ import type {
 import { cn } from "@/lib/utils";
 
 function formatBlankLabel(item: LineItem): string {
-  const product = item.productName.startsWith(item.brand)
-    ? item.productName
-    : `${item.brand} ${item.productName}`;
-  return `${product} · ${item.color}`;
+  return `${formatBrandProductName(item.brand, item.productName)} · ${item.color}`;
 }
 
 function imprintTitle(imprint: JobImprint): string {

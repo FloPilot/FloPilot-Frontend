@@ -239,8 +239,17 @@ export function OrdersListView() {
     );
   };
 
-  const attentionCount =
-    kpis.needsArt + kpis.needsSchedule + kpis.blocked;
+  const attentionCount = useMemo(() => {
+    let count = 0;
+    for (const order of scopedOrders) {
+      const summary = summaries.get(order.id);
+      if (!summary) continue;
+      if (summary.needsArt || summary.needsSchedule || summary.isBlocked) {
+        count += 1;
+      }
+    }
+    return count;
+  }, [scopedOrders, summaries]);
 
   return (
     <main className="flex w-full flex-1 flex-col gap-4 p-4 sm:gap-5 sm:p-6 lg:p-8">
