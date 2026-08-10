@@ -18,15 +18,19 @@ export function OrderEndBusinessEditor({
   subCustomers,
   customerId,
   onSave,
+  onDraftChange,
   className,
 }: {
   order: Pick<Order, "id" | "subCustomerId" | "subCustomerName">;
   subCustomers: SubCustomer[];
   customerId: string;
-  onSave: (subCustomerId: string | null) => Promise<void | unknown>;
+  onSave?: (subCustomerId: string | null) => Promise<void | unknown>;
+  /** When set, edits stay local until the parent Save/Discard bar commits. */
+  onDraftChange?: (subCustomerId: string | null) => void;
   className?: string;
 }) {
   const sorted = useMemo(() => sortSubCustomers(subCustomers), [subCustomers]);
+  const deferSave = Boolean(onDraftChange);
 
   const selectItems = useMemo(() => {
     const items = [
@@ -60,6 +64,12 @@ export function OrderEndBusinessEditor({
     const nextId = !value || value === "none" ? null : value;
     const currentId = order.subCustomerId ?? null;
     if (nextId === currentId || saving) return;
+
+    if (deferSave) {
+      onDraftChange?.(nextId);
+      return;
+    }
+    if (!onSave) return;
 
     setSaving(true);
     try {

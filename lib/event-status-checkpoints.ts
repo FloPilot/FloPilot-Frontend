@@ -273,6 +273,57 @@ export const EVENT_STATUS_COLUMNS: {
   { key: "floor", label: "Production" },
 ];
 
+/**
+ * Only columns that apply to at least one event on the order.
+ * All-DTF orders drop Ink / Screen files / Screens burned; all screen-print
+ * orders drop DTF + Setup; mixed orders show the union.
+ */
+export function visibleEventStatusColumns(
+  rows: { statusCards: OrderCheckpoint[] }[]
+): typeof EVENT_STATUS_COLUMNS {
+  if (rows.length === 0) return EVENT_STATUS_COLUMNS;
+  return EVENT_STATUS_COLUMNS.filter((column) =>
+    rows.some((row) => {
+      const card = findEventStatusCard(row.statusCards, column.key);
+      return Boolean(card && card.status !== "not_applicable");
+    })
+  );
+}
+
+/** Method-aware column keys for request Events (pre-convert, no live cards). */
+export function isEventStatusColumnApplicable(
+  columnKey: OrderCheckpoint["key"] | string,
+  decorationType: string | null | undefined
+): boolean {
+  const decoration = String(decorationType || "").toLowerCase();
+  if (
+    columnKey === "ink" ||
+    columnKey === "screen_files" ||
+    columnKey === "screens"
+  ) {
+    return decoration === "screen_print";
+  }
+  if (columnKey === "dtf_transfers") {
+    return decoration === "dtf";
+  }
+  if (columnKey === "prep") {
+    // Screen print already has Screen files + Screens burned.
+    return decoration !== "screen_print";
+  }
+  return true;
+}
+
+export function visibleEventStatusColumnsForDecorations(
+  decorations: Array<string | null | undefined>
+): typeof EVENT_STATUS_COLUMNS {
+  if (decorations.length === 0) return EVENT_STATUS_COLUMNS;
+  return EVENT_STATUS_COLUMNS.filter((column) =>
+    decorations.some((decoration) =>
+      isEventStatusColumnApplicable(column.key, decoration)
+    )
+  );
+}
+
 export function computeEventStatusCards(
   order: Order,
   job: Job,

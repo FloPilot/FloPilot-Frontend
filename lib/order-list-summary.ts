@@ -545,10 +545,15 @@ export function computeOrderListSummary(
 
   const needsArt =
     approval.artworkTotal > 0 && !approval.artworkApproved;
-  const needsSchedule =
-    eventCount > 0 && scheduleProgress.scheduled < scheduleProgress.total;
-  const onFloor = runningCount > 0;
   const isBlocked = blockedCount > 0;
+  // Mutually exclusive with needsArt / blocked so one order isn't counted in
+  // both "Needs art" and "Ready for scheduling" (and attention totals stay unique).
+  const needsSchedule =
+    !needsArt &&
+    !isBlocked &&
+    eventCount > 0 &&
+    scheduleProgress.scheduled < scheduleProgress.total;
+  const onFloor = runningCount > 0;
 
   return {
     eventCount,

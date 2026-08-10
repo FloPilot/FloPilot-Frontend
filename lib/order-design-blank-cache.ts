@@ -1,4 +1,5 @@
 import { fetchSupplierStyleDetail } from "@/lib/api";
+import { formatBrandProductName } from "@/lib/format-product-name";
 import {
   normalizeGarmentBlankView,
   type GarmentBlankView,
@@ -285,7 +286,7 @@ async function fetchVendorBlankPack(
     styleName: item.productName,
     partNumber,
     styleId: item.supplierStyleId ?? null,
-    title: `${item.brand} ${item.productName}`.trim(),
+    title: formatBrandProductName(item.brand, item.productName),
     styleImageUrl: item.imageUrl || "",
     styleImageLargeUrl: item.imageUrl || "",
     brandImageUrl: "",

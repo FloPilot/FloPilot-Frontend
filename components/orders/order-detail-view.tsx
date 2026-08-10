@@ -1,10 +1,13 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
-import { useStaffUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
+import {
+  useRegisterUnsavedChanges,
+  useStaffUnsavedChanges,
+} from "@/components/layout/staff-unsaved-changes-provider";
 import { OrderMaterialsPanel } from "@/components/orders/order-materials-panel";
 import { OrderDesignTab } from "@/components/orders/order-design-tab";
 import { OrderDesignStudioTab } from "@/components/orders/order-design-studio-tab";
@@ -195,6 +198,107 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     message: string;
     type: "success" | "error" | "loading";
   } | null>(null);
+  const [headerDraft, setHeaderDraft] = useState({
+    customLabel: "",
+    salesRepId: null as string | null,
+    subCustomerId: null as string | null,
+  });
+  const [headerSaving, setHeaderSaving] = useState(false);
+  const headerBaselineRef = useRef({
+    customLabel: "",
+    salesRepId: null as string | null,
+    subCustomerId: null as string | null,
+  });
+
+  useEffect(() => {
+    if (!order) return;
+    const next = {
+      customLabel: order.customLabel ?? "",
+      salesRepId: order.salesRepId ?? null,
+      subCustomerId: order.subCustomerId ?? null,
+    };
+    headerBaselineRef.current = next;
+    setHeaderDraft(next);
+  }, [
+    order?.id,
+    order?.customLabel,
+    order?.salesRepId,
+    order?.subCustomerId,
+  ]);
+
+  const headerDirty =
+    Boolean(order) &&
+    (headerDraft.customLabel.trim() !==
+      (headerBaselineRef.current.customLabel.trim() || "") ||
+      (headerDraft.salesRepId ?? null) !==
+        (headerBaselineRef.current.salesRepId ?? null) ||
+      (headerDraft.subCustomerId ?? null) !==
+        (headerBaselineRef.current.subCustomerId ?? null));
+
+  const saveHeaderDraft = useCallback(async () => {
+    if (!order || !headerDirty) return;
+    setHeaderSaving(true);
+    try {
+      const baseline = headerBaselineRef.current;
+      if (headerDraft.customLabel.trim() !== baseline.customLabel.trim()) {
+        await updateOrderCustomLabel(order.id, headerDraft.customLabel.trim());
+      }
+      if ((headerDraft.salesRepId ?? null) !== (baseline.salesRepId ?? null)) {
+        await updateOrderSalesRep(order.id, headerDraft.salesRepId);
+      }
+      if (
+        (headerDraft.subCustomerId ?? null) !== (baseline.subCustomerId ?? null)
+      ) {
+        await updateOrderEndBusiness(order.id, headerDraft.subCustomerId);
+      }
+    } finally {
+      setHeaderSaving(false);
+    }
+  }, [
+    order,
+    headerDirty,
+    headerDraft,
+    updateOrderCustomLabel,
+    updateOrderSalesRep,
+    updateOrderEndBusiness,
+  ]);
+
+  const discardHeaderDraft = useCallback(() => {
+    setHeaderDraft(headerBaselineRef.current);
+  }, []);
+
+  useRegisterUnsavedChanges(
+    order && (headerDirty || headerSaving)
+      ? {
+          dirty: true,
+          saving: headerSaving,
+          label: "Unsaved order details",
+          persistAcrossTabs: true,
+          onSave: () => saveHeaderDraft(),
+          onDiscard: discardHeaderDraft,
+        }
+      : null,
+    `order-header-${orderId}`
+  );
+
+  const headerOrder = useMemo(() => {
+    if (!order) return order;
+    const subName =
+      headerDraft.subCustomerId == null
+        ? ""
+        : customer?.subCustomers?.find(
+            (entry) => entry.id === headerDraft.subCustomerId
+          )?.name ||
+          order.subCustomerName ||
+          "";
+    return {
+      ...order,
+      customLabel: headerDraft.customLabel,
+      salesRepId: headerDraft.salesRepId ?? undefined,
+      subCustomerId: headerDraft.subCustomerId ?? undefined,
+      subCustomerName: subName,
+    };
+  }, [order, headerDraft, customer?.subCustomers]);
 
   const changeTab = useCallback(
     (tab: OrderDetailTab) => {
@@ -358,23 +462,23 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     >
       <div className={activeTab === "design" ? "shrink-0" : undefined}>
         <OrderDetailHeader
-          order={order}
+          order={headerOrder ?? order}
           summary={summary}
           activeTab={activeTab}
           onTabChange={changeTab}
           subCustomers={customer?.subCustomers}
-          onEndBusinessSave={(subCustomerId) =>
-            updateOrderEndBusiness(order.id, subCustomerId)
+          onCustomLabelDraftChange={(customLabel) =>
+            setHeaderDraft((current) => ({ ...current, customLabel }))
           }
-          onSalesRepSave={(salesRepId) =>
-            updateOrderSalesRep(order.id, salesRepId)
+          onEndBusinessDraftChange={(subCustomerId) =>
+            setHeaderDraft((current) => ({ ...current, subCustomerId }))
+          }
+          onSalesRepDraftChange={(salesRepId) =>
+            setHeaderDraft((current) => ({ ...current, salesRepId }))
           }
           orders={orders}
           onProductionRunSave={(linkedOrderIds) =>
             updateOrderProductionRun(order.id, linkedOrderIds)
-          }
-          onCustomLabelSave={(customLabel) =>
-            updateOrderCustomLabel(order.id, customLabel)
           }
         />
       </div>
@@ -605,7 +709,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
         </div>
 
         {activeTab !== "design" ? (
-          <div className="order-1 space-y-4 xl:order-none xl:sticky xl:top-6 xl:z-10 xl:self-start">
+          <div className="order-1 space-y-4 xl:order-none xl:sticky xl:top-6 xl:z-0 xl:self-start">
             <OrderActionPanel
               order={order}
               summary={summary}

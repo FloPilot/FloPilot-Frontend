@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useState } from "react";
 import { GripVertical, Plus, Trash2 } from "lucide-react";
 import {
   AdminLockNotice,
@@ -89,34 +89,22 @@ export function PrintLocationsSection() {
     decorationTypeChoices
   );
 
-  const persistDraft = useCallback(
-    async (next: ShopProductionDefaults) => {
-      setSaving(true);
-      setError(null);
-      setSaved(false);
-      try {
-        await updateSettings({ productionDefaults: next });
-        setSaved(true);
-        window.setTimeout(() => setSaved(false), 2500);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Could not save decoration locations"
-        );
-        throw err;
-      } finally {
-        setSaving(false);
-      }
-    },
-    [updateSettings]
-  );
-
   const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
     try {
-      await persistDraft(draft);
-    } catch {
-      // error already set
+      await updateSettings({ productionDefaults: draft });
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Could not save decoration locations"
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -127,19 +115,8 @@ export function PrintLocationsSection() {
     label: "Unsaved print locations",
     onSave: () => handleSave(),
     onDiscard: discard,
+    id: "settings-print-locations",
   });
-
-  const commit = (
-    updater: (current: ShopProductionDefaults) => ShopProductionDefaults
-  ) => {
-    setDraft((current) => {
-      const next = updater(current);
-      void persistDraft(next).catch(() => {
-        // Keep local draft; user can retry via Save.
-      });
-      return next;
-    });
-  };
 
   const addDecorationType = () => {
     const label = newDecorationType.trim();
@@ -153,7 +130,7 @@ export function PrintLocationsSection() {
     );
     if (exists) return;
 
-    commit((current) => {
+    setDraft((current) => {
       const base =
         (current.decorationTypes?.length ?? 0) > 0
           ? [...(current.decorationTypes ?? [])]
@@ -186,7 +163,7 @@ export function PrintLocationsSection() {
       decorationTypeChoices[0]?.value ||
       "screen_print";
 
-    commit((current) => ({
+    setDraft((current) => ({
       ...current,
       printLocations: [
         ...(current.printLocations ?? []),
@@ -203,7 +180,7 @@ export function PrintLocationsSection() {
   const moveLocation = (index: number, direction: -1 | 1) => {
     const nextIndex = index + direction;
     if (nextIndex < 0 || nextIndex >= locations.length) return;
-    commit((current) => {
+    setDraft((current) => {
       const next = [...(current.printLocations ?? [])];
       const [item] = next.splice(index, 1);
       next.splice(nextIndex, 0, item);
@@ -214,7 +191,7 @@ export function PrintLocationsSection() {
   const moveDecorationType = (index: number, direction: -1 | 1) => {
     const nextIndex = index + direction;
     if (nextIndex < 0 || nextIndex >= decorationTypes.length) return;
-    commit((current) => {
+    setDraft((current) => {
       const next = [...(current.decorationTypes ?? [])];
       const [item] = next.splice(index, 1);
       next.splice(nextIndex, 0, item);
@@ -223,7 +200,7 @@ export function PrintLocationsSection() {
   };
 
   const removeDecorationType = (index: number) => {
-    commit((current) => {
+    setDraft((current) => {
       const list = [...(current.decorationTypes ?? [])];
       const removed = list[index]?.value;
       const next = list.filter((_, i) => i !== index);
@@ -243,7 +220,7 @@ export function PrintLocationsSection() {
   };
 
   const removeLocation = (index: number) => {
-    commit((current) => ({
+    setDraft((current) => ({
       ...current,
       printLocations: (current.printLocations ?? []).filter(
         (_, entryIndex) => entryIndex !== index
@@ -252,7 +229,7 @@ export function PrintLocationsSection() {
   };
 
   const loadStarterLocations = () => {
-    commit((current) => ({
+    setDraft((current) => ({
       ...current,
       ...cloneDefaults(),
       decorationTypes:
@@ -263,7 +240,7 @@ export function PrintLocationsSection() {
   };
 
   const loadStarterTypes = () => {
-    commit((current) => ({
+    setDraft((current) => ({
       ...current,
       decorationTypes: DEFAULT_DECORATION_TYPES.map((item) => ({ ...item })),
     }));
@@ -273,10 +250,11 @@ export function PrintLocationsSection() {
     <SettingsMain>
       <SettingsHeader
         title="Decoration locations"
-        description="Set the decoration methods your shop offers, then map each placement — neck label, left chest, full back — to the right method. Deletes and adds save automatically."
+        description="Set the decoration methods your shop offers, then map each placement — neck label, left chest, full back — to the right method. Save when you’re ready."
       >
         {isAdmin && (
           <SaveButton
+            headerBar
             dirty={dirty}
             saving={saving}
             saved={saved}
@@ -336,9 +314,6 @@ export function PrintLocationsSection() {
                       return { ...current, decorationTypes: list };
                     })
                   }
-                  onBlur={() => {
-                    if (dirty) void handleSave();
-                  }}
                   className="h-9 min-w-0 flex-1"
                   placeholder="Decoration type"
                 />
@@ -475,9 +450,6 @@ export function PrintLocationsSection() {
                             ),
                           }))
                         }
-                        onBlur={() => {
-                          if (dirty) void handleSave();
-                        }}
                         className="h-9 min-w-0 flex-1"
                         placeholder="Location name"
                       />
@@ -494,7 +466,7 @@ export function PrintLocationsSection() {
                               const currentType =
                                 resolvePrintLocationDecorationType(location);
                               if (value === currentType) return;
-                              commit((current) => ({
+                              setDraft((current) => ({
                                 ...current,
                                 printLocations: (
                                   current.printLocations ?? []

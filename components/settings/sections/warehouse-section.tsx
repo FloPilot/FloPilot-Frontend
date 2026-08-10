@@ -24,6 +24,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  DEFAULT_COMPANY_ADDRESS,
   STARTER_FINISHING_STEPS,
   type FinishingStepPreset,
   type ShopProductionDefaults,
@@ -88,6 +89,7 @@ export function WarehouseSection() {
     label: "Unsaved warehouse",
     onSave: () => handleSave(),
     onDiscard: discard,
+    id: "settings-warehouse",
   });
 
   const addWarehouse = () => {
@@ -101,6 +103,7 @@ export function WarehouseSection() {
           code: "",
           description: "",
           isDefault: current.warehouses.length === 0,
+          address: { ...DEFAULT_COMPANY_ADDRESS },
         },
       ],
     }));
@@ -139,6 +142,7 @@ export function WarehouseSection() {
       >
         {isAdmin && (
           <SaveButton
+            headerBar
             dirty={dirty}
             saving={saving}
             saved={saved}
@@ -477,6 +481,7 @@ export function WarehouseSection() {
       {isAdmin && dirty && (
         <div className="flex justify-end">
           <SaveButton
+            headerBar
             dirty={dirty}
             saving={saving}
             saved={saved}

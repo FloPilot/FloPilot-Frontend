@@ -23,6 +23,10 @@ type OpenNewOrderOptions = {
 
 type NewOrderContextValue = {
   openNewOrder: (options?: OpenNewOrderOptions) => void;
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  initialCustomerId?: string;
+  handleCreated: (order: Order) => void;
 };
 
 const NewOrderContext = createContext<NewOrderContextValue | null>(null);
@@ -52,18 +56,35 @@ export function NewOrderProvider({ children }: { children: ReactNode }) {
     [onCreatedOverride, router]
   );
 
-  const value = useMemo(() => ({ openNewOrder }), [openNewOrder]);
+  const value = useMemo(
+    () => ({
+      openNewOrder,
+      open,
+      setOpen,
+      initialCustomerId,
+      handleCreated,
+    }),
+    [openNewOrder, open, initialCustomerId, handleCreated]
+  );
 
   return (
-    <NewOrderContext.Provider value={value}>
-      {children}
-      <NewOrderDialog
-        open={open}
-        onOpenChange={setOpen}
-        initialCustomerId={initialCustomerId}
-        onCreated={handleCreated}
-      />
-    </NewOrderContext.Provider>
+    <NewOrderContext.Provider value={value}>{children}</NewOrderContext.Provider>
+  );
+}
+
+/**
+ * Mount inside StaffUnsavedChangesProvider so the new-order draft can use the
+ * header Save/Discard bar.
+ */
+export function NewOrderDialogHost() {
+  const { open, setOpen, initialCustomerId, handleCreated } = useNewOrder();
+  return (
+    <NewOrderDialog
+      open={open}
+      onOpenChange={setOpen}
+      initialCustomerId={initialCustomerId}
+      onCreated={handleCreated}
+    />
   );
 }
 

@@ -8,18 +8,28 @@ import { cn } from "@/lib/utils";
 export function OrderSalesRepEditor({
   order,
   onSave,
+  onDraftChange,
   className,
 }: {
   order: Pick<Order, "id" | "salesRepId" | "salesRepName">;
-  onSave: (salesRepId: string | null) => Promise<void | unknown>;
+  onSave?: (salesRepId: string | null) => Promise<void | unknown>;
+  /** When set, edits stay local until the parent Save/Discard bar commits. */
+  onDraftChange?: (salesRepId: string | null) => void;
   className?: string;
 }) {
   const [saving, setSaving] = useState(false);
   const hasSelection = Boolean(order.salesRepId);
+  const deferSave = Boolean(onDraftChange);
 
   const handleChange = async (salesRepId: string | null) => {
     const currentId = order.salesRepId ?? null;
     if (salesRepId === currentId || saving) return;
+
+    if (deferSave) {
+      onDraftChange?.(salesRepId);
+      return;
+    }
+    if (!onSave) return;
 
     setSaving(true);
     try {

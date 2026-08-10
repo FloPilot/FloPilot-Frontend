@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, PackageCheck } from "lucide-react";
+import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Input } from "@/components/ui/input";
@@ -31,11 +32,11 @@ import { formatDateTime } from "@/lib/format";
 function QtyProducedInput({
   line,
   saving,
-  onSave,
+  onChange,
 }: {
   line: OrderProducedGoodsLine;
   saving: boolean;
-  onSave: (producedQty: number) => void;
+  onChange: (producedQty: number) => void;
 }) {
   const [value, setValue] = useState(String(line.producedQty ?? ""));
 
@@ -49,7 +50,7 @@ function QtyProducedInput({
       Number.isFinite(parsed) && parsed >= 0 ? Math.max(0, Math.floor(parsed)) : 0;
     setValue(String(producedQty));
     if (producedQty !== line.producedQty) {
-      onSave(producedQty);
+      onChange(producedQty);
     }
   };
 
@@ -96,14 +97,17 @@ export function OrderProducedGoodsPanel({
 }) {
   const { updateOrderProducedGoods } = useSchedule();
   const { profile } = useAuth();
-  const produced = useMemo(() => mergeOrderProducedGoods(order), [order]);
+  const serverProduced = useMemo(() => mergeOrderProducedGoods(order), [order]);
+  const [draft, setDraft] = useState(serverProduced);
   const [saving, setSaving] = useState(false);
-  const [notes, setNotes] = useState(produced.notes || "");
+  const [notes, setNotes] = useState(serverProduced.notes || "");
 
   useEffect(() => {
-    setNotes(produced.notes || "");
-  }, [produced.notes]);
+    setDraft(serverProduced);
+    setNotes(serverProduced.notes || "");
+  }, [serverProduced]);
 
+  const produced = draft;
   const callout = varianceCallout(produced);
   const orderedTotal = countOrderedPieces(produced);
   const producedTotal = countProducedPieces(produced);
@@ -114,34 +118,68 @@ export function OrderProducedGoodsPanel({
     (profile?.type === "staff" && profile.user.email) ||
     "Shop";
 
-  const persist = async (next: ReturnType<typeof mergeOrderProducedGoods>) => {
-    setSaving(true);
-    try {
-      await updateOrderProducedGoods(order.id, next);
-    } finally {
-      setSaving(false);
-    }
-  };
+  const isDirty = useMemo(() => {
+    const draftNotes = notes.trim() || undefined;
+    const serverNotes = serverProduced.notes || undefined;
+    return (
+      JSON.stringify(draft.lines) !== JSON.stringify(serverProduced.lines) ||
+      draftNotes !== serverNotes
+    );
+  }, [draft.lines, notes, serverProduced.lines, serverProduced.notes]);
+
+  const persist = useCallback(
+    async (next: ReturnType<typeof mergeOrderProducedGoods>) => {
+      setSaving(true);
+      try {
+        await updateOrderProducedGoods(order.id, next);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [order.id, updateOrderProducedGoods]
+  );
+
+  const saveDraft = useCallback(async () => {
+    await persist({
+      ...draft,
+      notes: notes.trim() || undefined,
+    });
+  }, [draft, notes, persist]);
+
+  const discardDraft = useCallback(() => {
+    setDraft(serverProduced);
+    setNotes(serverProduced.notes || "");
+  }, [serverProduced]);
+
+  useRegisterUnsavedChanges(
+    isDirty || saving
+      ? {
+          dirty: true,
+          saving,
+          label: "Unsaved produced goods",
+          persistAcrossTabs: true,
+          onSave: () => saveDraft(),
+          onDiscard: discardDraft,
+        }
+      : null,
+    `order-produced-goods-${order.id}`
+  );
 
   const handleQty = (lineId: string, qty: number) => {
-    void persist(applyProducedQty(produced, lineId, qty, recorder));
+    setDraft(applyProducedQty(produced, lineId, qty, recorder));
   };
 
   const handleMatchOrdered = () => {
-    void persist(setAllProducedToOrdered(produced, recorder));
+    setDraft(setAllProducedToOrdered(produced, recorder));
   };
 
-  const handleConfirm = () => {
-    void persist({
+  const handleConfirm = async () => {
+    const next = {
       ...confirmProducedGoods(produced, recorder),
       notes: notes.trim() || undefined,
-    });
-  };
-
-  const handleNotesBlur = () => {
-    const trimmed = notes.trim();
-    if ((produced.notes || "") === trimmed) return;
-    void persist({ ...produced, notes: trimmed || undefined });
+    };
+    setDraft(next);
+    await persist(next);
   };
 
   if (produced.lines.length === 0) {
@@ -232,7 +270,7 @@ export function OrderProducedGoodsPanel({
             <button
               type="button"
               disabled={saving}
-              onClick={handleConfirm}
+              onClick={() => void handleConfirm()}
               className={cn(
                 dashboardPrimaryButtonClass,
                 "h-9 px-3 text-[13px] disabled:opacity-60"
@@ -329,7 +367,7 @@ export function OrderProducedGoodsPanel({
                         <QtyProducedInput
                           line={line}
                           saving={saving}
-                          onSave={(qty) => handleQty(line.id, qty)}
+                          onChange={(qty) => handleQty(line.id, qty)}
                         />
                       </td>
                       <td className="px-3 py-3 text-right">
@@ -361,7 +399,6 @@ export function OrderProducedGoodsPanel({
             <textarea
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
-              onBlur={handleNotesBlur}
               rows={2}
               disabled={saving}
               placeholder="e.g. Printed 12 extras for stock / customer requested extras"

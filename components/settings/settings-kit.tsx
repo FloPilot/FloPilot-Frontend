@@ -101,6 +101,44 @@ export function SettingsError({ message }: { message: string }) {
   );
 }
 
+/** Shown on method setup pages when that decoration method is turned off. */
+export function DecorationMethodOffNotice({
+  methodLabel,
+}: {
+  methodLabel: string;
+}) {
+  return (
+    <div className="rounded-lg border border-[#dbe4ff] bg-[#f5f7ff] px-4 py-3 text-[13px] text-[#31457a]">
+      <p className="font-medium">{methodLabel} is turned off for this shop.</p>
+      <p className="mt-1 text-[#4a5d8a]">
+        You can still edit presets here. Turn the method on in{" "}
+        <a
+          href="/app/settings/shop"
+          className="font-medium text-brand-primary hover:underline"
+        >
+          Shop setup → Overview
+        </a>{" "}
+        to show it on orders and in the sidebar workflow.
+      </p>
+    </div>
+  );
+}
+
+/** Shows a brief “Saved” confirmation after a successful write. */
+export function SavedBadge({ visible }: { visible: boolean }) {
+  if (!visible) return null;
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+      <CheckCircle2 className="size-3.5" />
+      Saved
+    </span>
+  );
+}
+
+/**
+ * Page-level save control. Prefer the staff header Discard/Save bar for
+ * settings drafts — pass `headerBar` to avoid a second Save button.
+ */
 export function SaveButton({
   dirty,
   saving,
@@ -108,6 +146,7 @@ export function SaveButton({
   disabled,
   onSave,
   label = "Save changes",
+  headerBar = false,
 }: {
   dirty: boolean;
   saving: boolean;
@@ -115,15 +154,16 @@ export function SaveButton({
   disabled?: boolean;
   onSave: () => void;
   label?: string;
+  /** When true, only show the Saved badge — header bar owns Save/Discard. */
+  headerBar?: boolean;
 }) {
+  if (headerBar) {
+    return <SavedBadge visible={saved && !dirty} />;
+  }
+
   return (
     <div className="flex items-center gap-2">
-      {saved && !dirty && (
-        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
-          <CheckCircle2 className="size-3.5" />
-          Saved
-        </span>
-      )}
+      <SavedBadge visible={saved && !dirty} />
       <Button
         size="sm"
         disabled={disabled || !dirty || saving}
@@ -170,7 +210,7 @@ export function useRegisterSectionUnsavedChanges({
   label = "Unsaved settings",
   onSave,
   onDiscard,
-  id = "settings",
+  id,
 }: {
   dirty: boolean;
   saving: boolean;
@@ -178,12 +218,16 @@ export function useRegisterSectionUnsavedChanges({
   label?: string;
   onSave: () => void | Promise<void>;
   onDiscard: () => void;
-  id?: string;
+  /** Unique per settings page — avoids remount races sharing one id. */
+  id: string;
 }) {
+  // Only register while there is something to save/discard. Unregistering when
+  // clean prevents a sticky header bar after the draft matches saved settings.
+  const shouldRegister = enabled && (dirty || saving);
   useRegisterUnsavedChanges(
-    enabled
+    shouldRegister
       ? {
-          dirty,
+          dirty: true,
           saving,
           label,
           onSave,

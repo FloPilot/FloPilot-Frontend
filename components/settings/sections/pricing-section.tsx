@@ -78,7 +78,9 @@ export function PricingSection() {
   const [deleting, setDeleting] = useState(false);
 
   const persistSheets = async (rateSheets: ShopPricingRateSheet[]) => {
-    const nextSheets = ensureSingleShopDefault(rateSheets);
+    const nextSheets = ensureSingleShopDefault(rateSheets).map((sheet) =>
+      sheet.isDefault ? { ...sheet, enabled: true } : sheet
+    );
     const defaultSheet =
       nextSheets.find((sheet) => sheet.isDefault) ?? nextSheets[0];
     setSaving(true);
@@ -324,6 +326,10 @@ export function PricingSection() {
                     setSheetDraft((current) => ({
                       ...current,
                       isDefault: event.target.checked,
+                      // Default sheet must stay usable for order estimates.
+                      enabled: event.target.checked
+                        ? true
+                        : current.enabled !== false,
                     }))
                   }
                   className="size-4 rounded border-[#c9c9c9]"
@@ -335,16 +341,29 @@ export function PricingSection() {
                 <input
                   type="checkbox"
                   checked={sheetDraft.enabled !== false}
-                  onChange={(event) =>
-                    setSheetDraft((current) => ({
-                      ...current,
-                      enabled: event.target.checked,
-                    }))
-                  }
+                  onChange={(event) => {
+                    const nextEnabled = event.target.checked;
+                    setSheetDraft((current) => {
+                      if (!nextEnabled && current.isDefault) {
+                        return current;
+                      }
+                      return { ...current, enabled: nextEnabled };
+                    });
+                  }}
                   className="size-4 rounded border-[#c9c9c9]"
-                  disabled={!isAdmin}
+                  disabled={!isAdmin || Boolean(sheetDraft.isDefault)}
+                  title={
+                    sheetDraft.isDefault
+                      ? "The default rate sheet must stay active"
+                      : undefined
+                  }
                 />
                 Active
+                {sheetDraft.isDefault ? (
+                  <span className="text-[11px] text-[#8a8a8a]">
+                    (required for default)
+                  </span>
+                ) : null}
               </label>
             </div>
 

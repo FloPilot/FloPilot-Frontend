@@ -3,8 +3,11 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { CustomerBrandingFields } from "@/components/customers/customer-branding-fields";
-import { normalizeAccentPickerValue } from "@/components/customers/customer-accent-picker";
 import type { CustomerAccentKey } from "@/lib/production-customer-colors";
+import {
+  CUSTOMER_ACCENT_OPTIONS,
+  getCustomerAccent,
+} from "@/lib/production-customer-colors";
 import {
   Dialog,
   DialogContent,
@@ -33,6 +36,18 @@ import { cn } from "@/lib/utils";
 
 const inputClassName = "h-10 rounded-lg";
 
+function randomAccentKey(): CustomerAccentKey {
+  const index = Math.floor(Math.random() * CUSTOMER_ACCENT_OPTIONS.length);
+  return CUSTOMER_ACCENT_OPTIONS[index]!.key;
+}
+
+function newAccentSeed() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `accent-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function AddCustomerDialog({
   open,
   onOpenChange,
@@ -53,6 +68,7 @@ export function AddCustomerDialog({
   const [accentColorKey, setAccentColorKey] = useState<CustomerAccentKey | null>(
     null
   );
+  const [accentSeed, setAccentSeed] = useState(newAccentSeed);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -60,7 +76,8 @@ export function AddCustomerDialog({
     if (open) {
       setForm(EMPTY_NEW_CUSTOMER);
       setLogo(null);
-      setAccentColorKey(null);
+      setAccentColorKey(randomAccentKey());
+      setAccentSeed(newAccentSeed());
       setError(null);
     }
   }, [open]);
@@ -86,7 +103,8 @@ export function AddCustomerDialog({
       await onCreate({
         ...form,
         ...(logo ? { logoUrl: logo } : {}),
-        ...(accentColorKey ? { accentColorKey } : {}),
+        accentColorKey:
+          accentColorKey ?? getCustomerAccent(undefined, accentSeed).key,
       });
       onOpenChange(false);
     } catch (err) {
@@ -117,6 +135,8 @@ export function AddCustomerDialog({
                 onLogoChange={setLogo}
                 accentColorKey={accentColorKey}
                 onAccentColorKeyChange={setAccentColorKey}
+                accentFallbackKey={accentSeed}
+                accentHint="Used on production boards and customer lists. A random color is picked when you open this form — it stays put while you type."
                 onError={setError}
               />
             </FormSection>

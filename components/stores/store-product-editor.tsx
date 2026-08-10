@@ -82,14 +82,14 @@ const QUICK_BRAND_HINTS: Record<SupplierProviderId, string[]> = {
     "Sport-Tek",
   ],
   sanMar: [
+    "Gildan",
+    "Comfort Colors",
     "Port & Company",
     "Port Authority",
     "District",
     "Sport-Tek",
-    "Nike",
-    "OGIO",
-    "Eddie Bauer",
     "Bella+Canvas",
+    "Nike",
   ],
 };
 

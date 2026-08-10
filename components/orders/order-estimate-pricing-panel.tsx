@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Loader2,
   Plus,
@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { ShopPresetSelect } from "@/components/orders/shop-preset-select";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -89,6 +90,34 @@ export function OrderEstimatePricingPanel({
   const [draftManual, setDraftManual] = useState<OrderEstimateAdjustment | null>(
     null
   );
+  const [draft, setDraft] = useState({
+    selectedRateSheetId: order.selectedRateSheetId ?? null,
+    estimateAdjustments: order.estimateAdjustments ?? [],
+    excludedContractFeeIds: order.excludedContractFeeIds ?? [],
+  });
+
+  useEffect(() => {
+    setDraft({
+      selectedRateSheetId: order.selectedRateSheetId ?? null,
+      estimateAdjustments: order.estimateAdjustments ?? [],
+      excludedContractFeeIds: order.excludedContractFeeIds ?? [],
+    });
+  }, [
+    order.id,
+    order.selectedRateSheetId,
+    order.estimateAdjustments,
+    order.excludedContractFeeIds,
+  ]);
+
+  const workingOrder = useMemo(
+    () => ({
+      ...order,
+      selectedRateSheetId: draft.selectedRateSheetId,
+      estimateAdjustments: draft.estimateAdjustments,
+      excludedContractFeeIds: draft.excludedContractFeeIds,
+    }),
+    [order, draft]
+  );
 
   const customerRateSheets = useMemo(
     () => listCustomerRateSheets(customer),
@@ -101,12 +130,12 @@ export function OrderEstimatePricingPanel({
   );
 
   const activeRateSheet = useMemo(
-    () => resolveRateSheetForOrder(customer, order, settings),
-    [customer, order, settings]
+    () => resolveRateSheetForOrder(customer, workingOrder, settings),
+    [customer, workingOrder, settings]
   );
 
   const selectedRateSheetId = useMemo(() => {
-    const current = order.selectedRateSheetId;
+    const current = workingOrder.selectedRateSheetId;
     if (current && isShopRateSheetId(settings, current)) {
       if (current === SHOP_PRICING_SHEET_ID) {
         return (
@@ -133,7 +162,7 @@ export function OrderEstimatePricingPanel({
       SHOP_PRICING_SHEET_ID
     );
   }, [
-    order.selectedRateSheetId,
+    workingOrder.selectedRateSheetId,
     settings,
     shopRateSheets,
     customerRateSheets,
@@ -169,10 +198,10 @@ export function OrderEstimatePricingPanel({
         customer,
         shopMatrix: settings.pricingMatrix,
         shopSettings: settings,
-        order,
+        order: workingOrder,
         selectedRateSheetId,
       }),
-    [customer, settings, order, selectedRateSheetId]
+    [customer, settings, workingOrder, selectedRateSheetId]
   );
 
   const presetOptions = useMemo(
@@ -186,60 +215,109 @@ export function OrderEstimatePricingPanel({
   );
 
   const feeRows = useMemo(
-    () => buildFeeEstimateRows(order, customer, settings),
-    [order, customer, settings]
+    () => buildFeeEstimateRows(workingOrder, customer, settings),
+    [workingOrder, customer, settings]
   );
 
   const autoFeeCandidates = useMemo(
-    () => listAutoContractFeeCandidates(order, customer, settings),
-    [order, customer, settings]
+    () => listAutoContractFeeCandidates(workingOrder, customer, settings),
+    [workingOrder, customer, settings]
   );
 
   const manualFees = feeRows.filter((row) => row.source === "manual");
-  const excluded = new Set(order.excludedContractFeeIds ?? []);
+  const excluded = new Set(draft.excludedContractFeeIds);
 
-  const persist = useCallback(
-    async (updates: {
-      selectedRateSheetId?: string | null;
-      estimateAdjustments?: OrderEstimateAdjustment[];
-      excludedContractFeeIds?: string[];
-    }) => {
-      if (readOnly) return;
-      setSaving(true);
-      try {
-        if (onPersist) {
-          await onPersist(updates);
-        } else {
-          await updateOrderEstimatePricing(order.id, updates);
-        }
-      } finally {
-        setSaving(false);
+  const isDirty = useMemo(() => {
+    return (
+      JSON.stringify({
+        selectedRateSheetId: draft.selectedRateSheetId,
+        estimateAdjustments: draft.estimateAdjustments,
+        excludedContractFeeIds: draft.excludedContractFeeIds,
+      }) !==
+      JSON.stringify({
+        selectedRateSheetId: order.selectedRateSheetId ?? null,
+        estimateAdjustments: order.estimateAdjustments ?? [],
+        excludedContractFeeIds: order.excludedContractFeeIds ?? [],
+      })
+    );
+  }, [draft, order.selectedRateSheetId, order.estimateAdjustments, order.excludedContractFeeIds]);
+
+  const discardChanges = useCallback(() => {
+    setDraft({
+      selectedRateSheetId: order.selectedRateSheetId ?? null,
+      estimateAdjustments: order.estimateAdjustments ?? [],
+      excludedContractFeeIds: order.excludedContractFeeIds ?? [],
+    });
+    setAddingFee(false);
+    setSelectedPresetValue("");
+    setShowCustomFeeForm(false);
+    setDraftManual(null);
+  }, [order.selectedRateSheetId, order.estimateAdjustments, order.excludedContractFeeIds]);
+
+  const saveChanges = useCallback(async () => {
+    if (readOnly || !isDirty) return;
+    setSaving(true);
+    try {
+      const updates = {
+        selectedRateSheetId: draft.selectedRateSheetId,
+        estimateAdjustments: draft.estimateAdjustments,
+        excludedContractFeeIds: draft.excludedContractFeeIds,
+      };
+      if (onPersist) {
+        await onPersist(updates);
+      } else {
+        await updateOrderEstimatePricing(order.id, updates);
       }
-    },
-    [order.id, onPersist, readOnly, updateOrderEstimatePricing]
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    readOnly,
+    isDirty,
+    draft,
+    onPersist,
+    order.id,
+    updateOrderEstimatePricing,
+  ]);
+
+  useRegisterUnsavedChanges(
+    !readOnly && (isDirty || saving)
+      ? {
+          dirty: true,
+          saving,
+          label: "Unsaved estimate pricing",
+          persistAcrossTabs: true,
+          onSave: () => saveChanges(),
+          onDiscard: discardChanges,
+        }
+      : null,
+    `order-estimate-pricing-${order.id}`
   );
 
   const handleRateSheetChange = (value: string | null) => {
     if (!value) return;
-    void persist({ selectedRateSheetId: value });
+    setDraft((current) => ({ ...current, selectedRateSheetId: value }));
   };
 
   const toggleAutoFee = (contractFeeId: string) => {
-    const next = new Set(excluded);
-    if (next.has(contractFeeId)) {
-      next.delete(contractFeeId);
-    } else {
-      next.add(contractFeeId);
-    }
-    void persist({ excludedContractFeeIds: [...next] });
+    setDraft((current) => {
+      const next = new Set(current.excludedContractFeeIds);
+      if (next.has(contractFeeId)) {
+        next.delete(contractFeeId);
+      } else {
+        next.add(contractFeeId);
+      }
+      return { ...current, excludedContractFeeIds: [...next] };
+    });
   };
 
   const removeManualFee = (id: string) => {
-    void persist({
-      estimateAdjustments: (order.estimateAdjustments ?? []).filter(
+    setDraft((current) => ({
+      ...current,
+      estimateAdjustments: current.estimateAdjustments.filter(
         (row) => row.id !== id
       ),
-    });
+    }));
   };
 
   const resetAddFeeForm = () => {
@@ -271,12 +349,13 @@ export function OrderEstimatePricingPanel({
     const trimmed = draftManual.label.trim();
     if (!trimmed) return;
 
-    void persist({
+    setDraft((current) => ({
+      ...current,
       estimateAdjustments: [
-        ...(order.estimateAdjustments ?? []).filter((row) => row.source === "manual"),
+        ...current.estimateAdjustments.filter((row) => row.source === "manual"),
         { ...draftManual, label: trimmed },
       ],
-    });
+    }));
     resetAddFeeForm();
   };
 
@@ -369,7 +448,7 @@ export function OrderEstimatePricingPanel({
                 <div
                   key={fee.id}
                   className={cn(
-                    "flex flex-wrap items-center justify-between gap-3 rounded-lg border px-3 py-2.5",
+                    "relative z-0 flex flex-wrap items-center justify-between gap-3 scroll-mt-20 rounded-lg border px-3 py-2.5",
                     excludedFee
                       ? "border-[#ebebeb] bg-[#fafafa] opacity-60"
                       : "border-[#dbeafe] bg-[#f8fbff]"
@@ -405,7 +484,7 @@ export function OrderEstimatePricingPanel({
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-8 px-2 text-[12px]"
+                        className="relative z-20 h-8 px-2 text-[12px]"
                         onClick={() => toggleAutoFee(fee.contractFeeId!)}
                       >
                         {excludedFee ? (

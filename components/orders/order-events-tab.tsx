@@ -23,9 +23,9 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import {
-  EVENT_STATUS_COLUMNS,
   computeEventStatusCards,
   findEventStatusCard,
+  visibleEventStatusColumns,
 } from "@/lib/event-status-checkpoints";
 import type { OrderDetailTab } from "@/lib/order-detail-tabs";
 import { eventsLabel } from "@/lib/terminology";
@@ -80,14 +80,14 @@ export function OrderEventsTab({
 
   const columnHeaders = useMemo(
     () =>
-      EVENT_STATUS_COLUMNS.map((column) => ({
+      visibleEventStatusColumns(eventRows).map((column) => ({
         key: column.key,
         label:
           typeof column.label === "function"
             ? column.label(order)
             : column.label,
       })),
-    [order]
+    [eventRows, order]
   );
 
   if (eventRows.length === 0) {
@@ -116,8 +116,9 @@ export function OrderEventsTab({
           <div>
             <h2 className={dashboardTaskTitleClass}>{eventsLabel}</h2>
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-              {eventRows.length} decoration{eventRows.length !== 1 ? "s" : ""} on
-              this order — status cards match the orders list
+              {eventRows.length === 1
+                ? "1 decoration on this order — status cards match the orders list"
+                : `${eventRows.length} decorations on this order — status cards match the orders list`}
             </p>
           </div>
           <Button

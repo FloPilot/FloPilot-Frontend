@@ -1,5 +1,6 @@
 import { addDays, format } from "date-fns";
 import { computeEstimateTotals } from "@/lib/order-estimate";
+import { formatBrandProductName } from "@/lib/format-product-name";
 import { findSubCustomer } from "@/lib/sub-customers";
 import {
   resolvePrintLocationLabel,
@@ -550,7 +551,10 @@ export function formatLineItemInputLabel(item: NewOrderLineItemInput): string {
   const pieces = lineItemInputPieceCount(item);
 
   if (isSupplierDraftLineItem(item)) {
-    const label = `${item.item.brand} ${item.item.productName}`.trim();
+    const label = formatBrandProductName(
+      item.item.brand,
+      item.item.productName
+    );
     return `${label} · ${item.item.color} · ${pieces} pcs`;
   }
 
@@ -560,7 +564,7 @@ export function formatLineItemInputLabel(item: NewOrderLineItemInput): string {
   const color =
     NEW_ORDER_COLORS.find((entry) => entry.key === item.colorKey) ??
     NEW_ORDER_COLORS[0];
-  return `${product.brand} ${product.name} · ${color.label} · ${pieces} pcs`;
+  return `${formatBrandProductName(product.brand, product.name)} · ${color.label} · ${pieces} pcs`;
 }
 
 function resolveLineItemId(item: NewOrderLineItemInput, suffix: string): string {
@@ -714,7 +718,7 @@ export function buildOrderFromForm(
           title: "Blank added",
           detail: source
             ? formatLineItemInputLabel(source)
-            : `${item.brand} ${item.productName} · ${item.color}`,
+            : `${formatBrandProductName(item.brand, item.productName)} · ${item.color}`,
           timestamp: now,
           author: "Shop",
         };

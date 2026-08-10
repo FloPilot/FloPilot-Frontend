@@ -412,9 +412,9 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
                   type="button"
                   onClick={() => {
                     setOpen(false);
-                    // `new=1` skips the “already have a shop” redirect on
-                    // /register-shop so existing members can add another workspace.
-                    router.push("/register-shop?new=1");
+                    // Separate route from first-time /register-shop so existing
+                    // members can always add another workspace.
+                    router.push("/new-shop");
                   }}
                   className="mt-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[13px] font-medium text-[#303030] transition-colors hover:bg-[#f6f6f7]"
                 >

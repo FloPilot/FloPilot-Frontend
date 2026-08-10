@@ -46,6 +46,8 @@ import {
   dashboardGhostButtonClass,
   dashboardInsetSurfaceClass,
   dashboardPrimaryButtonClass,
+  dashboardSelectContentClass,
+  dashboardSelectItemClass,
 } from "@/lib/dashboard-styles";
 import { cn } from "@/lib/utils";
 
@@ -331,14 +333,15 @@ export function DashboardLayoutControls({
               <SelectTrigger
                 className={cn(
                   dashboardControlClass,
-                  "h-9 min-w-[180px] justify-between"
+                  "h-9 min-w-[180px] justify-between",
+                  "focus-visible:border-[#2c6ecb] focus-visible:ring-[#2c6ecb]/20"
                 )}
               >
-                <span className="flex items-center gap-2 truncate">
+                <span className="flex min-w-0 items-center gap-2 truncate">
                   {switchingView ? (
                     <Loader2 className="size-3.5 shrink-0 animate-spin text-[#2c6ecb]" />
                   ) : (
-                    <LayoutGrid className="size-3.5 shrink-0 text-[#616161]" />
+                    <LayoutGrid className="size-3.5 shrink-0 text-[#8a8a8a]" />
                   )}
                   <SelectValue placeholder="Select layout">
                     {switchingView
@@ -348,16 +351,29 @@ export function DashboardLayoutControls({
                 </span>
               </SelectTrigger>
               <SelectContent
-                alignItemWithTrigger={false}
+                align="end"
                 side="bottom"
-                sideOffset={4}
+                sideOffset={6}
+                alignItemWithTrigger={false}
+                className={cn(dashboardSelectContentClass, "min-w-[220px]")}
               >
-                <SelectItem value="default">Default dashboard</SelectItem>
+                <SelectItem
+                  value="default"
+                  className={dashboardSelectItemClass}
+                >
+                  Default dashboard
+                </SelectItem>
                 {myViews.length > 0 ? (
                   <SelectGroup>
-                    <SelectLabel>My layouts</SelectLabel>
+                    <SelectLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                      My layouts
+                    </SelectLabel>
                     {myViews.map((view) => (
-                      <SelectItem key={view.id} value={view.id}>
+                      <SelectItem
+                        key={view.id}
+                        value={view.id}
+                        className={dashboardSelectItemClass}
+                      >
                         {view.name}
                         {view.shared ? " · Shared" : ""}
                       </SelectItem>
@@ -366,9 +382,15 @@ export function DashboardLayoutControls({
                 ) : null}
                 {teamViews.length > 0 ? (
                   <SelectGroup>
-                    <SelectLabel>Team layouts</SelectLabel>
+                    <SelectLabel className="px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                      Team layouts
+                    </SelectLabel>
                     {teamViews.map((view) => (
-                      <SelectItem key={view.id} value={view.id}>
+                      <SelectItem
+                        key={view.id}
+                        value={view.id}
+                        className={dashboardSelectItemClass}
+                      >
                         {view.name}
                         {view.ownerName ? ` · ${view.ownerName}` : ""}
                       </SelectItem>
@@ -382,11 +404,15 @@ export function DashboardLayoutControls({
               type="button"
               variant="outline"
               size="sm"
-              className={cn(dashboardControlClass, "h-9")}
+              className={cn(
+                dashboardControlClass,
+                "h-9",
+                "focus-visible:border-[#2c6ecb] focus-visible:ring-[#2c6ecb]/20"
+              )}
               disabled={loading || switchingView}
               onClick={beginEditing}
             >
-              <LayoutGrid className="size-3.5" />
+              <LayoutGrid className="size-3.5 text-[#8a8a8a]" />
               Customize
             </Button>
           </div>

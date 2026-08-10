@@ -316,9 +316,16 @@ export function AccountingIntegrationsSection() {
     <SettingsMain>
       <SettingsHeader
         title="Accounting"
-        description="Connect QuickBooks Online to push estimates and invoices from FloPilot orders."
+        description="Connect QuickBooks Online when you’re ready to push estimates and invoices from FloPilot. Nothing syncs until you authorize a company."
       />
 
+      {!loading && !connected && appConfigured ? (
+        <div className="rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-4 py-3 text-[13px] text-[#616161]">
+          Not connected yet — use{" "}
+          <span className="font-medium text-[#303030]">Connect QuickBooks</span>{" "}
+          below. You can finish settings mapping after OAuth completes.
+        </div>
+      ) : null}
       {error && (
         <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-4 py-3 text-sm text-[#8f1f1f]">
           {error}

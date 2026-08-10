@@ -2,6 +2,7 @@
 
 import { FloPilotWatermark } from "@/components/branding/flopilot-watermark";
 import { NotificationsProvider } from "@/components/providers/notifications-provider";
+import { NewOrderDialogHost } from "@/components/providers/new-order-provider";
 import { StaffSearchProvider } from "@/components/layout/staff-search-provider";
 import { StaffSidebar } from "@/components/layout/staff-sidebar";
 import { StaffTopBar } from "@/components/layout/staff-top-bar";
@@ -34,6 +35,7 @@ export function StaffAppShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
           </div>
+          <NewOrderDialogHost />
         </StaffUnsavedChangesProvider>
       </StaffSearchProvider>
     </NotificationsProvider>
