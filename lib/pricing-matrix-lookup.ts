@@ -266,12 +266,17 @@ function findPricingMethod(
   methods: PricingMethod[],
   decoration: string
 ): PricingMethod | null {
+  const decorationKey = decoration.trim();
+  if (!decorationKey) return null;
+
   const typed = methods.find(
-    (method) => methodDecorationType(method) === decoration
+    (method) => methodDecorationType(method) === decorationKey
   );
   if (typed) return typed;
 
-  const target = normalizeName(decorationLabel(decoration));
+  const target = normalizeName(decorationLabel(decorationKey));
+  if (!target) return null;
+
   const exact = methods.find((m) => normalizeName(m.name) === target);
   if (exact) return exact;
 

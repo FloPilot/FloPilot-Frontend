@@ -31,6 +31,7 @@ import {
 import {
   hasProducedGoodsVariance,
   mergeOrderProducedGoods,
+  collectInvoiceCommentsFromProducedGoods,
 } from "@/lib/order-produced-goods";
 import { StaffEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
 import { formatCurrency, formatDateTime } from "@/lib/format";
@@ -62,6 +63,10 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
   const produced = useMemo(() => mergeOrderProducedGoods(order), [order]);
   const ready = invoiceReadyForBilling(order);
   const hasVariance = hasProducedGoodsVariance(produced);
+  const invoiceComments = useMemo(
+    () => collectInvoiceCommentsFromProducedGoods(produced),
+    [produced]
+  );
 
   const estimateTotals = useMemo(
     () => computeEstimateTotals(order, settings.taxRate, pricingMatrix, customer),
@@ -259,6 +264,27 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
             totals={invoiceTotals}
             productionRun={order.productionRun}
           />
+          {invoiceComments.length > 0 ? (
+            <div className="rounded-xl border border-[#ebebeb] bg-[#fafafa] px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
+                Comments on invoice
+              </p>
+              <div className="mt-2 space-y-2 text-[13px] leading-relaxed text-[#303030]">
+                {invoiceComments.map((comment, index) => (
+                  <p key={`${index}-${comment.slice(0, 24)}`}>{comment}</p>
+                ))}
+              </div>
+              <p className="mt-2 text-[12px] text-[#8a8a8a]">
+                From produced goods notes — appears at the bottom of the customer
+                invoice PDF.
+              </p>
+            </div>
+          ) : hasVariance ? (
+            <div className="rounded-xl border border-dashed border-[#e3e3e3] px-4 py-3 text-[13px] text-[#616161]">
+              Counts differ from ordered. Add a produced goods note (for example
+              damaged pieces) so it shows in Comments on the invoice.
+            </div>
+          ) : null}
         </div>
       </section>
 

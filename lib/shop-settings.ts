@@ -616,14 +616,11 @@ export function inferPricingDecorationType(
   name?: string | null,
   explicit?: string | null
 ): DecorationType | undefined {
-  if (
-    explicit === "screen_print" ||
-    explicit === "embroidery" ||
-    explicit === "dtf" ||
-    explicit === "vinyl" ||
-    explicit === "finishing"
-  ) {
-    return explicit;
+  const explicitValue =
+    typeof explicit === "string" ? explicit.trim().slice(0, 64) : "";
+  // Preserve shop-configured custom types (e.g. neck_label) as well as built-ins.
+  if (explicitValue) {
+    return explicitValue as DecorationType;
   }
 
   const normalized = String(name || "")
