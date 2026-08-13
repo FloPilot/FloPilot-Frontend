@@ -233,6 +233,7 @@ export function StoreCustomizeBuilder({
           tags: product.tags || [],
           sellPrice: product.sellPrice,
           decorationType: product.decorationType,
+          decorationLocations: product.decorationLocations || [],
           minOrderQty: product.minOrderQty,
           setupFee: product.setupFee,
         })),
