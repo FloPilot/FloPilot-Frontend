@@ -18,6 +18,7 @@ import {
   Plus,
   Settings2,
   CreditCard,
+  Tags,
   ThumbsDown,
   ThumbsUp,
   Trash2,
@@ -50,6 +51,7 @@ import {
 import { isStripeConnected } from "@/lib/payment-integrations";
 import { readStoreMockupDataUrl } from "@/lib/artwork-preview";
 import {
+  collectProductTags,
   ensureStoreTheme,
   type ClientStoreTheme,
 } from "@/lib/client-store-theme";
@@ -150,6 +152,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   );
   const [productDirty, setProductDirty] = useState(false);
   const [productSaving, setProductSaving] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [bulkTagDraft, setBulkTagDraft] = useState("");
+  const [bulkSaving, setBulkSaving] = useState(false);
   const productActionsRef = useRef<{
     save: () => Promise<void>;
     discard: () => void;
@@ -547,18 +552,140 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
 
   const saveProducts = async (products: ClientStoreProduct[]) => {
     const token = await getIdToken();
-    if (!token || !store) return;
+    if (!token) {
+      throw new Error("Not signed in. Refresh and try saving again.");
+    }
+    if (!store) {
+      throw new Error("Store is not loaded yet. Try again in a moment.");
+    }
     setSaving(true);
     setError(null);
     try {
       const res = await updateClientStore(token, store.id, { products });
       setStore(res.store);
+      return res.store;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not save products");
+      const message =
+        err instanceof Error ? err.message : "Could not save products";
+      setError(message);
+      throw err instanceof Error ? err : new Error(message);
     } finally {
       setSaving(false);
     }
+  }
+
+  const sortedCatalogProducts = useMemo(
+    () =>
+      (store?.products || [])
+        .slice()
+        .sort((a, b) => a.sortOrder - b.sortOrder),
+    [store?.products]
+  );
+
+  const selectedProductIdSet = useMemo(
+    () => new Set(selectedProductIds),
+    [selectedProductIds]
+  );
+
+  const allCatalogSelected =
+    sortedCatalogProducts.length > 0 &&
+    sortedCatalogProducts.every((product) =>
+      selectedProductIdSet.has(product.id)
+    );
+
+  const availableCatalogTags = useMemo(
+    () => collectProductTags(store?.products || []),
+    [store?.products]
+  );
+
+  const toggleProductSelected = (productId: string) => {
+    setSelectedProductIds((prev) =>
+      prev.includes(productId)
+        ? prev.filter((id) => id !== productId)
+        : [...prev, productId]
+    );
   };
+
+  const toggleSelectAllProducts = () => {
+    if (allCatalogSelected) {
+      setSelectedProductIds([]);
+      return;
+    }
+    setSelectedProductIds(sortedCatalogProducts.map((product) => product.id));
+  };
+
+  const normalizeBulkTags = (raw: string): string[] => {
+    const seen = new Set<string>();
+    const tags: string[] = [];
+    for (const part of raw.split(/[,\n]/)) {
+      const tag = part.trim().slice(0, 40);
+      if (!tag) continue;
+      const key = tag.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tags.push(tag);
+      if (tags.length >= 24) break;
+    }
+    return tags;
+  };
+
+  const applyBulkProductPatch = async (
+    patch: (product: ClientStoreProduct) => ClientStoreProduct
+  ) => {
+    if (!store || selectedProductIds.length === 0) return;
+    const selected = new Set(selectedProductIds);
+    const products = (store.products || []).map((product) =>
+      selected.has(product.id) ? patch(product) : product
+    );
+    setBulkSaving(true);
+    setError(null);
+    try {
+      await saveProducts(products);
+      setSelectedProductIds([]);
+      setBulkTagDraft("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update products");
+    } finally {
+      setBulkSaving(false);
+    }
+  };
+
+  const bulkAddTags = async () => {
+    const tagsToAdd = normalizeBulkTags(bulkTagDraft);
+    if (!tagsToAdd.length) {
+      setError("Enter at least one tag to add.");
+      return;
+    }
+    await applyBulkProductPatch((product) => {
+      const existing = product.tags || [];
+      const seen = new Set(existing.map((tag) => tag.toLowerCase()));
+      const merged = [...existing];
+      for (const tag of tagsToAdd) {
+        if (seen.has(tag.toLowerCase())) continue;
+        seen.add(tag.toLowerCase());
+        merged.push(tag);
+        if (merged.length >= 24) break;
+      }
+      return { ...product, tags: merged };
+    });
+  };
+
+  const bulkRemoveTags = async () => {
+    const tagsToRemove = new Set(
+      normalizeBulkTags(bulkTagDraft).map((tag) => tag.toLowerCase())
+    );
+    if (!tagsToRemove.size) {
+      setError("Enter at least one tag to remove.");
+      return;
+    }
+    await applyBulkProductPatch((product) => ({
+      ...product,
+      tags: (product.tags || []).filter(
+        (tag) => !tagsToRemove.has(tag.toLowerCase())
+      ),
+    }));
+  };
+;
 
   const handleAssetUpload = async (
     kind: "logo" | "hero",
@@ -1147,6 +1274,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                     await saveProducts(products);
                     setProductOpen(false);
                     setEditingProduct(null);
+                    setProductDirty(false);
                   }
                 : undefined
             }
@@ -1160,7 +1288,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                 </p>
                 <p className="text-[12px] text-[#8a8a8a]">
                   Add blanks from suppliers or create manual products with
-                  mockups and markup.
+                  mockups and markup. Select rows to bulk-edit tags or status.
                 </p>
               </div>
               <Button
@@ -1186,47 +1314,164 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                 </p>
               </div>
             ) : (
-              <div className={cn(dashboardCardClass, "overflow-x-auto")}>
-                <table className="w-full min-w-[760px] text-left">
-                  <thead>
-                    <tr className="border-b border-[#ebebeb] bg-[#fafafa]">
-                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:px-5">
-                        Product
-                      </th>
-                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                        Status
-                      </th>
-                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                        Price
-                      </th>
-                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                        Profit
-                      </th>
-                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                        Variants
-                      </th>
-                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                        Product type
-                      </th>
-                      <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                        Vendor
-                      </th>
-                      <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:px-5">
-                        Supplier
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#ebebeb]">
-                    {(store.products || [])
-                      .slice()
-                      .sort((a, b) => a.sortOrder - b.sortOrder)
-                      .map((product) => {
+              <div className="space-y-3">
+                {selectedProductIds.length > 0 ? (
+                  <div
+                    className={cn(
+                      dashboardCardClass,
+                      "flex flex-col gap-3 p-3.5 sm:flex-row sm:items-end sm:justify-between"
+                    )}
+                  >
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Tags className="size-3.5 text-[#2c6ecb]" />
+                        <p className="text-[13px] font-semibold text-[#303030]">
+                          {selectedProductIds.length} selected
+                        </p>
+                        <button
+                          type="button"
+                          className="text-[12px] font-medium text-[#2c6ecb] hover:underline"
+                          onClick={() => setSelectedProductIds([])}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                        <Input
+                          value={bulkTagDraft}
+                          onChange={(e) => setBulkTagDraft(e.target.value)}
+                          placeholder="Tags to add or remove (comma-separated)"
+                          className="h-9 max-w-md border-[#e3e3e3] text-[12px]"
+                          disabled={bulkSaving}
+                        />
+                        <div className="flex flex-wrap gap-1.5">
+                          <Button
+                            type="button"
+                            className={cn(dashboardControlClass, "h-9")}
+                            disabled={bulkSaving}
+                            onClick={() => void bulkAddTags()}
+                          >
+                            Add tags
+                          </Button>
+                          <Button
+                            type="button"
+                            className={cn(dashboardControlClass, "h-9")}
+                            disabled={bulkSaving}
+                            onClick={() => void bulkRemoveTags()}
+                          >
+                            Remove tags
+                          </Button>
+                          <Button
+                            type="button"
+                            className={cn(dashboardControlClass, "h-9")}
+                            disabled={bulkSaving}
+                            onClick={() =>
+                              void applyBulkProductPatch((product) => ({
+                                ...product,
+                                enabled: true,
+                              }))
+                            }
+                          >
+                            Set active
+                          </Button>
+                          <Button
+                            type="button"
+                            className={cn(dashboardControlClass, "h-9")}
+                            disabled={bulkSaving}
+                            onClick={() =>
+                              void applyBulkProductPatch((product) => ({
+                                ...product,
+                                enabled: false,
+                              }))
+                            }
+                          >
+                            Set draft
+                          </Button>
+                        </div>
+                      </div>
+                      {availableCatalogTags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {availableCatalogTags.slice(0, 12).map((tag) => (
+                            <button
+                              key={tag}
+                              type="button"
+                              disabled={bulkSaving}
+                              onClick={() =>
+                                setBulkTagDraft((prev) => {
+                                  const parts = normalizeBulkTags(prev);
+                                  if (
+                                    parts.some(
+                                      (row) =>
+                                        row.toLowerCase() === tag.toLowerCase()
+                                    )
+                                  ) {
+                                    return parts.join(", ");
+                                  }
+                                  return [...parts, tag].join(", ");
+                                })
+                              }
+                              className="rounded-md border border-[#e3e3e3] bg-white px-2 py-0.5 text-[11px] font-medium text-[#616161] hover:border-[#c9cccf] hover:text-[#303030]"
+                            >
+                              {tag}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    {bulkSaving ? (
+                      <Loader2 className="size-4 shrink-0 animate-spin text-[#8a8a8a]" />
+                    ) : null}
+                  </div>
+                ) : null}
+
+                <div className={cn(dashboardCardClass, "overflow-x-auto")}>
+                  <table className="w-full min-w-[820px] text-left">
+                    <thead>
+                      <tr className="border-b border-[#ebebeb] bg-[#fafafa]">
+                        <th className="w-10 px-3 py-2.5 sm:px-4">
+                          <input
+                            type="checkbox"
+                            checked={allCatalogSelected}
+                            onChange={toggleSelectAllProducts}
+                            aria-label="Select all products"
+                            className="size-3.5 rounded border-[#c9cccf]"
+                          />
+                        </th>
+                        <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:px-4">
+                          Product
+                        </th>
+                        <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                          Status
+                        </th>
+                        <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                          Price
+                        </th>
+                        <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                          Profit
+                        </th>
+                        <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                          Variants
+                        </th>
+                        <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                          Tags
+                        </th>
+                        <th className="px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                          Vendor
+                        </th>
+                        <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:px-5">
+                          Supplier
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#ebebeb]">
+                      {sortedCatalogProducts.map((product) => {
                         const colorCount =
                           getEnabledColorVariants(product).length;
                         const sizeCount = (product.sizes || []).filter(
                           (row) => row.enabled
                         ).length;
                         const economics = computeClientStoreEconomics(product);
+                        const selected = selectedProductIdSet.has(product.id);
                         return (
                           <tr
                             key={product.id}
@@ -1234,9 +1479,26 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                               setEditingProduct(product);
                               setProductOpen(true);
                             }}
-                            className="cursor-pointer bg-white transition-colors hover:bg-[#fafafa]"
+                            className={cn(
+                              "cursor-pointer bg-white transition-colors hover:bg-[#fafafa]",
+                              selected && "bg-[#f6f8ff] hover:bg-[#f0f4ff]"
+                            )}
                           >
-                            <td className="px-4 py-3 sm:px-5">
+                            <td
+                              className="px-3 py-3 sm:px-4"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() =>
+                                  toggleProductSelected(product.id)
+                                }
+                                aria-label={`Select ${product.name}`}
+                                className="size-3.5 rounded border-[#c9cccf]"
+                              />
+                            </td>
+                            <td className="px-3 py-3 sm:px-4">
                               <div className="flex items-center gap-3">
                                 <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#ebebeb] bg-[#fafafa] p-0.5">
                                   {getPrimaryMockupUrl(product) ? (
@@ -1255,7 +1517,23 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                                     {product.name}
                                   </p>
                                   <p className="max-w-[260px] truncate text-[11px] text-[#8a8a8a]">
-                                    {product.color || "—"}
+                                    {[
+                                      product.color,
+                                      product.decorationType,
+                                      Number(product.minOrderQty) > 0
+                                        ? `MOQ ${product.minOrderQty}`
+                                        : null,
+                                      Number(product.setupFee) > 0
+                                        ? `Setup ${formatCurrency(product.setupFee || 0)}`
+                                        : null,
+                                    ]
+                                      .map((part) =>
+                                        typeof part === "string"
+                                          ? part.trim()
+                                          : part
+                                      )
+                                      .filter(Boolean)
+                                      .join(" · ") || "—"}
                                   </p>
                                 </div>
                               </div>
@@ -1343,8 +1621,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                           </tr>
                         );
                       })}
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>

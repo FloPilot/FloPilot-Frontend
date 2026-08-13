@@ -19,7 +19,11 @@ export function useImageBackgroundColor(src?: string | null): string | null {
 
     let cancelled = false;
     const img = new window.Image();
-    img.crossOrigin = "anonymous";
+    // data:/blob: URLs don't need CORS; setting crossOrigin on them can
+    // prevent canvas sampling in some browsers.
+    if (/^https?:\/\//i.test(src)) {
+      img.crossOrigin = "anonymous";
+    }
 
     img.onload = () => {
       if (cancelled) return;

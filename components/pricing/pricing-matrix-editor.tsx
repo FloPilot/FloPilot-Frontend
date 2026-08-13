@@ -10,7 +10,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
   LabeledSelectValue,
 } from "@/components/ui/select";
 import { parsePricingCsv, type ParsedPricingGrid } from "@/lib/pricing-csv";
@@ -21,11 +20,14 @@ import {
   syncLocationBundleToMethod,
   type LocationChargeMode,
 } from "@/lib/pricing-location-bundle";
-import { DECORATION_TYPE_OPTIONS, decorationLabel } from "@/lib/format";
+import { decorationLabel } from "@/lib/format";
 import {
+  getDecorationTypeOptions,
   inferPricingDecorationType,
+  type DecorationTypeOption,
   type PricingMatrix,
   type PricingMethod,
+  type ShopProductionDefaults,
 } from "@/lib/shop-settings";
 import type { DecorationType } from "@/types";
 import { cn } from "@/lib/utils";
@@ -49,16 +51,44 @@ function methodNameFromFile(fileName: string): string {
   return fileName.replace(/\.[^.]+$/, "").replace(/[_]+/g, " ").trim();
 }
 
-const STARTER_METHODS: { name: string; decorationType: DecorationType }[] = [
+const BUILTIN_STARTER_METHODS: {
+  name: string;
+  decorationType: DecorationType;
+}[] = [
   { name: "Screen Print", decorationType: "screen_print" },
   { name: "Embroidery", decorationType: "embroidery" },
   { name: "DTF", decorationType: "dtf" },
   { name: "Vinyl", decorationType: "vinyl" },
 ];
 
-const PRICING_DECORATION_OPTIONS = DECORATION_TYPE_OPTIONS.filter(
-  (option) => option.value !== "finishing"
-);
+function resolvePricingDecorationOptions(
+  productionDefaults?: ShopProductionDefaults | null,
+  methods: PricingMethod[] = []
+): DecorationTypeOption[] {
+  const shopOptions = getDecorationTypeOptions(productionDefaults).filter(
+    (option) => option.value !== "finishing"
+  );
+  const base =
+    shopOptions.length > 0
+      ? shopOptions
+      : BUILTIN_STARTER_METHODS.map((option) => ({
+          value: option.decorationType,
+          label: option.name,
+        }));
+
+  const seen = new Set(base.map((option) => option.value));
+  const extras: DecorationTypeOption[] = [];
+  for (const method of methods) {
+    const value = method.decorationType?.trim();
+    if (!value || value === "finishing" || seen.has(value)) continue;
+    seen.add(value);
+    extras.push({
+      value,
+      label: method.name.trim() || decorationLabel(value),
+    });
+  }
+  return [...base, ...extras];
+}
 
 export function PricingMatrixEditor({
   value,
@@ -67,6 +97,7 @@ export function PricingMatrixEditor({
   currency = "USD",
   showEnabledToggle = false,
   className,
+  productionDefaults,
 }: {
   value: PricingMatrix;
   onChange: (next: PricingMatrix) => void;
@@ -74,7 +105,21 @@ export function PricingMatrixEditor({
   currency?: string;
   showEnabledToggle?: boolean;
   className?: string;
+  /** Shop decoration types — custom methods (e.g. Neck Label) appear in the type dropdown. */
+  productionDefaults?: ShopProductionDefaults | null;
 }) {
+  const decorationTypeOptions = resolvePricingDecorationOptions(
+    productionDefaults,
+    value.methods
+  );
+  const quickAddMethods = decorationTypeOptions.filter(
+    (option) =>
+      !value.methods.some(
+        (method) =>
+          (method.decorationType ||
+            inferPricingDecorationType(method.name)) === option.value
+      )
+  );
   const [csvError, setCsvError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const importTargetRef = useRef<string | null>(null);
@@ -350,18 +395,21 @@ export function PricingMatrixEditor({
             Import CSV
           </Button>
           <div className="flex flex-wrap justify-center gap-2 pt-1">
-            {STARTER_METHODS.map((starter) => (
+            {(quickAddMethods.length > 0
+              ? quickAddMethods
+              : decorationTypeOptions
+            ).map((starter) => (
               <Button
-                key={starter.decorationType}
+                key={starter.value}
                 variant="outline"
                 size="sm"
                 disabled={disabled}
                 onClick={() =>
-                  addMethod(starter.name, undefined, starter.decorationType)
+                  addMethod(starter.label, undefined, starter.value)
                 }
               >
                 <Plus className="size-4" />
-                {starter.name}
+                {starter.label}
               </Button>
             ))}
           </div>
@@ -415,10 +463,14 @@ export function PricingMatrixEditor({
                         const decorationType = (next || undefined) as
                           | DecorationType
                           | undefined;
+                        const optionLabel = decorationTypeOptions.find(
+                          (option) => option.value === decorationType
+                        )?.label;
                         updateMethod(method.id, {
                           decorationType,
                           name:
                             method.name.trim() ||
+                            optionLabel ||
                             (decorationType
                               ? decorationLabel(decorationType)
                               : method.name),
@@ -426,10 +478,18 @@ export function PricingMatrixEditor({
                       }}
                     >
                       <SelectTrigger className="h-9">
-                        <SelectValue placeholder="Select type" />
+                        <LabeledSelectValue
+                          value={
+                            method.decorationType ||
+                            inferPricingDecorationType(method.name) ||
+                            ""
+                          }
+                          options={decorationTypeOptions}
+                          placeholder="Select type"
+                        />
                       </SelectTrigger>
                       <SelectContent>
-                        {PRICING_DECORATION_OPTIONS.map((option) => (
+                        {decorationTypeOptions.map((option) => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
                           </SelectItem>
@@ -437,8 +497,8 @@ export function PricingMatrixEditor({
                       </SelectContent>
                     </Select>
                     <p className="text-[11px] text-[#8a8a8a]">
-                      Links this grid to orders — safe to rename the display
-                      name.
+                      Links this grid to orders — includes custom types from
+                      Decoration locations. Safe to rename the display name.
                     </p>
                   </div>
                   <div className="space-y-2">
@@ -712,6 +772,19 @@ export function PricingMatrixEditor({
               <Upload className="size-4" />
               Import CSV
             </Button>
+            {quickAddMethods.map((starter) => (
+              <Button
+                key={starter.value}
+                variant="outline"
+                disabled={disabled}
+                onClick={() =>
+                  addMethod(starter.label, undefined, starter.value)
+                }
+              >
+                <Plus className="size-4" />
+                {starter.label}
+              </Button>
+            ))}
             <Button
               variant="outline"
               disabled={disabled}

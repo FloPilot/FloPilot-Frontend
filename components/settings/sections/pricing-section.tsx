@@ -406,6 +406,7 @@ export function PricingSection() {
                 }))
               }
               currency={currency}
+              productionDefaults={settings.productionDefaults}
             />
 
             <CustomerContractFeesEditor

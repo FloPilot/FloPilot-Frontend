@@ -114,7 +114,10 @@ export function PrintLocationsSection() {
     enabled: isAdmin,
     label: "Unsaved print locations",
     onSave: () => handleSave(),
-    onDiscard: discard,
+    onDiscard: () => {
+      discard();
+      setError(null);
+    },
     id: "settings-print-locations",
   });
 
@@ -150,19 +153,36 @@ export function PrintLocationsSection() {
     const label = newLocation.trim();
     if (!label) return;
 
-    const value = slugifyPrintLocationValue(label);
-    const exists = locations.some(
-      (entry) =>
-        entry.label.toLowerCase() === label.toLowerCase() ||
-        entry.value === value
-    );
-    if (exists) return;
-
     const decorationType =
       safeNewLocationType ||
       decorationTypeChoices[0]?.value ||
       "screen_print";
 
+    const duplicate = locations.find((entry) => {
+      const sameLabel = entry.label.toLowerCase() === label.toLowerCase();
+      const sameType =
+        resolvePrintLocationDecorationType(entry) === decorationType;
+      return sameLabel && sameType;
+    });
+    if (duplicate) {
+      setError(
+        `"${label}" is already on your list for ${
+          decorationTypeChoices.find((entry) => entry.value === decorationType)
+            ?.label ?? decorationType
+        }. Pick a different name or decoration type.`
+      );
+      return;
+    }
+
+    // Keep values unique even when the same placement name is reused for
+    // another decoration method (e.g. Neck Label · DTF and Neck Label · Embroidery).
+    const baseValue = slugifyPrintLocationValue(label);
+    const value =
+      locations.some((entry) => entry.value === baseValue)
+        ? slugifyPrintLocationValue(`${label}_${decorationType}`)
+        : baseValue;
+
+    setError(null);
     setDraft((current) => ({
       ...current,
       printLocations: [
@@ -548,7 +568,10 @@ export function PrintLocationsSection() {
           <div className="flex flex-col gap-2 lg:flex-row">
             <Input
               value={newLocation}
-              onChange={(event) => setNewLocation(event.target.value)}
+              onChange={(event) => {
+                setNewLocation(event.target.value);
+                if (error) setError(null);
+              }}
               placeholder="e.g. Neck label, Left chest pocket"
               className="h-10 min-w-0 flex-1"
               onKeyDown={(event) => {

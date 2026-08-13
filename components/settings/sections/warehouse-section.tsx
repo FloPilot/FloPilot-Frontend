@@ -93,20 +93,20 @@ export function WarehouseSection() {
   });
 
   const addWarehouse = () => {
-    setDraft((current) => ({
-      ...current,
-      warehouses: [
-        ...current.warehouses,
-        {
-          id: newId("warehouse"),
-          name: "",
-          code: "",
-          description: "",
-          isDefault: current.warehouses.length === 0,
-          address: { ...DEFAULT_COMPANY_ADDRESS },
-        },
-      ],
-    }));
+    setDraft((current) => {
+      const next: ShopWarehouse = {
+        id: newId("warehouse"),
+        name: "",
+        code: "",
+        description: "",
+        isDefault: current.warehouses.length === 0,
+        address: { ...DEFAULT_COMPANY_ADDRESS },
+      };
+      return {
+        ...current,
+        warehouses: [...current.warehouses, next],
+      };
+    });
   };
 
   const setDefaultWarehouse = (id: string) => {

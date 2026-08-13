@@ -1,9 +1,11 @@
 import type {
   PricingMatrix,
+  PricingMethod,
   ShopPricingRateSheet,
   ShopSettings,
 } from "@/lib/shop-settings";
 import {
+  inferPricingDecorationType,
   matrixFromShopPricingRateSheet,
   normalizeShopPricingRateSheetList,
 } from "@/lib/shop-settings";
@@ -156,6 +158,49 @@ export function resolveShopRateSheet(
   return sheets.find((sheet) => sheet.isDefault) ?? sheets[0] ?? null;
 }
 
+function pricingMethodLookupKey(method: PricingMethod): string {
+  const type =
+    method.decorationType?.trim() ||
+    inferPricingDecorationType(method.name, method.decorationType);
+  if (type) return `type:${type}`;
+  const name = method.name.trim().toLowerCase();
+  if (name) return `name:${name}`;
+  return `id:${method.id}`;
+}
+
+/**
+ * Build the effective shop matrix for an order.
+ * Fees / blank markup come from the selected (or default) sheet.
+ * Decoration methods are unioned across all enabled shop sheets so shops can
+ * keep Screen Print, DTF, Neck Label, etc. on separate sheets and still price
+ * mixed orders.
+ */
+export function mergeShopDecorationMethods(
+  primary: ShopPricingRateSheet,
+  sheets: ShopPricingRateSheet[]
+): PricingMethod[] {
+  const merged: PricingMethod[] = [];
+  const seen = new Set<string>();
+
+  const pushFrom = (methods: PricingMethod[]) => {
+    for (const method of methods) {
+      if (!method.rows?.length) continue;
+      const key = pricingMethodLookupKey(method);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(method);
+    }
+  };
+
+  pushFrom(primary.methods ?? []);
+  for (const sheet of sheets) {
+    if (sheet.id === primary.id) continue;
+    pushFrom(sheet.methods ?? []);
+  }
+
+  return merged;
+}
+
 export function resolveShopPricingMatrix(
   settings?: ShopPricingSource | null,
   order?: Order | null
@@ -164,6 +209,7 @@ export function resolveShopPricingMatrix(
   rateSheetName?: string;
   usingShopPricing?: boolean;
 } {
+  const sheets = listShopRateSheets(settings);
   const sheet = resolveShopRateSheet(settings, order);
   if (!sheet) {
     const matrix = settings?.pricingMatrix ?? {
@@ -173,8 +219,17 @@ export function resolveShopPricingMatrix(
     };
     return { ...matrix, usingShopPricing: true };
   }
+
+  const methods = mergeShopDecorationMethods(sheet, sheets);
+  const base = matrixFromShopSheet({
+    ...sheet,
+    methods,
+  });
+
   return {
-    ...matrixFromShopSheet(sheet),
+    ...base,
+    enabled: base.enabled || methods.length > 0,
+    methods,
     rateSheetId: sheet.id,
     rateSheetName: sheet.name,
     usingShopPricing: true,

@@ -394,14 +394,15 @@ export function OrderProducedGoodsPanel({
               Production notes
             </label>
             <p className={cn("mt-0.5 mb-2", dashboardTaskDetailClass)}>
-              Optional — why counts differ, overs left in stock, customer notes, etc.
+              Shown as Comments on the invoice — use for damaged goods, shorts,
+              overs, or anything the customer should see.
             </p>
             <textarea
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               rows={2}
               disabled={saving}
-              placeholder="e.g. Printed 12 extras for stock / customer requested extras"
+              placeholder="e.g. 2 XL damaged in press — billed for 10 of 12 ordered"
               className="w-full resize-none rounded-lg border border-[#e3e3e3] bg-white px-3 py-2 text-[13px] text-[#303030] outline-none focus:border-brand-primary"
             />
           </div>

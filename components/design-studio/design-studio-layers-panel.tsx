@@ -26,7 +26,7 @@ export function DesignStudioLayersPanel({
 }: {
   layers: DesignStudioLayerRow[];
   selectedId: string | null;
-  onSelect: (id: string) => void;
+  onSelect: (id: string | null) => void;
   onDelete: (id: string) => void;
   className?: string;
 }) {
@@ -72,7 +72,8 @@ export function DesignStudioLayersPanel({
                     type="button"
                     disabled={layer.locked}
                     onClick={() => {
-                      if (!layer.locked) onSelect(layer.id);
+                      if (layer.locked) return;
+                      onSelect(selected ? null : layer.id);
                     }}
                     className={cn(
                       "flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 text-left transition-colors",

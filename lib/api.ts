@@ -1597,6 +1597,40 @@ export async function createDesignFromImprint(
   );
 }
 
+export async function createDesign(
+  token: string,
+  body: {
+    name: string;
+    stageMode?: "garment" | "color";
+    blankImageUrl?: string;
+    blankColorHex?: string;
+    blankView?: "front" | "back";
+    previewUrl?: string;
+    locationKey?: string;
+    locationLabel?: string;
+    locations?: Array<{
+      locationKey: string;
+      locationLabel?: string;
+      blankImageUrl?: string;
+      blankImageFrontUrl?: string;
+      blankImageBackUrl?: string;
+      blankView?: "front" | "back";
+    }>;
+    blankImageFrontUrl?: string;
+    blankImageBackUrl?: string;
+    decoration?: string;
+    customerId?: string;
+    tags?: string[];
+    author?: string;
+  }
+) {
+  return callApi<{ design: import("@/types").SavedDesign }>("createDesign", {
+    method: "POST",
+    body,
+    token,
+  });
+}
+
 export async function applyDesignToOrder(
   token: string,
   body: {
@@ -1620,7 +1654,14 @@ export async function updateDesign(
     patch: Partial<
       Pick<
         import("@/types").SavedDesign,
-        "name" | "tags" | "notes" | "inkColors"
+        | "name"
+        | "tags"
+        | "notes"
+        | "inkColors"
+        | "designMockup"
+        | "locations"
+        | "locationKey"
+        | "locationLabel"
       >
     >;
     changeSummary?: string;

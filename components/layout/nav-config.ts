@@ -12,6 +12,7 @@ import {
   Layers,
   LayoutDashboard,
   Monitor,
+  Palette,
   ShoppingBag,
   SlidersHorizontal,
   Store,
@@ -66,6 +67,7 @@ export const MACHINES_BASE = "/app/machines";
 export const MACHINES_SETTINGS = "/app/machines/settings";
 export const PRODUCTION_BASE = "/app/production";
 export const ARTWORK_BASE = "/app/artwork";
+export const DESIGN_STUDIO_BASE = "/app/design-studio";
 export const DESIGNS_BASE = "/app/designs";
 export const FILES_BASE = "/app/files";
 export const FILES_ARTWORK = "/app/files/artwork";
@@ -77,6 +79,13 @@ export function isMachinesSection(pathname: string): boolean {
 
 export function isFilesSection(pathname: string): boolean {
   return pathname === FILES_BASE || pathname.startsWith(`${FILES_BASE}/`);
+}
+
+export function isDesignStudioSection(pathname: string): boolean {
+  return (
+    pathname === DESIGN_STUDIO_BASE ||
+    pathname.startsWith(`${DESIGN_STUDIO_BASE}/`)
+  );
 }
 
 export function isArtworkSection(pathname: string): boolean {
@@ -169,6 +178,14 @@ export const navItems: NavItem[] = [
       isActive: (pathname: string) =>
         pathname === dept.href || pathname.startsWith(`${dept.href}/`),
     })),
+  },
+  {
+    href: DESIGN_STUDIO_BASE,
+    label: "Design Studio",
+    icon: Palette,
+    moduleKey: "artwork",
+    workspaceArea: "artwork",
+    isActive: isDesignStudioSection,
   },
   {
     href: ARTWORK_BASE,

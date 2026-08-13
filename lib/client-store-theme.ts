@@ -469,6 +469,21 @@ function productHasTag(
   );
 }
 
+function hasSmartRules(collection: ClientStoreCollection): boolean {
+  return (collection.rules || []).some((rule) =>
+    String(rule.value || "").trim()
+  );
+}
+
+/** Smart when explicitly marked, or when rules exist and it isn't forced to manual. */
+export function isSmartCollection(
+  collection: ClientStoreCollection
+): boolean {
+  if (collection.selectionType === "smart") return true;
+  if (collection.selectionType === "manual") return false;
+  return hasSmartRules(collection);
+}
+
 function productMatchesRules(
   product: { tags?: string[] },
   collection: ClientStoreCollection
@@ -479,7 +494,8 @@ function productMatchesRules(
   if (rules.length === 0) return false;
 
   const checks = rules.map((rule) => {
-    if (rule.field === "tag") {
+    // Tag is the only rule field today; treat missing field as tag for older data.
+    if (!rule.field || rule.field === "tag") {
       return productHasTag(product, rule.value);
     }
     return false;
@@ -497,7 +513,7 @@ export function resolveCollectionProducts<
   const enabled = products.filter((product) => product.enabled !== false);
   const excluded = new Set(collection.excludedProductIds || []);
 
-  if (collection.selectionType === "smart") {
+  if (isSmartCollection(collection)) {
     return enabled.filter(
       (product) =>
         !excluded.has(product.id) && productMatchesRules(product, collection)

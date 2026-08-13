@@ -108,6 +108,9 @@ function emptyProduct(): ClientStoreProduct {
     tags: [],
     blankCost: 0,
     decorationCost: 0,
+    decorationType: "",
+    minOrderQty: 0,
+    setupFee: 0,
     markupPercent: 40,
     sellPrice: 0,
     sellPriceMode: "markup",
@@ -1693,6 +1696,84 @@ export function StoreProductEditor({
                       {label}
                     </button>
                   ))}
+                </div>
+
+                <div className="mb-4 grid gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label
+                      htmlFor="decoration-type"
+                      className="text-[13px] font-medium text-[#303030]"
+                    >
+                      Decoration type
+                    </Label>
+                    <Input
+                      id="decoration-type"
+                      value={draft.decorationType ?? ""}
+                      onChange={(e) =>
+                        updateDraft({ decorationType: e.target.value })
+                      }
+                      placeholder="e.g. DTF, Screen print left chest, Embroidery"
+                      className={cn(fieldClassName, "mt-1.5")}
+                    />
+                    <p className="mt-1.5 text-[11px] text-[#8a8a8a]">
+                      Free text for your team — shown with this product in the
+                      catalog
+                    </p>
+                  </div>
+                  <div>
+                    <Label
+                      htmlFor="min-order-qty"
+                      className="text-[13px] font-medium text-[#303030]"
+                    >
+                      Minimum order qty (MOQ)
+                    </Label>
+                    <Input
+                      id="min-order-qty"
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={draft.minOrderQty ?? 0}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onChange={(e) =>
+                        updateDraft({
+                          minOrderQty: Math.max(
+                            0,
+                            Math.floor(Number(e.target.value) || 0)
+                          ),
+                        })
+                      }
+                      className={cn(fieldClassName, "mt-1.5")}
+                    />
+                    <p className="mt-1.5 text-[11px] text-[#8a8a8a]">
+                      0 = no minimum. Total pieces across sizes for this product.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mb-4 max-w-sm">
+                  <Label
+                    htmlFor="setup-fee"
+                    className="text-[13px] font-medium text-[#303030]"
+                  >
+                    Setup fee
+                  </Label>
+                  <Input
+                    id="setup-fee"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={draft.setupFee ?? 0}
+                    onFocus={(event) => event.currentTarget.select()}
+                    onChange={(e) =>
+                      updateDraft({
+                        setupFee: Math.max(0, Number(e.target.value) || 0),
+                      })
+                    }
+                    className={cn(fieldClassName, "mt-1.5")}
+                  />
+                  <p className="mt-1.5 text-[11px] text-[#8a8a8a]">
+                    One-time fee charged once when this product is in an order
+                  </p>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

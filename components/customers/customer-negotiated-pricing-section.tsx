@@ -360,6 +360,7 @@ export function CustomerNegotiatedPricingSection({
                 }))
               }
               currency={currency}
+              productionDefaults={settings.productionDefaults}
             />
 
             <CustomerContractFeesEditor

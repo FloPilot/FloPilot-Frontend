@@ -245,3 +245,34 @@ export function varianceCallout(produced: OrderProducedGoods): {
     detail: `${made} pcs produced vs ${ordered} ordered. Invoice will bill produced quantities.`,
   };
 }
+
+/**
+ * Customer-facing invoice comments from produced goods notes
+ * (damaged goods, shorts, overs, etc.).
+ */
+export function collectInvoiceCommentsFromProducedGoods(
+  orderOrProduced: Order | OrderProducedGoods | null | undefined
+): string[] {
+  if (!orderOrProduced) return [];
+  const produced: OrderProducedGoods | null | undefined =
+    "lineItems" in orderOrProduced
+      ? orderOrProduced.producedGoods
+      : orderOrProduced;
+  if (!produced) return [];
+
+  const comments: string[] = [];
+  const topNotes =
+    typeof produced.notes === "string" ? produced.notes.trim() : "";
+  if (topNotes) comments.push(topNotes);
+
+  for (const line of produced.lines || []) {
+    const note = typeof line.notes === "string" ? line.notes.trim() : "";
+    if (!note) continue;
+    const label = [line.brand, line.productName, line.color, line.size]
+      .filter(Boolean)
+      .join(" · ");
+    comments.push(label ? `${label}: ${note}` : note);
+  }
+
+  return comments;
+}

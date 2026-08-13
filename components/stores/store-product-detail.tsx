@@ -15,6 +15,7 @@ import {
   getProductColorNames,
 } from "@/lib/client-stores";
 import { sampleImageCornerColor } from "@/lib/sample-image-color";
+import { StoreProductCommerceMeta } from "@/components/stores/store-product-commerce-meta";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ type ProductDetailControls = {
   onAddToCart: () => void;
   storeOpen?: boolean;
   brandFallback?: string;
+  error?: string | null;
 };
 
 function cardShadowClass(
@@ -217,6 +219,7 @@ export function StoreProductDetailPreview({
           <p className="mt-3 text-[1.15rem] font-semibold tabular-nums">
             {formatCurrency(product?.sellPrice || 0)}
           </p>
+          <StoreProductCommerceMeta product={product} density="detail" />
           {product?.description ? (
             <p className="mt-3 text-[13px] leading-relaxed opacity-80">
               {product.description}
@@ -416,6 +419,7 @@ export function StoreProductDetailInteractive({
               ? formatCurrency(product.sellPrice)
               : null}
           </p>
+          <StoreProductCommerceMeta product={product} density="detail" />
           {product.description ? (
             <p className="mt-4 text-[14px] leading-relaxed opacity-80">
               {product.description}
@@ -497,9 +501,13 @@ export function StoreProductDetailInteractive({
               <button
                 type="button"
                 className="inline-flex size-10 items-center justify-center text-[#616161] hover:bg-[#f6f6f7]"
-                onClick={() =>
-                  controls.onQtyChange(Math.max(1, controls.qty - 1))
-                }
+                onClick={() => {
+                  const floor = Math.max(
+                    1,
+                    Math.floor(Number(product.minOrderQty) || 0) || 1
+                  );
+                  controls.onQtyChange(Math.max(floor, controls.qty - 1));
+                }}
               >
                 <Minus className="size-3.5" />
               </button>
@@ -514,6 +522,11 @@ export function StoreProductDetailInteractive({
                 <Plus className="size-3.5" />
               </button>
             </div>
+            {Number(product.minOrderQty) > 0 ? (
+              <p className="mt-1.5 text-[11px] text-[#8a8a8a]">
+                Minimum {product.minOrderQty} pieces for this product
+              </p>
+            ) : null}
           </div>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row">
@@ -527,6 +540,9 @@ export function StoreProductDetailInteractive({
               {settings.buttonLabel || "Add to cart"}
             </Button>
           </div>
+          {controls.error ? (
+            <p className="mt-3 text-[13px] text-red-700">{controls.error}</p>
+          ) : null}
         </div>
       </div>
     </section>

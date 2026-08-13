@@ -52,9 +52,7 @@ export function OrderArtworkApprovalPanel({
   );
 
   const summary = useMemo(() => getArtworkApprovalSummary(order), [order]);
-  const [expanded, setExpanded] = useState(
-    () => !getArtworkApprovalSummary(order).allApproved
-  );
+  const [expanded, setExpanded] = useState(false);
   const wasAllApprovedRef = useRef(summary.allApproved);
 
   useEffect(() => {

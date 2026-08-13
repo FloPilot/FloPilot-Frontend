@@ -62,16 +62,16 @@ function inkRowGridClass(
 ): string {
   if (isScreenPrint) {
     return sortable
-      ? "grid-cols-[32px_24px_minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,1fr)_36px]"
+      ? "grid-cols-[32px_24px_minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,1fr)_44px]"
       : "grid-cols-[24px_minmax(0,1.35fr)_minmax(0,0.9fr)_minmax(0,1fr)]";
   }
   if (isDtf) {
     return sortable
-      ? "grid-cols-[32px_24px_minmax(0,1fr)_minmax(0,1.15fr)_36px]"
+      ? "grid-cols-[32px_24px_minmax(0,1fr)_minmax(0,1.15fr)_44px]"
       : "grid-cols-[24px_minmax(0,1fr)_minmax(0,1.15fr)]";
   }
   return sortable
-    ? "grid-cols-[32px_24px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)_36px]"
+    ? "grid-cols-[32px_24px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)_44px]"
     : "grid-cols-[24px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,1fr)]";
 }
 
@@ -163,6 +163,15 @@ const InkColorRowEditor = memo(function InkColorRowEditor({
         isDragging &&
           "relative z-10 bg-white shadow-[0_10px_28px_rgba(26,26,26,0.12)] ring-1 ring-[#c9d7ef]"
       )}
+      onContextMenu={
+        sortable
+          ? (event) => {
+              event.preventDefault();
+              onRemove();
+            }
+          : undefined
+      }
+      title={sortable ? "Right-click to delete this stroke" : undefined}
     >
       {sortable ? (
         <button
@@ -301,18 +310,28 @@ const InkColorRowEditor = memo(function InkColorRowEditor({
         </div>
       ) : null}
 
-      <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="text-muted-foreground hover:text-destructive"
-          onClick={onRemove}
-          aria-label="Remove ink row"
+      {sortable ? (
+        <div
+          className={cn(
+            "sticky right-0 z-[1] -mr-3 flex h-full items-center justify-center self-stretch bg-white pl-1 pr-3",
+            row.isFlash && "bg-amber-50/50",
+            isNew && "bg-[#f4f7fd]",
+            isDragging && "bg-white"
+          )}
         >
-          <Trash2 className="size-3.5" />
-        </Button>
-      </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-8 shrink-0 text-[#b42318] hover:bg-[#fff1f1] hover:text-[#912018]"
+            onClick={onRemove}
+            aria-label={row.isFlash ? "Remove flash stroke" : "Remove color"}
+            title="Delete"
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }, (prev, next) => {
@@ -766,8 +785,8 @@ export function ImprintInkColorsEditor({
               Production order
             </p>
             <p className="text-[12px] text-muted-foreground">
-              Drag strokes to match press order — colors and flashes run top to
-              bottom.
+              Drag strokes to match press order. Use the red trash icon (or
+              right-click a row) to delete a color.
             </p>
           </div>
           <span className="rounded-full bg-[#f1f1f1] px-2.5 py-1 text-[11px] font-medium text-[#616161]">
@@ -798,7 +817,11 @@ export function ImprintInkColorsEditor({
             ) : null}
             {!isDtf ? <span>Mesh</span> : null}
             {!isDtf ? <span>Squeegee</span> : null}
-            {!readOnly ? <span className="sr-only">Remove</span> : null}
+            {!readOnly ? (
+              <span className="sticky right-0 z-[1] -mr-3 bg-[#fafafa] pl-1 pr-3 text-center text-[#b42318]">
+                Del
+              </span>
+            ) : null}
           </div>
 
         {draft.length === 0 ? (

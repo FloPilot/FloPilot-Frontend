@@ -393,9 +393,10 @@ export function OrderEstimatePricingPanel({
             {saving ? <Loader2 className="size-3.5 animate-spin text-[#8a8a8a]" /> : null}
           </div>
           <p className={cn("mt-1", dashboardTaskDetailClass)}>
-            Choose which rate sheet applies. Enabled additional fees apply
-            automatically — skip any you do not want, or add more from saved
-            presets.
+            Choose which rate sheet sets fees and blank markup. Decoration
+            rates also pull matching methods from your other shop sheets (so
+            Screen Print + Neck Label can live on separate sheets). Skip or add
+            fees below as needed.
           </p>
         </div>
       </div>

@@ -589,6 +589,9 @@ export interface OrderDesignMockup {
   /** Which vendor blank photo to use — front or back */
   blankView?: "front" | "back";
   blankImageUrl?: string;
+  /** Optional alternate garment photos so studio can switch Front/Back views. */
+  blankImageFrontUrl?: string;
+  blankImageBackUrl?: string;
   /** Hex color overlay when blank photo lacks this colorway */
   blankColorHex?: string;
   /** Preferred multi-layer artwork stack (bottom → top). */
@@ -832,6 +835,12 @@ export interface SavedDesign {
   decoration: DecorationType;
   locationKey: ImprintLocationKey;
   locationLabel: string;
+  /**
+   * Multi-location Design Studio package. When present, each entry is a
+   * decoration spot with its own mockup. Top-level locationKey / designMockup
+   * stay in sync with the primary (usually first) location for legacy UIs.
+   */
+  locations?: SavedDesignLocation[];
   /** Snapshot of order.customLabel when synced from an order */
   sourceOrderCustomLabel?: string;
   /** Snapshot of imprint.customLabel (proof custom name) when synced */
@@ -841,6 +850,8 @@ export interface SavedDesign {
   notes?: ImprintProductionNotes;
   pmsCodes?: string[];
   tags?: string[];
+  /** Composed blank + artwork mockup from Design Studio (when available). */
+  designMockup?: OrderDesignMockup;
   sourceOrderId?: string;
   sourceOrderNumber?: string;
   sourceJobId?: string;
@@ -852,10 +863,19 @@ export interface SavedDesign {
   versions?: DesignVersionSnapshot[];
 }
 
+/** One decoration location on a standalone Design Studio design. */
+export interface SavedDesignLocation {
+  id: string;
+  locationKey: ImprintLocationKey;
+  locationLabel: string;
+  designMockup?: OrderDesignMockup;
+}
+
 export type DesignActivityType =
   | "ink_updated"
   | "specs_updated"
   | "artwork_uploaded"
+  | "mockup_updated"
   | "version_restored"
   | "note";
 
@@ -866,7 +886,7 @@ export interface DesignActivityEvent {
   detail?: string;
   timestamp: string;
   author?: string;
-  source?: "library" | "order" | "system";
+  source?: "library" | "order" | "system" | "studio";
   versionId?: string;
 }
 
@@ -883,6 +903,8 @@ export interface DesignVersionSnapshot {
     inkColors?: ImprintInkColor[];
     notes?: ImprintProductionNotes;
     pmsCodes?: string[];
+    /** Lightweight studio preview pointer for version cards */
+    composedPreviewUrl?: string;
   };
 }
 

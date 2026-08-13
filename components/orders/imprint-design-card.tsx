@@ -852,62 +852,34 @@ export function ImprintDesignCard({
                   </div>
                 </>
               ) : isScreenPrint ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-[11px] font-medium text-[#8a8a8a]">
-                      Ink type
-                    </Label>
-                    {readOnly ? (
-                      <p className="text-sm font-medium text-[#303030]">
-                        {inkTypeOptions.find(
-                          (option) => option.value === notes.inkType
-                        )?.label ??
-                          notes.inkType ??
-                          "—"}
-                      </p>
-                    ) : (
-                      <ShopPresetSelect
-                        value={inkTypeValue}
-                        options={inkTypeOptions}
-                        onChange={(value) =>
-                          saveNotes({ inkType: value || undefined })
-                        }
-                        className={fieldClassName}
-                        placeholder="Select ink"
-                        canAddCustom={isAdmin}
-                        onAddCustom={handleAddCustomInkType}
-                        addingCustom={addingCustomInkType}
-                        addLabel="Add ink type"
-                        addPlaceholder="e.g. High-opacity plastisol"
-                      />
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-[11px] font-medium text-[#8a8a8a]">
-                      Flashes
-                    </Label>
-                    {readOnly ? (
-                      <p className="text-sm font-medium text-[#303030]">
-                        {(notes.flashCount ??
-                          inkColors.filter((row) => row.isFlash).length) ||
-                          "—"}
-                      </p>
-                    ) : (
-                      <Input
-                        type="number"
-                        min={0}
-                        value={notes.flashCount ?? ""}
-                        onChange={(event) =>
-                          saveNotes({
-                            flashCount: event.target.value
-                              ? Number(event.target.value)
-                              : undefined,
-                          })
-                        }
-                        className={fieldClassName}
-                      />
-                    )}
-                  </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] font-medium text-[#8a8a8a]">
+                    Ink type
+                  </Label>
+                  {readOnly ? (
+                    <p className="text-sm font-medium text-[#303030]">
+                      {inkTypeOptions.find(
+                        (option) => option.value === notes.inkType
+                      )?.label ??
+                        notes.inkType ??
+                        "—"}
+                    </p>
+                  ) : (
+                    <ShopPresetSelect
+                      value={inkTypeValue}
+                      options={inkTypeOptions}
+                      onChange={(value) =>
+                        saveNotes({ inkType: value || undefined })
+                      }
+                      className={fieldClassName}
+                      placeholder="Select ink"
+                      canAddCustom={isAdmin}
+                      onAddCustom={handleAddCustomInkType}
+                      addingCustom={addingCustomInkType}
+                      addLabel="Add ink type"
+                      addPlaceholder="e.g. High-opacity plastisol"
+                    />
+                  )}
                 </div>
               ) : null}
 

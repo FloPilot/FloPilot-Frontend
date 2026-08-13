@@ -10,6 +10,7 @@ import { resolveCollectionProducts } from "@/lib/client-store-theme";
 import type { PublicClientStoreProduct } from "@/lib/client-stores";
 import { getPrimaryMockupUrl } from "@/lib/client-stores";
 import { StoreProductDetailPreview } from "@/components/stores/store-product-detail";
+import { StoreProductCommerceMeta } from "@/components/stores/store-product-commerce-meta";
 import { sampleImageCornerColor } from "@/lib/sample-image-color";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -19,15 +20,22 @@ function productsForSection(
   products: PublicClientStoreProduct[],
   collections: ClientStoreCollection[]
 ): PublicClientStoreProduct[] {
-  const source = section.settings.productSource || "all";
-  if (source === "collection" && section.settings.collectionId) {
-    const collection = collections.find(
-      (entry) => entry.id === section.settings.collectionId && entry.enabled
-    );
-    if (!collection) return [];
-    return resolveCollectionProducts(collection, products);
+  const useCollection =
+    section.type === "featured_collection" ||
+    section.settings.productSource === "collection";
+  if (!useCollection) return products;
+
+  const collectionId = section.settings.collectionId;
+  if (!collectionId) {
+    // Featured sections need a collection picked; don't silently fall back to all products.
+    return section.type === "featured_collection" ? [] : products;
   }
-  return products;
+
+  const collection = collections.find(
+    (entry) => entry.id === collectionId && entry.enabled
+  );
+  if (!collection) return [];
+  return resolveCollectionProducts(collection, products);
 }
 
 function cardShadowClass(
@@ -111,6 +119,7 @@ function ProductCard({
       <p className="mt-1 text-[12px] text-[#8a8a8a]">
         {[product.brand, product.color].filter(Boolean).join(" · ") || "Apparel"}
       </p>
+      <StoreProductCommerceMeta product={product} />
       <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
         {product.sellPrice != null ? formatCurrency(product.sellPrice) : null}
       </p>
@@ -321,7 +330,10 @@ export function StoreSectionRenderer({
   }
 
   if (section.type === "collection_list") {
-    const visible = collections.filter((entry) => entry.enabled);
+    const visible = collections
+      .filter((entry) => entry.enabled)
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder);
     return (
       <section style={{ background: bg, color }}>
         <div
