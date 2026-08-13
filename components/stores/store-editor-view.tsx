@@ -67,6 +67,8 @@ import {
   insertDuplicatedClientStoreProduct,
   isClientStoreReviewMode,
   isClientStoreShowMode,
+  normalizeClientStoreSlug,
+  previewClientStoreCustomerUrl,
   resolveClientStoreShareUrl,
   type ClientStore,
   type ClientStoreMode,
@@ -106,6 +108,7 @@ type EditorTab =
 type StoreDraftSnapshotInput = {
   mode: ClientStoreMode;
   name: string;
+  slug: string;
   headline: string;
   description: string;
   opensAt: string;
@@ -124,6 +127,7 @@ function serializeStoreDraft(input: StoreDraftSnapshotInput): string {
   return JSON.stringify({
     mode: input.mode || "order",
     name: input.name.trim(),
+    slug: input.slug.trim().toLowerCase(),
     headline: input.headline.trim(),
     description: input.description.trim(),
     opensAt: input.opensAt,
@@ -140,8 +144,12 @@ function serializeStoreDraft(input: StoreDraftSnapshotInput): string {
 }
 
 export function StoreEditorView({ storeId }: { storeId: string }) {
-  const { getIdToken } = useAuth();
+  const { getIdToken, profile } = useAuth();
   const { requestLeave } = useStaffUnsavedChanges();
+  const tenantSlug =
+    profile?.type === "staff" || profile?.type === "portal"
+      ? profile.tenant.slug
+      : "";
   const [store, setStore] = useState<ClientStore | null>(null);
   const [submissions, setSubmissions] = useState<ClientStoreSubmission[]>([]);
   const [tab, setTab] = useState<EditorTab>("overview");
@@ -175,6 +183,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   const [stripeLoading, setStripeLoading] = useState(true);
 
   const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
   const [mode, setMode] = useState<ClientStoreMode>("order");
   const [headline, setHeadline] = useState("");
   const [description, setDescription] = useState("");
@@ -206,6 +215,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       setStore(storeRes.store);
       setSubmissions(submissionRes.submissions);
       const nextName = storeRes.store.name || "";
+      const nextSlug = storeRes.store.slug || "";
       const nextMode = (storeRes.store.mode || "order") as ClientStoreMode;
       const nextHeadline = storeRes.store.headline || "";
       const nextDescription = storeRes.store.description || "";
@@ -229,6 +239,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         heroImageUrl: storeRes.store.heroImageUrl,
       });
       setName(nextName);
+      setSlug(nextSlug);
       setMode(nextMode);
       setHeadline(nextHeadline);
       setDescription(nextDescription);
@@ -250,6 +261,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       setDraftBaseline(serializeStoreDraft({
         mode: nextMode,
         name: nextName,
+        slug: nextSlug,
         headline: nextHeadline,
         description: nextDescription,
         opensAt: nextOpensAt,
@@ -308,6 +320,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       serializeStoreDraft({
         mode,
         name,
+        slug,
         headline,
         description,
         opensAt,
@@ -324,6 +337,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     [
       mode,
       name,
+      slug,
       headline,
       description,
       opensAt,
@@ -366,6 +380,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   const discardStoreDraft = useCallback(() => {
     if (!store) return;
     const nextName = store.name || "";
+    const nextSlug = store.slug || "";
     const nextMode = (store.mode || "order") as ClientStoreMode;
     const nextHeadline = store.headline || "";
     const nextDescription = store.description || "";
@@ -387,6 +402,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       heroImageUrl: store.heroImageUrl,
     });
     setName(nextName);
+    setSlug(nextSlug);
     setMode(nextMode);
     setHeadline(nextHeadline);
     setDescription(nextDescription);
@@ -403,6 +419,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     setDraftBaseline(serializeStoreDraft({
       mode: nextMode,
       name: nextName,
+      slug: nextSlug,
       headline: nextHeadline,
       description: nextDescription,
       opensAt: nextOpensAt,
@@ -421,12 +438,18 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   const saveDrafts = async () => {
     const token = await getIdToken();
     if (!token || !store) return;
+    const nextSlug = normalizeClientStoreSlug(slug);
+    if (!nextSlug) {
+      setError("Store URL is required.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
       const res = await updateClientStore(token, store.id, {
         mode,
         name: name.trim(),
+        slug: nextSlug,
         opensAt: opensAt ? new Date(opensAt).toISOString() : null,
         closesAt: closesAt ? new Date(closesAt).toISOString() : null,
         headline: headline.trim() || undefined,
@@ -459,6 +482,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       setHeadline(res.store.headline || "");
       setDescription(res.store.description || "");
       setName(res.store.name || "");
+      setSlug(res.store.slug || "");
       setOpensAt(res.store.opensAt?.slice(0, 16) || "");
       setClosesAt(res.store.closesAt?.slice(0, 16) || "");
       setOrderInstructions(res.store.settings?.orderInstructions || "");
@@ -476,6 +500,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       setDraftBaseline(serializeStoreDraft({
         mode: nextMode,
         name: res.store.name || "",
+        slug: res.store.slug || "",
         headline: res.store.headline || "",
         description: res.store.description || "",
         opensAt: res.store.opensAt?.slice(0, 16) || "",
@@ -803,8 +828,23 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   };
 
   const shareUrl = useMemo(
-    () => (store ? resolveClientStoreShareUrl(store) : ""),
-    [store]
+    () =>
+      store
+        ? resolveClientStoreShareUrl({
+            ...store,
+            tenantSlug: store.tenantSlug || tenantSlug || undefined,
+          })
+        : "",
+    [store, tenantSlug]
+  );
+
+  const exampleCustomerUrl = useMemo(
+    () =>
+      previewClientStoreCustomerUrl({
+        tenantSlug: store?.tenantSlug || tenantSlug,
+        storeSlug: slug,
+      }),
+    [store?.tenantSlug, tenantSlug, slug]
   );
 
   const copyShareLink = async () => {
@@ -1079,6 +1119,55 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                 className="mt-1.5 h-9 border-[#e3e3e3] text-[13px]"
               />
             </div>
+
+            <div>
+              <Label className="text-[13px]">Store URL</Label>
+              <div className="mt-1.5 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="flex min-w-0 flex-1 items-stretch overflow-hidden rounded-lg border border-[#e3e3e3] bg-white">
+                  <span className="inline-flex shrink-0 items-center border-r border-[#e3e3e3] bg-[#fafafa] px-2.5 text-[11px] text-[#8a8a8a] sm:text-[12px]">
+                    {(store?.tenantSlug || tenantSlug || "your-shop")
+                      .toLowerCase()}
+                    .flopilot.io/store/
+                  </span>
+                  <Input
+                    value={slug}
+                    onChange={(e) =>
+                      setSlug(
+                        e.target.value
+                          .toLowerCase()
+                          .replace(/[^a-z0-9-]/g, "")
+                      )
+                    }
+                    onBlur={() => setSlug(normalizeClientStoreSlug(slug))}
+                    placeholder="socalsolarpro"
+                    className="h-9 flex-1 border-0 text-[13px] shadow-none focus-visible:ring-0"
+                  />
+                </div>
+              </div>
+              {exampleCustomerUrl ? (
+                <p className="mt-1.5 break-all text-[12px] text-[#616161]">
+                  Customers get{" "}
+                  <span className="font-medium text-[#303030]">
+                    {exampleCustomerUrl}
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-1.5 text-[12px] text-[#8a8a8a]">
+                  Lowercase letters, numbers, and hyphens. Must be unique for
+                  your shop.
+                </p>
+              )}
+              <p className="mt-1 text-[11px] text-[#8a8a8a]">
+                Path links like{" "}
+                <span className="font-mono text-[10px] text-[#616161]">
+                  /store/
+                  {(store?.tenantSlug || tenantSlug || "your-shop").toLowerCase()}
+                  /{normalizeClientStoreSlug(slug) || "store-name"}
+                </span>{" "}
+                also work. Changes apply when you save.
+              </p>
+            </div>
+
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label className="text-[13px]">Opens</Label>

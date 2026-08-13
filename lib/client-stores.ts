@@ -196,8 +196,12 @@ export type ClientStore = {
   updatedAt: string;
   publishedAt?: string | null;
   createdBy?: string;
+  /** Shop / tenant slug used in friendly public URLs. */
+  tenantSlug?: string;
   shareToken?: string;
   shareUrl?: string;
+  /** Path-only friendly link, e.g. `/store/{tenant}/{store}`. */
+  sharePath?: string;
   /** Aggregated thumbs for review stores. */
   voteSummary?: ClientStoreVoteSummaryRow[];
 };
@@ -475,11 +479,44 @@ export function clientStoreReviewPhaseLabel(
 /**
  * Prefer the current app origin for share links so local testing uses
  * localhost:3000 instead of the production APP_URL baked into API responses.
+ * When tenant + store slugs are available, use friendly URLs instead of JWTs.
  */
 export function resolveClientStoreShareUrl(store: {
   shareUrl?: string;
   shareToken?: string;
+  sharePath?: string;
+  tenantSlug?: string;
+  slug?: string;
 }): string {
+  const tenantSlug = String(store.tenantSlug || "")
+    .trim()
+    .toLowerCase();
+  const storeSlug = String(store.slug || "")
+    .trim()
+    .toLowerCase();
+  const friendlyPath =
+    store.sharePath ||
+    (tenantSlug && storeSlug
+      ? `/store/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(storeSlug)}`
+      : null);
+
+  if (friendlyPath) {
+    if (typeof window !== "undefined" && window.location?.hostname) {
+      const host = window.location.hostname.toLowerCase();
+      if (
+        (host === "flopilot.io" || host === "www.flopilot.io") &&
+        tenantSlug &&
+        storeSlug
+      ) {
+        return `https://${encodeURIComponent(tenantSlug)}.flopilot.io/store/${encodeURIComponent(storeSlug)}`;
+      }
+      if (window.location.origin) {
+        return `${window.location.origin}${friendlyPath}`;
+      }
+    }
+    return store.shareUrl || friendlyPath;
+  }
+
   const token =
     store.shareToken ||
     extractShareTokenFromUrl(store.shareUrl) ||
@@ -493,6 +530,30 @@ export function resolveClientStoreShareUrl(store: {
   return store.shareUrl || `/store/${encodeURIComponent(token)}`;
 }
 
+/** Normalize a store URL slug for editing / save. */
+export function normalizeClientStoreSlug(value: string): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+/**
+ * Example customer-facing URL for the Overview preview (always production-style
+ * when a shop slug is known).
+ */
+export function previewClientStoreCustomerUrl(input: {
+  tenantSlug?: string | null;
+  storeSlug?: string | null;
+}): string {
+  const tenantSlug = normalizeClientStoreSlug(String(input.tenantSlug || ""));
+  const storeSlug = normalizeClientStoreSlug(String(input.storeSlug || ""));
+  if (!tenantSlug || !storeSlug) return "";
+  return `https://${tenantSlug}.flopilot.io/store/${storeSlug}`;
+}
+
 function extractShareTokenFromUrl(shareUrl?: string): string | undefined {
   if (!shareUrl) return undefined;
   try {
@@ -500,10 +561,13 @@ function extractShareTokenFromUrl(shareUrl?: string): string | undefined {
     const parts = url.pathname.split("/").filter(Boolean);
     const storeIndex = parts.indexOf("store");
     if (storeIndex >= 0 && parts[storeIndex + 1]) {
-      return decodeURIComponent(parts[storeIndex + 1]);
+      // Prefer JWT-style single segment; ignore friendly two-segment paths here.
+      if (!parts[storeIndex + 2]) {
+        return decodeURIComponent(parts[storeIndex + 1]);
+      }
     }
   } catch {
-    const match = shareUrl.match(/\/store\/([^/?#]+)/);
+    const match = shareUrl.match(/\/store\/([^/?#]+)$/);
     if (match?.[1]) return decodeURIComponent(match[1]);
   }
   return undefined;
