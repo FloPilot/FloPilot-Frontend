@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import {
+  getShopSubdomain,
+  looksLikeStoreShareJwt,
+} from "@/lib/shop-store-host";
 import { isTeamPortalHost, TEAM_PORTAL_PATH_PREFIX } from "@/lib/team-portal";
 
 const PUBLIC_TEAM_PATHS = new Set([
@@ -9,6 +13,27 @@ const PUBLIC_TEAM_PATHS = new Set([
 export function middleware(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
   const { pathname } = request.nextUrl;
+
+  const shopSubdomain = getShopSubdomain(host);
+  if (shopSubdomain) {
+    if (
+      pathname.startsWith("/_next") ||
+      pathname.startsWith("/api") ||
+      pathname.includes(".")
+    ) {
+      return NextResponse.next();
+    }
+
+    // {shop}.flopilot.io/store/{storeSlug} → /store/{shop}/{storeSlug}
+    const storeMatch = pathname.match(/^\/store\/([^/]+)\/?$/);
+    if (storeMatch?.[1] && !looksLikeStoreShareJwt(storeMatch[1])) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/store/${encodeURIComponent(shopSubdomain)}/${encodeURIComponent(storeMatch[1])}`;
+      return NextResponse.rewrite(url);
+    }
+
+    return NextResponse.next();
+  }
 
   if (isTeamPortalHost(host)) {
     if (
