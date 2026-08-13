@@ -2338,13 +2338,14 @@ export async function updateClientStore(
   storeId: string,
   updates: Omit<
     Partial<import("@/lib/client-stores").ClientStore>,
-    "accentColorKey" | "logoUrl" | "heroImageUrl"
+    "accentColorKey" | "logoUrl" | "heroImageUrl" | "settings"
   > & {
     password?: string | null;
     clearPassword?: boolean;
     accentColorKey?: string | null;
     logoUrl?: string | null;
     heroImageUrl?: string | null;
+    settings?: Partial<import("@/lib/client-stores").ClientStoreSettings>;
   }
 ) {
   return callApi<{ store: import("@/lib/client-stores").ClientStore }>(

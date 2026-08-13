@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { createClientStore } from "@/lib/api";
-import type { ClientStore } from "@/lib/client-stores";
+import type { ClientStore, ClientStoreMode } from "@/lib/client-stores";
 import { cn } from "@/lib/utils";
 
 const STEPS = [
@@ -45,7 +45,7 @@ export function CreateStoreDialog({
   const [customerId, setCustomerId] = useState(presetCustomerId || "");
   const [customerQuery, setCustomerQuery] = useState("");
   const [name, setName] = useState("");
-  const [mode, setMode] = useState<"order" | "review">("order");
+  const [mode, setMode] = useState<ClientStoreMode>("order");
   const [headline, setHeadline] = useState("");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
@@ -90,18 +90,34 @@ export function CreateStoreDialog({
 
   const selectedCustomer = activeCustomers.find((c) => c.id === customerId);
 
+  const storeDefaultsForMode = (nextMode: ClientStoreMode, company: string) => {
+    if (nextMode === "review") {
+      return {
+        name: `${company} review`,
+        headline: `Review ${company} apparel options`,
+      };
+    }
+    if (nextMode === "show") {
+      return {
+        name: `${company} catalog`,
+        headline: `Browse ${company} apparel`,
+      };
+    }
+    return {
+      name: `${company} gear`,
+      headline: `Official ${company} apparel`,
+    };
+  };
+
   const selectCustomer = (id: string) => {
     setCustomerId(id);
     setError(null);
     const customer = activeCustomers.find((c) => c.id === id);
     if (!customer) return;
     const company = customer.company || customer.name || "Client";
-    setName(mode === "review" ? `${company} review` : `${company} gear`);
-    setHeadline(
-      mode === "review"
-        ? `Review ${company} apparel options`
-        : `Official ${company} apparel`
-    );
+    const defaults = storeDefaultsForMode(mode, company);
+    setName(defaults.name);
+    setHeadline(defaults.headline);
   };
 
   const goToDetails = () => {
@@ -141,7 +157,9 @@ export function CreateStoreDialog({
                   "Browse each style and give a thumbs up or down on the colors your team likes.",
                 showPrices: false,
               }
-            : undefined,
+            : mode === "show"
+              ? { showPrices: true }
+              : undefined,
       });
       if (!res.store?.id) {
         throw new Error("Store was created but no id was returned.");
@@ -156,7 +174,7 @@ export function CreateStoreDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[min(90vh,680px)] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
+      <DialogContent className="flex max-h-[min(90vh,720px)] flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-xl">
         <DialogHeader className="shrink-0 border-b border-[#ebebeb] px-6 pb-4 pt-6 text-left sm:px-7">
           <DialogTitle className="pr-8 text-xl font-semibold tracking-tight text-[#121a2e]">
             New client store
@@ -303,7 +321,7 @@ export function CreateStoreDialog({
                   <Label className="text-[13px] font-medium text-[#303030]">
                     Store type
                   </Label>
-                  <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+                  <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
                     {(
                       [
                         {
@@ -315,6 +333,11 @@ export function CreateStoreDialog({
                           value: "review" as const,
                           title: "Review store",
                           body: "Clients mark include or pass.",
+                        },
+                        {
+                          value: "show" as const,
+                          title: "Show store",
+                          body: "Browse-only catalog — no cart or votes.",
                         },
                       ] as const
                     ).map((option) => {
@@ -330,16 +353,12 @@ export function CreateStoreDialog({
                                 selectedCustomer.company ||
                                 selectedCustomer.name ||
                                 "Client";
-                              setName(
-                                option.value === "review"
-                                  ? `${company} review`
-                                  : `${company} gear`
+                              const defaults = storeDefaultsForMode(
+                                option.value,
+                                company
                               );
-                              setHeadline(
-                                option.value === "review"
-                                  ? `Review ${company} apparel options`
-                                  : `Official ${company} apparel`
-                              );
+                              setName(defaults.name);
+                              setHeadline(defaults.headline);
                             }
                           }}
                           className={cn(

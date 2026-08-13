@@ -333,11 +333,14 @@ export function StoreProductDetailInteractive({
   product,
   accentHex,
   controls,
+  browseOnly = false,
 }: {
   section: ClientStoreSection;
   product: PublicClientStoreProduct;
   accentHex: string;
   controls: ProductDetailControls;
+  /** Catalog / show stores — view colors & sizes, no cart actions. */
+  browseOnly?: boolean;
 }) {
   const settings = section.settings || {};
   const bg = settings.backgroundColor || "#ffffff";
@@ -425,6 +428,11 @@ export function StoreProductDetailInteractive({
               {product.description}
             </p>
           ) : null}
+          {product.insights ? (
+            <p className="mt-3 rounded-xl border border-amber-100 bg-amber-50/70 px-3.5 py-3 text-[13px] leading-relaxed text-[#5a4a2a]">
+              {product.insights}
+            </p>
+          ) : null}
           {settings.body ? (
             <p className="mt-3 text-[13px] leading-relaxed opacity-70">
               {settings.body}
@@ -495,51 +503,55 @@ export function StoreProductDetailInteractive({
             </div>
           </div>
 
-          <div className="mt-6">
-            <Label className="text-[13px] font-medium">Quantity</Label>
-            <div className="mt-2.5 inline-flex items-center rounded-lg border border-[#e3e3e3]">
-              <button
-                type="button"
-                className="inline-flex size-10 items-center justify-center text-[#616161] hover:bg-[#f6f6f7]"
-                onClick={() => {
-                  const floor = Math.max(
-                    1,
-                    Math.floor(Number(product.minOrderQty) || 0) || 1
-                  );
-                  controls.onQtyChange(Math.max(floor, controls.qty - 1));
-                }}
-              >
-                <Minus className="size-3.5" />
-              </button>
-              <span className="min-w-10 text-center text-[14px] font-semibold tabular-nums">
-                {controls.qty}
-              </span>
-              <button
-                type="button"
-                className="inline-flex size-10 items-center justify-center text-[#616161] hover:bg-[#f6f6f7]"
-                onClick={() => controls.onQtyChange(controls.qty + 1)}
-              >
-                <Plus className="size-3.5" />
-              </button>
+          {!browseOnly ? (
+            <div className="mt-6">
+              <Label className="text-[13px] font-medium">Quantity</Label>
+              <div className="mt-2.5 inline-flex items-center rounded-lg border border-[#e3e3e3]">
+                <button
+                  type="button"
+                  className="inline-flex size-10 items-center justify-center text-[#616161] hover:bg-[#f6f6f7]"
+                  onClick={() => {
+                    const floor = Math.max(
+                      1,
+                      Math.floor(Number(product.minOrderQty) || 0) || 1
+                    );
+                    controls.onQtyChange(Math.max(floor, controls.qty - 1));
+                  }}
+                >
+                  <Minus className="size-3.5" />
+                </button>
+                <span className="min-w-10 text-center text-[14px] font-semibold tabular-nums">
+                  {controls.qty}
+                </span>
+                <button
+                  type="button"
+                  className="inline-flex size-10 items-center justify-center text-[#616161] hover:bg-[#f6f6f7]"
+                  onClick={() => controls.onQtyChange(controls.qty + 1)}
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              </div>
+              {Number(product.minOrderQty) > 0 ? (
+                <p className="mt-1.5 text-[11px] text-[#8a8a8a]">
+                  Minimum {product.minOrderQty} pieces for this product
+                </p>
+              ) : null}
             </div>
-            {Number(product.minOrderQty) > 0 ? (
-              <p className="mt-1.5 text-[11px] text-[#8a8a8a]">
-                Minimum {product.minOrderQty} pieces for this product
-              </p>
-            ) : null}
-          </div>
+          ) : null}
 
-          <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-            <Button
-              type="button"
-              disabled={!controls.size || controls.storeOpen === false}
-              className="h-11 flex-1 rounded-lg text-[13px] font-semibold text-white hover:opacity-95 disabled:opacity-50"
-              style={{ background: accentHex }}
-              onClick={controls.onAddToCart}
-            >
-              {settings.buttonLabel || "Add to cart"}
-            </Button>
-          </div>
+          {!browseOnly ? (
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Button
+                type="button"
+                disabled={!controls.size || controls.storeOpen === false}
+                className="h-11 flex-1 rounded-lg text-[13px] font-semibold text-white hover:opacity-95 disabled:opacity-50"
+                style={{ background: accentHex }}
+                onClick={controls.onAddToCart}
+              >
+                {settings.buttonLabel || "Add to cart"}
+              </Button>
+            </div>
+          ) : null}
           {controls.error ? (
             <p className="mt-3 text-[13px] text-red-700">{controls.error}</p>
           ) : null}

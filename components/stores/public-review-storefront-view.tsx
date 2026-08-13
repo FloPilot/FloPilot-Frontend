@@ -13,7 +13,10 @@ import {
   X,
 } from "lucide-react";
 import { FloPilotWatermark } from "@/components/branding/flopilot-watermark";
+import { StoreHeader } from "@/components/stores/store-header";
+import { StoreProductCardMedia } from "@/components/stores/store-product-card-media";
 import { StoreProductCommerceMeta } from "@/components/stores/store-product-commerce-meta";
+import { StoreSectionRenderer } from "@/components/stores/store-section-renderer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,6 +43,12 @@ import {
   type StoredClientStoreReviewDecision,
   type StoredClientStoreVote,
 } from "@/lib/client-store-review";
+import {
+  ensureStoreTheme,
+  resolveCollectionProducts,
+  resolveNavItemAction,
+  type ClientStoreNavItem,
+} from "@/lib/client-store-theme";
 import type {
   ClientStoreColorVariant,
   ClientStoreReviewDecision,
@@ -260,193 +269,6 @@ function productDecisionSummary(
   return { total, reviewed, included, excluded, status };
 }
 
-function productVoteSummary(
-  product: PublicClientStoreProduct,
-  myVotes: Record<string, ClientStoreReviewVote>,
-  totals: Record<string, ClientStoreVoteSummaryRow>
-): {
-  total: number;
-  voted: number;
-  up: number;
-  down: number;
-} {
-  const colors = reviewColorOptions(product);
-  let voted = 0;
-  let up = 0;
-  let down = 0;
-  for (const color of colors) {
-    const key = reviewDecisionKey(product.id, color.name);
-    if (myVotes[key]) voted += 1;
-    const row = totals[key];
-    up += row?.up || 0;
-    down += row?.down || 0;
-  }
-  return { total: colors.length, voted, up, down };
-}
-
-function ReviewProductCard({
-  product,
-  phase,
-  decisions,
-  myVotes,
-  voteTotals,
-  showPrices,
-  onOpen,
-}: {
-  product: PublicClientStoreProduct;
-  phase: ClientStoreReviewPhase;
-  decisions: Record<string, StoredClientStoreReviewDecision>;
-  myVotes: Record<string, ClientStoreReviewVote>;
-  voteTotals: Record<string, ClientStoreVoteSummaryRow>;
-  showPrices: boolean;
-  onOpen: () => void;
-}) {
-  const colors = reviewColorOptions(product);
-  const summary = productDecisionSummary(product, decisions);
-  const voteSummary = productVoteSummary(product, myVotes, voteTotals);
-  const isVoting = phase === "voting";
-  const previewColor =
-    colors.find((color) => {
-      const key = reviewDecisionKey(product.id, color.name);
-      if (isVoting) return myVotes[key] === "up";
-      return decisions[key]?.decision === "included";
-    }) || colors[0];
-  const mockup =
-    getMockupsForColor(product, previewColor?.name || undefined)[0] ||
-    getPrimaryMockupUrl(product);
-
-  const badge =
-    isVoting
-      ? voteSummary.voted > 0
-        ? voteSummary.voted === voteSummary.total
-          ? `${voteSummary.voted} voted`
-          : `${voteSummary.voted}/${voteSummary.total} voted`
-        : null
-      : summary.reviewed > 0
-        ? summary.status === "all-included"
-          ? "Include"
-          : summary.status === "all-excluded"
-            ? "Pass"
-            : `${summary.reviewed}/${summary.total} reviewed`
-        : null;
-
-  return (
-    <article
-      className={cn(
-        "group flex flex-col overflow-hidden rounded-2xl border bg-white transition-[border-color,box-shadow,transform] duration-300",
-        !isVoting && summary.status === "all-included"
-          ? "border-emerald-300 shadow-[0_10px_28px_rgba(16,185,129,0.12)]"
-          : !isVoting && summary.status === "all-excluded"
-            ? "border-[#e3e3e3] opacity-[0.72]"
-            : (!isVoting &&
-                  (summary.status === "partial" || summary.status === "mixed")) ||
-                (isVoting && voteSummary.voted > 0)
-              ? "border-[#c4d7f2] shadow-[0_8px_22px_rgba(44,110,203,0.08)]"
-              : "border-[#ebebeb] shadow-[0_6px_20px_rgba(26,26,26,0.05)] hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(26,26,26,0.08)]"
-      )}
-    >
-      <button type="button" onClick={onOpen} className="relative text-left">
-        <div className="aspect-[4/5] bg-[#f7f7f8]">
-          {mockup ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={mockup}
-              alt=""
-              className="size-full object-contain p-5 transition-transform duration-500 group-hover:scale-[1.03]"
-            />
-          ) : (
-            <div className="flex size-full items-center justify-center text-[12px] text-[#8a8a8a]">
-              No image
-            </div>
-          )}
-        </div>
-        {badge ? (
-          <span
-            className={cn(
-              "absolute left-3 top-3 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white shadow-sm",
-              !isVoting && summary.status === "all-included"
-                ? "bg-emerald-600"
-                : !isVoting && summary.status === "all-excluded"
-                  ? "bg-[#616161]"
-                  : "bg-[#2c6ecb]"
-            )}
-          >
-            {!isVoting && summary.status === "all-included" ? (
-              <Check className="size-3" strokeWidth={2.5} />
-            ) : null}
-            {!isVoting && summary.status === "all-excluded" ? (
-              <X className="size-3" strokeWidth={2.5} />
-            ) : null}
-            {isVoting ? <ThumbsUp className="size-3" strokeWidth={2.5} /> : null}
-            {badge}
-          </span>
-        ) : null}
-      </button>
-
-      <div className="flex flex-1 flex-col gap-3 p-4">
-        <button type="button" onClick={onOpen} className="text-left">
-          <p className="text-[14px] font-semibold leading-snug text-[#1f2430]">
-            {product.name}
-          </p>
-          <p className="mt-1 text-[12px] text-[#7a7f8c]">
-            {[product.brand, `${colors.length} color${colors.length === 1 ? "" : "s"}`]
-              .filter(Boolean)
-              .join(" · ") || "Apparel"}
-          </p>
-          <StoreProductCommerceMeta product={product} />
-          {showPrices && product.sellPrice != null ? (
-            <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
-              {formatCurrency(product.sellPrice)}
-            </p>
-          ) : null}
-          {product.insights ? (
-            <p className="mt-2 line-clamp-2 text-[12px] leading-relaxed text-[#5a6478]">
-              {product.insights}
-            </p>
-          ) : product.description ? (
-            <p className="mt-2 line-clamp-2 text-[12px] leading-relaxed text-[#5a6478]">
-              {product.description}
-            </p>
-          ) : null}
-        </button>
-
-        {(voteSummary.up > 0 || voteSummary.down > 0) && (
-          <VoteTally up={voteSummary.up} down={voteSummary.down} compact />
-        )}
-
-        {colors.some((color) => color.name) ? (
-          <div className="flex flex-wrap items-center gap-2">
-            {colors.map((color) => {
-              const key = reviewDecisionKey(product.id, color.name);
-              return (
-                <ColorSwatch
-                  key={color.id}
-                  name={color.name}
-                  colorHex={color.colorHex}
-                  swatchUrl={color.swatchUrl}
-                  size="sm"
-                  decision={decisions[key]?.decision}
-                  myVote={isVoting ? myVotes[key] : undefined}
-                  onClick={onOpen}
-                />
-              );
-            })}
-          </div>
-        ) : null}
-
-        <Button
-          type="button"
-          variant="outline"
-          className="mt-auto h-9 rounded-lg border-[#e3e3e3] text-[12px] font-semibold text-[#303030]"
-          onClick={onOpen}
-        >
-          {isVoting ? "Vote on colors" : "Review colors"}
-        </Button>
-      </div>
-    </article>
-  );
-}
-
 function ReviewProductDetail({
   product,
   phase,
@@ -458,6 +280,7 @@ function ReviewProductDetail({
   brandFallback,
   votingBusyKey,
   voteError,
+  hideBack = false,
   onBack,
   onDecide,
   onNoteChange,
@@ -473,6 +296,7 @@ function ReviewProductDetail({
   brandFallback?: string;
   votingBusyKey: string | null;
   voteError?: string | null;
+  hideBack?: boolean;
   onBack: () => void;
   onDecide: (
     color: string,
@@ -516,14 +340,16 @@ function ReviewProductDetail({
   return (
     <div className="mx-auto grid max-w-[1100px] gap-8 px-4 py-6 sm:px-6 lg:grid-cols-[1.05fr_0.95fr] lg:gap-12 lg:py-10">
       <div>
-        <button
-          type="button"
-          onClick={onBack}
-          className="mb-5 inline-flex items-center gap-1.5 text-[13px] font-medium text-[#616161] transition-colors hover:text-[#303030]"
-        >
-          <ArrowLeft className="size-3.5" />
-          Back to products
-        </button>
+        {!hideBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="mb-5 inline-flex items-center gap-1.5 text-[13px] font-medium text-[#616161] transition-colors hover:text-[#303030]"
+          >
+            <ArrowLeft className="size-3.5" />
+            Back to products
+          </button>
+        ) : null}
         <div className="overflow-hidden rounded-2xl border border-[#ebebeb] bg-[#f7f7f8]">
           <div className="aspect-square">
             {activeMockup ? (
@@ -830,14 +656,88 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [notes, setNotes] = useState("");
+  const [activePageHandle, setActivePageHandle] = useState("home");
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
+    null
+  );
 
   const accent = accentFor(store?.accentColorKey);
   const accentHex = accent?.hex || "#2c6ecb";
   const showPrices = store?.settings?.showPrices === true;
-  const pageBackground =
-    store?.settings?.pageBackgroundColor?.trim() || "#ffffff";
   const phase = clientStoreReviewPhase(store);
   const isVoting = phase === "voting";
+
+  const theme = useMemo(
+    () =>
+      ensureStoreTheme(store?.theme, {
+        name: store?.name,
+        headline: store?.headline,
+        description: store?.description,
+        heroImageUrl: store?.heroImageUrl,
+      }),
+    [store]
+  );
+  const navigation = useMemo(
+    () => theme.navigation || { items: [] },
+    [theme.navigation]
+  );
+
+  const handleNavItem = useCallback(
+    (item: ClientStoreNavItem) => {
+      const action = resolveNavItemAction(item, theme);
+      if (action.kind === "noop") return;
+      if (action.kind === "url") {
+        if (action.openInNewTab) {
+          window.open(action.href, "_blank", "noopener,noreferrer");
+        } else {
+          window.location.href = action.href;
+        }
+        return;
+      }
+      setSelected(null);
+      if (action.kind === "collection") {
+        setActiveCollectionId(action.collectionId);
+        setActivePageHandle("home");
+        return;
+      }
+      setActiveCollectionId(null);
+      if (action.kind === "home" || action.kind === "products") {
+        setActivePageHandle("home");
+        return;
+      }
+      if (action.kind === "page") {
+        setActivePageHandle(action.handle);
+      }
+    },
+    [theme]
+  );
+
+  const activePage = useMemo(() => {
+    return (
+      theme.pages.find(
+        (page) => page.handle === activePageHandle && page.enabled
+      ) ||
+      theme.pages.find((page) => page.handle === "home") ||
+      theme.pages[0] ||
+      null
+    );
+  }, [theme.pages, activePageHandle]);
+
+  const pageSections = activePage?.sections || theme.sections;
+
+  const activeCollection = useMemo(
+    () =>
+      theme.collections.find(
+        (collection) =>
+          collection.id === activeCollectionId && collection.enabled
+      ) || null,
+    [theme.collections, activeCollectionId]
+  );
+
+  const collectionProducts = useMemo(() => {
+    if (!activeCollection || !store) return [];
+    return resolveCollectionProducts(activeCollection, store.products);
+  }, [activeCollection, store]);
 
   const load = useCallback(
     async (pwd?: string) => {
@@ -1055,10 +955,7 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
 
   if (store.passwordProtected && !store.unlocked) {
     return (
-      <div
-        className="flex min-h-dvh items-center justify-center px-4"
-        style={{ background: pageBackground }}
-      >
+      <div className="flex min-h-dvh items-center justify-center bg-white px-4">
         <div className="w-full max-w-sm rounded-2xl border border-[#e3e3e3] bg-white p-6 shadow-sm">
           <p className="text-[16px] font-semibold text-[#303030]">{store.name}</p>
           <p className="mt-1 text-[13px] text-[#616161]">
@@ -1092,17 +989,22 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
 
   if (submitted) {
     return (
-      <div
-        className="flex min-h-dvh flex-col"
-        style={{ background: pageBackground }}
-      >
-        <header className="border-b border-[#ebebeb] bg-white/90 backdrop-blur">
-          <div className="mx-auto flex h-14 max-w-[1200px] items-center px-4 sm:px-6">
-            <p className="text-[14px] font-semibold text-[#303030]">
-              {store.name}
-            </p>
-          </div>
-        </header>
+      <div className="flex min-h-dvh flex-col bg-white">
+        <StoreHeader
+          store={store}
+          theme={theme}
+          navigation={navigation}
+          activePageHandle={activePage?.handle || "home"}
+          activeCollectionId={activeCollectionId}
+          accentHex={accentHex}
+          onNavItem={handleNavItem}
+          actionSlot={
+            <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#e3e3e3] bg-white px-3 text-[13px] font-medium text-[#616161]">
+              <ClipboardCheck className="size-4" style={{ color: accentHex }} />
+              <span className="hidden sm:inline">Review</span>
+            </span>
+          }
+        />
         <div className="flex flex-1 items-center justify-center px-4 py-16">
           <div className="max-w-md text-center">
             <div
@@ -1140,122 +1042,160 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
     );
   }
 
-  return (
-    <div
-      className="flex h-dvh max-h-dvh flex-col overflow-hidden"
-      style={{ background: pageBackground }}
+  const reviewHeaderAction = !isVoting ? (
+    <button
+      type="button"
+      onClick={() => setSheetOpen(true)}
+      className="relative inline-flex h-10 items-center gap-2 rounded-lg border border-[#e3e3e3] bg-white px-3 text-[13px] font-medium text-[#303030] transition-colors hover:bg-[#f6f6f7]"
     >
-      <header className="shrink-0 border-b border-[#ebebeb] bg-white/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-[1200px] items-center justify-between gap-3 px-4 sm:px-6">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              {store.logoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={store.logoUrl}
-                  alt=""
-                  className="h-7 w-auto object-contain"
-                />
-              ) : null}
-              <div className="min-w-0">
-                <p className="truncate text-[14px] font-semibold text-[#303030]">
-                  {store.name}
-                </p>
-                <p className="truncate text-[11px] font-medium uppercase tracking-wide text-[#8a8a8a]">
-                  {isVoting ? "Team voting" : "Product selection"}
-                </p>
-              </div>
-            </div>
-          </div>
-          {!isVoting ? (
-            <button
-              type="button"
-              onClick={() => setSheetOpen(true)}
-              className="inline-flex h-9 items-center gap-2 rounded-full border border-[#e3e3e3] bg-white px-3 text-[12px] font-semibold text-[#303030] shadow-sm transition-colors hover:bg-[#f6f6f7]"
-            >
-              <ClipboardCheck className="size-3.5" style={{ color: accentHex }} />
-              Selections
-              {includedCount > 0 ? (
-                <span
-                  className="inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-bold text-white"
-                  style={{ background: accentHex }}
-                >
-                  {includedCount}
-                </span>
-              ) : null}
-            </button>
-          ) : (
-            <div className="hidden items-center gap-2 sm:flex">
-              <Label htmlFor="voter-name-header" className="sr-only">
-                Your name
-              </Label>
-              <Input
-                id="voter-name-header"
-                value={voterName}
-                onChange={(e) => {
-                  setVoterName(e.target.value);
-                  setClientStoreVoterName(token, e.target.value);
-                }}
-                placeholder="Your name"
-                className="h-9 w-40 rounded-full border-[#e3e3e3] px-3 text-[12px]"
-              />
-            </div>
-          )}
-        </div>
-      </header>
+      <ClipboardCheck className="size-4" style={{ color: accentHex }} />
+      <span className="hidden sm:inline">Selections</span>
+      {includedCount > 0 ? (
+        <span
+          className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full text-[10px] font-semibold text-white"
+          style={{ background: accentHex }}
+        >
+          {includedCount}
+        </span>
+      ) : null}
+    </button>
+  ) : (
+    <div className="flex items-center gap-2">
+      <span className="hidden items-center gap-1.5 rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#616161] sm:inline-flex">
+        <Sparkles className="size-3" style={{ color: accentHex }} />
+        Review
+      </span>
+      <Label htmlFor="voter-name-header" className="sr-only">
+        Your name
+      </Label>
+      <Input
+        id="voter-name-header"
+        value={voterName}
+        onChange={(e) => {
+          setVoterName(e.target.value);
+          setClientStoreVoterName(token, e.target.value);
+        }}
+        placeholder="Your name"
+        className="h-10 w-36 rounded-lg border-[#e3e3e3] px-3 text-[13px] sm:w-44"
+      />
+    </div>
+  );
+
+  return (
+    <div className="flex h-dvh max-h-dvh flex-col overflow-hidden bg-white">
+      <StoreHeader
+        store={store}
+        theme={theme}
+        navigation={navigation}
+        activePageHandle={activePage?.handle || "home"}
+        activeCollectionId={activeCollectionId}
+        accentHex={accentHex}
+        onNavItem={handleNavItem}
+        actionSlot={reviewHeaderAction}
+      />
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         {!store.isOpen ? (
-          <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-center text-[13px] text-amber-900">
+          <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-center text-[13px] text-amber-900 sm:px-6">
             This review store is not currently accepting responses.
           </div>
         ) : null}
 
         {selected ? (
-          <ReviewProductDetail
-            product={selected}
-            phase={phase}
-            decisions={decisions}
-            myVotes={myVotes}
-            voteTotals={voteTotals}
-            accentHex={accentHex}
-            showPrices={showPrices}
-            brandFallback={store.company || store.customerName}
-            votingBusyKey={votingBusyKey}
-            voteError={voteError}
-            onBack={() => setSelected(null)}
-            onDecide={(color, decision, note) => {
-              setDecision(selected.id, color, decision, note);
-            }}
-            onNoteChange={(color, note) => {
-              setNote(selected.id, color, note);
-            }}
-            onVote={(color, vote) => {
-              void handleVote(selected.id, color, vote);
-            }}
-          />
-        ) : (
-          <main className="mx-auto max-w-[1200px] px-4 pb-36 pt-8 sm:px-6 sm:pt-10">
-            <div className="mb-8 max-w-2xl">
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-[#e3e3e3] bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
-                <Sparkles className="size-3" style={{ color: accentHex }} />
-                {isVoting ? "Internal vote" : "Client selection"}
-              </div>
-              <h1 className="mt-4 text-[2rem] font-semibold tracking-tight text-[#1f2430] sm:text-[2.35rem]">
-                {store.headline ||
-                  (isVoting ? "Vote on the lineup" : "Review the lineup")}
-              </h1>
-              <p className="mt-3 text-[15px] leading-relaxed text-[#5a6478]">
-                {store.settings.reviewPrompt ||
-                  store.description ||
-                  (isVoting
-                    ? "Browse each style and thumbs up or down the colors your team likes. Votes save as you go."
-                    : "Browse each style, review the colors being offered, and mark what you’d like included — or pass on the rest.")}
-              </p>
+          <div>
+            <div className="mx-auto max-w-[1200px] px-4 pt-6 sm:px-6 sm:pt-8">
+              <button
+                type="button"
+                onClick={() => setSelected(null)}
+                className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[#616161] transition-colors hover:text-[#303030]"
+              >
+                <ArrowLeft className="size-3.5" />
+                Back to store
+              </button>
             </div>
-
+            <ReviewProductDetail
+              product={selected}
+              phase={phase}
+              decisions={decisions}
+              myVotes={myVotes}
+              voteTotals={voteTotals}
+              accentHex={accentHex}
+              showPrices={showPrices}
+              brandFallback={store.company || store.customerName}
+              votingBusyKey={votingBusyKey}
+              voteError={voteError}
+              hideBack
+              onBack={() => setSelected(null)}
+              onDecide={(color, decision, note) => {
+                setDecision(selected.id, color, decision, note);
+              }}
+              onNoteChange={(color, note) => {
+                setNote(selected.id, color, note);
+              }}
+              onVote={(color, vote) => {
+                void handleVote(selected.id, color, vote);
+              }}
+            />
+          </div>
+        ) : activeCollection ? (
+          <main className="mx-auto max-w-[1200px] px-4 py-8 pb-36 sm:px-6 sm:py-10">
+            <button
+              type="button"
+              onClick={() => setActiveCollectionId(null)}
+              className="mb-6 inline-flex items-center gap-1.5 text-[13px] font-medium text-[#616161] transition-colors hover:text-[#303030]"
+            >
+              <ArrowLeft className="size-3.5" />
+              Back to store
+            </button>
+            <div className="mb-8">
+              <h1 className="text-[1.75rem] font-semibold tracking-tight text-[#303030]">
+                {activeCollection.name}
+              </h1>
+              {activeCollection.description ? (
+                <p className="mt-2 max-w-2xl text-[15px] leading-relaxed text-[#616161]">
+                  {activeCollection.description}
+                </p>
+              ) : null}
+            </div>
+            {collectionProducts.length === 0 ? (
+              <p className="py-16 text-center text-[14px] text-[#8a8a8a]">
+                No products in this collection yet.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-6 lg:grid-cols-4">
+                {collectionProducts.map((product) => (
+                  <button
+                    key={product.id}
+                    type="button"
+                    onClick={() => setSelected(product)}
+                    className="group text-left"
+                  >
+                    <StoreProductCardMedia
+                      product={product}
+                      className="shadow-[0_4px_16px_rgba(26,26,26,0.06)]"
+                    />
+                    <p className="mt-3 text-[13px] font-medium leading-snug text-[#303030]">
+                      {product.name}
+                    </p>
+                    <p className="mt-1 text-[12px] text-[#8a8a8a]">
+                      {[product.brand, product.color].filter(Boolean).join(" · ") ||
+                        "Apparel"}
+                    </p>
+                    <StoreProductCommerceMeta product={product} />
+                    {showPrices && product.sellPrice != null ? (
+                      <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
+                        {formatCurrency(product.sellPrice)}
+                      </p>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            )}
+          </main>
+        ) : (
+          <div className="pb-36">
             {isVoting ? (
-              <div className="mb-6 rounded-2xl border border-[#ebebeb] bg-white p-4 sm:hidden">
+              <div className="border-b border-[#ebebeb] bg-[#fafafa] px-4 py-3 sm:hidden">
                 <Label
                   htmlFor="voter-name-mobile"
                   className="text-[12px] font-medium text-[#616161]"
@@ -1270,38 +1210,32 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
                     setClientStoreVoterName(token, e.target.value);
                   }}
                   placeholder="So teammates know who voted"
-                  className="mt-1.5 h-10 rounded-lg border-[#e3e3e3] text-[13px]"
+                  className="mt-1.5 h-10 rounded-lg border-[#e3e3e3] bg-white text-[13px]"
                 />
               </div>
             ) : null}
-
             {voteError ? (
-              <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+              <div className="border-b border-red-200 bg-red-50 px-4 py-3 text-center text-[13px] text-red-700 sm:px-6">
                 {voteError}
               </div>
             ) : null}
-
-            {products.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-[#d7d7d7] bg-white px-6 py-16 text-center text-[14px] text-[#8a8a8a]">
-                No products are available in this review yet.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                {products.map((product) => (
-                  <ReviewProductCard
-                    key={product.id}
-                    product={product}
-                    phase={phase}
-                    decisions={decisions}
-                    myVotes={myVotes}
-                    voteTotals={voteTotals}
-                    showPrices={showPrices}
-                    onOpen={() => setSelected(product)}
-                  />
-                ))}
-              </div>
-            )}
-          </main>
+            {pageSections
+              .filter((section) => section.enabled)
+              .map((section) => (
+                <StoreSectionRenderer
+                  key={section.id}
+                  section={section}
+                  products={store.products}
+                  collections={theme.collections}
+                  accentHex={accentHex}
+                  showPrices={showPrices}
+                  onSelectProduct={setSelected}
+                  onSelectCollection={(collection) =>
+                    setActiveCollectionId(collection.id)
+                  }
+                />
+              ))}
+          </div>
         )}
       </div>
 
