@@ -35,6 +35,7 @@ import { StoreCustomizeBuilder } from "@/components/stores/store-customize-build
 import { StoreEmployeesPanel } from "@/components/stores/store-employees-panel";
 import { StoreNavigationPanel } from "@/components/stores/store-navigation-panel";
 import { StorePagesPanel } from "@/components/stores/store-pages-panel";
+import { StoreProductBulkEditor } from "@/components/stores/store-product-bulk-editor";
 import { StoreProductEditor } from "@/components/stores/store-product-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -159,6 +160,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [bulkTagDraft, setBulkTagDraft] = useState("");
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [bulkEditorOpen, setBulkEditorOpen] = useState(false);
   const productActionsRef = useRef<{
     save: () => Promise<void>;
     discard: () => void;
@@ -499,29 +501,31 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   };
 
   useRegisterUnsavedChanges(
-    productOpen
-      ? {
-          dirty: productDirty,
-          saving: productSaving || saving,
-          label: "Unsaved product",
-          onSave: async () => {
-            await productActionsRef.current?.save();
-          },
-          onDiscard: () => {
-            productActionsRef.current?.discard();
-            setProductDirty(false);
-            setProductSaving(false);
-            setProductOpen(false);
-            setEditingProduct(null);
-          },
-        }
-      : {
-          dirty: storeDirty,
-          saving,
-          label: "Unsaved changes",
-          onSave: () => saveDrafts(),
-          onDiscard: discardStoreDraft,
-        }
+    bulkEditorOpen
+      ? null
+      : productOpen
+        ? {
+            dirty: productDirty,
+            saving: productSaving || saving,
+            label: "Unsaved product",
+            onSave: async () => {
+              await productActionsRef.current?.save();
+            },
+            onDiscard: () => {
+              productActionsRef.current?.discard();
+              setProductDirty(false);
+              setProductSaving(false);
+              setProductOpen(false);
+              setEditingProduct(null);
+            },
+          }
+        : {
+            dirty: storeDirty,
+            saving,
+            label: "Unsaved changes",
+            onSave: () => saveDrafts(),
+            onDiscard: discardStoreDraft,
+          }
   );
 
   const saveCustomize = async () => {
@@ -623,10 +627,37 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       selectedProductIdSet.has(product.id)
     );
 
+  const selectedCatalogProducts = useMemo(
+    () =>
+      sortedCatalogProducts.filter((product) =>
+        selectedProductIdSet.has(product.id)
+      ),
+    [sortedCatalogProducts, selectedProductIdSet]
+  );
+
   const availableCatalogTags = useMemo(
     () => collectProductTags(store?.products || []),
     [store?.products]
   );
+
+  const openBulkEditor = () => {
+    if (selectedCatalogProducts.length === 0) return;
+    setBulkEditorOpen(true);
+  };
+
+  const closeBulkEditor = (options?: { force?: boolean }) => {
+    if (!options?.force && !requestLeave(undefined, { inPage: true })) return;
+    setBulkEditorOpen(false);
+  };
+
+  const saveBulkEditorProducts = async (nextProducts: ClientStoreProduct[]) => {
+    if (!store) return;
+    const byId = new Map(nextProducts.map((product) => [product.id, product]));
+    const merged = (store.products || []).map(
+      (product) => byId.get(product.id) || product
+    );
+    await saveProducts(merged);
+  };
 
   const toggleProductSelected = (productId: string) => {
     setSelectedProductIds((prev) =>
@@ -1348,7 +1379,8 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                 </p>
                 <p className="text-[12px] text-[#8a8a8a]">
                   Add blanks from suppliers or create manual products with
-                  mockups and markup. Select rows to bulk-edit tags or status.
+                  mockups and markup. Select rows for quick tag actions or open
+                  Bulk edit for spreadsheet-style pricing and fields.
                 </p>
               </div>
               <Button
@@ -1395,6 +1427,13 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                         >
                           Clear
                         </button>
+                        <Button
+                          type="button"
+                          className={cn(dashboardControlClass, "h-8")}
+                          onClick={openBulkEditor}
+                        >
+                          Bulk edit
+                        </Button>
                       </div>
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                         <Input
@@ -1707,6 +1746,14 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                 </div>
               </div>
             )}
+
+            <StoreProductBulkEditor
+              open={bulkEditorOpen}
+              products={selectedCatalogProducts}
+              saving={saving}
+              onClose={closeBulkEditor}
+              onSave={saveBulkEditorProducts}
+            />
           </div>
         )
       ) : null}
