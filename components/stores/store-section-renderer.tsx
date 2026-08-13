@@ -8,8 +8,9 @@ import type {
 } from "@/lib/client-store-theme";
 import { resolveCollectionProducts } from "@/lib/client-store-theme";
 import type { PublicClientStoreProduct } from "@/lib/client-stores";
-import { getPrimaryMockupUrl } from "@/lib/client-stores";
+import { getProductCardImages } from "@/lib/client-stores";
 import { StoreProductDetailPreview } from "@/components/stores/store-product-detail";
+import { StoreProductCardMedia } from "@/components/stores/store-product-card-media";
 import { StoreProductCommerceMeta } from "@/components/stores/store-product-commerce-meta";
 import { sampleImageCornerColor } from "@/lib/sample-image-color";
 import { formatCurrency } from "@/lib/format";
@@ -55,17 +56,19 @@ function cardShadowClass(
 function ProductCard({
   product,
   onSelect,
+  showPrices = true,
   cardBackgroundMode = "auto",
   cardBackgroundColor = "#ffffff",
   cardShadow = "soft",
 }: {
   product: PublicClientStoreProduct;
   onSelect?: (product: PublicClientStoreProduct) => void;
+  showPrices?: boolean;
   cardBackgroundMode?: StoreSectionSettings["cardBackgroundMode"];
   cardBackgroundColor?: string;
   cardShadow?: StoreSectionSettings["cardShadow"];
 }) {
-  const imageUrl = getPrimaryMockupUrl(product);
+  const { front: imageUrl } = getProductCardImages(product);
   const [autoBg, setAutoBg] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,26 +96,11 @@ function ProductCard({
       onClick={() => onSelect?.(product)}
       className="group w-full text-left"
     >
-      <div
-        className={cn(
-          "aspect-square overflow-hidden rounded-xl transition-[transform,box-shadow] duration-300 group-hover:-translate-y-0.5",
-          cardShadowClass(cardShadow)
-        )}
+      <StoreProductCardMedia
+        product={product}
+        className={cardShadowClass(cardShadow)}
         style={{ background: mediaBg }}
-      >
-        {imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={imageUrl}
-            alt=""
-            className="size-full object-contain p-4 transition-transform duration-300 group-hover:scale-[1.03]"
-          />
-        ) : (
-          <div className="flex size-full items-center justify-center text-[12px] text-[#8a8a8a]">
-            No image
-          </div>
-        )}
-      </div>
+      />
       <p className="mt-3 text-[13px] font-medium leading-snug text-[#303030]">
         {product.name}
       </p>
@@ -120,9 +108,11 @@ function ProductCard({
         {[product.brand, product.color].filter(Boolean).join(" · ") || "Apparel"}
       </p>
       <StoreProductCommerceMeta product={product} />
-      <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
-        {product.sellPrice != null ? formatCurrency(product.sellPrice) : null}
-      </p>
+      {showPrices && product.sellPrice != null ? (
+        <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
+          {formatCurrency(product.sellPrice)}
+        </p>
+      ) : null}
     </button>
   );
 }
@@ -133,6 +123,7 @@ export function StoreSectionRenderer({
   collections,
   accentHex,
   compact = false,
+  showPrices = true,
   previewProduct,
   productDetailSlot,
   onSelectProduct,
@@ -143,6 +134,7 @@ export function StoreSectionRenderer({
   collections: ClientStoreCollection[];
   accentHex: string;
   compact?: boolean;
+  showPrices?: boolean;
   previewProduct?: PublicClientStoreProduct | null;
   productDetailSlot?: ReactNode;
   onSelectProduct?: (product: PublicClientStoreProduct) => void;
@@ -420,6 +412,7 @@ export function StoreSectionRenderer({
                 key={product.id}
                 product={product}
                 onSelect={onSelectProduct}
+                showPrices={showPrices}
                 cardBackgroundMode={settings.cardBackgroundMode || "auto"}
                 cardBackgroundColor={settings.cardBackgroundColor || "#ffffff"}
                 cardShadow={settings.cardShadow || "soft"}

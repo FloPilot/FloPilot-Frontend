@@ -1,7 +1,7 @@
 export type ClientStoreStatus = "draft" | "published" | "closed";
 
-/** Order = classic buy flow. Review = broker-style include / not-include. */
-export type ClientStoreMode = "order" | "review";
+/** Order = buy flow. Review = vote / include-pass. Show = browse-only catalog. */
+export type ClientStoreMode = "order" | "review" | "show";
 
 export type ClientStoreSellPriceMode = "markup" | "fixed";
 
@@ -443,13 +443,21 @@ export function clientStoreStatusLabel(status: ClientStoreStatus): string {
 }
 
 export function clientStoreModeLabel(mode?: ClientStoreMode): string {
-  return mode === "review" ? "Review" : "Order";
+  if (mode === "review") return "Review";
+  if (mode === "show") return "Show";
+  return "Order";
 }
 
 export function isClientStoreReviewMode(store?: {
   mode?: ClientStoreMode;
 } | null): boolean {
   return store?.mode === "review";
+}
+
+export function isClientStoreShowMode(store?: {
+  mode?: ClientStoreMode;
+} | null): boolean {
+  return store?.mode === "show";
 }
 
 export function clientStoreReviewPhase(
@@ -586,6 +594,71 @@ export function getPrimaryMockupUrl(
   colorName?: string
 ): string | undefined {
   return getMockupsForColor(product, colorName)[0] || undefined;
+}
+
+/**
+ * Front/back pair for product-grid hover (Shopify-style).
+ * Prefer garment front/back slots when present; otherwise use the same
+ * ordered gallery the PDP uses (including decoration-location images) so
+ * cards show a front image and hover can crossfade to the next distinct one.
+ */
+export function getProductCardImages(
+  product: Pick<
+    ClientStoreProduct,
+    | "colorVariants"
+    | "mockupUrl"
+    | "galleryUrls"
+    | "decorationLocations"
+    | "color"
+    | "colors"
+  >,
+  colorName?: string
+): { front?: string; back?: string } {
+  let front: string | undefined;
+  let back: string | undefined;
+
+  const variants = product.colorVariants || [];
+  if (variants.length > 0) {
+    const match = colorName
+      ? variants.find(
+          (variant) =>
+            variant.enabled !== false &&
+            variant.name.toLowerCase() === colorName.toLowerCase()
+        )
+      : variants.find((variant) => variant.enabled !== false);
+    const urls = (match?.mockupUrls || []).filter(Boolean);
+    if (urls.length > 0) {
+      front = urls[0];
+      back = urls[1] && urls[1] !== urls[0] ? urls[1] : undefined;
+    }
+  }
+
+  if (!front && product.mockupUrl) {
+    front = product.mockupUrl;
+    const legacy = (product.galleryUrls || []).filter(Boolean);
+    back =
+      back || legacy.find((url) => url !== product.mockupUrl) || undefined;
+  }
+
+  if (!front) {
+    const legacy = (product.galleryUrls || []).filter(Boolean);
+    if (legacy.length > 0) {
+      front = legacy[0];
+      if (!back) {
+        back =
+          legacy[1] && legacy[1] !== legacy[0] ? legacy[1] : undefined;
+      }
+    }
+  }
+
+  // Same ordered gallery as the product detail page (decoration locations, etc.)
+  const gallery = getMockupsForColor(product, colorName);
+  if (!front) front = gallery[0];
+  if (!back && front) {
+    back = gallery.find((url) => url && url !== front);
+  }
+
+  return { front, back };
 }
 
 export function createClientStoreDecorationLocationId(): string {

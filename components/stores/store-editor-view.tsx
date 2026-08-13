@@ -65,6 +65,7 @@ import {
   getPrimaryMockupUrl,
   insertDuplicatedClientStoreProduct,
   isClientStoreReviewMode,
+  isClientStoreShowMode,
   resolveClientStoreShareUrl,
   type ClientStore,
   type ClientStoreMode,
@@ -102,6 +103,7 @@ type EditorTab =
   | "orders";
 
 type StoreDraftSnapshotInput = {
+  mode: ClientStoreMode;
   name: string;
   headline: string;
   description: string;
@@ -119,6 +121,7 @@ type StoreDraftSnapshotInput = {
 
 function serializeStoreDraft(input: StoreDraftSnapshotInput): string {
   return JSON.stringify({
+    mode: input.mode || "order",
     name: input.name.trim(),
     headline: input.headline.trim(),
     description: input.description.trim(),
@@ -170,6 +173,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   const [stripeLoading, setStripeLoading] = useState(true);
 
   const [name, setName] = useState("");
+  const [mode, setMode] = useState<ClientStoreMode>("order");
   const [headline, setHeadline] = useState("");
   const [description, setDescription] = useState("");
   const [opensAt, setOpensAt] = useState("");
@@ -200,6 +204,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       setStore(storeRes.store);
       setSubmissions(submissionRes.submissions);
       const nextName = storeRes.store.name || "";
+      const nextMode = (storeRes.store.mode || "order") as ClientStoreMode;
       const nextHeadline = storeRes.store.headline || "";
       const nextDescription = storeRes.store.description || "";
       const nextOpensAt = storeRes.store.opensAt?.slice(0, 16) || "";
@@ -222,6 +227,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         heroImageUrl: storeRes.store.heroImageUrl,
       });
       setName(nextName);
+      setMode(nextMode);
       setHeadline(nextHeadline);
       setDescription(nextDescription);
       setOpensAt(nextOpensAt);
@@ -240,6 +246,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         return nextTheme.pages[0]?.id || null;
       });
       setDraftBaseline(serializeStoreDraft({
+        mode: nextMode,
         name: nextName,
         headline: nextHeadline,
         description: nextDescription,
@@ -297,6 +304,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   const draftSnapshot = useMemo(
     () =>
       serializeStoreDraft({
+        mode,
         name,
         headline,
         description,
@@ -312,6 +320,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         theme,
       }),
     [
+      mode,
       name,
       headline,
       description,
@@ -355,6 +364,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   const discardStoreDraft = useCallback(() => {
     if (!store) return;
     const nextName = store.name || "";
+    const nextMode = (store.mode || "order") as ClientStoreMode;
     const nextHeadline = store.headline || "";
     const nextDescription = store.description || "";
     const nextOpensAt = store.opensAt?.slice(0, 16) || "";
@@ -375,6 +385,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       heroImageUrl: store.heroImageUrl,
     });
     setName(nextName);
+    setMode(nextMode);
     setHeadline(nextHeadline);
     setDescription(nextDescription);
     setOpensAt(nextOpensAt);
@@ -388,6 +399,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     setAccentColorKey(nextAccent);
     setTheme(nextTheme);
     setDraftBaseline(serializeStoreDraft({
+      mode: nextMode,
       name: nextName,
       headline: nextHeadline,
       description: nextDescription,
@@ -411,6 +423,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     setError(null);
     try {
       const res = await updateClientStore(token, store.id, {
+        mode,
         name: name.trim(),
         opensAt: opensAt ? new Date(opensAt).toISOString() : null,
         closesAt: closesAt ? new Date(closesAt).toISOString() : null,
@@ -432,6 +445,8 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       });
       setStore(res.store);
       setPassword("");
+      const nextMode = (res.store.mode || "order") as ClientStoreMode;
+      setMode(nextMode);
       const nextTheme = ensureStoreTheme(res.store.theme, {
         name: res.store.name,
         headline: res.store.headline,
@@ -457,6 +472,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         )?.key as CustomerAccentKey | undefined) || null
       );
       setDraftBaseline(serializeStoreDraft({
+        mode: nextMode,
         name: res.store.name || "",
         headline: res.store.headline || "",
         description: res.store.description || "",
@@ -523,7 +539,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         setTab("products");
         return;
       }
-      if (store.mode !== "review") {
+      if (mode !== "review" && mode !== "show") {
         const readyProducts = enabled.filter((product) => product.sellPrice > 0);
         if (readyProducts.length === 0) {
           setError(
@@ -834,14 +850,18 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     },
     { id: "customize", label: "Customize", icon: LayoutTemplate },
     { id: "share", label: "Share", icon: Link2 },
-    ...(!isClientStoreReviewMode(store)
+    ...(!isClientStoreReviewMode({ mode }) && !isClientStoreShowMode({ mode })
       ? [{ id: "employees" as const, label: "Employees", icon: Users }]
       : []),
-    {
-      id: "orders",
-      label: `${isClientStoreReviewMode(store) ? "Reviews" : "Orders"} (${submissions.length})`,
-      icon: ListOrdered,
-    },
+    ...(!isClientStoreShowMode({ mode })
+      ? [
+          {
+            id: "orders" as const,
+            label: `${isClientStoreReviewMode({ mode }) ? "Reviews" : "Orders"} (${submissions.length})`,
+            icon: ListOrdered,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -861,7 +881,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
           <p className={cn(dashboardTaskDetailClass, "mt-1")}>
             {store.company || store.customerName || "Client store"}
             {" · "}
-            {clientStoreModeLabel(store.mode)} store
+            {clientStoreModeLabel(mode)} store
             {" · "}
             {clientStoreStatusLabel(store.status)}
           </p>
@@ -932,7 +952,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
           <div className={cn(dashboardCardClass, "space-y-4 p-4 sm:p-5")}>
             <div>
               <Label className="text-[13px]">Store type</Label>
-              <div className="mt-1.5 grid gap-2 sm:grid-cols-2">
+              <div className="mt-1.5 grid gap-2 sm:grid-cols-3">
                 {(
                   [
                     {
@@ -945,34 +965,23 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                       title: "Review store",
                       body: "Clients browse products for feedback — vote first, then select.",
                     },
+                    {
+                      value: "show" as ClientStoreMode,
+                      title: "Show store",
+                      body: "Browse-only catalog. View products, colors, and pricing — no cart or votes.",
+                    },
                   ] as const
                 ).map((option) => {
-                  const active = (store.mode || "order") === option.value;
+                  const active = mode === option.value;
                   return (
                     <button
                       key={option.value}
                       type="button"
                       onClick={() => {
-                        void (async () => {
-                          const token = await getIdToken();
-                          if (!token || !store) return;
-                          setSaving(true);
-                          setError(null);
-                          try {
-                            const res = await updateClientStore(token, store.id, {
-                              mode: option.value,
-                            });
-                            setStore(res.store);
-                          } catch (err) {
-                            setError(
-                              err instanceof Error
-                                ? err.message
-                                : "Could not update store type"
-                            );
-                          } finally {
-                            setSaving(false);
-                          }
-                        })();
+                        setMode(option.value);
+                        if (option.value === "show") {
+                          setShowPrices(true);
+                        }
                       }}
                       className={cn(
                         "rounded-xl border px-3 py-3 text-left transition-colors",
@@ -991,9 +1000,12 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                   );
                 })}
               </div>
+              <p className="mt-1.5 text-[11px] text-[#8a8a8a]">
+                Changes apply when you save.
+              </p>
             </div>
 
-            {(store.mode || "order") === "order" ? (
+            {mode === "order" ? (
               <div
                 className={cn(
                   "rounded-xl border px-3.5 py-3",
@@ -1058,22 +1070,45 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
             </div>
             <div>
               <Label className="text-[13px]">
-                {isClientStoreReviewMode(store)
+                {isClientStoreReviewMode({ mode })
                   ? "Review instructions"
-                  : "Order instructions"}
+                  : isClientStoreShowMode({ mode })
+                    ? "Catalog note"
+                    : "Order instructions"}
               </Label>
               <Textarea
                 value={orderInstructions}
                 onChange={(e) => setOrderInstructions(e.target.value)}
                 placeholder={
-                  isClientStoreReviewMode(store)
+                  isClientStoreReviewMode({ mode })
                     ? "Shown near submit — deadlines, who to include, etc."
-                    : "Shown at checkout — pickup notes, deadlines, etc."
+                    : isClientStoreShowMode({ mode })
+                      ? "Optional note for browsers — lead times, contact, etc."
+                      : "Shown at checkout — pickup notes, deadlines, etc."
                 }
                 className="mt-1.5 min-h-[80px] border-[#e3e3e3] text-[13px]"
               />
             </div>
-            {isClientStoreReviewMode(store) ? (
+            {isClientStoreShowMode({ mode }) ? (
+              <label className="flex items-start gap-2.5 rounded-lg border border-[#ebebeb] bg-[#fafafa] px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={showPrices}
+                  onChange={(e) => setShowPrices(e.target.checked)}
+                  className="mt-0.5 size-4 rounded border-[#c9cccf]"
+                />
+                <span>
+                  <span className="block text-[13px] font-medium text-[#303030]">
+                    Show prices
+                  </span>
+                  <span className="mt-0.5 block text-[12px] leading-relaxed text-[#8a8a8a]">
+                    Display sell prices on the public catalog. Turn off for a
+                    lookbook-style browse.
+                  </span>
+                </span>
+              </label>
+            ) : null}
+            {isClientStoreReviewMode({ mode }) ? (
               <>
                 <div>
                   <Label className="text-[13px]">Review phase</Label>
@@ -1949,16 +1984,18 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         </div>
       ) : null}
 
-      {tab === "employees" && !isClientStoreReviewMode(store) ? (
+      {tab === "employees" &&
+      !isClientStoreReviewMode({ mode }) &&
+      !isClientStoreShowMode({ mode }) ? (
         <StoreEmployeesPanel
           store={store}
           onStoreUpdated={(next) => setStore(next)}
         />
       ) : null}
 
-      {tab === "orders" ? (
+      {tab === "orders" && !isClientStoreShowMode({ mode }) ? (
         <div className="space-y-4">
-          {isClientStoreReviewMode(store) ? (
+          {isClientStoreReviewMode({ mode }) ? (
             <div className={cn(dashboardCardClass, "overflow-hidden")}>
               <div className="border-b border-[#ebebeb] px-4 py-3 sm:px-5">
                 <p className="text-[14px] font-semibold text-[#303030]">
