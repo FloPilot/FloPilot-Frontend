@@ -222,6 +222,7 @@ export function StoreCustomizeBuilder({
           id: product.id,
           name: product.name,
           description: product.description,
+          insights: product.insights,
           brand: product.brand,
           color: product.color,
           colors: product.colors,
@@ -229,7 +230,11 @@ export function StoreCustomizeBuilder({
           sizes: product.sizes,
           mockupUrl: product.mockupUrl,
           galleryUrls: product.galleryUrls,
+          tags: product.tags || [],
           sellPrice: product.sellPrice,
+          decorationType: product.decorationType,
+          minOrderQty: product.minOrderQty,
+          setupFee: product.setupFee,
         })),
     [store.products]
   );

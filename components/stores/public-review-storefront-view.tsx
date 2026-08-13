@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { FloPilotWatermark } from "@/components/branding/flopilot-watermark";
+import { StoreProductCommerceMeta } from "@/components/stores/store-product-commerce-meta";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -392,6 +393,7 @@ function ReviewProductCard({
               .filter(Boolean)
               .join(" · ") || "Apparel"}
           </p>
+          <StoreProductCommerceMeta product={product} />
           {showPrices && product.sellPrice != null ? (
             <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
               {formatCurrency(product.sellPrice)}
@@ -572,6 +574,8 @@ function ReviewProductDetail({
             {formatCurrency(product.sellPrice)}
           </p>
         ) : null}
+
+        <StoreProductCommerceMeta product={product} density="detail" />
 
         {product.description ? (
           <p className="mt-3 text-[14px] leading-relaxed text-[#5a6478]">
@@ -1422,6 +1426,10 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
                                   <p className="text-[13px] font-semibold leading-snug text-[#1f2430]">
                                     {product.name}
                                   </p>
+                                  <StoreProductCommerceMeta
+                                    product={product}
+                                    className="mt-1"
+                                  />
                                   <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                                     {color.name ? (
                                       <span className="inline-flex items-center gap-1.5 rounded-full border border-[#e3e3e3] bg-white px-2 py-0.5 text-[11px] font-medium text-[#616161]">

@@ -56,6 +56,50 @@ export type AddSsBlankCatalogClient = {
   ) => Promise<{ style: SupplierStyleDetail }>;
 };
 
+/** Image + color metadata when picking a blank for Design Studio (no sizes). */
+export type PickedSupplierBlank = {
+  imageUrl: string;
+  frontImageUrl?: string;
+  backImageUrl?: string;
+  colorHex?: string;
+  brandName: string;
+  styleName: string;
+  colorName: string;
+  title: string;
+  partNumber: string;
+  provider: SupplierProviderId;
+};
+
+function blankImageFromColor(
+  color: SupplierColorVariant,
+  style: SupplierStyleDetail
+): string | null {
+  return (
+    color.colorFrontImageLargeUrl?.trim() ||
+    color.colorFrontImageUrl?.trim() ||
+    color.colorSideImageUrl?.trim() ||
+    color.colorBackImageUrl?.trim() ||
+    style.styleImageLargeUrl?.trim() ||
+    style.styleImageUrl?.trim() ||
+    null
+  );
+}
+
+function blankViewsFromColor(
+  color: SupplierColorVariant,
+  style: SupplierStyleDetail
+): { front?: string; back?: string; primary: string | null } {
+  const front =
+    color.colorFrontImageLargeUrl?.trim() ||
+    color.colorFrontImageUrl?.trim() ||
+    style.styleImageLargeUrl?.trim() ||
+    style.styleImageUrl?.trim() ||
+    undefined;
+  const back = color.colorBackImageUrl?.trim() || undefined;
+  const primary = front || back || blankImageFromColor(color, style);
+  return { front, back, primary };
+}
+
 const QUICK_BRAND_HINTS_BY_PROVIDER: Record<SupplierProviderId, string[]> = {
   ssActivewear: [
     "Gildan",
@@ -163,16 +207,18 @@ function StyleResultRow({
 }
 
 export function AddSsBlankPanel({
-  lineItems,
+  lineItems = [],
   onAdd,
   saving,
   provider = "ssActivewear",
   editItem,
   catalogClient,
   hidePricing = false,
+  pickMode = "lineItem",
+  onPickBlank,
 }: {
-  lineItems: LineItem[];
-  onAdd: (item: LineItem) => Promise<void>;
+  lineItems?: LineItem[];
+  onAdd?: (item: LineItem) => Promise<void>;
   saving: boolean;
   provider?: SupplierProviderId;
   /** When set, opens directly on this style with color/qty prefilled for editing. */
@@ -181,7 +227,14 @@ export function AddSsBlankPanel({
   catalogClient?: AddSsBlankCatalogClient;
   /** Hide supplier piece prices (customer portal). */
   hidePricing?: boolean;
+  /**
+   * `blankImage` — Design Studio / mockup pickers: choose style + color and
+   * return the garment image (no size quantities).
+   */
+  pickMode?: "lineItem" | "blankImage";
+  onPickBlank?: (blank: PickedSupplierBlank) => Promise<void>;
 }) {
+  const isBlankImagePick = pickMode === "blankImage";
   const { getIdToken } = useAuth();
   const providerLabel = supplierProviderLabel(provider);
   const quickBrandHints = QUICK_BRAND_HINTS_BY_PROVIDER[provider];
@@ -204,6 +257,7 @@ export function AddSsBlankPanel({
     null
   );
   const [selectedColorIndex, setSelectedColorIndex] = useState(0);
+  const [colorQuery, setColorQuery] = useState("");
   const [quantities, setQuantities] = useState<Record<string, number>>(() =>
     editItem
       ? Object.fromEntries(editItem.sizes.map((row) => [row.size, row.quantity]))
@@ -338,6 +392,21 @@ export function AddSsBlankPanel({
   const selectedColor: SupplierColorVariant | null =
     styleDetail?.colors[selectedColorIndex] ?? null;
 
+  const filteredColors = useMemo(() => {
+    if (!styleDetail) return [];
+    const needle = colorQuery.trim().toLowerCase();
+    if (!needle) {
+      return styleDetail.colors.map((color, index) => ({ color, index }));
+    }
+    return styleDetail.colors
+      .map((color, index) => ({ color, index }))
+      .filter(
+        ({ color }) =>
+          color.colorName.toLowerCase().includes(needle) ||
+          color.colorCode.toLowerCase().includes(needle)
+      );
+  }, [colorQuery, styleDetail]);
+
   const existingOnOrder = useMemo(() => {
     if (!styleDetail || !selectedColor) return {};
     const otherItems = editItem
@@ -431,6 +500,7 @@ export function AddSsBlankPanel({
 
         setStyleDetail(detail);
         setSelectedColorIndex(colorIndex);
+        setColorQuery("");
         setQuantities(nextQuantities);
         setView("detail");
       } catch (err) {
@@ -523,6 +593,7 @@ export function AddSsBlankPanel({
         const matchedColor = detail.colors[colorIndex];
         setStyleDetail(detail);
         setSelectedColorIndex(colorIndex);
+        setColorQuery("");
         setQuantities((current) => {
           const next: Record<string, number> = {};
           for (const sku of matchedColor.sizes) {
@@ -586,8 +657,43 @@ export function AddSsBlankPanel({
     }, 0);
   }, [quantities, selectedColor]);
 
+  const handlePickBlankImage = async () => {
+    if (!styleDetail || !selectedColor || !onPickBlank) return;
+    setSubmitError(null);
+    const views = blankViewsFromColor(selectedColor, styleDetail);
+    if (!views.primary) {
+      setSubmitError(
+        "This color has no garment photo in the catalog. Pick another color or upload a blank."
+      );
+      return;
+    }
+    try {
+      await onPickBlank({
+        imageUrl: views.primary,
+        frontImageUrl: views.front,
+        backImageUrl: views.back,
+        colorHex: selectedColor.colorHex?.trim() || undefined,
+        brandName: styleDetail.brandName,
+        styleName: styleDetail.styleName,
+        colorName: selectedColor.colorName,
+        title: styleDetail.title,
+        partNumber: styleDetail.partNumber,
+        provider,
+      });
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "Could not use this blank"
+      );
+    }
+  };
+
   const handleSubmit = async () => {
     if (!styleDetail || !selectedColor) return;
+    if (isBlankImagePick) {
+      await handlePickBlankImage();
+      return;
+    }
+    if (!onAdd) return;
     setSubmitError(null);
 
     const item = buildLineItemFromSupplierSelection(
@@ -1060,6 +1166,7 @@ export function AddSsBlankPanel({
             setStyleDetail(null);
             setDetailError(null);
             setSubmitError(null);
+            setColorQuery("");
           }}
           className={cn(
             dashboardControlClass,
@@ -1106,7 +1213,14 @@ export function AddSsBlankPanel({
         </div>
       </div>
 
-      <div className="scrollbar-none max-h-[min(42vh,420px)] space-y-4 overflow-y-auto overscroll-contain py-3">
+      <div
+        className={cn(
+          "space-y-4 overflow-y-auto overscroll-contain py-3",
+          isBlankImagePick
+            ? "min-h-0 flex-1"
+            : "scrollbar-none max-h-[min(42vh,420px)]"
+        )}
+      >
         {detailError ? (
           <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[13px] text-[#8f1f1f]">
             {detailError}
@@ -1114,11 +1228,50 @@ export function AddSsBlankPanel({
         ) : null}
 
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-            Color
-          </p>
-          <div className="flex max-h-36 flex-wrap gap-2 overflow-y-auto">
-          {styleDetail.colors.map((color, index) => (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+              Color
+            </p>
+            {styleDetail.colors.length > 8 ? (
+              <p className="text-[11px] tabular-nums text-[#8a8a8a]">
+                {filteredColors.length === styleDetail.colors.length
+                  ? `${styleDetail.colors.length} colors`
+                  : `${filteredColors.length} of ${styleDetail.colors.length}`}
+              </p>
+            ) : null}
+          </div>
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-[#8a8a8a]" />
+            <Input
+              value={colorQuery}
+              onChange={(event) => setColorQuery(event.target.value)}
+              placeholder="Search colors…"
+              className="h-9 rounded-lg border-[#e3e3e3] pl-8 pr-8 text-[13px]"
+              disabled={saving}
+            />
+            {colorQuery ? (
+              <button
+                type="button"
+                onClick={() => setColorQuery("")}
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-[#8a8a8a] hover:bg-[#f3f3f3] hover:text-[#303030]"
+                aria-label="Clear color search"
+              >
+                <X className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+          <div
+            className={cn(
+              "flex flex-wrap gap-2",
+              !isBlankImagePick && "max-h-36 overflow-y-auto"
+            )}
+          >
+          {filteredColors.length === 0 ? (
+            <p className="py-2 text-[13px] text-[#8a8a8a]">
+              No colors match “{colorQuery.trim()}”.
+            </p>
+          ) : (
+            filteredColors.map(({ color, index }) => (
             <button
               key={`${color.colorCode}-${color.colorName}`}
               type="button"
@@ -1140,14 +1293,23 @@ export function AddSsBlankPanel({
                 }}
               />
               <span className="truncate font-medium">{color.colorName}</span>
-              <span className="tabular-nums text-[#8a8a8a]">
-                {color.totalQty.toLocaleString()}
-              </span>
+              {!isBlankImagePick ? (
+                <span className="tabular-nums text-[#8a8a8a]">
+                  {color.totalQty.toLocaleString()}
+                </span>
+              ) : null}
             </button>
-          ))}
+            ))
+          )}
         </div>
+        {isBlankImagePick && !blankImageFromColor(selectedColor, styleDetail) ? (
+          <p className="text-[12px] text-[#b42318]">
+            No garment photo for {selectedColor.colorName}. Pick another color.
+          </p>
+        ) : null}
       </div>
 
+      {!isBlankImagePick ? (
       <div className={cn(dashboardInsetSurfaceClass, "overflow-hidden")}>
         <div className="border-b border-[#ebebeb] bg-[#fafafa] px-4 py-3">
           <p className="text-[13px] font-semibold text-[#303030]">
@@ -1286,6 +1448,7 @@ export function AddSsBlankPanel({
           </table>
         </div>
       </div>
+      ) : null}
 
       {submitError ? (
         <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[13px] text-[#8f1f1f]">
@@ -1294,18 +1457,34 @@ export function AddSsBlankPanel({
       ) : null}
       </div>
 
-      <div className="flex shrink-0 justify-end border-t border-[#ebebeb] pt-3">
+      <div
+        className={cn(
+          "mt-auto flex shrink-0 justify-end border-t border-[#ebebeb]",
+          isBlankImagePick ? "pt-4" : "pt-3"
+        )}
+      >
         <Button
           type="button"
-          disabled={saving || pieceCount <= 0}
+          disabled={
+            saving ||
+            (isBlankImagePick
+              ? !blankImageFromColor(selectedColor, styleDetail)
+              : pieceCount <= 0)
+          }
           className={cn(dashboardPrimaryButtonClass, "h-9 px-4 text-[13px]")}
           onClick={() => void handleSubmit()}
         >
           {saving ? (
             <>
               <Loader2 className="size-3.5 animate-spin" />
-              {isEditMode ? "Saving…" : "Adding…"}
+              {isBlankImagePick
+                ? "Using blank…"
+                : isEditMode
+                  ? "Saving…"
+                  : "Adding…"}
             </>
+          ) : isBlankImagePick ? (
+            "Use this blank"
           ) : isEditMode ? (
             "Save changes"
           ) : (

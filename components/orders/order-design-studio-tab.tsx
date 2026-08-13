@@ -5,6 +5,7 @@ import {
   Check,
   ImagePlus,
   Loader2,
+  Pencil,
   Redo2,
   Sparkles,
   Undo2,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import { DesignStudioBlankRequired } from "@/components/design-studio/design-studio-blank-required";
 import { DesignStudioArtworkCleanup } from "@/components/design-studio/design-studio-artwork-cleanup";
+import { DesignStudioEditImageDialog } from "@/components/design-studio/design-studio-edit-image-dialog";
 import {
   DesignStudioLayersPanel,
   type DesignStudioLayerRow,
@@ -132,6 +134,7 @@ export function OrderDesignStudioTab({
   messages,
   blankContextLabel = "order",
   addBlankLabel = "Add a blank to this order",
+  initialImprintKey,
 }: {
   order: Order;
   onRequestAddBlank?: () => void;
@@ -151,6 +154,8 @@ export function OrderDesignStudioTab({
   };
   blankContextLabel?: string;
   addBlankLabel?: string;
+  /** Prefer this imprint key (`jobId:imprintId`) when opening the studio. */
+  initialImprintKey?: string;
 }) {
   const { settings } = useShopSettings();
   const { updateImprintDesignMockup } = useSchedule();
@@ -163,15 +168,32 @@ export function OrderDesignStudioTab({
   );
 
   const [selectedKey, setSelectedKey] = useState<string | null>(
-    entries[0]?.key ?? null
+    () =>
+      (initialImprintKey &&
+        entries.some((entry) => entry.key === initialImprintKey) &&
+        initialImprintKey) ||
+      entries[0]?.key ||
+      null
   );
   const [isSwitching, setIsSwitching] = useState(false);
   const [editorEpoch, setEditorEpoch] = useState(0);
+  const seededInitialKeyRef = useRef(Boolean(initialImprintKey));
   const selected = entries.find((entry) => entry.key === selectedKey) ?? entries[0];
 
   useEffect(() => {
-    if (!selected && entries[0]) setSelectedKey(entries[0].key);
-  }, [entries, selected]);
+    if (
+      !seededInitialKeyRef.current &&
+      initialImprintKey &&
+      entries.some((entry) => entry.key === initialImprintKey)
+    ) {
+      seededInitialKeyRef.current = true;
+      setSelectedKey(initialImprintKey);
+      return;
+    }
+    if (!entries.some((entry) => entry.key === selectedKey) && entries[0]) {
+      setSelectedKey(entries[0].key);
+    }
+  }, [entries, initialImprintKey, selectedKey]);
 
   const selectLocation = (key: string) => {
     if (key === selectedKey) return;
@@ -468,6 +490,7 @@ function DesignMockupEditor({
     )
   );
   const [busy, setBusy] = useState<string | null>(null);
+  const [editImageOpen, setEditImageOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   /** Explicit dirty flag — never inferred from snapshots (post-save URL sync breaks that). */
   const [userDirty, setUserDirty] = useState(false);
@@ -1039,8 +1062,9 @@ function DesignMockupEditor({
       pushDesignHistory();
       setArtLayers((current) => [...current, layer]);
       setSelectedLayerId(layer.id);
+      setEditImageOpen(true);
       setMessage(
-        "Artwork layer added. Select it in Layers to move or delete it, then save."
+        "Artwork layer added. Clean it up in Edit image, then save the mockup."
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not upload artwork");
@@ -1539,13 +1563,25 @@ function DesignMockupEditor({
                   : "Upload artwork"}
             </Button>
             {selectedLayer ? (
-              <DesignStudioArtworkCleanup
-                originalUrl={selectedLayer.url}
-                workingUrl={activeLayerUrl(selectedLayer) || selectedLayer.url}
-                disabled={Boolean(busy) || !canSave}
-                onApplyCleanUrl={handleApplyArtworkClean}
-                onDetectedColors={handleDetectedColors}
-              />
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(dashboardControlClass, "h-10 w-full justify-center")}
+                  onClick={() => setEditImageOpen(true)}
+                  disabled={Boolean(busy) || !canSave}
+                >
+                  <Pencil className="size-3.5" />
+                  Edit image
+                </Button>
+                <DesignStudioArtworkCleanup
+                  originalUrl={selectedLayer.url}
+                  workingUrl={activeLayerUrl(selectedLayer) || selectedLayer.url}
+                  disabled={Boolean(busy) || !canSave}
+                  onApplyCleanUrl={handleApplyArtworkClean}
+                  onDetectedColors={handleDetectedColors}
+                />
+              </>
             ) : null}
           </div>
 
@@ -1834,6 +1870,22 @@ function DesignMockupEditor({
           ) : null}
         </div>
       </div>
+
+      {selectedLayer ? (
+        <DesignStudioEditImageDialog
+          open={editImageOpen}
+          onOpenChange={setEditImageOpen}
+          originalUrl={selectedLayer.url}
+          workingUrl={activeLayerUrl(selectedLayer) || selectedLayer.url}
+          fileLabel={selectedLayer.label}
+          onApply={(result) => {
+            handleApplyArtworkClean(result.cleanUrl);
+            if (result.detectedColors.length > 0) {
+              handleDetectedColors(result.detectedColors);
+            }
+          }}
+        />
+      ) : null}
     </section>
   );
 }

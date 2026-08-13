@@ -4,6 +4,7 @@ import {
   Droplets,
   FileText,
   History,
+  Palette,
   RefreshCw,
   Upload,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const ICON_MAP: Record<
   artwork_uploaded: Upload,
   ink_updated: Droplets,
   specs_updated: FileText,
+  mockup_updated: Palette,
   version_restored: History,
   note: RefreshCw,
 };
@@ -27,6 +29,7 @@ const ICON_STYLES: Record<DesignActivityEvent["type"], string> = {
   artwork_uploaded: "bg-[#eef1ff] text-brand-primary",
   ink_updated: "bg-[#eef1ff] text-brand-primary",
   specs_updated: "bg-[#fff5ea] text-[#8a6116]",
+  mockup_updated: "bg-[#f4f7fd] text-[#2c6ecb]",
   version_restored: "bg-[#e8f5ee] text-[#0d5c2e]",
   note: "bg-[#f3f3f3] text-[#616161]",
 };

@@ -108,6 +108,15 @@ export type ClientStoreProduct = {
   blankCost: number;
   /** Per-unit decoration / imprint cost added on top of blank cost. */
   decorationCost?: number;
+  /** Free-text decoration method label (e.g. "DTF", "Left chest screen print"). */
+  decorationType?: string;
+  /**
+   * Minimum pieces for this product on a storefront order.
+   * 0 / omitted = no minimum.
+   */
+  minOrderQty?: number;
+  /** One-time setup / art fee charged once per product in an order. */
+  setupFee?: number;
   markupPercent: number;
   sellPrice: number;
   sellPriceMode: ClientStoreSellPriceMode;
@@ -261,6 +270,9 @@ export type PublicClientStoreProduct = {
   galleryUrls?: string[];
   tags?: string[];
   sellPrice?: number;
+  decorationType?: string;
+  minOrderQty?: number;
+  setupFee?: number;
 };
 
 export type ClientStoreEmployee = {

@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { FloPilotWatermark } from "@/components/branding/flopilot-watermark";
 import { PublicReviewStorefrontView } from "@/components/stores/public-review-storefront-view";
+import { StoreProductCommerceMeta } from "@/components/stores/store-product-commerce-meta";
 import { StoreProductDetailInteractive, StoreProductMediaThumb } from "@/components/stores/store-product-detail";
 import { StoreSectionRenderer } from "@/components/stores/store-section-renderer";
 import { Button } from "@/components/ui/button";
@@ -566,7 +567,9 @@ export function PublicStorefrontView({ token }: { token: string }) {
     setSize(firstSize);
     setColor(getProductColorNames(selected)[0] || "");
     setMockupIndex(0);
-    setQty(1);
+    const moq = Math.max(0, Math.floor(Number(selected.minOrderQty) || 0));
+    setQty(moq > 0 ? moq : 1);
+    setError(null);
   }, [selected]);
 
   useEffect(() => {
@@ -675,9 +678,34 @@ export function PublicStorefrontView({ token }: { token: string }) {
     if (!store || !activeCollection) return [];
     return resolveCollectionProducts(activeCollection, store.products);
   }, [store, activeCollection]);
-  const cartTotal = useMemo(
+  const cartMerchandiseTotal = useMemo(
     () => cart.reduce((sum, line) => sum + line.unitPrice * line.qty, 0),
     [cart]
+  );
+  const cartSetupFees = useMemo(() => {
+    if (!store) return [];
+    const productIds = new Set(cart.map((line) => line.productId));
+    const fees: { productId: string; productName: string; amount: number }[] =
+      [];
+    for (const productId of productIds) {
+      const product = store.products.find((row) => row.id === productId);
+      const amount = Math.max(0, Number(product?.setupFee) || 0);
+      if (!product || amount <= 0) continue;
+      fees.push({
+        productId: product.id,
+        productName: product.name,
+        amount,
+      });
+    }
+    return fees;
+  }, [cart, store]);
+  const cartSetupFeesTotal = useMemo(
+    () => cartSetupFees.reduce((sum, fee) => sum + fee.amount, 0),
+    [cartSetupFees]
+  );
+  const cartTotal = useMemo(
+    () => cartMerchandiseTotal + cartSetupFeesTotal,
+    [cartMerchandiseTotal, cartSetupFeesTotal]
   );
   const creditBalance = store?.employee?.creditBalance ?? 0;
   const creditsEnabled = store?.settings?.creditsEnabled === true;
@@ -689,10 +717,24 @@ export function PublicStorefrontView({ token }: { token: string }) {
 
   const addToCart = () => {
     if (!selected || !size) return;
+    const moq = Math.max(0, Math.floor(Number(selected.minOrderQty) || 0));
     const key = `${selected.id}:${size}:${color || ""}`;
+    const otherQty = cart
+      .filter((line) => line.productId === selected.id && line.key !== key)
+      .reduce((sum, line) => sum + line.qty, 0);
+    const existing = cart.find((line) => line.key === key);
+    const nextLineQty = (existing?.qty || 0) + qty;
+    const nextProductQty = otherQty + nextLineQty;
+    if (moq > 0 && nextProductQty < moq) {
+      setError(
+        `${selected.name} requires a minimum of ${moq} pieces (you’d have ${nextProductQty}).`
+      );
+      return;
+    }
+    setError(null);
     setCart((prev) => {
-      const existing = prev.find((line) => line.key === key);
-      if (existing) {
+      const current = prev.find((line) => line.key === key);
+      if (current) {
         return prev.map((line) =>
           line.key === key ? { ...line, qty: line.qty + qty } : line
         );
@@ -1010,6 +1052,7 @@ export function PublicStorefrontView({ token }: { token: string }) {
                       {[product.brand, product.color].filter(Boolean).join(" · ") ||
                         "Apparel"}
                     </p>
+                    <StoreProductCommerceMeta product={product} />
                     <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
                       {product.sellPrice != null
                         ? formatCurrency(product.sellPrice)
@@ -1084,6 +1127,7 @@ export function PublicStorefrontView({ token }: { token: string }) {
                         onAddToCart: addToCart,
                         storeOpen: store.isOpen,
                         brandFallback: store.company || store.customerName,
+                        error,
                       }}
                     />
                   ) : undefined
@@ -1174,17 +1218,39 @@ export function PublicStorefrontView({ token }: { token: string }) {
                           <button
                             type="button"
                             className="flex size-8 items-center justify-center text-[#616161] transition-colors hover:bg-[#f6f6f7]"
-                            onClick={() =>
-                              setCart((prev) =>
-                                prev
+                            onClick={() => {
+                              const product = store.products.find(
+                                (row) => row.id === line.productId
+                              );
+                              const moq = Math.max(
+                                0,
+                                Math.floor(Number(product?.minOrderQty) || 0)
+                              );
+                              setCart((prev) => {
+                                const productQty = prev
+                                  .filter(
+                                    (row) => row.productId === line.productId
+                                  )
+                                  .reduce((sum, row) => sum + row.qty, 0);
+                                if (
+                                  moq > 0 &&
+                                  productQty - 1 < moq &&
+                                  productQty > 0
+                                ) {
+                                  // Drop all lines for this product rather than leave under MOQ
+                                  return prev.filter(
+                                    (row) => row.productId !== line.productId
+                                  );
+                                }
+                                return prev
                                   .map((row) =>
                                     row.key === line.key
                                       ? { ...row, qty: row.qty - 1 }
                                       : row
                                   )
-                                  .filter((row) => row.qty > 0)
-                              )
-                            }
+                                  .filter((row) => row.qty > 0);
+                              });
+                            }}
                           >
                             <Minus className="size-3.5" />
                           </button>
@@ -1226,6 +1292,32 @@ export function PublicStorefrontView({ token }: { token: string }) {
 
               {cart.length > 0 ? (
                 <div className="border-t border-[#ebebeb] px-5 py-4">
+                  {error ? (
+                    <p className="mb-3 text-[13px] text-red-700">{error}</p>
+                  ) : null}
+                  {cartSetupFees.length > 0 ? (
+                    <div className="mb-3 space-y-1.5 text-[12px] text-[#616161]">
+                      <div className="flex items-center justify-between">
+                        <span>Merchandise</span>
+                        <span className="tabular-nums text-[#303030]">
+                          {formatCurrency(cartMerchandiseTotal)}
+                        </span>
+                      </div>
+                      {cartSetupFees.map((fee) => (
+                        <div
+                          key={fee.productId}
+                          className="flex items-center justify-between gap-3"
+                        >
+                          <span className="min-w-0 truncate">
+                            Setup · {fee.productName}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-[#303030]">
+                            {formatCurrency(fee.amount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="mb-3 flex items-center justify-between text-[14px] font-semibold">
                     <span>Subtotal</span>
                     <span className="tabular-nums">
@@ -1236,6 +1328,23 @@ export function PublicStorefrontView({ token }: { token: string }) {
                     type="button"
                     disabled={!store.isOpen}
                     onClick={() => {
+                      if (!store) return;
+                      for (const product of store.products) {
+                        const moq = Math.max(
+                          0,
+                          Math.floor(Number(product.minOrderQty) || 0)
+                        );
+                        if (moq <= 0) continue;
+                        const totalQty = cart
+                          .filter((line) => line.productId === product.id)
+                          .reduce((sum, line) => sum + line.qty, 0);
+                        if (totalQty > 0 && totalQty < moq) {
+                          setError(
+                            `${product.name} requires a minimum of ${moq} pieces (cart has ${totalQty}).`
+                          );
+                          return;
+                        }
+                      }
                       setError(null);
                       setCheckoutStep("checkout");
                     }}
@@ -1282,6 +1391,19 @@ export function PublicStorefrontView({ token }: { token: string }) {
                         </span>
                         <span className="shrink-0 tabular-nums text-[#303030]">
                           {formatCurrency(line.unitPrice * line.qty)}
+                        </span>
+                      </li>
+                    ))}
+                    {cartSetupFees.map((fee) => (
+                      <li
+                        key={`setup-${fee.productId}`}
+                        className="flex justify-between gap-3 text-[12px] text-[#616161]"
+                      >
+                        <span className="min-w-0 truncate">
+                          Setup · {fee.productName}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-[#303030]">
+                          {formatCurrency(fee.amount)}
                         </span>
                       </li>
                     ))}

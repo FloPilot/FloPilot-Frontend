@@ -2,12 +2,32 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { CSS } from "@dnd-kit/utilities";
+import {
   Eye,
   EyeOff,
+  GripVertical,
   ImagePlus,
   Loader2,
   Package,
   Plus,
+  Search,
   Trash2,
   Upload,
   X,
@@ -45,6 +65,329 @@ function emptyRule(): ClientStoreCollectionRule {
     operator: "equals",
     value: "",
   };
+}
+
+function SortableCollectionRow({
+  collection,
+  count,
+  selected,
+  onSelect,
+}: {
+  collection: ClientStoreCollection;
+  count: number;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: collection.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={cn(
+        "flex w-full items-center gap-1 rounded-lg border px-1 py-1 text-left",
+        isDragging
+          ? "z-20 border-brand-primary/40 bg-white shadow-[0_8px_24px_rgba(26,26,26,0.12)]"
+          : selected
+            ? "border-brand-primary/30 bg-[#f6f8ff]"
+            : "border-transparent hover:bg-[#f6f6f7]"
+      )}
+    >
+      <button
+        type="button"
+        className={cn(
+          "inline-flex size-7 shrink-0 cursor-grab items-center justify-center rounded-md text-[#c0c0c4] transition-colors",
+          "hover:bg-[#f1f1f1] hover:text-[#616161] active:cursor-grabbing",
+          isDragging && "cursor-grabbing text-[#616161]"
+        )}
+        aria-label={`Reorder ${collection.name}`}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={onSelect}
+        className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 py-1 text-left"
+      >
+        <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[#ebebeb] bg-[#fafafa]">
+          {collection.imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={collection.imageUrl}
+              alt=""
+              className="size-full object-cover"
+            />
+          ) : (
+            <Package className="size-3.5 text-[#8a8a8a]" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-medium text-[#303030]">
+            {collection.name}
+          </p>
+          <p className="text-[11px] text-[#8a8a8a]">
+            {count} product{count === 1 ? "" : "s"}
+            {collection.selectionType === "smart" ? " · Smart" : ""}
+            {!collection.enabled ? " · Hidden" : ""}
+          </p>
+        </div>
+      </button>
+    </div>
+  );
+}
+
+function SortableCollectionProductRow({
+  product,
+  selectionType,
+  onRemove,
+}: {
+  product: ClientStoreProduct;
+  selectionType: "manual" | "smart";
+  onRemove: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: product.id, disabled: selectionType !== "manual" });
+
+  return (
+    <li
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={cn(
+        "flex items-center gap-2 bg-white px-2 py-2.5 sm:gap-3 sm:px-3",
+        isDragging && "relative z-20 shadow-[0_8px_24px_rgba(26,26,26,0.12)]"
+      )}
+    >
+      {selectionType === "manual" ? (
+        <button
+          type="button"
+          className={cn(
+            "inline-flex size-7 shrink-0 cursor-grab items-center justify-center rounded-md text-[#c0c0c4] transition-colors",
+            "hover:bg-[#f1f1f1] hover:text-[#616161] active:cursor-grabbing",
+            isDragging && "cursor-grabbing text-[#616161]"
+          )}
+          aria-label={`Reorder ${product.name}`}
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-3.5" />
+        </button>
+      ) : null}
+      <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#ebebeb] bg-[#fafafa] p-1">
+        {getPrimaryMockupUrl(product) ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={getPrimaryMockupUrl(product)}
+            alt=""
+            className="size-full object-contain"
+          />
+        ) : (
+          <Package className="size-3.5 text-[#c0c0c4]" />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-[13px] font-medium text-[#303030]">
+          {product.name}
+        </p>
+        <p className="truncate text-[11px] text-[#8a8a8a]">
+          {[product.brand, product.color].filter(Boolean).join(" · ") ||
+            "Apparel"}
+          {" · "}
+          {formatCurrency(product.sellPrice)}
+        </p>
+        {(product.tags || []).length > 0 ? (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {(product.tags || []).slice(0, 4).map((tag) => (
+              <span
+                key={tag}
+                className="rounded-md bg-[#f1f1f1] px-1.5 py-0.5 text-[10px] font-medium text-[#616161]"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        className="h-8 shrink-0 px-2 text-[12px] text-[#8a8a8a] hover:text-red-700"
+        onClick={onRemove}
+      >
+        {selectionType === "smart" ? "Exclude" : "Remove"}
+      </Button>
+    </li>
+  );
+}
+
+function ProductSearchAdd({
+  products,
+  onAdd,
+}: {
+  products: ClientStoreProduct[];
+  onAdd: (productId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = !q
+      ? products
+      : products.filter((product) => {
+          const haystack = [
+            product.name,
+            product.brand,
+            product.color,
+            product.decorationType,
+            ...(product.tags || []),
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(q);
+        });
+    return filtered.slice(0, 10);
+  }, [products, query]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, open]);
+
+  useEffect(() => {
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, []);
+
+  const pick = (productId: string) => {
+    onAdd(productId);
+    setQuery("");
+    setOpen(true);
+    inputRef.current?.focus();
+  };
+
+  const showMenu = open && (matches.length > 0 || Boolean(query.trim()));
+
+  return (
+    <div ref={rootRef} className="relative w-full">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[#8a8a8a]" />
+        <Input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (!showMenu) return;
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setActiveIndex((index) =>
+                Math.min(index + 1, Math.max(matches.length - 1, 0))
+              );
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setActiveIndex((index) => Math.max(index - 1, 0));
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              if (matches[activeIndex]) pick(matches[activeIndex].id);
+            } else if (e.key === "Escape") {
+              setOpen(false);
+            }
+          }}
+          placeholder={
+            products.length === 0
+              ? "All enabled products are in this collection"
+              : "Search products — click to add"
+          }
+          disabled={products.length === 0}
+          className="h-9 border-[#e3e3e3] pl-9 text-[12px]"
+          autoComplete="off"
+        />
+      </div>
+      {showMenu ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-30 overflow-hidden rounded-lg border border-[#e3e3e3] bg-white shadow-[0_8px_24px_rgba(26,26,26,0.10)]">
+          {matches.length > 0 ? (
+            <ul className="max-h-64 overflow-y-auto py-1">
+              {matches.map((product, index) => (
+                <li key={product.id}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pick(product.id)}
+                    className={cn(
+                      "flex w-full items-center gap-2.5 px-3 py-2 text-left",
+                      index === activeIndex
+                        ? "bg-[#f4f7fd]"
+                        : "hover:bg-[#f6f6f7]"
+                    )}
+                  >
+                    <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[#ebebeb] bg-[#fafafa] p-0.5">
+                      {getPrimaryMockupUrl(product) ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={getPrimaryMockupUrl(product)}
+                          alt=""
+                          className="size-full object-contain"
+                        />
+                      ) : (
+                        <Package className="size-3 text-[#c0c0c4]" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[12px] font-medium text-[#303030]">
+                        {product.name}
+                      </p>
+                      <p className="truncate text-[11px] text-[#8a8a8a]">
+                        {[product.brand, product.color]
+                          .filter(Boolean)
+                          .join(" · ") || "Apparel"}
+                      </p>
+                    </div>
+                    <Plus className="size-3.5 shrink-0 text-[#2c6ecb]" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="px-3 py-2.5 text-[11px] text-[#8a8a8a]">
+              No matching products to add.
+            </p>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function TagSuggestInput({
@@ -193,7 +536,13 @@ export function StoreCollectionsPanel({
     theme.collections[0]?.id || null
   );
   const [uploading, setUploading] = useState(false);
-  const [addProductId, setAddProductId] = useState("");
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const selected =
     theme.collections.find((row) => row.id === selectedId) || null;
@@ -269,7 +618,12 @@ export function StoreCollectionsPanel({
     return resolveCollectionProducts(selected, enabledProducts);
   }, [selected, enabledProducts]);
 
-  const selectionType = selected?.selectionType === "smart" ? "smart" : "manual";
+  const selectionType =
+    selected?.selectionType === "smart" ||
+    (selected?.selectionType !== "manual" &&
+      (selected?.rules || []).some((rule) => String(rule.value || "").trim()))
+      ? "smart"
+      : "manual";
 
   const productsNotInManual = useMemo(() => {
     if (!selected || selectionType !== "manual") return [];
@@ -329,7 +683,28 @@ export function StoreCollectionsPanel({
     patchCollection(selected.id, {
       productIds: [...selected.productIds, productId],
     });
-    setAddProductId("");
+  };
+
+  const handleCollectionDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = theme.collections.findIndex((row) => row.id === active.id);
+    const newIndex = theme.collections.findIndex((row) => row.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    updateCollections(arrayMove(theme.collections, oldIndex, newIndex));
+  };
+
+  const handleProductDragEnd = (event: DragEndEvent) => {
+    if (!selected || selectionType !== "manual") return;
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const ids = selected.productIds.slice();
+    const oldIndex = ids.indexOf(String(active.id));
+    const newIndex = ids.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    patchCollection(selected.id, {
+      productIds: arrayMove(ids, oldIndex, newIndex),
+    });
   };
 
   return (
@@ -338,7 +713,7 @@ export function StoreCollectionsPanel({
         <div>
           <p className="text-[14px] font-semibold text-[#121a2e]">Collections</p>
           <p className="mt-0.5 text-[12px] text-[#8a8a8a]">
-            Group products manually or with smart tag rules.
+            Drag to reorder collections and products — that order is what shoppers see.
           </p>
         </div>
         <div className="flex gap-2">
@@ -364,7 +739,7 @@ export function StoreCollectionsPanel({
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
         <div className={cn(dashboardCardClass, "overflow-hidden p-0")}>
           <div className="border-b border-[#ebebeb] px-3 py-2.5">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
@@ -377,48 +752,33 @@ export function StoreCollectionsPanel({
                 No collections yet. Create one to showcase product groups.
               </p>
             ) : (
-              theme.collections.map((collection) => {
-                const count = resolveCollectionProducts(
-                  collection,
-                  enabledProducts
-                ).length;
-                return (
-                  <button
-                    key={collection.id}
-                    type="button"
-                    onClick={() => setSelectedId(collection.id)}
-                    className={cn(
-                      "flex w-full items-center gap-2 rounded-lg border px-2.5 py-2 text-left",
-                      selectedId === collection.id
-                        ? "border-brand-primary/30 bg-[#f6f8ff]"
-                        : "border-transparent hover:bg-[#f6f6f7]"
-                    )}
-                  >
-                    <div className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[#ebebeb] bg-[#fafafa]">
-                      {collection.imageUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={collection.imageUrl}
-                          alt=""
-                          className="size-full object-cover"
-                        />
-                      ) : (
-                        <Package className="size-3.5 text-[#8a8a8a]" />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-[13px] font-medium text-[#303030]">
-                        {collection.name}
-                      </p>
-                      <p className="text-[11px] text-[#8a8a8a]">
-                        {count} product{count === 1 ? "" : "s"}
-                        {collection.selectionType === "smart" ? " · Smart" : ""}
-                        {!collection.enabled ? " · Hidden" : ""}
-                      </p>
-                    </div>
-                  </button>
-                );
-              })
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                modifiers={[restrictToVerticalAxis]}
+                onDragEnd={handleCollectionDragEnd}
+              >
+                <SortableContext
+                  items={theme.collections.map((row) => row.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  {theme.collections.map((collection) => {
+                    const count = resolveCollectionProducts(
+                      collection,
+                      enabledProducts
+                    ).length;
+                    return (
+                      <SortableCollectionRow
+                        key={collection.id}
+                        collection={collection}
+                        count={count}
+                        selected={selectedId === collection.id}
+                        onSelect={() => setSelectedId(collection.id)}
+                      />
+                    );
+                  })}
+                </SortableContext>
+              </DndContext>
             )}
           </div>
         </div>
@@ -671,28 +1031,14 @@ export function StoreCollectionsPanel({
                       )}
                     </div>
                   ) : (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <select
-                        value={addProductId}
-                        onChange={(e) => setAddProductId(e.target.value)}
-                        className="h-9 min-w-[200px] flex-1 rounded-lg border border-[#e3e3e3] bg-white px-2.5 text-[12px] text-[#303030]"
-                      >
-                        <option value="">Add a product…</option>
-                        {productsNotInManual.map((product) => (
-                          <option key={product.id} value={product.id}>
-                            {product.name}
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        type="button"
-                        className={cn(dashboardControlClass, "h-9")}
-                        disabled={!addProductId}
-                        onClick={() => addManualProduct(addProductId)}
-                      >
-                        <Plus className="size-3.5" />
-                        Add
-                      </Button>
+                    <div className="space-y-1.5">
+                      <ProductSearchAdd
+                        products={productsNotInManual}
+                        onAdd={addManualProduct}
+                      />
+                      <p className="text-[11px] text-[#8a8a8a]">
+                        Click a result to add it. Drag items below to set the order on the site.
+                      </p>
                     </div>
                   )}
 
@@ -704,6 +1050,11 @@ export function StoreCollectionsPanel({
                       <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#f1f1f1] px-1.5 text-[11px] font-semibold tabular-nums text-[#616161]">
                         {collectionItems.length}
                       </span>
+                      {selectionType === "manual" && collectionItems.length > 1 ? (
+                        <span className="text-[11px] text-[#8a8a8a]">
+                          Drag to reorder
+                        </span>
+                      ) : null}
                     </div>
 
                     {collectionItems.length === 0 ? (
@@ -714,9 +1065,32 @@ export function StoreCollectionsPanel({
                         <p className="mt-1 text-[12px] text-[#8a8a8a]">
                           {selectionType === "smart"
                             ? "Add a tag condition above, or tag products so they match."
-                            : "Use Add to include products from your catalog."}
+                            : "Search above and click a product to add it."}
                         </p>
                       </div>
+                    ) : selectionType === "manual" ? (
+                      <DndContext
+                        sensors={sensors}
+                        collisionDetection={closestCenter}
+                        modifiers={[restrictToVerticalAxis]}
+                        onDragEnd={handleProductDragEnd}
+                      >
+                        <SortableContext
+                          items={collectionItems.map((row) => row.id)}
+                          strategy={verticalListSortingStrategy}
+                        >
+                          <ul className="divide-y divide-[#ebebeb] overflow-hidden rounded-xl border border-[#e3e3e3]">
+                            {collectionItems.map((product) => (
+                              <SortableCollectionProductRow
+                                key={product.id}
+                                product={product}
+                                selectionType="manual"
+                                onRemove={() => removeFromCollection(product.id)}
+                              />
+                            ))}
+                          </ul>
+                        </SortableContext>
+                      </DndContext>
                     ) : (
                       <ul className="divide-y divide-[#ebebeb] overflow-hidden rounded-xl border border-[#e3e3e3]">
                         {collectionItems.map((product) => (
@@ -747,18 +1121,6 @@ export function StoreCollectionsPanel({
                                 {" · "}
                                 {formatCurrency(product.sellPrice)}
                               </p>
-                              {(product.tags || []).length > 0 ? (
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  {(product.tags || []).slice(0, 4).map((tag) => (
-                                    <span
-                                      key={tag}
-                                      className="rounded-md bg-[#f1f1f1] px-1.5 py-0.5 text-[10px] font-medium text-[#616161]"
-                                    >
-                                      {tag}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : null}
                             </div>
                             <Button
                               type="button"
@@ -766,7 +1128,7 @@ export function StoreCollectionsPanel({
                               className="h-8 shrink-0 px-2 text-[12px] text-[#8a8a8a] hover:text-red-700"
                               onClick={() => removeFromCollection(product.id)}
                             >
-                              {selectionType === "smart" ? "Exclude" : "Remove"}
+                              Exclude
                             </Button>
                           </li>
                         ))}
