@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Check,
   ChevronDown,
+  Copy,
   ImagePlus,
   Layers,
   Loader2,
@@ -16,6 +17,7 @@ import {
   Wand2,
   X,
 } from "lucide-react";
+import { StoreProductDecorationLocations } from "@/components/stores/store-product-decoration-locations";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -109,6 +111,7 @@ function emptyProduct(): ClientStoreProduct {
     blankCost: 0,
     decorationCost: 0,
     decorationType: "",
+    decorationLocations: [],
     minOrderQty: 0,
     setupFee: 0,
     markupPercent: 40,
@@ -175,6 +178,7 @@ export function StoreProductEditor({
   onBack,
   onSave,
   onDelete,
+  onDuplicate,
   onDirtyChange,
   onBindUnsavedActions,
   onLeaveBlocked,
@@ -186,6 +190,7 @@ export function StoreProductEditor({
   onBack: () => void;
   onSave: (product: ClientStoreProduct) => Promise<void>;
   onDelete?: () => Promise<void>;
+  onDuplicate?: () => Promise<void>;
   onDirtyChange?: (dirty: boolean) => void;
   onSavingChange?: (saving: boolean) => void;
   onBindUnsavedActions?: (
@@ -488,8 +493,11 @@ export function StoreProductEditor({
       }
     }
     if (urls.length === 0 && draft.mockupUrl) urls.push(draft.mockupUrl);
-    return urls.slice(0, 8);
-  }, [enabledColorVariants, draft.mockupUrl]);
+    for (const location of draft.decorationLocations || []) {
+      if (location.imageUrl) urls.push(location.imageUrl);
+    }
+    return Array.from(new Set(urls)).slice(0, 12);
+  }, [enabledColorVariants, draft.mockupUrl, draft.decorationLocations]);
   const [galleryIndex, setGalleryIndex] = useState(0);
 
   const updateDraft = (patch: Partial<ClientStoreProduct>) => {
@@ -862,6 +870,19 @@ export function StoreProductEditor({
                 title="Remove product"
               >
                 <Trash2 className="size-3.5" />
+              </Button>
+            ) : null}
+            {mode === "edit" && onDuplicate ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 rounded-lg border-[#e3e3e3] bg-white px-2.5 text-[13px] font-medium text-[#616161]"
+                disabled={saving}
+                onClick={() => void onDuplicate()}
+                title="Duplicate product"
+              >
+                <Copy className="size-3.5" />
+                <span className="hidden sm:inline">Duplicate</span>
               </Button>
             ) : null}
             {mode === "search" ? (
@@ -1665,6 +1686,18 @@ export function StoreProductEditor({
                     </div>
                   </div>
                 </div>
+              </Section>
+
+              <Section
+                title="Decoration locations"
+                description="Choose shop print locations and attach mockups — images show in the storefront gallery. Drag to reorder."
+              >
+                <StoreProductDecorationLocations
+                  locations={draft.decorationLocations || []}
+                  onChange={(decorationLocations) =>
+                    updateDraft({ decorationLocations })
+                  }
+                />
               </Section>
 
               <Section

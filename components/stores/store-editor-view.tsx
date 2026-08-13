@@ -63,6 +63,7 @@ import {
   computeClientStoreEconomics,
   getEnabledColorVariants,
   getPrimaryMockupUrl,
+  insertDuplicatedClientStoreProduct,
   isClientStoreReviewMode,
   resolveClientStoreShareUrl,
   type ClientStore,
@@ -572,7 +573,20 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     } finally {
       setSaving(false);
     }
-  }
+  };
+
+  const duplicateProduct = async (productId: string) => {
+    if (!store) return;
+    const result = insertDuplicatedClientStoreProduct(
+      store.products || [],
+      productId
+    );
+    if (!result) return;
+    await saveProducts(result.products);
+    setEditingProduct(result.duplicate);
+    setProductOpen(true);
+    setProductDirty(false);
+  };
 
   const sortedCatalogProducts = useMemo(
     () =>
@@ -1258,6 +1272,17 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
               setEditingProduct(null);
               setProductDirty(false);
             }}
+            onDuplicate={
+              editingProduct
+                ? async () => {
+                    if (productDirty) {
+                      requestLeave();
+                      return;
+                    }
+                    await duplicateProduct(editingProduct.id);
+                  }
+                : undefined
+            }
             onDelete={
               editingProduct
                 ? async () => {
@@ -1461,6 +1486,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                         <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a] sm:px-5">
                           Supplier
                         </th>
+                        <th className="w-12 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                          <span className="sr-only">Actions</span>
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#ebebeb]">
@@ -1617,6 +1645,24 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                               {product.supplier
                                 ? supplierProviderLabel(product.supplier)
                                 : "Manual"}
+                            </td>
+                            <td
+                              className="px-2 py-3"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="size-8 rounded-lg p-0 text-[#8a8a8a] hover:bg-[#f1f1f1] hover:text-[#303030]"
+                                disabled={saving}
+                                title="Duplicate product"
+                                aria-label={`Duplicate ${product.name}`}
+                                onClick={() =>
+                                  void duplicateProduct(product.id)
+                                }
+                              >
+                                <Copy className="size-3.5" />
+                              </Button>
                             </td>
                           </tr>
                         );

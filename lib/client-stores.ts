@@ -61,6 +61,19 @@ export type ClientStoreProductDesign = {
   updatedAt?: string;
 };
 
+/**
+ * Decoration placement on a store product (from shop print locations).
+ * Images here are shown in the storefront gallery alongside color mockups.
+ */
+export type ClientStoreDecorationLocation = {
+  id: string;
+  locationKey: string;
+  locationLabel: string;
+  /** Uploaded / composed mockup for this placement. */
+  imageUrl?: string;
+  sortOrder: number;
+};
+
 /** One offerable color on a store product, with optional front/back mockups. */
 export type ClientStoreColorVariant = {
   id: string;
@@ -110,6 +123,11 @@ export type ClientStoreProduct = {
   decorationCost?: number;
   /** Free-text decoration method label (e.g. "DTF", "Left chest screen print"). */
   decorationType?: string;
+  /**
+   * Decoration placements (from shop settings) with optional mockup images.
+   * Images are merged into the storefront product gallery.
+   */
+  decorationLocations?: ClientStoreDecorationLocation[];
   /**
    * Minimum pieces for this product on a storefront order.
    * 0 / omitted = no minimum.
@@ -271,6 +289,7 @@ export type PublicClientStoreProduct = {
   tags?: string[];
   sellPrice?: number;
   decorationType?: string;
+  decorationLocations?: ClientStoreDecorationLocation[];
   minOrderQty?: number;
   setupFee?: number;
 };
@@ -510,13 +529,35 @@ export function getProductColorNames(
   return product.color ? [product.color] : [];
 }
 
+export function getDecorationLocationImages(
+  product: Pick<ClientStoreProduct, "decorationLocations"> | null | undefined
+): string[] {
+  return (product?.decorationLocations || [])
+    .slice()
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+    .map((location) => String(location.imageUrl || "").trim())
+    .filter(Boolean);
+}
+
+function uniqueUrls(urls: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const url of urls) {
+    if (!url || seen.has(url)) continue;
+    seen.add(url);
+    out.push(url);
+  }
+  return out;
+}
+
 export function getMockupsForColor(
   product: Pick<
     ClientStoreProduct,
-    "colorVariants" | "mockupUrl" | "galleryUrls"
+    "colorVariants" | "mockupUrl" | "galleryUrls" | "decorationLocations"
   >,
   colorName?: string
 ): string[] {
+  const locationUrls = getDecorationLocationImages(product);
   const variants = product.colorVariants || [];
   if (variants.length > 0) {
     const match = colorName
@@ -527,20 +568,99 @@ export function getMockupsForColor(
         )
       : variants.find((variant) => variant.enabled !== false);
     const urls = (match?.mockupUrls || []).filter(Boolean);
-    if (urls.length > 0) return urls;
+    if (urls.length > 0) return uniqueUrls([...urls, ...locationUrls]);
   }
-  if (product.mockupUrl) return [product.mockupUrl];
-  return (product.galleryUrls || []).filter(Boolean);
+  if (product.mockupUrl) {
+    return uniqueUrls([product.mockupUrl, ...locationUrls]);
+  }
+  const legacy = (product.galleryUrls || []).filter(Boolean);
+  if (legacy.length > 0) return uniqueUrls([...legacy, ...locationUrls]);
+  return locationUrls;
 }
 
 export function getPrimaryMockupUrl(
   product: Pick<
     ClientStoreProduct,
-    "colorVariants" | "mockupUrl" | "galleryUrls"
+    "colorVariants" | "mockupUrl" | "galleryUrls" | "decorationLocations"
   >,
   colorName?: string
 ): string | undefined {
   return getMockupsForColor(product, colorName)[0] || undefined;
+}
+
+export function createClientStoreDecorationLocationId(): string {
+  return `csloc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export function createClientStoreProductId(): string {
+  return `cprod-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** Deep-ish clone for “Duplicate product” — new ids, same economics/mockups/tags. */
+export function duplicateClientStoreProduct(
+  product: ClientStoreProduct,
+  options?: { nameSuffix?: string }
+): ClientStoreProduct {
+  const suffix = options?.nameSuffix ?? " (copy)";
+  const baseName = product.name.trim() || "Product";
+  const stamp = Date.now().toString(36);
+
+  return {
+    ...product,
+    id: createClientStoreProductId(),
+    name: `${baseName}${suffix}`.slice(0, 120),
+    colors: [...(product.colors || [])],
+    tags: [...(product.tags || [])],
+    galleryUrls: product.galleryUrls ? [...product.galleryUrls] : undefined,
+    sizes: (product.sizes || []).map((row) => ({ ...row })),
+    colorVariants: (product.colorVariants || []).map((variant, index) => ({
+      ...variant,
+      id: `color-${stamp}-${index}-${Math.random().toString(36).slice(2, 6)}`.slice(
+        0,
+        64
+      ),
+      mockupUrls: [...(variant.mockupUrls || [])],
+      blankMockupUrls: variant.blankMockupUrls
+        ? [...variant.blankMockupUrls]
+        : undefined,
+    })),
+    decorationLocations: (product.decorationLocations || []).map(
+      (location, index) => ({
+        ...location,
+        id: createClientStoreDecorationLocationId(),
+        sortOrder: index,
+      })
+    ),
+    design: product.design
+      ? {
+          ...product.design,
+          artLayers: product.design.artLayers?.map((layer) => ({
+            ...layer,
+            id: `layer-${stamp}-${Math.random().toString(36).slice(2, 7)}`,
+            transform: { ...layer.transform },
+          })),
+          transform: { ...product.design.transform },
+        }
+      : undefined,
+  };
+}
+
+/**
+ * Insert a duplicated product immediately after its source and re-index sortOrder.
+ */
+export function insertDuplicatedClientStoreProduct(
+  products: ClientStoreProduct[],
+  sourceId: string
+): { products: ClientStoreProduct[]; duplicate: ClientStoreProduct } | null {
+  const index = products.findIndex((row) => row.id === sourceId);
+  if (index < 0) return null;
+  const duplicate = duplicateClientStoreProduct(products[index]);
+  const next = [
+    ...products.slice(0, index + 1),
+    duplicate,
+    ...products.slice(index + 1),
+  ].map((row, sortOrder) => ({ ...row, sortOrder }));
+  return { products: next, duplicate };
 }
 
 /** Keep flat color/mockup fields in sync with colorVariants for APIs + older UI. */

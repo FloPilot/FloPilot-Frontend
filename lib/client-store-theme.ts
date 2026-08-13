@@ -58,7 +58,10 @@ export type ClientStoreCollection = {
   imageUrl?: string;
   /** Manual picks vs smart rules (tag matching). Defaults to manual. */
   selectionType?: ClientStoreCollectionSelectionType;
-  /** Manual membership (and legacy collections). */
+  /**
+   * Manual membership, or for smart collections an optional display order.
+   * Smart membership still comes from rules; ids here pin sort order.
+   */
   productIds: string[];
   /** Products excluded from a smart collection. */
   excludedProductIds?: string[];
@@ -454,6 +457,44 @@ export function newStoreCollectionRuleId(): string {
   return `rule-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/** Clone a collection (manual or smart) with fresh ids — keeps product membership/rules. */
+export function duplicateClientStoreCollection(
+  collection: ClientStoreCollection,
+  options?: { nameSuffix?: string }
+): ClientStoreCollection {
+  const suffix = options?.nameSuffix ?? " (copy)";
+  const baseName = collection.name.trim() || "Collection";
+  return {
+    ...collection,
+    id: newStoreCollectionId(),
+    name: `${baseName}${suffix}`.slice(0, 120),
+    productIds: [...(collection.productIds || [])],
+    excludedProductIds: [...(collection.excludedProductIds || [])],
+    rules: (collection.rules || []).map((rule) => ({
+      ...rule,
+      id: newStoreCollectionRuleId(),
+    })),
+  };
+}
+
+/**
+ * Insert a duplicated collection immediately after its source and re-index sortOrder.
+ */
+export function insertDuplicatedClientStoreCollection(
+  collections: ClientStoreCollection[],
+  sourceId: string
+): { collections: ClientStoreCollection[]; duplicate: ClientStoreCollection } | null {
+  const index = collections.findIndex((row) => row.id === sourceId);
+  if (index < 0) return null;
+  const duplicate = duplicateClientStoreCollection(collections[index]);
+  const next = [
+    ...collections.slice(0, index + 1),
+    duplicate,
+    ...collections.slice(index + 1),
+  ].map((row, sortOrder) => ({ ...row, sortOrder }));
+  return { collections: next, duplicate };
+}
+
 function normalizeTag(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -512,17 +553,27 @@ export function resolveCollectionProducts<
 >(collection: ClientStoreCollection, products: T[]): T[] {
   const enabled = products.filter((product) => product.enabled !== false);
   const excluded = new Set(collection.excludedProductIds || []);
-
-  if (isSmartCollection(collection)) {
-    return enabled.filter(
-      (product) =>
-        !excluded.has(product.id) && productMatchesRules(product, collection)
-    );
-  }
-
   const order = new Map(
     (collection.productIds || []).map((id, index) => [id, index])
   );
+
+  if (isSmartCollection(collection)) {
+    // Membership comes from rules; productIds is an optional display order
+    // (new matches not yet ordered land after pinned ones).
+    const matched = enabled.filter(
+      (product) =>
+        !excluded.has(product.id) && productMatchesRules(product, collection)
+    );
+    if (order.size === 0) return matched;
+    const catalogIndex = new Map(enabled.map((product, index) => [product.id, index]));
+    return matched.sort((a, b) => {
+      const aRank = order.has(a.id) ? (order.get(a.id) as number) : Number.MAX_SAFE_INTEGER;
+      const bRank = order.has(b.id) ? (order.get(b.id) as number) : Number.MAX_SAFE_INTEGER;
+      if (aRank !== bRank) return aRank - bRank;
+      return (catalogIndex.get(a.id) ?? 0) - (catalogIndex.get(b.id) ?? 0);
+    });
+  }
+
   return enabled
     .filter((product) => order.has(product.id))
     .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
