@@ -259,7 +259,15 @@ export function NewDesignBlankModal({
       blankImageBackUrl?: string;
     }>;
   }) => {
-    const locationsPayload = payload.locations || selectedLocations;
+    const locationsPayload =
+      payload.locations ||
+      selectedLocations.map((loc) => ({
+        locationKey: loc.locationKey,
+        locationLabel: loc.locationLabel,
+        blankImageUrl: loc.blankImageUrl,
+        blankImageFrontUrl: undefined as string | undefined,
+        blankImageBackUrl: undefined as string | undefined,
+      }));
     if (locationsPayload.length === 0) {
       requireLocations();
       throw new Error("Pick at least one decoration location.");

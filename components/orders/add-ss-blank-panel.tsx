@@ -1047,6 +1047,10 @@ export function AddSsBlankPanel({
         return;
       }
       try {
+        if (!onAdd) {
+          setSubmitError("Cannot update quantities in this mode.");
+          return;
+        }
         await onAdd({ ...editItem, sizes });
       } catch (err) {
         setSubmitError(
