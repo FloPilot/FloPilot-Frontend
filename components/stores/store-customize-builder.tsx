@@ -227,6 +227,7 @@ export function StoreCustomizeBuilder({
           color: product.color,
           colors: product.colors,
           colorVariants: product.colorVariants,
+          productKind: product.productKind,
           sizes: product.sizes,
           mockupUrl: product.mockupUrl,
           galleryUrls: product.galleryUrls,

@@ -5,6 +5,11 @@ export type ClientStoreMode = "order" | "review" | "show";
 
 export type ClientStoreSellPriceMode = "markup" | "fixed";
 
+/** Apparel uses size runs; accessories are always One Size. */
+export type ClientStoreProductKind = "apparel" | "accessory";
+
+export const CLIENT_STORE_ONE_SIZE = "One Size";
+
 export type ClientStoreReviewDecision = "included" | "excluded";
 
 export type ClientStoreReviewPhase = "voting" | "selection";
@@ -110,6 +115,11 @@ export type ClientStoreProduct = {
   colors?: string[];
   /** Preferred structured color + mockup data. */
   colorVariants?: ClientStoreColorVariant[];
+  /**
+   * apparel = size run (XS–4XL); accessory = One Size only.
+   * Defaults to apparel for older products.
+   */
+  productKind?: ClientStoreProductKind;
   sizes: ClientStoreSizeOption[];
   /** Fallback hero image = first mockup of first enabled color. */
   mockupUrl?: string;
@@ -242,6 +252,12 @@ export type ClientStore = {
   mode?: ClientStoreMode;
   headline?: string;
   description?: string;
+  /** Open Graph / link-unfurl title when sharing the store URL. */
+  shareTitle?: string;
+  /** Open Graph / link-unfurl description when sharing the store URL. */
+  shareDescription?: string;
+  /** Open Graph / link-unfurl image when sharing the store URL. */
+  shareImageUrl?: string;
   logoUrl?: string;
   accentColorKey?: string;
   heroImageUrl?: string;
@@ -348,6 +364,7 @@ export type PublicClientStoreProduct = {
   color?: string;
   colors?: string[];
   colorVariants?: ClientStoreColorVariant[];
+  productKind?: ClientStoreProductKind;
   sizes: ClientStoreSizeOption[];
   mockupUrl?: string;
   galleryUrls?: string[];
@@ -403,6 +420,9 @@ export type PublicClientStore = {
   mode?: ClientStoreMode;
   headline?: string;
   description?: string;
+  shareTitle?: string;
+  shareDescription?: string;
+  shareImageUrl?: string;
   logoUrl?: string;
   accentColorKey?: string;
   heroImageUrl?: string;
@@ -438,6 +458,21 @@ export const CLIENT_STORE_DEFAULT_SIZES = [
   "3XL",
   "4XL",
 ] as const;
+
+export function normalizeClientStoreProductKind(
+  value: unknown
+): ClientStoreProductKind {
+  return value === "accessory" ? "accessory" : "apparel";
+}
+
+export function sizesForClientStoreProductKind(
+  kind: ClientStoreProductKind
+): ClientStoreSizeOption[] {
+  if (kind === "accessory") {
+    return [{ size: CLIENT_STORE_ONE_SIZE, enabled: true }];
+  }
+  return CLIENT_STORE_DEFAULT_SIZES.map((size) => ({ size, enabled: true }));
+}
 
 export function computeClientStoreSellPrice(product: {
   blankCost: number;
@@ -863,6 +898,8 @@ export function insertDuplicatedClientStoreProduct(
 export function syncProductDerivedFields(
   product: ClientStoreProduct
 ): ClientStoreProduct {
+  // Empty string means the merchant cleared Primary color — do not revive colors[0].
+  const colorProvided = typeof product.color === "string";
   const requestedColor = (product.color || "").trim();
   const requestedBrand = (product.brand || "").trim();
 
@@ -875,12 +912,16 @@ export function syncProductDerivedFields(
       ? [requestedColor, ...(product.colors || []).filter(Boolean)].filter(
           (name, index, arr) => arr.indexOf(name) === index
         )
-      : (product.colors || []).filter(Boolean);
+      : colorProvided
+        ? []
+        : (product.colors || []).filter(Boolean);
     return {
       ...product,
       brand: requestedBrand || undefined,
       colors,
-      color: requestedColor || colors[0] || undefined,
+      color: colorProvided
+        ? requestedColor || undefined
+        : requestedColor || colors[0] || undefined,
     };
   }
 
@@ -921,8 +962,9 @@ export function syncProductDerivedFields(
         : undefined,
     })),
     colors,
-    // Prefer explicit primary color over forcing colors[0].
-    color: matchedPrimary || requestedColor || colors[0],
+    color: colorProvided
+      ? matchedPrimary || requestedColor || undefined
+      : matchedPrimary || requestedColor || colors[0] || undefined,
     mockupUrl: allMockups[0] || product.mockupUrl || "",
     // Don't duplicate every mockup into galleryUrls (Firestore 1MB limit).
     galleryUrls: undefined,

@@ -21,7 +21,10 @@ import { Input } from "@/components/ui/input";
 import {
   computeClientStoreEconomics,
   getPrimaryMockupUrl,
+  normalizeClientStoreProductKind,
+  sizesForClientStoreProductKind,
   type ClientStoreProduct,
+  type ClientStoreProductKind,
   type ClientStoreSellPriceMode,
 } from "@/lib/client-stores";
 import {
@@ -34,6 +37,7 @@ import { cn } from "@/lib/utils";
 type BulkColumnId =
   | "title"
   | "status"
+  | "productKind"
   | "brand"
   | "color"
   | "description"
@@ -75,6 +79,13 @@ const COLUMN_DEFS: BulkColumnDef[] = [
     width: "w-[280px] min-w-[280px] max-w-[280px]",
   },
   { id: "status", label: "Status", group: "publishing", width: "min-w-[120px]" },
+  {
+    id: "productKind",
+    label: "Type",
+    group: "general",
+    hint: "Apparel = size run · Accessory = One Size",
+    width: "min-w-[130px]",
+  },
   { id: "brand", label: "Brand", group: "general", width: "min-w-[140px]" },
   { id: "color", label: "Primary color", group: "general", width: "min-w-[130px]" },
   {
@@ -241,6 +252,8 @@ function getCellValue(
       return product.name;
     case "status":
       return product.enabled;
+    case "productKind":
+      return normalizeClientStoreProductKind(product.productKind);
     case "brand":
       return product.brand || "";
     case "color":
@@ -282,6 +295,14 @@ function applyCellValue(
       return { ...product, name: String(value).trim().slice(0, 120) || product.name };
     case "status":
       return { ...product, enabled: Boolean(value) };
+    case "productKind": {
+      const kind = normalizeClientStoreProductKind(value);
+      return {
+        ...product,
+        productKind: kind,
+        sizes: sizesForClientStoreProductKind(kind),
+      };
+    }
     case "brand":
       return { ...product, brand: String(value).trim().slice(0, 80) || undefined };
     case "color": {
@@ -293,7 +314,8 @@ function applyCellValue(
           : variants;
       return {
         ...product,
-        color: color || undefined,
+        // Keep "" when cleared so backend doesn't revive the first variant name.
+        color,
         colors: color
           ? Array.from(
               new Set([
@@ -821,6 +843,23 @@ export function StoreProductBulkEditor({
                             >
                               <option value="active">Active</option>
                               <option value="draft">Draft</option>
+                            </select>
+                          ) : col.id === "productKind" ? (
+                            <select
+                              value={normalizeClientStoreProductKind(
+                                product.productKind
+                              )}
+                              onChange={(e) =>
+                                updateProduct(
+                                  product.id,
+                                  "productKind",
+                                  e.target.value as ClientStoreProductKind
+                                )
+                              }
+                              className="h-9 w-full rounded-md border border-transparent bg-transparent px-2 text-[13px] outline-none hover:border-[#e3e3e3] focus:border-[#c9cccf] focus:bg-white"
+                            >
+                              <option value="apparel">Apparel</option>
+                              <option value="accessory">Accessory</option>
                             </select>
                           ) : col.id === "sellPriceMode" ? (
                             <select

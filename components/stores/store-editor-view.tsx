@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileText,
   GripVertical,
+  ImagePlus,
   Layers,
   LayoutTemplate,
   Link2,
@@ -23,6 +24,7 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  Upload,
   Users,
 } from "lucide-react";
 import {
@@ -135,6 +137,9 @@ type StoreDraftSnapshotInput = {
   publicUrlSegments: ClientStorePublicUrlSegment[];
   headline: string;
   description: string;
+  shareTitle: string;
+  shareDescription: string;
+  shareImageUrl: string;
   opensAt: string;
   closesAt: string;
   password: string;
@@ -157,6 +162,9 @@ function serializeStoreDraft(input: StoreDraftSnapshotInput): string {
     ),
     headline: input.headline.trim(),
     description: input.description.trim(),
+    shareTitle: input.shareTitle.trim(),
+    shareDescription: input.shareDescription.trim(),
+    shareImageUrl: input.shareImageUrl.trim(),
     opensAt: input.opensAt,
     closesAt: input.closesAt,
     password: input.password.trim(),
@@ -281,6 +289,10 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
   const [mode, setMode] = useState<ClientStoreMode>("order");
   const [headline, setHeadline] = useState("");
   const [description, setDescription] = useState("");
+  const [shareTitle, setShareTitle] = useState("");
+  const [shareDescription, setShareDescription] = useState("");
+  const [shareImageUrl, setShareImageUrl] = useState("");
+  const [uploadingShareImage, setUploadingShareImage] = useState(false);
   const [opensAt, setOpensAt] = useState("");
   const [closesAt, setClosesAt] = useState("");
   const [password, setPassword] = useState("");
@@ -316,6 +328,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       const nextMode = (storeRes.store.mode || "order") as ClientStoreMode;
       const nextHeadline = storeRes.store.headline || "";
       const nextDescription = storeRes.store.description || "";
+      const nextShareTitle = storeRes.store.shareTitle || "";
+      const nextShareDescription = storeRes.store.shareDescription || "";
+      const nextShareImageUrl = storeRes.store.shareImageUrl || "";
       const nextOpensAt = storeRes.store.opensAt?.slice(0, 16) || "";
       const nextClosesAt = storeRes.store.closesAt?.slice(0, 16) || "";
       const nextOrderInstructions =
@@ -341,6 +356,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       setMode(nextMode);
       setHeadline(nextHeadline);
       setDescription(nextDescription);
+      setShareTitle(nextShareTitle);
+      setShareDescription(nextShareDescription);
+      setShareImageUrl(nextShareImageUrl);
       setOpensAt(nextOpensAt);
       setClosesAt(nextClosesAt);
       setOrderInstructions(nextOrderInstructions);
@@ -363,6 +381,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         publicUrlSegments: nextPublicUrlSegments,
         headline: nextHeadline,
         description: nextDescription,
+        shareTitle: nextShareTitle,
+        shareDescription: nextShareDescription,
+        shareImageUrl: nextShareImageUrl,
         opensAt: nextOpensAt,
         closesAt: nextClosesAt,
         password: "",
@@ -423,6 +444,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         publicUrlSegments,
         headline,
         description,
+        shareTitle,
+        shareDescription,
+        shareImageUrl,
         opensAt,
         closesAt,
         password,
@@ -441,6 +465,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       publicUrlSegments,
       headline,
       description,
+      shareTitle,
+      shareDescription,
+      shareImageUrl,
       opensAt,
       closesAt,
       password,
@@ -488,6 +515,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     const nextMode = (store.mode || "order") as ClientStoreMode;
     const nextHeadline = store.headline || "";
     const nextDescription = store.description || "";
+    const nextShareTitle = store.shareTitle || "";
+    const nextShareDescription = store.shareDescription || "";
+    const nextShareImageUrl = store.shareImageUrl || "";
     const nextOpensAt = store.opensAt?.slice(0, 16) || "";
     const nextClosesAt = store.closesAt?.slice(0, 16) || "";
     const nextOrderInstructions = store.settings?.orderInstructions || "";
@@ -511,6 +541,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     setMode(nextMode);
     setHeadline(nextHeadline);
     setDescription(nextDescription);
+    setShareTitle(nextShareTitle);
+    setShareDescription(nextShareDescription);
+    setShareImageUrl(nextShareImageUrl);
     setOpensAt(nextOpensAt);
     setClosesAt(nextClosesAt);
     setPassword("");
@@ -528,6 +561,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       publicUrlSegments: nextPublicUrlSegments,
       headline: nextHeadline,
       description: nextDescription,
+      shareTitle: nextShareTitle,
+      shareDescription: nextShareDescription,
+      shareImageUrl: nextShareImageUrl,
       opensAt: nextOpensAt,
       closesAt: nextClosesAt,
       password: "",
@@ -562,6 +598,11 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         closesAt: closesAt ? new Date(closesAt).toISOString() : null,
         headline: headline.trim() || undefined,
         description: description.trim() || undefined,
+        shareTitle: shareTitle.trim() ? shareTitle.trim() : null,
+        shareDescription: shareDescription.trim()
+          ? shareDescription.trim()
+          : null,
+        shareImageUrl: shareImageUrl.trim() ? shareImageUrl.trim() : null,
         accentColorKey: accentColorKey ?? null,
         theme,
         settings: {
@@ -590,6 +631,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       setTheme(nextTheme);
       setHeadline(res.store.headline || "");
       setDescription(res.store.description || "");
+      setShareTitle(res.store.shareTitle || "");
+      setShareDescription(res.store.shareDescription || "");
+      setShareImageUrl(res.store.shareImageUrl || "");
       setName(res.store.name || "");
       setSlug(res.store.slug || "");
       setPublicUrlSegments(
@@ -620,6 +664,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         ),
         headline: res.store.headline || "",
         description: res.store.description || "",
+        shareTitle: res.store.shareTitle || "",
+        shareDescription: res.store.shareDescription || "",
+        shareImageUrl: res.store.shareImageUrl || "",
         opensAt: res.store.opensAt?.slice(0, 16) || "",
         closesAt: res.store.closesAt?.slice(0, 16) || "",
         password: "",
@@ -888,7 +935,6 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       ),
     }));
   };
-;
 
   const handleAssetUpload = async (
     kind: "logo" | "hero",
@@ -1402,6 +1448,137 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                 Drag the grip to change order. Store name is required. Changes
                 apply when you save.
               </p>
+            </div>
+
+            <div className="rounded-xl border border-[#ebebeb] bg-[#fafafa] px-3.5 py-3.5">
+              <p className="text-[13px] font-semibold text-[#303030]">
+                Link preview
+              </p>
+              <p className="mt-1 text-[12px] leading-relaxed text-[#8a8a8a]">
+                What people see when this store link is shared in texts, Slack,
+                email, or social apps. Leave blank to use the store name.
+              </p>
+
+              <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_180px]">
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-[12px] text-[#616161]">Title</Label>
+                    <Input
+                      value={shareTitle}
+                      onChange={(e) =>
+                        setShareTitle(e.target.value.slice(0, 120))
+                      }
+                      placeholder={name.trim() || "Your store name"}
+                      className="mt-1.5 h-9 border-[#e3e3e3] bg-white text-[13px]"
+                      maxLength={120}
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[12px] text-[#616161]">
+                      Description
+                    </Label>
+                    <Textarea
+                      value={shareDescription}
+                      onChange={(e) =>
+                        setShareDescription(e.target.value.slice(0, 300))
+                      }
+                      placeholder="Review the apparel options and pick your sizes."
+                      className="mt-1.5 min-h-[72px] border-[#e3e3e3] bg-white text-[13px]"
+                      maxLength={300}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-[12px] text-[#616161]">Image</Label>
+                  <div className="mt-1.5 flex aspect-[1.91/1] items-center justify-center overflow-hidden rounded-lg border border-[#e3e3e3] bg-white">
+                    {uploadingShareImage ? (
+                      <Loader2 className="size-4 animate-spin text-[#8a8a8a]" />
+                    ) : shareImageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={shareImageUrl}
+                        alt=""
+                        className="size-full object-cover"
+                      />
+                    ) : (
+                      <ImagePlus className="size-5 text-[#c0c0c4]" />
+                    )}
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <label
+                      className={cn(
+                        dashboardControlClass,
+                        "flex-1 cursor-pointer justify-center"
+                      )}
+                    >
+                      <Upload className="size-3.5" />
+                      Upload
+                      <input
+                        type="file"
+                        accept=".png,.jpg,.jpeg,.webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null;
+                          e.target.value = "";
+                          if (!file) return;
+                          setUploadingShareImage(true);
+                          setError(null);
+                          void readStoreMockupDataUrl(file).then(
+                            ({ previewUrl, error: readError }) => {
+                              setUploadingShareImage(false);
+                              if (readError || !previewUrl) {
+                                setError(
+                                  readError || "Could not read that image."
+                                );
+                                return;
+                              }
+                              setShareImageUrl(previewUrl);
+                            }
+                          );
+                        }}
+                      />
+                    </label>
+                    {shareImageUrl ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="h-9 px-2.5 text-[#8a8a8a] hover:text-red-700"
+                        onClick={() => setShareImageUrl("")}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 overflow-hidden rounded-xl border border-[#e3e3e3] bg-white shadow-sm">
+                {shareImageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={shareImageUrl}
+                    alt=""
+                    className="aspect-[1.91/1] w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex aspect-[1.91/1] w-full items-center justify-center bg-[#f1f1f2] text-[11px] text-[#8a8a8a]">
+                    Preview image
+                  </div>
+                )}
+                <div className="space-y-0.5 px-3 py-2.5">
+                  <p className="truncate text-[11px] uppercase tracking-wide text-[#8a8a8a]">
+                    flopilot.io
+                  </p>
+                  <p className="truncate text-[13px] font-semibold text-[#121a2e]">
+                    {shareTitle.trim() || name.trim() || "Client store"}
+                  </p>
+                  <p className="line-clamp-2 text-[12px] leading-relaxed text-[#616161]">
+                    {shareDescription.trim() ||
+                      "Order branded apparel from your print shop."}
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
