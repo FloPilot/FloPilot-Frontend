@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -45,11 +45,13 @@ import {
   resolveCollectionProducts,
   resolveNavItemAction,
   type ClientStoreNavItem,
+  type StoreNavAction,
 } from "@/lib/client-store-theme";
 import type {
   PublicClientStore,
   PublicClientStoreProduct,
 } from "@/lib/client-stores";
+import { useStorefrontProductNav } from "@/hooks/use-storefront-product-nav";
 import {
   getMockupsForColor,
   getProductColorNames,
@@ -89,8 +91,10 @@ export function PublicStorefrontView({ token }: { token: string }) {
   const [password, setPassword] = useState("");
   const [employeeCode, setEmployeeCode] = useState("");
   const [accessError, setAccessError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<PublicClientStoreProduct | null>(
-    null
+  const scrollPaneRef = useRef<HTMLDivElement | null>(null);
+  const { selected, selectProduct } = useStorefrontProductNav(
+    store?.products || [],
+    scrollPaneRef
   );
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
     null
@@ -258,34 +262,37 @@ export function PublicStorefrontView({ token }: { token: string }) {
     [theme.navigation]
   );
 
+  const handleNavAction = useCallback((action: StoreNavAction) => {
+    if (action.kind === "noop") return;
+    if (action.kind === "url") {
+      if (action.openInNewTab) {
+        window.open(action.href, "_blank", "noopener,noreferrer");
+      } else {
+        window.location.href = action.href;
+      }
+      return;
+    }
+    selectProduct(null, { historyMode: "replace" });
+    if (action.kind === "collection") {
+      setActiveCollectionId(action.collectionId);
+      setActivePageHandle("home");
+      return;
+    }
+    setActiveCollectionId(null);
+    if (action.kind === "home" || action.kind === "products") {
+      setActivePageHandle("home");
+      return;
+    }
+    if (action.kind === "page") {
+      setActivePageHandle(action.handle);
+    }
+  }, [selectProduct]);
+
   const handleNavItem = useCallback(
     (item: ClientStoreNavItem) => {
-      const action = resolveNavItemAction(item, theme);
-      if (action.kind === "noop") return;
-      if (action.kind === "url") {
-        if (action.openInNewTab) {
-          window.open(action.href, "_blank", "noopener,noreferrer");
-        } else {
-          window.location.href = action.href;
-        }
-        return;
-      }
-      setSelected(null);
-      if (action.kind === "collection") {
-        setActiveCollectionId(action.collectionId);
-        setActivePageHandle("home");
-        return;
-      }
-      setActiveCollectionId(null);
-      if (action.kind === "home" || action.kind === "products") {
-        setActivePageHandle("home");
-        return;
-      }
-      if (action.kind === "page") {
-        setActivePageHandle(action.handle);
-      }
+      handleNavAction(resolveNavItemAction(item, theme));
     },
-    [theme]
+    [handleNavAction, theme]
   );
 
   const productPage = useMemo(
@@ -443,7 +450,7 @@ export function PublicStorefrontView({ token }: { token: string }) {
           setCart([]);
           clearClientStoreCart(token);
           setCheckoutOpen(false);
-          setSelected(null);
+          selectProduct(null, { historyMode: "replace" });
           // Refresh employee balance after full-credit checkout
           void load({ employeeCode: employeeCode.trim() });
           return;
@@ -461,7 +468,7 @@ export function PublicStorefrontView({ token }: { token: string }) {
       setCart([]);
       clearClientStoreCart(token);
       setCheckoutOpen(false);
-      setSelected(null);
+      selectProduct(null, { historyMode: "replace" });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not submit order");
       setSubmitting(false);
@@ -654,7 +661,10 @@ export function PublicStorefrontView({ token }: { token: string }) {
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+      <div
+        ref={scrollPaneRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
+      >
       {!selected ? (
         activeCollection ? (
           <main className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 sm:py-10">
@@ -686,7 +696,7 @@ export function PublicStorefrontView({ token }: { token: string }) {
                   <button
                     key={product.id}
                     type="button"
-                    onClick={() => setSelected(product)}
+                    onClick={() => selectProduct(product)}
                     className="group text-left"
                   >
                     <StoreProductCardMedia
@@ -696,10 +706,13 @@ export function PublicStorefrontView({ token }: { token: string }) {
                     <p className="mt-3 text-[13px] font-medium leading-snug text-[#303030]">
                       {product.name}
                     </p>
-                    <p className="mt-1 text-[12px] text-[#8a8a8a]">
-                      {[product.brand, product.color].filter(Boolean).join(" · ") ||
-                        "Apparel"}
-                    </p>
+                    {[product.brand, product.color].filter(Boolean).join(" · ") ? (
+                      <p className="mt-1 text-[12px] text-[#8a8a8a]">
+                        {[product.brand, product.color]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    ) : null}
                     <StoreProductCommerceMeta product={product} />
                     <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
                       {product.sellPrice != null
@@ -729,10 +742,12 @@ export function PublicStorefrontView({ token }: { token: string }) {
                   products={store.products}
                   collections={theme.collections}
                   accentHex={accentHex}
-                  onSelectProduct={setSelected}
+                  theme={theme}
+                  onSelectProduct={selectProduct}
                   onSelectCollection={(collection) =>
                     setActiveCollectionId(collection.id)
                   }
+                  onNavigate={handleNavAction}
                 />
               ))}
           </div>
@@ -742,7 +757,7 @@ export function PublicStorefrontView({ token }: { token: string }) {
           <div className="mx-auto max-w-[1200px] px-4 pt-6 sm:px-6 sm:pt-8">
             <button
               type="button"
-              onClick={() => setSelected(null)}
+              onClick={() => selectProduct(null)}
               className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[#616161] transition-colors hover:text-[#303030]"
             >
               <ArrowLeft className="size-3.5" />
@@ -758,6 +773,7 @@ export function PublicStorefrontView({ token }: { token: string }) {
                 products={store.products}
                 collections={theme.collections}
                 accentHex={accentHex}
+                theme={theme}
                 previewProduct={selected}
                 productDetailSlot={
                   section.type === "product_detail" ? (
@@ -783,11 +799,12 @@ export function PublicStorefrontView({ token }: { token: string }) {
                     />
                   ) : undefined
                 }
-                onSelectProduct={setSelected}
+                onSelectProduct={selectProduct}
                 onSelectCollection={(collection) => {
-                  setSelected(null);
+                  selectProduct(null, { historyMode: "replace" });
                   setActiveCollectionId(collection.id);
                 }}
+                onNavigate={handleNavAction}
               />
             ))}
         </div>

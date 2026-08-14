@@ -59,6 +59,11 @@ export type ClientStoreProductDesign = {
   transform: ClientStoreDesignTransform;
   placementPresetId?: string;
   updatedAt?: string;
+  /**
+   * Linked Design Studio library file. Created/updated when artwork is saved
+   * from the client-store Design Studio so shop designs stay in the library.
+   */
+  libraryDesignId?: string;
 };
 
 /**
@@ -829,6 +834,8 @@ export function duplicateClientStoreProduct(
             transform: { ...layer.transform },
           })),
           transform: { ...product.design.transform },
+          // New product copy should get its own library file on next save.
+          libraryDesignId: undefined,
         }
       : undefined,
   };
@@ -856,27 +863,55 @@ export function insertDuplicatedClientStoreProduct(
 export function syncProductDerivedFields(
   product: ClientStoreProduct
 ): ClientStoreProduct {
-  const enabled = (product.colorVariants || []).filter(
+  const requestedColor = (product.color || "").trim();
+  const requestedBrand = (product.brand || "").trim();
+
+  let enabled = (product.colorVariants || []).filter(
     (variant) => variant.enabled !== false && variant.name.trim()
   );
+
   if (enabled.length === 0) {
+    const colors = requestedColor
+      ? [requestedColor, ...(product.colors || []).filter(Boolean)].filter(
+          (name, index, arr) => arr.indexOf(name) === index
+        )
+      : (product.colors || []).filter(Boolean);
     return {
       ...product,
-      colors: product.color
-        ? [product.color, ...(product.colors || []).filter(Boolean)].filter(
-            (name, index, arr) => arr.indexOf(name) === index
-          )
-        : product.colors || [],
+      brand: requestedBrand || undefined,
+      colors,
+      color: requestedColor || colors[0] || undefined,
     };
   }
 
+  // Keep the merchant-entered primary color. If it matches a variant, use that
+  // as primary (and move it first). If there's only one variant, rename it.
+  if (requestedColor) {
+    const matchIndex = enabled.findIndex(
+      (variant) =>
+        variant.name.trim().toLowerCase() === requestedColor.toLowerCase()
+    );
+    if (matchIndex > 0) {
+      const matched = enabled[matchIndex];
+      enabled = [matched, ...enabled.filter((_, i) => i !== matchIndex)];
+    } else if (matchIndex < 0 && enabled.length === 1) {
+      enabled = [{ ...enabled[0], name: requestedColor }];
+    }
+  }
+
   const colors = enabled.map((variant) => variant.name.trim());
+  const matchedPrimary = requestedColor
+    ? colors.find(
+        (name) => name.toLowerCase() === requestedColor.toLowerCase()
+      )
+    : undefined;
   const allMockups = enabled.flatMap((variant) =>
     (variant.mockupUrls || []).filter(Boolean)
   );
 
   return {
     ...product,
+    brand: requestedBrand || undefined,
     colorVariants: enabled.map((variant) => ({
       ...variant,
       name: variant.name.trim(),
@@ -886,7 +921,8 @@ export function syncProductDerivedFields(
         : undefined,
     })),
     colors,
-    color: colors[0],
+    // Prefer explicit primary color over forcing colors[0].
+    color: matchedPrimary || requestedColor || colors[0],
     mockupUrl: allMockups[0] || product.mockupUrl || "",
     // Don't duplicate every mockup into galleryUrls (Firestore 1MB limit).
     galleryUrls: undefined,

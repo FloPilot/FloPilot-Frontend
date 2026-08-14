@@ -286,12 +286,27 @@ function applyCellValue(
       return { ...product, brand: String(value).trim().slice(0, 80) || undefined };
     case "color": {
       const color = String(value).trim().slice(0, 60);
+      const variants = product.colorVariants || [];
+      const nextVariants =
+        color && variants.length === 1
+          ? [{ ...variants[0], name: color }]
+          : variants;
       return {
         ...product,
         color: color || undefined,
         colors: color
-          ? Array.from(new Set([color, ...(product.colors || [])]))
+          ? Array.from(
+              new Set([
+                color,
+                ...(nextVariants.length
+                  ? nextVariants
+                      .filter((row) => row.enabled !== false)
+                      .map((row) => row.name)
+                  : product.colors || []),
+              ])
+            )
           : product.colors,
+        colorVariants: nextVariants.length ? nextVariants : product.colorVariants,
       };
     }
     case "description":

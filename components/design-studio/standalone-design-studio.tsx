@@ -1,11 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Loader2, Pencil, Plus, Sparkles, Trash2, Upload, BookMarked } from "lucide-react";
+import {
+  BookMarked,
+  Check,
+  Loader2,
+  Pencil,
+  Plus,
+  Shirt,
+  Sparkles,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import {
   DesignStudioArtStage,
   composeFullDesignPreview,
 } from "@/components/design-studio/design-studio-art-stage";
+import {
+  DesignStudioChangeBlankDialog,
+  type ChangedBlank,
+} from "@/components/design-studio/design-studio-change-blank-dialog";
 import {
   DesignStudioLayersPanel,
   type DesignStudioLayerRow,
@@ -146,6 +160,7 @@ export function StandaloneDesignStudio({
   const [addingLocation, setAddingLocation] = useState(false);
   const [editImageOpen, setEditImageOpen] = useState(false);
   const [pickArtworkOpen, setPickArtworkOpen] = useState(false);
+  const [changeBlankOpen, setChangeBlankOpen] = useState(false);
   const [detectedColors, setDetectedColors] = useState<DetectedArtworkColor[]>(
     []
   );
@@ -420,6 +435,32 @@ export function StandaloneDesignStudio({
     });
     setMessage(
       `${garmentBlankViewLabel(view)} product photo updated.`
+    );
+  };
+
+  /** Swap garment / color (upload or vendor) while keeping artwork placement. */
+  const handleChangeBlank = (blank: ChangedBlank) => {
+    const front = blank.frontImageUrl || blank.imageUrl;
+    const back = blank.backImageUrl;
+    const view = normalizeGarmentBlankView(mockup.blankView);
+    const activeUrl =
+      view === "back" ? back || front : front || blank.imageUrl;
+    setMockup((current) => ({
+      ...current,
+      blankImageUrl: activeUrl,
+      blankImageFrontUrl: front || undefined,
+      blankImageBackUrl: back || undefined,
+      blankColorHex: blank.colorHex || current.blankColorHex,
+      stageMode: "garment",
+      composedPreviewUrl: undefined,
+      updatedAt: new Date().toISOString(),
+    }));
+    setPreviewUrl(undefined);
+    setError(null);
+    setMessage(
+      blank.label
+        ? `Blank changed to ${blank.label}. Save when you’re ready.`
+        : "Blank updated. Save when you’re ready."
     );
   };
 
@@ -788,8 +829,42 @@ export function StandaloneDesignStudio({
                     ? `Replace ${garmentBlankViewLabel(blankView).toLowerCase()} photo`
                     : `Upload ${garmentBlankViewLabel(blankView).toLowerCase()} photo`}
                 </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    dashboardControlClass,
+                    "h-9 w-full justify-center text-[12px]"
+                  )}
+                  onClick={() => setChangeBlankOpen(true)}
+                >
+                  <Shirt className="size-3.5" />
+                  Change blank
+                </Button>
               </div>
-            ) : null}
+            ) : (
+              <div className="space-y-2">
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                  Blank
+                </Label>
+                <p className={dashboardTaskDetailClass}>
+                  This location is on a color stage. Pick a garment blank to
+                  place the same artwork on a product photo.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    dashboardControlClass,
+                    "h-9 w-full justify-center text-[12px]"
+                  )}
+                  onClick={() => setChangeBlankOpen(true)}
+                >
+                  <Shirt className="size-3.5" />
+                  Change blank
+                </Button>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
@@ -901,6 +976,12 @@ export function StandaloneDesignStudio({
         onOpenChange={setPickArtworkOpen}
         excludeDesignId={designProp.id}
         onPick={handlePickLibraryArtwork}
+      />
+
+      <DesignStudioChangeBlankDialog
+        open={changeBlankOpen}
+        onOpenChange={setChangeBlankOpen}
+        onChangeBlank={handleChangeBlank}
       />
     </div>
   );

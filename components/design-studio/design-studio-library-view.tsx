@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -65,8 +65,28 @@ function FileThumb({
   file: DesignStudioFile;
   size?: "sm" | "md";
 }) {
-  const bgColor = useImageBackgroundColor(file.previewUrl);
+  const candidates = useMemo(() => {
+    const mockup = file.designMockup;
+    const layerUrl = mockup?.artLayers
+      ?.map((layer) => layer.cleanUrl || layer.url)
+      .find((url) => typeof url === "string" && url.trim());
+    return [
+      file.previewUrl,
+      mockup?.composedPreviewUrl,
+      mockup?.blankImageUrl,
+      mockup?.blankImageFrontUrl,
+      layerUrl,
+    ].filter((url): url is string => Boolean(url?.trim()));
+  }, [file.previewUrl, file.designMockup]);
+
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  const previewUrl = candidates[candidateIndex];
+  const bgColor = useImageBackgroundColor(previewUrl);
   const box = size === "sm" ? "size-10" : "size-12";
+
+  useEffect(() => {
+    setCandidateIndex(0);
+  }, [file.id, file.previewUrl]);
 
   return (
     <div
@@ -78,16 +98,19 @@ function FileThumb({
       style={bgColor ? { backgroundColor: bgColor } : undefined}
       title={file.locationLabel}
     >
-      {file.previewUrl ? (
+      {previewUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={file.previewUrl}
+          src={previewUrl}
           alt=""
           // Match the crossOrigin mode used by useImageBackgroundColor so the
           // browser caches a CORS-clean response and the canvas isn't tainted.
           crossOrigin={
-            /^https?:\/\//i.test(file.previewUrl) ? "anonymous" : undefined
+            /^https?:\/\//i.test(previewUrl) ? "anonymous" : undefined
           }
+          onError={() => {
+            setCandidateIndex((index) => index + 1);
+          }}
           className="size-full object-contain"
         />
       ) : (

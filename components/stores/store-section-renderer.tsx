@@ -4,9 +4,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import type {
   ClientStoreCollection,
   ClientStoreSection,
+  ClientStoreTheme,
+  StoreNavAction,
   StoreSectionSettings,
 } from "@/lib/client-store-theme";
-import { resolveCollectionProducts } from "@/lib/client-store-theme";
+import {
+  resolveCollectionProducts,
+  resolveHeroButtonAction,
+} from "@/lib/client-store-theme";
 import type { PublicClientStoreProduct } from "@/lib/client-stores";
 import { getProductCardImages } from "@/lib/client-stores";
 import { StoreProductDetailPreview } from "@/components/stores/store-product-detail";
@@ -104,9 +109,11 @@ function ProductCard({
       <p className="mt-3 text-[13px] font-medium leading-snug text-[#303030]">
         {product.name}
       </p>
-      <p className="mt-1 text-[12px] text-[#8a8a8a]">
-        {[product.brand, product.color].filter(Boolean).join(" · ") || "Apparel"}
-      </p>
+      {[product.brand, product.color].filter(Boolean).join(" · ") ? (
+        <p className="mt-1 text-[12px] text-[#8a8a8a]">
+          {[product.brand, product.color].filter(Boolean).join(" · ")}
+        </p>
+      ) : null}
       <StoreProductCommerceMeta product={product} />
       {showPrices && product.sellPrice != null ? (
         <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
@@ -126,8 +133,10 @@ export function StoreSectionRenderer({
   showPrices = true,
   previewProduct,
   productDetailSlot,
+  theme,
   onSelectProduct,
   onSelectCollection,
+  onNavigate,
 }: {
   section: ClientStoreSection;
   products: PublicClientStoreProduct[];
@@ -137,8 +146,10 @@ export function StoreSectionRenderer({
   showPrices?: boolean;
   previewProduct?: PublicClientStoreProduct | null;
   productDetailSlot?: ReactNode;
+  theme?: ClientStoreTheme;
   onSelectProduct?: (product: PublicClientStoreProduct) => void;
   onSelectCollection?: (collection: ClientStoreCollection) => void;
+  onNavigate?: (action: StoreNavAction) => void;
 }) {
   if (!section.enabled) return null;
 
@@ -173,6 +184,16 @@ export function StoreSectionRenderer({
 
   if (section.type === "hero") {
     const hasImage = Boolean(settings.imageUrl);
+    const eyebrowText =
+      settings.hideEyebrow === true
+        ? ""
+        : (settings.eyebrow || "").trim();
+    const buttonClass = cn(
+      "mt-5 inline-flex rounded-lg px-4 py-2.5 text-[13px] font-semibold transition-opacity",
+      hasImage ? "bg-white text-[#303030]" : "text-white",
+      onNavigate && theme ? "cursor-pointer hover:opacity-90" : "cursor-default"
+    );
+    const buttonStyle = hasImage ? undefined : { background: accentHex };
     return (
       <section
         className={cn("relative overflow-hidden", compact ? "min-h-[160px]" : "")}
@@ -204,16 +225,22 @@ export function StoreSectionRenderer({
             align
           )}
         >
-          {settings.subtitle && hasImage ? (
-            <p className="text-[12px] font-medium uppercase tracking-[0.14em] text-white/75">
-              Collection
+          {eyebrowText ? (
+            <p
+              className={cn(
+                "text-[12px] font-medium uppercase tracking-[0.14em]",
+                hasImage ? "text-white/75" : "opacity-60"
+              )}
+            >
+              {eyebrowText}
             </p>
           ) : null}
           <h2
             className={cn(
               "max-w-2xl font-semibold tracking-tight",
               compact ? "text-[1.4rem]" : "text-[2rem] sm:text-[2.5rem]",
-              hasImage ? "text-white" : ""
+              hasImage ? "text-white" : "",
+              eyebrowText ? "mt-2" : ""
             )}
           >
             {settings.title || "Shop the collection"}
@@ -230,15 +257,22 @@ export function StoreSectionRenderer({
             </p>
           ) : null}
           {settings.buttonLabel ? (
-            <span
-              className={cn(
-                "mt-5 inline-flex rounded-lg px-4 py-2.5 text-[13px] font-semibold",
-                hasImage ? "bg-white text-[#303030]" : "text-white"
-              )}
-              style={hasImage ? undefined : { background: accentHex }}
-            >
-              {settings.buttonLabel}
-            </span>
+            onNavigate && theme ? (
+              <button
+                type="button"
+                className={buttonClass}
+                style={buttonStyle}
+                onClick={() =>
+                  onNavigate(resolveHeroButtonAction(settings, theme))
+                }
+              >
+                {settings.buttonLabel}
+              </button>
+            ) : (
+              <span className={buttonClass} style={buttonStyle}>
+                {settings.buttonLabel}
+              </span>
+            )
           ) : null}
         </div>
       </section>

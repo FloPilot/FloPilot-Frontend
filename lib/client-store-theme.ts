@@ -9,11 +9,29 @@ export type StoreSectionType =
   | "collection_list"
   | "product_detail";
 
+export type StoreHeroButtonLinkType =
+  | "none"
+  | "products"
+  | "collection"
+  | "page"
+  | "url";
+
 export type StoreSectionSettings = {
   title?: string;
   subtitle?: string;
   body?: string;
+  /** Small overline above the hero heading (e.g. "Collection"). */
+  eyebrow?: string;
+  /** When true, the overline is hidden even if a legacy default would apply. */
+  hideEyebrow?: boolean;
   buttonLabel?: string;
+  /** Where the hero CTA navigates. Defaults to products when unset. */
+  buttonLinkType?: StoreHeroButtonLinkType;
+  /** page.id or collection.id when buttonLinkType is page/collection */
+  buttonLinkTargetId?: string;
+  /** External or absolute path when buttonLinkType is url */
+  buttonUrl?: string;
+  buttonOpenInNewTab?: boolean;
   imageUrl?: string;
   collectionId?: string;
   /** all | collection */
@@ -139,7 +157,9 @@ export const STORE_WIDGET_LIBRARY: StoreWidgetDefinition[] = [
     defaults: {
       title: "Shop the collection",
       subtitle: "Pick your sizes — we’ll take care of the rest.",
+      eyebrow: "Collection",
       buttonLabel: "Shop now",
+      buttonLinkType: "products",
       textAlign: "left",
       backgroundColor: "#f6f6f7",
       textColor: "#303030",
@@ -415,6 +435,34 @@ export function resolveNavItemAction(
     default:
       return { kind: "noop" };
   }
+}
+
+/** Resolve a hero CTA into the same navigation actions used by the header menu. */
+export function resolveHeroButtonAction(
+  settings: StoreSectionSettings | null | undefined,
+  theme: ClientStoreTheme
+): StoreNavAction {
+  const linkType = settings?.buttonLinkType || "products";
+  if (linkType === "none") return { kind: "noop" };
+  if (linkType === "products") return { kind: "products" };
+  if (linkType === "url") {
+    const href = (settings?.buttonUrl || "").trim();
+    if (!href) return { kind: "noop" };
+    return {
+      kind: "url",
+      href,
+      openInNewTab: settings?.buttonOpenInNewTab === true,
+    };
+  }
+  return resolveNavItemAction(
+    {
+      id: "hero-cta",
+      label: settings?.buttonLabel || "Shop",
+      type: linkType,
+      targetId: settings?.buttonLinkTargetId,
+    },
+    theme
+  );
 }
 
 export function isNavItemActive(

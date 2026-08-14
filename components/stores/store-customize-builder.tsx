@@ -580,6 +580,7 @@ export function StoreCustomizeBuilder({
                       collections={theme.collections}
                       accentHex={accent.hex}
                       compact
+                      theme={theme}
                       previewProduct={publicProducts[0] || null}
                     />
                   </div>
@@ -594,6 +595,7 @@ export function StoreCustomizeBuilder({
             <SectionSettingsPanel
               section={selectedSection}
               collections={theme.collections}
+              pages={theme.pages}
               uploadingField={uploadingField}
               onUploadImage={uploadImage}
               onPatchSettings={(patch) =>
@@ -772,6 +774,7 @@ function ColorField({
 function SectionSettingsPanel({
   section,
   collections,
+  pages,
   uploadingField,
   onUploadImage,
   onPatchSettings,
@@ -783,6 +786,7 @@ function SectionSettingsPanel({
 }: {
   section: ClientStoreSection;
   collections: ClientStoreCollection[];
+  pages: ClientStoreTheme["pages"];
   uploadingField: string | null;
   onUploadImage: (
     fieldKey: string,
@@ -797,6 +801,10 @@ function SectionSettingsPanel({
   canRemove?: boolean;
 }) {
   const settings = section.settings;
+  const linkablePages = pages.filter(
+    (page) => page.enabled !== false && page.handle !== "product"
+  );
+  const buttonLinkType = settings.buttonLinkType || "products";
 
   return (
     <div className="flex h-full max-h-[70vh] flex-col lg:max-h-none">
@@ -982,6 +990,29 @@ function SectionSettingsPanel({
           </div>
         )}
 
+        {section.type === "hero" ? (
+          <div>
+            <Label className="text-[12px]">Overline</Label>
+            <Input
+              value={
+                settings.hideEyebrow ? "" : settings.eyebrow || ""
+              }
+              onChange={(e) => {
+                const next = e.target.value;
+                onPatchSettings({
+                  eyebrow: next,
+                  hideEyebrow: next.trim().length === 0,
+                });
+              }}
+              placeholder="Collection"
+              className="mt-1.5 h-9 border-[#e3e3e3] text-[13px]"
+            />
+            <p className="mt-1.5 text-[11px] leading-relaxed text-[#8a8a8a]">
+              Small label above the heading. Clear the field to hide it.
+            </p>
+          </div>
+        ) : null}
+
         {(section.type === "hero" || section.type === "image_banner") && (
           <div>
             <Label className="text-[12px]">Subheading</Label>
@@ -1005,14 +1036,126 @@ function SectionSettingsPanel({
         ) : null}
 
         {section.type === "hero" ? (
-          <div>
-            <Label className="text-[12px]">Button label</Label>
-            <Input
-              value={settings.buttonLabel || ""}
-              onChange={(e) => onPatchSettings({ buttonLabel: e.target.value })}
-              className="mt-1.5 h-9 border-[#e3e3e3] text-[13px]"
-            />
-          </div>
+          <>
+            <div>
+              <Label className="text-[12px]">Button label</Label>
+              <Input
+                value={settings.buttonLabel || ""}
+                onChange={(e) =>
+                  onPatchSettings({ buttonLabel: e.target.value })
+                }
+                className="mt-1.5 h-9 border-[#e3e3e3] text-[13px]"
+              />
+            </div>
+            <div>
+              <Label className="text-[12px]">Button link</Label>
+              <select
+                value={buttonLinkType}
+                onChange={(e) => {
+                  const nextType = e.target
+                    .value as NonNullable<
+                    ClientStoreSection["settings"]["buttonLinkType"]
+                  >;
+                  const patch: Partial<ClientStoreSection["settings"]> = {
+                    buttonLinkType: nextType,
+                  };
+                  if (nextType === "collection") {
+                    patch.buttonLinkTargetId =
+                      settings.buttonLinkTargetId ||
+                      collections.find((row) => row.enabled)?.id ||
+                      "";
+                  } else if (nextType === "page") {
+                    patch.buttonLinkTargetId =
+                      settings.buttonLinkTargetId ||
+                      linkablePages[0]?.id ||
+                      "";
+                  } else {
+                    patch.buttonLinkTargetId = "";
+                  }
+                  if (nextType !== "url") {
+                    patch.buttonUrl = "";
+                    patch.buttonOpenInNewTab = false;
+                  }
+                  onPatchSettings(patch);
+                }}
+                className="mt-1.5 h-9 w-full rounded-md border border-[#e3e3e3] bg-white px-3 text-[13px] text-[#303030]"
+              >
+                <option value="products">All products (home)</option>
+                <option value="collection">Collection</option>
+                <option value="page">Page</option>
+                <option value="url">External URL</option>
+                <option value="none">No link</option>
+              </select>
+            </div>
+            {buttonLinkType === "collection" ? (
+              <div>
+                <Label className="text-[12px]">Collection</Label>
+                <select
+                  value={settings.buttonLinkTargetId || ""}
+                  onChange={(e) =>
+                    onPatchSettings({ buttonLinkTargetId: e.target.value })
+                  }
+                  className="mt-1.5 h-9 w-full rounded-md border border-[#e3e3e3] bg-white px-3 text-[13px] text-[#303030]"
+                >
+                  <option value="">Select collection…</option>
+                  {collections
+                    .filter((row) => row.enabled)
+                    .map((collection) => (
+                      <option key={collection.id} value={collection.id}>
+                        {collection.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+            ) : null}
+            {buttonLinkType === "page" ? (
+              <div>
+                <Label className="text-[12px]">Page</Label>
+                <select
+                  value={settings.buttonLinkTargetId || ""}
+                  onChange={(e) =>
+                    onPatchSettings({ buttonLinkTargetId: e.target.value })
+                  }
+                  className="mt-1.5 h-9 w-full rounded-md border border-[#e3e3e3] bg-white px-3 text-[13px] text-[#303030]"
+                >
+                  <option value="">Select page…</option>
+                  {linkablePages.map((page) => (
+                    <option key={page.id} value={page.id}>
+                      {page.title}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            {buttonLinkType === "url" ? (
+              <>
+                <div>
+                  <Label className="text-[12px]">URL</Label>
+                  <Input
+                    value={settings.buttonUrl || ""}
+                    onChange={(e) =>
+                      onPatchSettings({ buttonUrl: e.target.value })
+                    }
+                    placeholder="https://"
+                    className="mt-1.5 h-9 border-[#e3e3e3] text-[13px]"
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-[12px] text-[#616161]">
+                  <input
+                    type="checkbox"
+                    checked={settings.buttonOpenInNewTab === true}
+                    onChange={(e) =>
+                      onPatchSettings({
+                        buttonOpenInNewTab: e.target.checked,
+                      })
+                    }
+                    className="size-3.5 rounded border-[#c9cccf]"
+                  />
+                  Open in new tab
+                </label>
+              </>
+            ) : null}
+          </>
         ) : null}
 
         {(section.type === "hero" || section.type === "image_banner") && (
