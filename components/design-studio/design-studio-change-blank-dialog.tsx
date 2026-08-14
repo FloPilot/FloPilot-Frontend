@@ -276,6 +276,7 @@ export function DesignStudioChangeBlankDialog({
             <AddSsBlankPanel
               provider={vendorProvider}
               pickMode="blankImage"
+              saving={busy}
               onPickBlank={handlePickVendor}
             />
           )}
