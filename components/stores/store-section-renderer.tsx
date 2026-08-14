@@ -9,6 +9,7 @@ import type {
   StoreSectionSettings,
 } from "@/lib/client-store-theme";
 import {
+  normalizeHeroContentOrder,
   resolveCollectionProducts,
   resolveHeroButtonAction,
 } from "@/lib/client-store-theme";
@@ -191,11 +192,80 @@ export function StoreSectionRenderer({
         ? ""
         : (settings.eyebrow || "").trim();
     const buttonClass = cn(
-      "mt-5 inline-flex rounded-lg px-4 py-2.5 text-[13px] font-semibold transition-opacity",
+      "inline-flex rounded-lg px-4 py-2.5 text-[13px] font-semibold transition-opacity",
       hasImage ? "bg-white text-[#303030]" : "text-white",
       onNavigate && theme ? "cursor-pointer hover:opacity-90" : "cursor-default"
     );
     const buttonStyle = hasImage ? undefined : { background: accentHex };
+    const contentOrder = normalizeHeroContentOrder(settings.heroContentOrder);
+    const contentBlocks: Record<string, ReactNode> = {
+      logo: settings.heroLogoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key="logo"
+          src={settings.heroLogoUrl}
+          alt=""
+          className={cn(
+            "max-w-[180px] object-contain",
+            compact ? "max-h-10" : "max-h-16"
+          )}
+        />
+      ) : null,
+      overline: eyebrowText ? (
+        <p
+          key="overline"
+          className={cn(
+            "text-[12px] font-medium uppercase tracking-[0.14em]",
+            hasImage ? "text-white/75" : "opacity-60"
+          )}
+        >
+          {eyebrowText}
+        </p>
+      ) : null,
+      heading: (
+        <h2
+          key="heading"
+          className={cn(
+            "max-w-2xl font-semibold tracking-tight",
+            compact ? "text-[1.4rem]" : "text-[2rem] sm:text-[2.5rem]",
+            hasImage ? "text-white" : ""
+          )}
+        >
+          {settings.title || "Shop the collection"}
+        </h2>
+      ),
+      subtitle: settings.subtitle ? (
+        <p
+          key="subtitle"
+          className={cn(
+            "max-w-xl leading-relaxed",
+            compact ? "text-[13px]" : "text-[15px]",
+            hasImage ? "text-white/85" : "opacity-80"
+          )}
+        >
+          {settings.subtitle}
+        </p>
+      ) : null,
+      button: settings.buttonLabel ? (
+        onNavigate && theme ? (
+          <button
+            key="button"
+            type="button"
+            className={buttonClass}
+            style={buttonStyle}
+            onClick={() =>
+              onNavigate(resolveHeroButtonAction(settings, theme))
+            }
+          >
+            {settings.buttonLabel}
+          </button>
+        ) : (
+          <span key="button" className={buttonClass} style={buttonStyle}>
+            {settings.buttonLabel}
+          </span>
+        )
+      ) : null,
+    };
     return (
       <section
         className={cn("relative overflow-hidden", compact ? "min-h-[160px]" : "")}
@@ -224,60 +294,12 @@ export function StoreSectionRenderer({
         ) : null}
         <div
           className={cn(
-            "relative mx-auto flex max-w-[1200px] flex-col px-4 sm:px-6",
+            "relative mx-auto flex max-w-[1200px] flex-col gap-3 px-4 sm:px-6",
             compact ? "py-8" : "py-12 sm:py-16",
             align
           )}
         >
-          {eyebrowText ? (
-            <p
-              className={cn(
-                "text-[12px] font-medium uppercase tracking-[0.14em]",
-                hasImage ? "text-white/75" : "opacity-60"
-              )}
-            >
-              {eyebrowText}
-            </p>
-          ) : null}
-          <h2
-            className={cn(
-              "max-w-2xl font-semibold tracking-tight",
-              compact ? "text-[1.4rem]" : "text-[2rem] sm:text-[2.5rem]",
-              hasImage ? "text-white" : "",
-              eyebrowText ? "mt-2" : ""
-            )}
-          >
-            {settings.title || "Shop the collection"}
-          </h2>
-          {settings.subtitle ? (
-            <p
-              className={cn(
-                "mt-3 max-w-xl leading-relaxed",
-                compact ? "text-[13px]" : "text-[15px]",
-                hasImage ? "text-white/85" : "opacity-80"
-              )}
-            >
-              {settings.subtitle}
-            </p>
-          ) : null}
-          {settings.buttonLabel ? (
-            onNavigate && theme ? (
-              <button
-                type="button"
-                className={buttonClass}
-                style={buttonStyle}
-                onClick={() =>
-                  onNavigate(resolveHeroButtonAction(settings, theme))
-                }
-              >
-                {settings.buttonLabel}
-              </button>
-            ) : (
-              <span className={buttonClass} style={buttonStyle}>
-                {settings.buttonLabel}
-              </span>
-            )
-          ) : null}
+          {contentOrder.map((block) => contentBlocks[block])}
         </div>
       </section>
     );
