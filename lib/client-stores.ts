@@ -919,8 +919,10 @@ export function syncProductDerivedFields(
       ...product,
       brand: requestedBrand || undefined,
       colors,
+      // Keep "" when the merchant cleared Primary color so JSON still sends
+      // color (undefined is omitted and the API would revive colors[0]).
       color: colorProvided
-        ? requestedColor || undefined
+        ? requestedColor
         : requestedColor || colors[0] || undefined,
     };
   }
@@ -962,8 +964,10 @@ export function syncProductDerivedFields(
         : undefined,
     })),
     colors,
+    // Keep "" when cleared — undefined is stripped from the request body and
+    // the backend then falls back to colors[0].
     color: colorProvided
-      ? matchedPrimary || requestedColor || undefined
+      ? matchedPrimary || requestedColor
       : matchedPrimary || requestedColor || colors[0] || undefined,
     mockupUrl: allMockups[0] || product.mockupUrl || "",
     // Don't duplicate every mockup into galleryUrls (Firestore 1MB limit).

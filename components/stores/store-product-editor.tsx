@@ -750,12 +750,13 @@ export function StoreProductEditor({
       ).slice(0, 24);
       tagsRef.current = tags;
       const productKind = normalizeClientStoreProductKind(draft.productKind);
+      const clearedColor = (draft.color || "").trim();
       const synced = syncProductDerivedFields({
         ...draft,
         name: draft.name.trim(),
         brand: (draft.brand || "").trim() || undefined,
-        // Keep "" when cleared so sync doesn't revive the first color variant.
-        color: (draft.color || "").trim(),
+        // Keep "" when cleared so sync / API don't revive the first color variant.
+        color: clearedColor,
         productKind,
         sizes:
           productKind === "accessory"
@@ -763,13 +764,17 @@ export function StoreProductEditor({
             : draft.sizes,
         sellPrice: previewPrice,
         tags,
-        colors: draft.color
+        colors: clearedColor
           ? Array.from(
-              new Set([draft.color, ...(draft.colors || [])].filter(Boolean))
+              new Set([clearedColor, ...(draft.colors || [])].filter(Boolean))
             )
           : draft.colors || [],
       });
-      await onSave(synced);
+      await onSave({
+        ...synced,
+        // Force "" through JSON.stringify (undefined would be omitted).
+        color: clearedColor ? synced.color || clearedColor : "",
+      });
       setTagDraft("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save product");
