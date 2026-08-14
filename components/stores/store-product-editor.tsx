@@ -31,15 +31,19 @@ import {
 } from "@/lib/api";
 import {
   CLIENT_STORE_DEFAULT_SIZES,
+  CLIENT_STORE_ONE_SIZE,
   computeClientStoreEconomics,
   computeClientStoreSellPrice,
   getEnabledColorVariants,
   getMockupsForColor,
   getPrimaryMockupUrl,
+  normalizeClientStoreProductKind,
+  sizesForClientStoreProductKind,
   syncProductDerivedFields,
   type ClientStoreColorVariant,
   type ClientStoreProduct,
   type ClientStoreProductDesign,
+  type ClientStoreProductKind,
   type ClientStoreSellPriceMode,
   type ClientStoreSizeOption,
 } from "@/lib/client-stores";
@@ -105,6 +109,7 @@ function emptyProduct(): ClientStoreProduct {
     color: "",
     colors: [],
     colorVariants: [],
+    productKind: "apparel",
     sizes: CLIENT_STORE_DEFAULT_SIZES.map((size) => ({ size, enabled: true })),
     mockupUrl: "",
     tags: [],
@@ -248,7 +253,19 @@ export function StoreProductEditor({
 
   useEffect(() => {
     const next = product
-      ? { ...product, tags: product.tags || [] }
+      ? {
+          ...product,
+          tags: product.tags || [],
+          productKind: normalizeClientStoreProductKind(
+            product.productKind ||
+              ((product.sizes || []).filter((row) => row.enabled).length === 1 &&
+              (product.sizes || [])
+                .filter((row) => row.enabled)[0]
+                ?.size.toLowerCase() === "one size"
+                ? "accessory"
+                : "apparel")
+          ),
+        }
       : emptyProduct();
     setDraft(next);
     tagsRef.current = next.tags || [];
@@ -553,6 +570,7 @@ export function StoreProductEditor({
       updateDraft({
         name: style.title || `${style.brandName} ${style.styleName}`,
         brand: style.brandName,
+        productKind: "apparel",
         productKey: style.partNumber,
         supplier: catalogProvider,
         supplierPartNumber: style.partNumber,
@@ -731,11 +749,18 @@ export function StoreProductEditor({
         )
       ).slice(0, 24);
       tagsRef.current = tags;
+      const productKind = normalizeClientStoreProductKind(draft.productKind);
       const synced = syncProductDerivedFields({
         ...draft,
         name: draft.name.trim(),
         brand: (draft.brand || "").trim() || undefined,
-        color: (draft.color || "").trim() || undefined,
+        // Keep "" when cleared so sync doesn't revive the first color variant.
+        color: (draft.color || "").trim(),
+        productKind,
+        sizes:
+          productKind === "accessory"
+            ? sizesForClientStoreProductKind("accessory")
+            : draft.sizes,
         sellPrice: previewPrice,
         tags,
         colors: draft.color
@@ -2027,10 +2052,69 @@ export function StoreProductEditor({
                 <div className="flex flex-wrap items-end justify-between gap-2">
                   <div>
                     <p className="text-[13px] font-medium text-[#303030]">
+                      Product type
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-[#8a8a8a]">
+                      Apparel uses a size run. Accessories are One Size.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  {(
+                    [
+                      {
+                        value: "apparel" as ClientStoreProductKind,
+                        title: "Apparel",
+                        body: "Tees, hoodies, polos — shoppers pick a size.",
+                      },
+                      {
+                        value: "accessory" as ClientStoreProductKind,
+                        title: "Accessory",
+                        body: "Hats, bags, drinkware — One Size only.",
+                      },
+                    ] as const
+                  ).map((option) => {
+                    const active =
+                      normalizeClientStoreProductKind(draft.productKind) ===
+                      option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() =>
+                          updateDraft({
+                            productKind: option.value,
+                            sizes: sizesForClientStoreProductKind(option.value),
+                          })
+                        }
+                        className={cn(
+                          "rounded-xl border px-3 py-3 text-left transition-colors",
+                          active
+                            ? "border-brand-primary/40 bg-[#f4f7ff]"
+                            : "border-[#e3e3e3] bg-white hover:border-[#c9cccf]"
+                        )}
+                      >
+                        <p className="text-[13px] font-semibold text-[#303030]">
+                          {option.title}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-relaxed text-[#8a8a8a]">
+                          {option.body}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-5 flex flex-wrap items-end justify-between gap-2">
+                  <div>
+                    <p className="text-[13px] font-medium text-[#303030]">
                       Sizes
                     </p>
                     <p className="mt-0.5 text-[11px] text-[#8a8a8a]">
-                      Toggle which sizes shoppers can order.
+                      {normalizeClientStoreProductKind(draft.productKind) ===
+                      "accessory"
+                        ? "Accessories checkout as One Size."
+                        : "Toggle which sizes shoppers can order."}
                     </p>
                   </div>
                   <p className="text-[12px] text-[#8a8a8a]">
@@ -2038,31 +2122,38 @@ export function StoreProductEditor({
                     {enabledSizeCount === 1 ? "" : "s"} available
                   </p>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {draft.sizes.map((row) => (
-                    <button
-                      key={row.size}
-                      type="button"
-                      onClick={() =>
-                        updateDraft({
-                          sizes: draft.sizes.map((size) =>
-                            size.size === row.size
-                              ? { ...size, enabled: !size.enabled }
-                              : size
-                          ),
-                        })
-                      }
-                      className={cn(
-                        "min-w-11 rounded-lg border px-3 py-2 text-[13px] font-medium transition-colors",
-                        row.enabled
-                          ? "border-brand-primary/30 bg-brand-primary/8 text-[#121a2e]"
-                          : "border-[#e3e3e3] bg-white text-[#8a8a8a] hover:border-[#c9cccf]"
-                      )}
-                    >
-                      {row.size}
-                    </button>
-                  ))}
-                </div>
+                {normalizeClientStoreProductKind(draft.productKind) ===
+                "accessory" ? (
+                  <div className="mt-3 inline-flex min-w-11 items-center rounded-lg border border-brand-primary/30 bg-brand-primary/8 px-3 py-2 text-[13px] font-medium text-[#121a2e]">
+                    {CLIENT_STORE_ONE_SIZE}
+                  </div>
+                ) : (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {draft.sizes.map((row) => (
+                      <button
+                        key={row.size}
+                        type="button"
+                        onClick={() =>
+                          updateDraft({
+                            sizes: draft.sizes.map((size) =>
+                              size.size === row.size
+                                ? { ...size, enabled: !size.enabled }
+                                : size
+                            ),
+                          })
+                        }
+                        className={cn(
+                          "min-w-11 rounded-lg border px-3 py-2 text-[13px] font-medium transition-colors",
+                          row.enabled
+                            ? "border-brand-primary/30 bg-brand-primary/8 text-[#121a2e]"
+                            : "border-[#e3e3e3] bg-white text-[#8a8a8a] hover:border-[#c9cccf]"
+                        )}
+                      >
+                        {row.size}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </Section>
 
               <Section

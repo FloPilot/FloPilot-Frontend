@@ -1,10 +1,28 @@
-"use client";
+import type { Metadata } from "next";
+import {
+  buildClientStoreShareMetadata,
+  fetchPublicClientStoreShareMeta,
+} from "@/lib/client-store-share-meta";
+import PublicStoreCatchAllClient from "./store-page-client";
 
-import { Suspense, use } from "react";
-import { PublicStorefrontView } from "@/components/stores/public-storefront-view";
+type PageProps = {
+  params: Promise<{ path: string[] }>;
+};
 
-function PublicStorePageInner({ token }: { token: string }) {
-  return <PublicStorefrontView token={token} />;
+function tokenFromParams(path: string[] | undefined): string {
+  return (path || [])
+    .map((part) => decodeURIComponent(part))
+    .filter(Boolean)
+    .join("/");
+}
+
+export async function generateMetadata({
+  params,
+}: PageProps): Promise<Metadata> {
+  const { path } = await params;
+  const token = tokenFromParams(path);
+  const meta = await fetchPublicClientStoreShareMeta(token);
+  return buildClientStoreShareMetadata(meta, token);
 }
 
 /**
@@ -13,26 +31,6 @@ function PublicStorePageInner({ token }: { token: string }) {
  * - /store/{storeSlug}
  * - /store/{shopSlug}/{storeSlug}
  */
-export default function PublicStoreCatchAllPage({
-  params,
-}: {
-  params: Promise<{ path: string[] }>;
-}) {
-  const { path } = use(params);
-  const token = (path || [])
-    .map((part) => decodeURIComponent(part))
-    .filter(Boolean)
-    .join("/");
-
-  return (
-    <Suspense
-      fallback={
-        <div className="flex min-h-dvh items-center justify-center text-[13px] text-[#616161]">
-          Loading store…
-        </div>
-      }
-    >
-      <PublicStorePageInner token={token} />
-    </Suspense>
-  );
+export default function PublicStoreCatchAllPage(props: PageProps) {
+  return <PublicStoreCatchAllClient params={props.params} />;
 }

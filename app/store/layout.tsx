@@ -1,10 +1,3 @@
-import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "Client Store",
-  description: "Order branded apparel from your print shop.",
-};
-
 export default function StoreLayout({
   children,
 }: {

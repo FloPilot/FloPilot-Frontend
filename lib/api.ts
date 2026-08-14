@@ -2361,6 +2361,9 @@ export async function updateClientStore(
     accentColorKey?: string | null;
     logoUrl?: string | null;
     heroImageUrl?: string | null;
+    shareTitle?: string | null;
+    shareDescription?: string | null;
+    shareImageUrl?: string | null;
     settings?: Partial<import("@/lib/client-stores").ClientStoreSettings>;
   }
 ) {
