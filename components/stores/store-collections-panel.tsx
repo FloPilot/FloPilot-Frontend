@@ -210,10 +210,12 @@ function SortableCollectionProductRow({
           {product.name}
         </p>
         <p className="truncate text-[11px] text-[#8a8a8a]">
-          {[product.brand, product.color].filter(Boolean).join(" · ") ||
-            "Apparel"}
-          {" · "}
-          {formatCurrency(product.sellPrice)}
+          {[
+            [product.brand, product.color].filter(Boolean).join(" · "),
+            formatCurrency(product.sellPrice),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </p>
         {(product.tags || []).length > 0 ? (
           <div className="mt-1 flex flex-wrap gap-1">
@@ -368,11 +370,15 @@ function ProductSearchAdd({
                       <p className="truncate text-[12px] font-medium text-[#303030]">
                         {product.name}
                       </p>
-                      <p className="truncate text-[11px] text-[#8a8a8a]">
-                        {[product.brand, product.color]
-                          .filter(Boolean)
-                          .join(" · ") || "Apparel"}
-                      </p>
+                      {[product.brand, product.color]
+                        .filter(Boolean)
+                        .join(" · ") ? (
+                        <p className="truncate text-[11px] text-[#8a8a8a]">
+                          {[product.brand, product.color]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </p>
+                      ) : null}
                     </div>
                     <Plus className="size-3.5 shrink-0 text-[#2c6ecb]" />
                   </button>

@@ -1,11 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Loader2, Sparkles, Upload, Wand2 } from "lucide-react";
+import {
+  BookMarked,
+  Check,
+  Loader2,
+  Pencil,
+  Sparkles,
+  Upload,
+} from "lucide-react";
+import { DesignStudioArtStage } from "@/components/design-studio/design-studio-art-stage";
+import {
+  DesignStudioEditImageDialog,
+  formatSelectedPmsForNotes,
+} from "@/components/design-studio/design-studio-edit-image-dialog";
 import {
   DesignStudioLayersPanel,
   type DesignStudioLayerRow,
 } from "@/components/design-studio/design-studio-layers-panel";
+import { DesignStudioPickArtworkDialog } from "@/components/design-studio/design-studio-pick-artwork-dialog";
+import { useAuth } from "@/components/providers/auth-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -27,17 +41,16 @@ import type {
   ClientStoreDesignTransform,
   ClientStoreProductDesign,
 } from "@/lib/client-stores";
+import type { DetectedArtworkColor } from "@/lib/artwork-color-tools";
 import {
   dashboardCardClass,
   dashboardControlClass,
-  dashboardInsetSurfaceClass,
   dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import {
   activeLayerUrl,
-  artLayersCacheFingerprint,
   artLayersForCompose,
   createArtLayer,
   normalizeArtLayers,
@@ -46,17 +59,19 @@ import {
   type DesignMockupArtLayer,
 } from "@/lib/design-studio-layers";
 import {
-  ArtworkLoadError,
   composeDesignMockup,
   defaultColorStageTransform,
   defaultTransform,
-  removeImageBackground,
+  garmentBlankViewLabel,
   transformFromPreset,
+  type GarmentBlankView,
 } from "@/lib/order-design-mockup";
 import { getDesignPlacementPresets } from "@/lib/shop-settings";
+import { upsertStoreDesignToLibrary } from "@/lib/store-design-library";
+import { useImageBackgroundColor } from "@/lib/use-image-background-color";
 import { cn } from "@/lib/utils";
 
-type BlankView = "front" | "back";
+type BlankView = GarmentBlankView;
 
 const VIEW_SLOT: Record<BlankView, number> = { front: 0, back: 1 };
 
@@ -143,7 +158,7 @@ function designWithLayers(
     artworkUrl: primary.artworkUrl,
     artworkCleanUrl: primary.artworkCleanUrl,
     backgroundRemoved: primary.backgroundRemoved,
-    transform: primary.transform,
+    transform: primary.transform || design.transform || defaultTransform(),
     updatedAt: new Date().toISOString(),
   };
 }
@@ -151,16 +166,20 @@ function designWithLayers(
 export function StoreProductDesignStudio({
   variants,
   design: designProp,
+  productName,
   onVariantsChange,
   onDesignChange,
   onError,
 }: {
   variants: ClientStoreColorVariant[];
   design?: ClientStoreProductDesign;
+  /** Used as the Design Studio library name when creating a new file. */
+  productName?: string;
   onVariantsChange: (next: ClientStoreColorVariant[]) => void;
   onDesignChange: (next: ClientStoreProductDesign) => void;
   onError: (message: string | null) => void;
 }) {
+  const { getIdToken } = useAuth();
   const { settings } = useShopSettings();
   const placements = useMemo(
     () => getDesignPlacementPresets(settings.productionDefaults),
@@ -175,6 +194,9 @@ export function StoreProductDesignStudio({
   const [design, setDesign] = useState<ClientStoreProductDesign>(() =>
     initialDesign(designProp)
   );
+  const designRef = useRef(design);
+  designRef.current = design;
+
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(() => {
     const layers = normalizeArtLayers(designProp);
     return layers[layers.length - 1]?.id ?? null;
@@ -185,29 +207,20 @@ export function StoreProductDesignStudio({
   const [blankView, setBlankView] = useState<BlankView>(
     designProp?.blankView === "back" ? "back" : "front"
   );
-  const [previewUrl, setPreviewUrl] = useState<string | undefined>(undefined);
-  const [composing, setComposing] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [editImageOpen, setEditImageOpen] = useState(false);
+  const [pickArtworkOpen, setPickArtworkOpen] = useState(false);
+  const [detectedPmsNote, setDetectedPmsNote] = useState<string | null>(null);
 
   const artInputRef = useRef<HTMLInputElement>(null);
-  const dragRef = useRef<{
-    startX: number;
-    startY: number;
-    originX: number;
-    originY: number;
-  } | null>(null);
 
-  const artLayers = normalizeArtLayers(design);
+  const artLayers = useMemo(() => normalizeArtLayers(design), [design]);
   const selectedLayer =
-    artLayers.find((layer) => layer.id === selectedLayerId) ??
-    artLayers[artLayers.length - 1];
-  const transform =
-    selectedLayer?.transform ?? design.transform ?? defaultTransform();
-  const composeLayers = artLayersForCompose(artLayers);
-  const hasArtwork = composeLayers.length > 0;
-  const artLayersKey = artLayersCacheFingerprint(artLayers);
-  const activeArtUrl = activeLayerUrl(selectedLayer);
+    artLayers.find((layer) => layer.id === selectedLayerId) ||
+    artLayers[artLayers.length - 1] ||
+    null;
+  const hasArtwork = artLayersForCompose(artLayers).length > 0;
 
   const activeVariant =
     enabledVariants.find((variant) => variant.id === activeVariantId) ||
@@ -219,6 +232,7 @@ export function StoreProductDesignStudio({
     placements[0];
   const blankColorHex = resolveVariantHex(activeVariant);
   const blankSource = blankSourceFor(activeVariant, slot);
+  const stageBg = useImageBackgroundColor(isColorStage ? null : blankSource);
 
   const layerRows: DesignStudioLayerRow[] = [
     {
@@ -245,90 +259,41 @@ export function StoreProductDesignStudio({
     }
   }, [activeVariant, enabledVariants]);
 
+  /** Never call parent setters inside a React state updater. */
   const commitDesign = (next: ClientStoreProductDesign) => {
+    designRef.current = next;
     setDesign(next);
     onDesignChange(next);
   };
 
-  const patchDesign = (
-    patch: Partial<ClientStoreProductDesign>,
-    commit = true
-  ) => {
-    setDesign((prev) => {
-      const next = { ...prev, ...patch, updatedAt: new Date().toISOString() };
-      if (commit) onDesignChange(next);
-      return next;
+  const patchDesign = (patch: Partial<ClientStoreProductDesign>) => {
+    commitDesign({
+      ...designRef.current,
+      ...patch,
+      updatedAt: new Date().toISOString(),
     });
   };
 
   const patchLayers = (
     layers: DesignMockupArtLayer[],
-    patch: Partial<ClientStoreProductDesign> = {},
-    commit = true
+    patch: Partial<ClientStoreProductDesign> = {}
   ) => {
-    setDesign((prev) => {
-      const next = designWithLayers(prev, layers, patch);
-      if (commit) onDesignChange(next);
-      return next;
-    });
+    commitDesign(designWithLayers(designRef.current, layers, patch));
   };
 
-  const patchSelectedTransform = (
-    patch: Partial<ClientStoreDesignTransform>,
-    commit = true
+  const handleChangeLayerTransform = (
+    layerId: string,
+    partial: Partial<ClientStoreDesignTransform>
   ) => {
-    if (!selectedLayer) return;
-    const nextLayers = updateLayerTransform(
-      artLayers,
-      selectedLayer.id,
-      patch
+    const layer = artLayers.find((row) => row.id === layerId);
+    if (!layer) return;
+    patchLayers(
+      updateLayerTransform(artLayers, layerId, {
+        ...layer.transform,
+        ...partial,
+      })
     );
-    patchLayers(nextLayers, {}, commit);
   };
-
-  // Recompose the live preview whenever the design or active garment changes.
-  useEffect(() => {
-    let cancelled = false;
-    setComposing(true);
-    void (async () => {
-      try {
-        const composed = await composeDesignMockup({
-          blankImageUrl: isColorStage ? undefined : blankSource,
-          blankColorHex,
-          stageMode: design.stageMode === "color" ? "color" : "garment",
-          applyColorOverlay: false,
-          artworkUrl: activeArtUrl,
-          transform,
-          artworkLayers: artLayersForCompose(artLayers),
-        });
-        if (!cancelled) setPreviewUrl(composed);
-      } catch (err) {
-        if (!cancelled && err instanceof ArtworkLoadError) {
-          onError(
-            "Could not load this artwork. Re-upload it to keep editing."
-          );
-        }
-      } finally {
-        if (!cancelled) setComposing(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    activeVariantId,
-    blankView,
-    blankSource,
-    blankColorHex,
-    isColorStage,
-    design.stageMode,
-    activeArtUrl,
-    transform.x,
-    transform.y,
-    transform.scale,
-    artLayersKey,
-  ]);
 
   const handleArtUpload = async (file: File | null) => {
     if (!file) return;
@@ -336,89 +301,114 @@ export function StoreProductDesignStudio({
       onError("Upload a PNG, JPG, or WebP artwork file.");
       return;
     }
-    setBusy("Reading artwork…");
     onError(null);
-    try {
-      const { previewUrl: art, error } = await readImagePreviewDataUrl(file);
-      if (error || !art) {
-        onError(error || "Could not read that artwork.");
-        return;
-      }
-      const baseTransform = isColorStage
-        ? defaultColorStageTransform()
-        : activePreset
-          ? transformFromPreset(activePreset)
-          : defaultTransform();
-      const layer = createArtLayer(
-        art,
-        baseTransform,
-        `Artwork ${artLayers.length + 1}`
-      );
-      const nextLayers = [...artLayers, layer];
-      commitDesign(designWithLayers(design, nextLayers));
-      setSelectedLayerId(layer.id);
-      setMessage(
-        "Artwork layer added. Select it in Layers to move or delete it, then save."
-      );
-    } catch {
-      onError("Could not upload that artwork.");
-    } finally {
-      setBusy(null);
+    const dataUrl = await readImagePreviewDataUrl(file);
+    if (!dataUrl.previewUrl) {
+      onError("Could not read that artwork.");
+      return;
     }
+    const layer = createArtLayer(
+      dataUrl.previewUrl,
+      isColorStage ? defaultColorStageTransform() : defaultTransform(),
+      file.name.replace(/\.[^.]+$/, "") || "Artwork"
+    );
+    const next = [...artLayers, layer];
+    patchLayers(next);
+    setSelectedLayerId(layer.id);
+    setEditImageOpen(true);
+    setMessage(null);
   };
 
-  const handleRemoveBackground = async () => {
-    if (!selectedLayer) return;
-    setBusy("Removing background…");
+  const handlePickLibraryArtwork = (
+    layers: DesignMockupArtLayer[],
+    source: { name?: string }
+  ) => {
+    if (!layers.length) {
+      onError("That library item has no artwork to add.");
+      return;
+    }
+    const added = layers.map((layer, index) => {
+      const created = createArtLayer(
+        activeLayerUrl(layer) || layer.url,
+        layer.transform ||
+          (isColorStage ? defaultColorStageTransform() : defaultTransform()),
+        layer.label || source.name || `Artwork ${artLayers.length + index + 1}`
+      );
+      return {
+        ...created,
+        url: layer.url || created.url,
+        cleanUrl: layer.cleanUrl,
+        backgroundRemoved: layer.backgroundRemoved,
+      };
+    });
+    const next = [...artLayers, ...added];
+    patchLayers(next);
+    setSelectedLayerId(added[added.length - 1]?.id ?? null);
+    setMessage(`Added artwork from “${source.name || "library"}”.`);
     onError(null);
-    try {
-      const cleaned = await removeImageBackground(selectedLayer.url);
-      const nextLayers = artLayers.map((layer) =>
+  };
+
+  const handleApplyArtworkEdit = (result: {
+    cleanUrl: string;
+    backgroundRemoved: boolean;
+    detectedColors: DetectedArtworkColor[];
+  }) => {
+    if (!selectedLayer) return;
+    const isOriginal = result.cleanUrl === selectedLayer.url;
+    patchLayers(
+      artLayers.map((layer) =>
         layer.id === selectedLayer.id
           ? {
               ...layer,
-              cleanUrl: cleaned,
-              backgroundRemoved: true,
+              cleanUrl: isOriginal ? undefined : result.cleanUrl,
+              backgroundRemoved: result.backgroundRemoved && !isOriginal,
             }
           : layer
-      );
-      commitDesign(designWithLayers(design, nextLayers));
-      setMessage("Background removed — art sits cleanly on the garment.");
-    } catch {
-      onError("Could not remove the background.");
-    } finally {
-      setBusy(null);
-    }
+      )
+    );
+    const pmsNote = formatSelectedPmsForNotes(result.detectedColors);
+    if (pmsNote) setDetectedPmsNote(pmsNote);
+    setMessage(
+      isOriginal
+        ? "Using original artwork."
+        : pmsNote
+          ? `Artwork updated · ${pmsNote}`
+          : "Artwork updated on the mockup."
+    );
   };
 
   const handleDeleteLayer = (layerId: string) => {
-    const nextLayers = artLayers.filter((layer) => layer.id !== layerId);
-    const nextSelected =
-      selectedLayerId === layerId
-        ? (nextLayers[nextLayers.length - 1]?.id ?? null)
-        : selectedLayerId;
-    commitDesign(designWithLayers(design, nextLayers));
-    setSelectedLayerId(nextSelected);
+    const next = artLayers.filter((layer) => layer.id !== layerId);
+    patchLayers(next);
+    if (selectedLayerId === layerId) {
+      setSelectedLayerId(next[next.length - 1]?.id ?? null);
+    }
     setMessage("Artwork layer removed.");
   };
 
   const applyPreset = (presetId: string) => {
     const preset = placements.find((entry) => entry.id === presetId);
-    patchDesign({
-      placementPresetId: presetId,
-    });
-    if (preset && !isColorStage) {
-      patchSelectedTransform(transformFromPreset(preset));
+    patchDesign({ placementPresetId: presetId });
+    if (preset && !isColorStage && selectedLayer) {
+      handleChangeLayerTransform(selectedLayer.id, transformFromPreset(preset));
     }
   };
 
   const switchStageMode = (mode: "garment" | "color") => {
     if (mode === (design.stageMode || "garment")) return;
     patchDesign({ stageMode: mode });
-    if (mode === "color" && !hasArtwork) {
-      patchSelectedTransform(defaultColorStageTransform());
-    } else if (mode === "garment" && activePreset && !hasArtwork) {
-      patchSelectedTransform(transformFromPreset(activePreset));
+    if (selectedLayer) {
+      if (mode === "color" && !hasArtwork) {
+        handleChangeLayerTransform(
+          selectedLayer.id,
+          defaultColorStageTransform()
+        );
+      } else if (mode === "garment" && activePreset && !hasArtwork) {
+        handleChangeLayerTransform(
+          selectedLayer.id,
+          transformFromPreset(activePreset)
+        );
+      }
     }
   };
 
@@ -428,63 +418,59 @@ export function StoreProductDesignStudio({
     patchDesign({ blankView: view });
   };
 
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!activeArtUrl || !selectedLayer) return;
-    dragRef.current = {
-      startX: event.clientX,
-      startY: event.clientY,
-      originX: transform.x,
-      originY: transform.y,
-    };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragRef.current || !selectedLayer) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    const dx = (event.clientX - dragRef.current.startX) / rect.width;
-    const dy = (event.clientY - dragRef.current.startY) / rect.height;
-    patchSelectedTransform(
-      {
-        x: Math.max(0.08, Math.min(0.92, dragRef.current.originX + dx)),
-        y: Math.max(0.08, Math.min(0.92, dragRef.current.originY + dy)),
-      },
-      false
-    );
-  };
-
-  const onPointerUp = () => {
-    if (dragRef.current) {
-      dragRef.current = null;
-      setDesign((prev) => {
-        onDesignChange({ ...prev, updatedAt: new Date().toISOString() });
-        return prev;
-      });
-    }
-  };
-
   const composeForVariant = async (
     variant: ClientStoreColorVariant
   ): Promise<string> => {
+    const selected = artLayers.find((layer) => layer.id === selectedLayerId);
+    const transform =
+      selected?.transform || design.transform || defaultTransform();
     const composed = await composeDesignMockup({
       blankImageUrl: isColorStage ? undefined : blankSourceFor(variant, slot),
       blankColorHex: resolveVariantHex(variant),
       stageMode: design.stageMode === "color" ? "color" : "garment",
       applyColorOverlay: false,
-      artworkUrl: activeArtUrl,
+      artworkUrl: activeLayerUrl(selected) || design.artworkUrl,
       transform,
       artworkLayers: artLayersForCompose(artLayers),
     });
     return compressStoreMockupDataUrl(composed);
   };
 
-  const applyToVariant = async (variant: ClientStoreColorVariant) => {
+  const applyToVariant = async (
+    variant: ClientStoreColorVariant
+  ): Promise<{ variant: ClientStoreColorVariant; composedPreviewUrl: string }> => {
     const composed = await composeForVariant(variant);
     return {
-      ...variant,
-      blankMockupUrls: recordBlank(variant, slot),
-      mockupUrls: setMockupSlot(variant.mockupUrls || [], slot, composed),
+      composedPreviewUrl: composed,
+      variant: {
+        ...variant,
+        blankMockupUrls: recordBlank(variant, slot),
+        mockupUrls: setMockupSlot(variant.mockupUrls || [], slot, composed),
+      },
     };
+  };
+
+  const syncToDesignLibrary = async (
+    composedPreviewUrl?: string
+  ): Promise<ClientStoreProductDesign> => {
+    const token = await getIdToken();
+    if (!token) throw new Error("Not signed in");
+    const current = designRef.current;
+    const front = blankSourceFor(activeVariant, 0);
+    const back = blankSourceFor(activeVariant, 1);
+    const { design: next } = await upsertStoreDesignToLibrary({
+      token,
+      design: current,
+      productName,
+      blankView,
+      blankColorHex: resolveVariantHex(activeVariant),
+      blankFrontUrl: front,
+      blankBackUrl: back,
+      composedPreviewUrl,
+    });
+    setDesign(next);
+    onDesignChange(next);
+    return next;
   };
 
   const handleSaveActive = async () => {
@@ -497,13 +483,28 @@ export function StoreProductDesignStudio({
     onError(null);
     setMessage(null);
     try {
-      const updated = await applyToVariant(activeVariant);
+      const { variant: updated, composedPreviewUrl } =
+        await applyToVariant(activeVariant);
       onVariantsChange(
         variants.map((variant) =>
           variant.id === activeVariant.id ? updated : variant
         )
       );
-      setMessage(`Saved the ${blankView} mockup for ${activeVariant.name}.`);
+      try {
+        await syncToDesignLibrary(composedPreviewUrl);
+        setMessage(
+          `Saved the ${blankView} mockup for ${activeVariant.name} and Design Studio.`
+        );
+      } catch (err) {
+        setMessage(
+          `Saved the ${blankView} mockup for ${activeVariant.name}.`
+        );
+        onError(
+          err instanceof Error
+            ? err.message
+            : "Mockup saved, but Design Studio library update failed."
+        );
+      }
     } catch {
       onError("Could not save this mockup.");
     } finally {
@@ -522,8 +523,13 @@ export function StoreProductDesignStudio({
     try {
       const enabledIds = new Set(enabledVariants.map((variant) => variant.id));
       const updates = new Map<string, ClientStoreColorVariant>();
+      let preview: string | undefined;
       for (const variant of enabledVariants) {
-        updates.set(variant.id, await applyToVariant(variant));
+        const result = await applyToVariant(variant);
+        updates.set(variant.id, result.variant);
+        if (variant.id === activeVariant?.id || !preview) {
+          preview = result.composedPreviewUrl;
+        }
       }
       onVariantsChange(
         variants.map((variant) =>
@@ -532,11 +538,25 @@ export function StoreProductDesignStudio({
             : variant
         )
       );
-      setMessage(
-        `Applied to ${enabledVariants.length} color${
-          enabledVariants.length === 1 ? "" : "s"
-        } on the ${blankView}.`
-      );
+      try {
+        await syncToDesignLibrary(preview);
+        setMessage(
+          `Applied to ${enabledVariants.length} color${
+            enabledVariants.length === 1 ? "" : "s"
+          } on the ${blankView} and saved to Design Studio.`
+        );
+      } catch (err) {
+        setMessage(
+          `Applied to ${enabledVariants.length} color${
+            enabledVariants.length === 1 ? "" : "s"
+          } on the ${blankView}.`
+        );
+        onError(
+          err instanceof Error
+            ? err.message
+            : "Colors updated, but Design Studio library update failed."
+        );
+      }
     } catch {
       onError("Could not apply to all colors.");
     } finally {
@@ -608,7 +628,8 @@ export function StoreProductDesignStudio({
               {activeVariant?.name || "Design"}
             </h2>
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-              Place artwork on the blank, then save it to your colors.
+              Same studio tools as Design Studio — place art, then save onto
+              colors.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -640,82 +661,27 @@ export function StoreProductDesignStudio({
           </div>
         </div>
 
-        <div className="grid gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_280px] sm:p-5">
-          <div>
-            <div
-              className={cn(
-                dashboardInsetSurfaceClass,
-                "relative aspect-square overflow-hidden rounded-xl",
-                composing ? "pointer-events-none" : null
-              )}
-              style={
-                !composing
-                  ? { backgroundColor: isColorStage ? blankColorHex : undefined }
-                  : undefined
-              }
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              onPointerCancel={onPointerUp}
-            >
-              {previewUrl && !composing ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={previewUrl}
-                  alt="Product mockup preview"
-                  className="size-full object-contain"
-                  draggable={false}
-                />
-              ) : null}
-
-              {composing ? (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-[#f7f7f8]/90">
-                  <Loader2 className="size-5 animate-spin text-[#2c6ecb]" />
-                  <p className="text-[13px] font-medium text-[#616161]">
-                    Preparing mockup…
-                  </p>
-                </div>
-              ) : null}
-
-              {!composing && activeArtUrl ? (
-                <p className="pointer-events-none absolute bottom-3 left-3 rounded-md bg-white/90 px-2 py-1 text-[11px] font-medium text-[#616161]">
-                  Drag artwork to reposition
-                </p>
-              ) : null}
-            </div>
-            <div className="mt-3">
-              <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                Art size
-              </Label>
-              <input
-                type="range"
-                min={0.08}
-                max={0.7}
-                step={0.01}
-                value={transform.scale}
-                disabled={!selectedLayer}
-                onChange={(event) =>
-                  patchSelectedTransform({ scale: Number(event.target.value) })
-                }
-                className="mt-2 w-full accent-[#2c6ecb]"
-              />
-            </div>
+        <div className="flex flex-col lg:flex-row">
+          <div className="flex flex-col items-center justify-center gap-3 border-b border-[#ebebeb] p-4 sm:p-6 lg:min-w-0 lg:flex-1 lg:border-b-0 lg:border-r lg:px-6 lg:py-8">
+            <DesignStudioArtStage
+              blankImageUrl={isColorStage ? undefined : blankSource}
+              blankColorHex={blankColorHex}
+              stageMode={isColorStage ? "color" : "garment"}
+              stageBg={stageBg}
+              layers={artLayers}
+              selectedLayerId={selectedLayerId}
+              onSelectLayer={setSelectedLayerId}
+              onChangeTransform={handleChangeLayerTransform}
+            />
           </div>
 
-          <div className="space-y-4">
-            <DesignStudioLayersPanel
-              layers={layerRows}
-              selectedId={selectedLayerId}
-              onSelect={setSelectedLayerId}
-              onDelete={handleDeleteLayer}
-            />
-
+          <div className="min-w-0 space-y-4 p-4 sm:p-5 lg:w-[300px] lg:shrink-0">
             <div className="space-y-1.5">
               <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
                 Backdrop
               </Label>
               <div
-                className="grid h-10 w-full grid-cols-2 gap-0.5 rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5"
+                className="grid h-9 w-full grid-cols-2 gap-0.5 rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5"
                 role="group"
                 aria-label="Mockup backdrop"
               >
@@ -735,11 +701,6 @@ export function StoreProductDesignStudio({
                   </button>
                 ))}
               </div>
-              <p className={dashboardTaskDetailClass}>
-                {isColorStage
-                  ? "Solid backdrop uses the color’s swatch — good for neck labels."
-                  : "Place artwork on the color’s blank mockup photo."}
-              </p>
             </div>
 
             {!isColorStage ? (
@@ -748,7 +709,7 @@ export function StoreProductDesignStudio({
                   View
                 </Label>
                 <div
-                  className="grid h-10 w-full grid-cols-2 gap-0.5 rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5"
+                  className="grid h-9 w-full grid-cols-2 gap-0.5 rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5"
                   role="group"
                   aria-label="Garment view"
                 >
@@ -758,13 +719,13 @@ export function StoreProductDesignStudio({
                       type="button"
                       onClick={() => switchBlankView(view)}
                       className={cn(
-                        "rounded-md text-[12px] font-semibold capitalize transition-colors",
+                        "rounded-md text-[12px] font-semibold transition-colors",
                         blankView === view
                           ? "bg-white text-[#303030] shadow-sm"
                           : "text-[#8a8a8a] hover:text-[#616161]"
                       )}
                     >
-                      {view}
+                      {garmentBlankViewLabel(view)}
                     </button>
                   ))}
                 </div>
@@ -785,7 +746,10 @@ export function StoreProductDesignStudio({
                 }}
               >
                 <SelectTrigger
-                  className={cn(dashboardControlClass, "h-10 w-full justify-between")}
+                  className={cn(
+                    dashboardControlClass,
+                    "h-10 w-full justify-between"
+                  )}
                 >
                   <SelectValue>
                     {activePreset?.label ?? "Select placement"}
@@ -795,14 +759,13 @@ export function StoreProductDesignStudio({
                   {placements.map((entry) => (
                     <SelectItem key={entry.id} value={entry.id}>
                       {entry.label}
-                      {entry.maxPrintWidthIn ? ` · ${entry.maxPrintWidthIn}"` : ""}
+                      {entry.maxPrintWidthIn
+                        ? ` · ${entry.maxPrintWidthIn}"`
+                        : ""}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className={dashboardTaskDetailClass}>
-                Defaults come from Settings → Design placements.
-              </p>
             </div>
 
             <div className="space-y-2">
@@ -821,49 +784,57 @@ export function StoreProductDesignStudio({
               />
               <Button
                 type="button"
-                className={cn(dashboardPrimaryButtonClass, "h-10 w-full justify-center")}
+                className={cn(
+                  dashboardPrimaryButtonClass,
+                  "h-10 w-full justify-center"
+                )}
                 onClick={() => artInputRef.current?.click()}
               >
                 <Upload className="size-3.5" />
                 {hasArtwork ? "Add artwork layer" : "Upload artwork"}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={cn(
+                  dashboardControlClass,
+                  "h-10 w-full justify-center"
+                )}
+                onClick={() => setPickArtworkOpen(true)}
+              >
+                <BookMarked className="size-3.5" />
+                From artwork library
+              </Button>
               {selectedLayer ? (
-                <div className="space-y-2 rounded-lg border border-[#ebebeb] bg-[#fafafa] p-3">
-                  <p className="text-[12px] text-[#616161]">
-                    Remove the background so only the design sits on the garment?
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className={cn(dashboardControlClass, "h-8")}
-                      disabled={Boolean(busy)}
-                      onClick={() => void handleRemoveBackground()}
-                    >
-                      <Wand2 className="size-3.5" />
-                      Remove background
-                    </Button>
-                    {selectedLayer.backgroundRemoved ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        className="h-8"
-                        onClick={() => {
-                          const nextLayers = artLayers.map((layer) =>
-                            layer.id === selectedLayer.id
-                              ? { ...layer, backgroundRemoved: false }
-                              : layer
-                          );
-                          commitDesign(designWithLayers(design, nextLayers));
-                        }}
-                      >
-                        Use original
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    dashboardControlClass,
+                    "h-10 w-full justify-center"
+                  )}
+                  onClick={() => setEditImageOpen(true)}
+                >
+                  <Pencil className="size-3.5" />
+                  Edit image
+                </Button>
+              ) : null}
+              {detectedPmsNote ? (
+                <p className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-3 py-2 text-[12px] text-[#616161]">
+                  PMS selected:{" "}
+                  <span className="font-medium text-[#303030]">
+                    {detectedPmsNote}
+                  </span>
+                </p>
               ) : null}
             </div>
+
+            <DesignStudioLayersPanel
+              layers={layerRows}
+              selectedId={selectedLayerId}
+              onSelect={setSelectedLayerId}
+              onDelete={handleDeleteLayer}
+            />
 
             {busy ? (
               <p className="flex items-center gap-2 text-[13px] text-[#616161]">
@@ -879,6 +850,23 @@ export function StoreProductDesignStudio({
           </div>
         </div>
       </section>
+
+      {selectedLayer ? (
+        <DesignStudioEditImageDialog
+          open={editImageOpen}
+          onOpenChange={setEditImageOpen}
+          originalUrl={selectedLayer.url}
+          workingUrl={activeLayerUrl(selectedLayer) || selectedLayer.url}
+          fileLabel={selectedLayer.label}
+          onApply={handleApplyArtworkEdit}
+        />
+      ) : null}
+
+      <DesignStudioPickArtworkDialog
+        open={pickArtworkOpen}
+        onOpenChange={setPickArtworkOpen}
+        onPick={handlePickLibraryArtwork}
+      />
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Copy,
@@ -13,11 +13,14 @@ import {
 } from "lucide-react";
 import { DesignVersionModal } from "@/components/artwork/design-version-modal";
 import { DESIGN_STUDIO_BASE } from "@/components/layout/nav-config";
+import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { StandaloneDesignStudio, type DesignArtInsights } from "@/components/design-studio/standalone-design-studio";
 import { OrderDesignStudioTab } from "@/components/orders/order-design-studio-tab";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -52,6 +55,48 @@ function imprintKey(jobId: string, imprintId: string): string {
   return `${jobId}:${imprintId}`;
 }
 
+/** Editable design name — drafts stay local until Save/Discard in the header bar. */
+function DesignNameEditor({
+  designId,
+  value,
+  onChange,
+}: {
+  designId: string;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [focused, setFocused] = useState(false);
+  const hasValue = Boolean(value.trim());
+
+  return (
+    <div className="w-full min-w-0 max-w-3xl lg:max-w-4xl">
+      <Label htmlFor={`design-name-${designId}`} className="sr-only">
+        Design name
+      </Label>
+      <Input
+        id={`design-name-${designId}`}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder="Design name"
+        maxLength={120}
+        className={cn(
+          "h-11 w-full rounded-lg border bg-transparent px-3.5 text-[20px] font-semibold tracking-tight outline-none transition-colors sm:h-12 sm:text-[22px]",
+          "placeholder:font-normal placeholder:text-[#b0b0b0]",
+          focused || hasValue
+            ? "border-[#d8d8d8] text-[#121a2e]"
+            : "border-[#ebebeb] text-[#303030] hover:border-[#d8d8d8]",
+          "focus:border-[#c4d7f2] focus:bg-white focus:ring-2 focus:ring-[#2c6ecb]/10"
+        )}
+      />
+      <p className="mt-1 text-[11px] text-[#8a8a8a]">
+        Custom name · use Save in the top bar to keep changes
+      </p>
+    </div>
+  );
+}
+
 export function DesignStudioWorkspace({ entryId }: { entryId: string }) {
   const router = useRouter();
   const { getIdToken } = useAuth();
@@ -68,6 +113,59 @@ export function DesignStudioWorkspace({ entryId }: { entryId: string }) {
   );
   const [savingVersion, setSavingVersion] = useState(false);
   const [artInsights, setArtInsights] = useState<DesignArtInsights>(null);
+  const [nameDraft, setNameDraft] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
+  const nameBaselineRef = useRef("");
+
+  useEffect(() => {
+    if (!design) {
+      nameBaselineRef.current = "";
+      setNameDraft("");
+      return;
+    }
+    const next = design.name || "";
+    nameBaselineRef.current = next;
+    setNameDraft(next);
+  }, [design?.id, design?.name]);
+
+  const nameDirty =
+    Boolean(design) &&
+    nameDraft.trim() !== (nameBaselineRef.current.trim() || "");
+
+  const saveNameDraft = useCallback(async () => {
+    if (!design || !nameDirty) return;
+    const trimmed = nameDraft.trim().slice(0, 120);
+    if (!trimmed) {
+      setNameDraft(nameBaselineRef.current);
+      return;
+    }
+    setNameSaving(true);
+    setError(null);
+    try {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      const { design: next } = await apiUpdateDesign(token, {
+        designId: design.id,
+        patch: { name: trimmed },
+        changeSummary: "Renamed design",
+        author: "Shop",
+      });
+      nameBaselineRef.current = next.name || trimmed;
+      setNameDraft(next.name || trimmed);
+      upsertDesignStudioCache(next);
+      setDesign(next);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not save the design name."
+      );
+    } finally {
+      setNameSaving(false);
+    }
+  }, [design, nameDirty, nameDraft, getIdToken]);
+
+  const discardNameDraft = useCallback(() => {
+    setNameDraft(nameBaselineRef.current);
+  }, []);
 
   const findOrder = useCallback(
     (orderId: string) => orders.find((order) => order.id === orderId) ?? null,
@@ -86,6 +184,19 @@ export function DesignStudioWorkspace({ entryId }: { entryId: string }) {
     }
     return null;
   }, [parsed, design, findOrder]);
+
+  useRegisterUnsavedChanges(
+    design && !linkedOrder && (nameDirty || nameSaving)
+      ? {
+          dirty: nameDirty,
+          saving: nameSaving,
+          label: "Unsaved design name",
+          onSave: () => saveNameDraft(),
+          onDiscard: discardNameDraft,
+        }
+      : null,
+    design ? `design-name-${design.id}` : "design-name"
+  );
 
   const initialImprintKey = useMemo(() => {
     // Opening a whole Design Line starts on the first location; file links pass
@@ -331,7 +442,7 @@ export function DesignStudioWorkspace({ entryId }: { entryId: string }) {
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1 lg:pr-6">
           <Link
             href={DESIGN_STUDIO_BASE}
             className="mb-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-[#616161] hover:text-[#2c6ecb]"
@@ -339,7 +450,17 @@ export function DesignStudioWorkspace({ entryId }: { entryId: string }) {
             <ArrowLeft className="size-3.5" />
             Design Studio
           </Link>
-          <h1 className={cn(dashboardSectionTitleClass, "truncate")}>{title}</h1>
+          {design && !linkedOrder ? (
+            <DesignNameEditor
+              designId={design.id}
+              value={nameDraft}
+              onChange={setNameDraft}
+            />
+          ) : (
+            <h1 className={cn(dashboardSectionTitleClass, "truncate")}>
+              {title}
+            </h1>
+          )}
           <p className={cn("mt-1", dashboardTaskDetailClass)}>
             {design?.company || design?.customerName || linkedOrder?.company || "—"}
             {design?.decoration

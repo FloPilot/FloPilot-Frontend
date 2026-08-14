@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Check,
@@ -27,6 +27,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { useStorefrontProductNav } from "@/hooks/use-storefront-product-nav";
 import {
   getPublicClientStore,
   submitClientStoreOrder,
@@ -48,6 +49,7 @@ import {
   resolveCollectionProducts,
   resolveNavItemAction,
   type ClientStoreNavItem,
+  type StoreNavAction,
 } from "@/lib/client-store-theme";
 import type {
   ClientStoreColorVariant,
@@ -632,8 +634,10 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [passwordError, setPasswordError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<PublicClientStoreProduct | null>(
-    null
+  const scrollPaneRef = useRef<HTMLDivElement | null>(null);
+  const { selected, selectProduct } = useStorefrontProductNav(
+    store?.products || [],
+    scrollPaneRef
   );
   const [decisions, setDecisions] = useState<
     Record<string, StoredClientStoreReviewDecision>
@@ -682,34 +686,37 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
     [theme.navigation]
   );
 
+  const handleNavAction = useCallback((action: StoreNavAction) => {
+    if (action.kind === "noop") return;
+    if (action.kind === "url") {
+      if (action.openInNewTab) {
+        window.open(action.href, "_blank", "noopener,noreferrer");
+      } else {
+        window.location.href = action.href;
+      }
+      return;
+    }
+    selectProduct(null, { historyMode: "replace" });
+    if (action.kind === "collection") {
+      setActiveCollectionId(action.collectionId);
+      setActivePageHandle("home");
+      return;
+    }
+    setActiveCollectionId(null);
+    if (action.kind === "home" || action.kind === "products") {
+      setActivePageHandle("home");
+      return;
+    }
+    if (action.kind === "page") {
+      setActivePageHandle(action.handle);
+    }
+  }, [selectProduct]);
+
   const handleNavItem = useCallback(
     (item: ClientStoreNavItem) => {
-      const action = resolveNavItemAction(item, theme);
-      if (action.kind === "noop") return;
-      if (action.kind === "url") {
-        if (action.openInNewTab) {
-          window.open(action.href, "_blank", "noopener,noreferrer");
-        } else {
-          window.location.href = action.href;
-        }
-        return;
-      }
-      setSelected(null);
-      if (action.kind === "collection") {
-        setActiveCollectionId(action.collectionId);
-        setActivePageHandle("home");
-        return;
-      }
-      setActiveCollectionId(null);
-      if (action.kind === "home" || action.kind === "products") {
-        setActivePageHandle("home");
-        return;
-      }
-      if (action.kind === "page") {
-        setActivePageHandle(action.handle);
-      }
+      handleNavAction(resolveNavItemAction(item, theme));
     },
-    [theme]
+    [handleNavAction, theme]
   );
 
   const activePage = useMemo(() => {
@@ -1030,7 +1037,7 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
               onClick={() => {
                 setSubmitted(false);
                 setDecisions({});
-                setSelected(null);
+                selectProduct(null, { historyMode: "replace" });
               }}
             >
               Review again
@@ -1094,7 +1101,10 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
         actionSlot={reviewHeaderAction}
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+      <div
+        ref={scrollPaneRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain"
+      >
         {!store.isOpen ? (
           <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 text-center text-[13px] text-amber-900 sm:px-6">
             This review store is not currently accepting responses.
@@ -1106,7 +1116,7 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
             <div className="mx-auto max-w-[1200px] px-4 pt-6 sm:px-6 sm:pt-8">
               <button
                 type="button"
-                onClick={() => setSelected(null)}
+                onClick={() => selectProduct(null)}
                 className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[#616161] transition-colors hover:text-[#303030]"
               >
                 <ArrowLeft className="size-3.5" />
@@ -1125,7 +1135,7 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
               votingBusyKey={votingBusyKey}
               voteError={voteError}
               hideBack
-              onBack={() => setSelected(null)}
+              onBack={() => selectProduct(null)}
               onDecide={(color, decision, note) => {
                 setDecision(selected.id, color, decision, note);
               }}
@@ -1167,7 +1177,7 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
                   <button
                     key={product.id}
                     type="button"
-                    onClick={() => setSelected(product)}
+                    onClick={() => selectProduct(product)}
                     className="group text-left"
                   >
                     <StoreProductCardMedia
@@ -1177,10 +1187,13 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
                     <p className="mt-3 text-[13px] font-medium leading-snug text-[#303030]">
                       {product.name}
                     </p>
-                    <p className="mt-1 text-[12px] text-[#8a8a8a]">
-                      {[product.brand, product.color].filter(Boolean).join(" · ") ||
-                        "Apparel"}
-                    </p>
+                    {[product.brand, product.color].filter(Boolean).join(" · ") ? (
+                      <p className="mt-1 text-[12px] text-[#8a8a8a]">
+                        {[product.brand, product.color]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    ) : null}
                     <StoreProductCommerceMeta product={product} />
                     {showPrices && product.sellPrice != null ? (
                       <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
@@ -1229,10 +1242,12 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
                   collections={theme.collections}
                   accentHex={accentHex}
                   showPrices={showPrices}
-                  onSelectProduct={setSelected}
+                  theme={theme}
+                  onSelectProduct={selectProduct}
                   onSelectCollection={(collection) =>
                     setActiveCollectionId(collection.id)
                   }
+                  onNavigate={handleNavAction}
                 />
               ))}
           </div>

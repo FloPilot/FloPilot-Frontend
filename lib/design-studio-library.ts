@@ -110,9 +110,17 @@ export function parseDesignStudioEntryId(id: string): {
 }
 
 function previewForDesign(design: SavedDesign): string | undefined {
+  const mockup = design.designMockup || design.locations?.[0]?.designMockup;
+  const layerUrl =
+    mockup?.artLayers
+      ?.map((layer) => layer.cleanUrl || layer.url)
+      .find((url) => typeof url === "string" && url.trim()) || undefined;
   return (
-    design.designMockup?.composedPreviewUrl ||
+    mockup?.composedPreviewUrl ||
     design.artwork?.previewUrl ||
+    mockup?.blankImageUrl ||
+    mockup?.blankImageFrontUrl ||
+    layerUrl ||
     undefined
   );
 }
@@ -121,11 +129,20 @@ function previewForLocation(
   design: SavedDesign,
   location: SavedDesignLocation
 ): string | undefined {
+  const mockup = location.designMockup;
+  const layerUrl =
+    mockup?.artLayers
+      ?.map((layer) => layer.cleanUrl || layer.url)
+      .find((url) => typeof url === "string" && url.trim()) || undefined;
   return (
-    location.designMockup?.composedPreviewUrl ||
+    mockup?.composedPreviewUrl ||
     (location.id === design.locations?.[0]?.id
       ? previewForDesign(design)
-      : undefined)
+      : undefined) ||
+    mockup?.blankImageUrl ||
+    mockup?.blankImageFrontUrl ||
+    layerUrl ||
+    undefined
   );
 }
 

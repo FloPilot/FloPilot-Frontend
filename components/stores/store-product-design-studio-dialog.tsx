@@ -371,7 +371,10 @@ export function StoreProductDesignStudioDialog({
       onError("That library design has no artwork to apply.");
       return;
     }
-    onDesignChange(next);
+    onDesignChange({
+      ...next,
+      libraryDesignId: selectedLibraryDesign.id,
+    });
     onError(null);
     if (!hasColors) {
       onManageColors?.();
@@ -772,6 +775,7 @@ export function StoreProductDesignStudioDialog({
                 key={studioKey}
                 variants={variants}
                 design={design}
+                productName={productName}
                 onVariantsChange={onVariantsChange}
                 onDesignChange={onDesignChange}
                 onError={onError}

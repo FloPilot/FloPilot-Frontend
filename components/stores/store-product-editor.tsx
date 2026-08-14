@@ -734,6 +734,8 @@ export function StoreProductEditor({
       const synced = syncProductDerivedFields({
         ...draft,
         name: draft.name.trim(),
+        brand: (draft.brand || "").trim() || undefined,
+        color: (draft.color || "").trim() || undefined,
         sellPrice: previewPrice,
         tags,
         colors: draft.color
