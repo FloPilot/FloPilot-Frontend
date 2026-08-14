@@ -16,6 +16,19 @@ export type StoreHeroButtonLinkType =
   | "page"
   | "url";
 
+export type StoreHeroImageFit = "cover" | "contain";
+
+export type StoreHeroImagePosition =
+  | "left top"
+  | "center top"
+  | "right top"
+  | "left center"
+  | "center center"
+  | "right center"
+  | "left bottom"
+  | "center bottom"
+  | "right bottom";
+
 export type StoreSectionSettings = {
   title?: string;
   subtitle?: string;
@@ -33,6 +46,10 @@ export type StoreSectionSettings = {
   buttonUrl?: string;
   buttonOpenInNewTab?: boolean;
   imageUrl?: string;
+  /** How a hero/banner image fills its available frame. */
+  imageFit?: StoreHeroImageFit;
+  /** The focal point used when a cover image is cropped. */
+  imagePosition?: StoreHeroImagePosition;
   collectionId?: string;
   /** all | collection */
   productSource?: "all" | "collection";
@@ -164,6 +181,8 @@ export const STORE_WIDGET_LIBRARY: StoreWidgetDefinition[] = [
       backgroundColor: "#f6f6f7",
       textColor: "#303030",
       overlayOpacity: 40,
+      imageFit: "cover",
+      imagePosition: "center center",
     },
   },
   {

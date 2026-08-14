@@ -184,6 +184,8 @@ export function StoreSectionRenderer({
 
   if (section.type === "hero") {
     const hasImage = Boolean(settings.imageUrl);
+    const imageFit = settings.imageFit === "contain" ? "contain" : "cover";
+    const imagePosition = settings.imagePosition || "center center";
     const eyebrowText =
       settings.hideEyebrow === true
         ? ""
@@ -206,9 +208,11 @@ export function StoreSectionRenderer({
               src={settings.imageUrl}
               alt=""
               className={cn(
-                "absolute inset-0 size-full object-cover",
+                "absolute inset-0 size-full",
+                imageFit === "contain" ? "object-contain" : "object-cover",
                 compact ? "opacity-90" : ""
               )}
+              style={{ objectPosition: imagePosition }}
             />
             <div
               className="absolute inset-0"
