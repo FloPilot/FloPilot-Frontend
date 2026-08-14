@@ -2,7 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, Palette, Search, Shirt } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  Loader2,
+  Palette,
+  Search,
+  Shirt,
+} from "lucide-react";
 import { NewDesignBlankModal } from "@/components/design-studio/new-design-blank-modal";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
@@ -25,7 +33,11 @@ import {
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { DESIGN_STUDIO_BASE } from "@/components/layout/nav-config";
-import { useDesignStudioDesigns } from "@/lib/design-studio-cache";
+import { duplicateDesign } from "@/lib/api";
+import {
+  upsertDesignStudioCache,
+  useDesignStudioDesigns,
+} from "@/lib/design-studio-cache";
 import {
   mergeDesignStudioLines,
   type DesignStudioFile,
@@ -36,6 +48,15 @@ import { formatOrderNumberWithLabel } from "@/lib/order-display";
 import { useImageBackgroundColor } from "@/lib/use-image-background-color";
 import type { DecorationType } from "@/types";
 import { cn } from "@/lib/utils";
+
+function resolveLibraryDesignId(line: DesignStudioLine): string | null {
+  if (line.id.startsWith("line:solo:")) {
+    const id = line.id.slice("line:solo:".length).trim();
+    return id || null;
+  }
+  const fromFile = line.files.find((file) => file.designId)?.designId;
+  return fromFile?.trim() || null;
+}
 
 function FileThumb({
   file,
@@ -122,12 +143,16 @@ function DesignLineRow({
   onToggle,
   onOpenLine,
   onOpenFile,
+  onDuplicate,
+  duplicating,
 }: {
   line: DesignStudioLine;
   expanded: boolean;
   onToggle: () => void;
   onOpenLine: () => void;
   onOpenFile: (file: DesignStudioFile) => void;
+  onDuplicate?: () => void;
+  duplicating?: boolean;
 }) {
   const locationSummary = line.files
     .map((file) => file.locationLabel)
@@ -203,8 +228,32 @@ function DesignLineRow({
               : "Library"}
           </p>
         </TableCell>
-        <TableCell className="py-2.5 pr-4 text-[13px] text-[#8a8a8a] sm:pr-5">
+        <TableCell className="py-2.5 text-[13px] text-[#8a8a8a]">
           {formatDateTime(line.updatedAt)}
+        </TableCell>
+        <TableCell className="py-2.5 pr-4 sm:pr-5">
+          {onDuplicate ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={duplicating}
+              className={cn(dashboardControlClass, "h-8 px-2.5 text-[12px]")}
+              title="Duplicate — change blank color and save as a new file"
+              onClick={(event) => {
+                event.stopPropagation();
+                onDuplicate();
+              }}
+            >
+              {duplicating ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Copy className="size-3.5" />
+              )}
+              <span className="hidden sm:inline">Duplicate</span>
+            </Button>
+          ) : (
+            <span className="text-[11px] text-[#a3a3a3]">—</span>
+          )}
         </TableCell>
       </TableRow>
 
@@ -252,6 +301,7 @@ function DesignLineRow({
               <TableCell className="py-2 pr-4 text-[12px] text-[#8a8a8a] sm:pr-5">
                 {formatDateTime(file.updatedAt)}
               </TableCell>
+              <TableCell className="py-2 pr-4 sm:pr-5" />
             </TableRow>
           ))
         : null}
@@ -268,6 +318,8 @@ export function DesignStudioLibraryView() {
   const [filter, setFilter] = useState<"all" | "mockups">("all");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [newDesignOpen, setNewDesignOpen] = useState(false);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Wait for the designs fetch (or cache) before merging with orders so the
   // table doesn't paint order-only rows first, then reshuffle.
@@ -312,6 +364,34 @@ export function DesignStudioLibraryView() {
       else next.add(lineId);
       return next;
     });
+  };
+
+  const handleDuplicate = async (line: DesignStudioLine) => {
+    const designId = resolveLibraryDesignId(line);
+    if (!designId) {
+      setActionError(
+        "Open this design and save it to the library first, then you can duplicate it."
+      );
+      return;
+    }
+    setActionError(null);
+    setDuplicatingId(line.id);
+    try {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      const { design } = await duplicateDesign(token, {
+        designId,
+        author: "Shop",
+      });
+      upsertDesignStudioCache(design);
+      router.push(`${DESIGN_STUDIO_BASE}/${encodeURIComponent(design.id)}`);
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Could not duplicate design"
+      );
+    } finally {
+      setDuplicatingId(null);
+    }
   };
 
   return (
@@ -392,6 +472,12 @@ export function DesignStudioLibraryView() {
         </div>
       </div>
 
+      {actionError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800">
+          {actionError}
+        </p>
+      ) : null}
+
       {loading && lines.length === 0 ? (
         <div className="flex items-center justify-center gap-2 py-20 text-[13px] text-[#616161]">
           <Loader2 className="size-4 animate-spin" />
@@ -448,8 +534,11 @@ export function DesignStudioLibraryView() {
                 <TableHead className="h-10 min-w-[110px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
                   Source
                 </TableHead>
-                <TableHead className="h-10 min-w-[140px] bg-[#fafafa] pr-4 text-[12px] font-medium text-[#616161] sm:pr-5">
+                <TableHead className="h-10 min-w-[140px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
                   Updated
+                </TableHead>
+                <TableHead className="h-10 min-w-[110px] bg-[#fafafa] pr-4 text-[12px] font-medium text-[#616161] sm:pr-5">
+                  Actions
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -462,6 +551,12 @@ export function DesignStudioLibraryView() {
                   onToggle={() => toggleExpanded(line.id)}
                   onOpenLine={() => openLine(line)}
                   onOpenFile={openFile}
+                  onDuplicate={
+                    resolveLibraryDesignId(line)
+                      ? () => void handleDuplicate(line)
+                      : undefined
+                  }
+                  duplicating={duplicatingId === line.id}
                 />
               ))}
             </TableBody>

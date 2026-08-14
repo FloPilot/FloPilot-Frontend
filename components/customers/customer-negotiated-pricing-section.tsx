@@ -25,6 +25,10 @@ import {
 } from "@/lib/customer-pricing";
 import { syncLocationBundleInMethods } from "@/lib/pricing-location-bundle";
 import {
+  inferPricingDecorationType,
+  syncDecorationTypesInMethods,
+} from "@/lib/shop-settings";
+import {
   dashboardCardClass,
   dashboardControlClass,
   dashboardInsetSurfaceClass,
@@ -119,11 +123,26 @@ export function CustomerNegotiatedPricingSection({
 
   const saveSheetDraft = async () => {
     const trimmedName = sheetDraft.name.trim() || "Negotiated rates";
+    const syncedMethods = syncDecorationTypesInMethods(
+      syncLocationBundleInMethods(sheetDraft.methods ?? [])
+    );
+    const missingType = syncedMethods.find(
+      (method) =>
+        method.rows?.length > 0 &&
+        !inferPricingDecorationType(method.name, method.decorationType)
+    );
+    if (missingType) {
+      setDraftError(
+        `Select a decoration type for “${missingType.name.trim() || "Untitled method"}” so it can apply on orders.`
+      );
+      return;
+    }
+
     const nextSheet: CustomerNegotiatedRateSheet = {
       ...sheetDraft,
       name: trimmedName,
       notes: sheetDraft.notes?.trim() || "",
-      methods: syncLocationBundleInMethods(sheetDraft.methods ?? []),
+      methods: syncedMethods,
       updatedAt: new Date().toISOString(),
     };
 

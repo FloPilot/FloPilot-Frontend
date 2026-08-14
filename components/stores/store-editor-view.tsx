@@ -8,6 +8,7 @@ import {
   Copy,
   ExternalLink,
   FileText,
+  GripVertical,
   Layers,
   LayoutTemplate,
   Link2,
@@ -24,6 +25,24 @@ import {
   Trash2,
   Users,
 } from "lucide-react";
+import {
+  closestCenter,
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
+import { CSS } from "@dnd-kit/utilities";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   useRegisterUnsavedChanges,
@@ -67,12 +86,16 @@ import {
   insertDuplicatedClientStoreProduct,
   isClientStoreReviewMode,
   isClientStoreShowMode,
+  normalizeClientStorePublicUrlSegments,
   normalizeClientStoreSlug,
   previewClientStoreCustomerUrl,
   resolveClientStoreShareUrl,
+  buildClientStorePublicPathParts,
+  CLIENT_STORE_PUBLIC_URL_SEGMENT_OPTIONS,
   type ClientStore,
   type ClientStoreMode,
   type ClientStoreProduct,
+  type ClientStorePublicUrlSegment,
   type ClientStoreReviewPhase,
   type ClientStoreSubmission,
   type ClientStoreVoteSummaryRow,
@@ -109,6 +132,7 @@ type StoreDraftSnapshotInput = {
   mode: ClientStoreMode;
   name: string;
   slug: string;
+  publicUrlSegments: ClientStorePublicUrlSegment[];
   headline: string;
   description: string;
   opensAt: string;
@@ -128,6 +152,9 @@ function serializeStoreDraft(input: StoreDraftSnapshotInput): string {
     mode: input.mode || "order",
     name: input.name.trim(),
     slug: input.slug.trim().toLowerCase(),
+    publicUrlSegments: normalizeClientStorePublicUrlSegments(
+      input.publicUrlSegments
+    ),
     headline: input.headline.trim(),
     description: input.description.trim(),
     opensAt: input.opensAt,
@@ -141,6 +168,70 @@ function serializeStoreDraft(input: StoreDraftSnapshotInput): string {
     accentColorKey: input.accentColorKey,
     theme: input.theme,
   });
+}
+
+function SortablePublicUrlSegmentRow({
+  segmentId,
+  label,
+  value,
+  canRemove,
+  onRemove,
+}: {
+  segmentId: ClientStorePublicUrlSegment;
+  label: string;
+  value: string;
+  canRemove: boolean;
+  onRemove: () => void;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: segmentId });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={cn(
+        "flex items-center gap-2 rounded-lg border border-[#e3e3e3] bg-white px-2 py-1.5",
+        isDragging && "relative z-20 shadow-[0_8px_24px_rgba(26,26,26,0.12)]"
+      )}
+    >
+      <button
+        type="button"
+        className={cn(
+          "inline-flex size-7 shrink-0 cursor-grab items-center justify-center rounded-md text-[#c0c0c4] transition-colors",
+          "hover:bg-[#f1f1f1] hover:text-[#616161] active:cursor-grabbing",
+          isDragging && "cursor-grabbing text-[#616161]"
+        )}
+        aria-label={`Drag to reorder ${label}`}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="size-3.5" />
+      </button>
+      <div className="min-w-0 flex-1">
+        <p className="text-[12px] font-semibold text-[#303030]">{label}</p>
+        <p className="truncate font-mono text-[11px] text-[#8a8a8a]">/{value}</p>
+      </div>
+      {canRemove ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="shrink-0 text-[11px] font-medium text-[#8a8a8a] hover:text-[#303030]"
+        >
+          Remove
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 export function StoreEditorView({ storeId }: { storeId: string }) {
@@ -184,6 +275,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
 
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [publicUrlSegments, setPublicUrlSegments] = useState<
+    ClientStorePublicUrlSegment[]
+  >(["shop", "store"]);
   const [mode, setMode] = useState<ClientStoreMode>("order");
   const [headline, setHeadline] = useState("");
   const [description, setDescription] = useState("");
@@ -216,6 +310,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       setSubmissions(submissionRes.submissions);
       const nextName = storeRes.store.name || "";
       const nextSlug = storeRes.store.slug || "";
+      const nextPublicUrlSegments = normalizeClientStorePublicUrlSegments(
+        storeRes.store.settings?.publicUrlSegments
+      );
       const nextMode = (storeRes.store.mode || "order") as ClientStoreMode;
       const nextHeadline = storeRes.store.headline || "";
       const nextDescription = storeRes.store.description || "";
@@ -240,6 +337,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       });
       setName(nextName);
       setSlug(nextSlug);
+      setPublicUrlSegments(nextPublicUrlSegments);
       setMode(nextMode);
       setHeadline(nextHeadline);
       setDescription(nextDescription);
@@ -262,6 +360,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         mode: nextMode,
         name: nextName,
         slug: nextSlug,
+        publicUrlSegments: nextPublicUrlSegments,
         headline: nextHeadline,
         description: nextDescription,
         opensAt: nextOpensAt,
@@ -321,6 +420,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         mode,
         name,
         slug,
+        publicUrlSegments,
         headline,
         description,
         opensAt,
@@ -338,6 +438,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       mode,
       name,
       slug,
+      publicUrlSegments,
       headline,
       description,
       opensAt,
@@ -381,6 +482,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     if (!store) return;
     const nextName = store.name || "";
     const nextSlug = store.slug || "";
+    const nextPublicUrlSegments = normalizeClientStorePublicUrlSegments(
+      store.settings?.publicUrlSegments
+    );
     const nextMode = (store.mode || "order") as ClientStoreMode;
     const nextHeadline = store.headline || "";
     const nextDescription = store.description || "";
@@ -403,6 +507,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     });
     setName(nextName);
     setSlug(nextSlug);
+    setPublicUrlSegments(nextPublicUrlSegments);
     setMode(nextMode);
     setHeadline(nextHeadline);
     setDescription(nextDescription);
@@ -420,6 +525,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       mode: nextMode,
       name: nextName,
       slug: nextSlug,
+      publicUrlSegments: nextPublicUrlSegments,
       headline: nextHeadline,
       description: nextDescription,
       opensAt: nextOpensAt,
@@ -440,9 +546,11 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
     if (!token || !store) return;
     const nextSlug = normalizeClientStoreSlug(slug);
     if (!nextSlug) {
-      setError("Store URL is required.");
+      setError("Store URL name is required.");
       return;
     }
+    const nextPublicUrlSegments =
+      normalizeClientStorePublicUrlSegments(publicUrlSegments);
     setSaving(true);
     setError(null);
     try {
@@ -463,6 +571,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
           reviewPhase,
           showPrices,
           pageBackgroundColor: pageBackgroundColor.trim() || "#ffffff",
+          publicUrlSegments: nextPublicUrlSegments,
         },
         ...(password.trim()
           ? { password: password.trim(), passwordProtected: true }
@@ -483,6 +592,11 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       setDescription(res.store.description || "");
       setName(res.store.name || "");
       setSlug(res.store.slug || "");
+      setPublicUrlSegments(
+        normalizeClientStorePublicUrlSegments(
+          res.store.settings?.publicUrlSegments
+        )
+      );
       setOpensAt(res.store.opensAt?.slice(0, 16) || "");
       setClosesAt(res.store.closesAt?.slice(0, 16) || "");
       setOrderInstructions(res.store.settings?.orderInstructions || "");
@@ -501,6 +615,9 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
         mode: nextMode,
         name: res.store.name || "",
         slug: res.store.slug || "",
+        publicUrlSegments: normalizeClientStorePublicUrlSegments(
+          res.store.settings?.publicUrlSegments
+        ),
         headline: res.store.headline || "",
         description: res.store.description || "",
         opensAt: res.store.opensAt?.slice(0, 16) || "",
@@ -843,9 +960,52 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       previewClientStoreCustomerUrl({
         tenantSlug: store?.tenantSlug || tenantSlug,
         storeSlug: slug,
+        segments: publicUrlSegments,
       }),
-    [store?.tenantSlug, tenantSlug, slug]
+    [store?.tenantSlug, tenantSlug, slug, publicUrlSegments]
   );
+
+  const urlPreviewParts = useMemo(
+    () =>
+      buildClientStorePublicPathParts({
+        tenantSlug: store?.tenantSlug || tenantSlug,
+        storeSlug: slug,
+        segments: publicUrlSegments,
+      }),
+    [store?.tenantSlug, tenantSlug, slug, publicUrlSegments]
+  );
+
+  const publicUrlSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const togglePublicUrlSegment = (segment: ClientStorePublicUrlSegment) => {
+    setPublicUrlSegments((current) => {
+      const has = current.includes(segment);
+      if (has) {
+        if (segment === "store") return current;
+        return normalizeClientStorePublicUrlSegments(
+          current.filter((item) => item !== segment)
+        );
+      }
+      return normalizeClientStorePublicUrlSegments([...current, segment]);
+    });
+  };
+
+  const handlePublicUrlSegmentDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setPublicUrlSegments((current) => {
+      const list = normalizeClientStorePublicUrlSegments(current);
+      const oldIndex = list.indexOf(active.id as ClientStorePublicUrlSegment);
+      const newIndex = list.indexOf(over.id as ClientStorePublicUrlSegment);
+      if (oldIndex < 0 || newIndex < 0) return list;
+      return arrayMove(list, oldIndex, newIndex);
+    });
+  };
 
   const copyShareLink = async () => {
     if (!shareUrl) return;
@@ -1122,27 +1282,108 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
 
             <div>
               <Label className="text-[13px]">Store URL</Label>
-              <div className="mt-1.5 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="flex min-w-0 flex-1 items-stretch overflow-hidden rounded-lg border border-[#e3e3e3] bg-white">
-                  <span className="inline-flex shrink-0 items-center border-r border-[#e3e3e3] bg-[#fafafa] px-2.5 text-[11px] text-[#8a8a8a] sm:text-[12px]">
-                    {(store?.tenantSlug || tenantSlug || "your-shop")
-                      .toLowerCase()}
-                    .flopilot.io/store/
-                  </span>
-                  <Input
-                    value={slug}
-                    onChange={(e) =>
-                      setSlug(
-                        e.target.value
-                          .toLowerCase()
-                          .replace(/[^a-z0-9-]/g, "")
-                      )
-                    }
-                    onBlur={() => setSlug(normalizeClientStoreSlug(slug))}
-                    placeholder="socalsolarpro"
-                    className="h-9 flex-1 border-0 text-[13px] shadow-none focus-visible:ring-0"
-                  />
+              <div className="mt-1.5 rounded-xl border border-[#e3e3e3] bg-white px-3 py-3">
+                <p className="break-all font-mono text-[12px] leading-relaxed text-[#303030]">
+                  <span className="text-[#8a8a8a]">/store</span>
+                  {urlPreviewParts.length > 0 ? (
+                    urlPreviewParts.map((part, index) => (
+                      <span key={`${index}-${part}`}>
+                        <span className="text-[#8a8a8a]">/</span>
+                        <span>{part}</span>
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-[#8a8a8a]">/…</span>
+                  )}
+                </p>
+
+                <div className="mt-3 space-y-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#8a8a8a]">
+                    Path order
+                  </p>
+                  <DndContext
+                    sensors={publicUrlSensors}
+                    collisionDetection={closestCenter}
+                    modifiers={[restrictToVerticalAxis]}
+                    onDragEnd={handlePublicUrlSegmentDragEnd}
+                  >
+                    <SortableContext
+                      items={publicUrlSegments}
+                      strategy={verticalListSortingStrategy}
+                    >
+                      <div className="flex flex-col gap-2">
+                        {publicUrlSegments.map((segmentId) => {
+                          const option =
+                            CLIENT_STORE_PUBLIC_URL_SEGMENT_OPTIONS.find(
+                              (row) => row.id === segmentId
+                            );
+                          if (!option) return null;
+                          const value =
+                            segmentId === "shop"
+                              ? (
+                                  store?.tenantSlug ||
+                                  tenantSlug ||
+                                  "your-shop"
+                                ).toLowerCase()
+                              : normalizeClientStoreSlug(slug) || "store-name";
+                          return (
+                            <SortablePublicUrlSegmentRow
+                              key={segmentId}
+                              segmentId={segmentId}
+                              label={option.label}
+                              value={value}
+                              canRemove={segmentId !== "store"}
+                              onRemove={() =>
+                                togglePublicUrlSegment(segmentId)
+                              }
+                            />
+                          );
+                        })}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
                 </div>
+
+                {CLIENT_STORE_PUBLIC_URL_SEGMENT_OPTIONS.some(
+                  (option) => !publicUrlSegments.includes(option.id)
+                ) ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {CLIENT_STORE_PUBLIC_URL_SEGMENT_OPTIONS.filter(
+                      (option) => !publicUrlSegments.includes(option.id)
+                    ).map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        title={option.hint}
+                        onClick={() => togglePublicUrlSegment(option.id)}
+                        className="rounded-lg border border-[#e3e3e3] bg-white px-2.5 py-1.5 text-left text-[12px] text-[#616161] transition-colors hover:border-[#c9cccf]"
+                      >
+                        + {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {publicUrlSegments.includes("store") ? (
+                  <div className="mt-3">
+                    <Label className="text-[12px] text-[#616161]">
+                      Store name in URL
+                    </Label>
+                    <Input
+                      value={slug}
+                      onChange={(e) =>
+                        setSlug(
+                          e.target.value
+                            .toLowerCase()
+                            .replace(/[^a-z0-9-]/g, "")
+                        )
+                      }
+                      onBlur={() => setSlug(normalizeClientStoreSlug(slug))}
+                      placeholder="socalsolarpro"
+                      className="mt-1.5 h-9 border-[#e3e3e3] text-[13px]"
+                    />
+                  </div>
+                ) : null}
               </div>
               {exampleCustomerUrl ? (
                 <p className="mt-1.5 break-all text-[12px] text-[#616161]">
@@ -1153,18 +1394,13 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
                 </p>
               ) : (
                 <p className="mt-1.5 text-[12px] text-[#8a8a8a]">
-                  Lowercase letters, numbers, and hyphens. Must be unique for
-                  your shop.
+                  Add Shop name and/or Store name, then drag to rearrange.
+                  Changes apply when you save.
                 </p>
               )}
               <p className="mt-1 text-[11px] text-[#8a8a8a]">
-                Path links like{" "}
-                <span className="font-mono text-[10px] text-[#616161]">
-                  /store/
-                  {(store?.tenantSlug || tenantSlug || "your-shop").toLowerCase()}
-                  /{normalizeClientStoreSlug(slug) || "store-name"}
-                </span>{" "}
-                also work. Changes apply when you save.
+                Drag the grip to change order. Store name is required. Changes
+                apply when you save.
               </p>
             </div>
 

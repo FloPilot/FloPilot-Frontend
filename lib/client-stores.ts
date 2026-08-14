@@ -167,7 +167,63 @@ export type ClientStoreSettings = {
   defaultCreditAmount?: number;
   /** Allow paying cart remainder by card when over employee credit. */
   allowCreditOverage?: boolean;
+  /**
+   * Ordered pieces after /store/ in the public URL.
+   * "shop" = tenant slug, "store" = store slug (always included).
+   */
+  publicUrlSegments?: ClientStorePublicUrlSegment[];
 };
+
+export type ClientStorePublicUrlSegment = "shop" | "store";
+
+export const CLIENT_STORE_PUBLIC_URL_SEGMENT_OPTIONS: {
+  id: ClientStorePublicUrlSegment;
+  label: string;
+  hint: string;
+}[] = [
+  { id: "shop", label: "Shop name", hint: "Your FloPilot shop slug" },
+  { id: "store", label: "Store name", hint: "This store’s URL name" },
+];
+
+export function normalizeClientStorePublicUrlSegments(
+  raw?: ClientStorePublicUrlSegment[] | null
+): ClientStorePublicUrlSegment[] {
+  const list = Array.isArray(raw) ? raw : [];
+  if (list.length === 0) return ["shop", "store"];
+  const cleaned: ClientStorePublicUrlSegment[] = [];
+  for (const item of list) {
+    if ((item === "shop" || item === "store") && !cleaned.includes(item)) {
+      cleaned.push(item);
+    }
+  }
+  if (!cleaned.includes("store")) cleaned.push("store");
+  return cleaned.length > 0 ? cleaned : ["shop", "store"];
+}
+
+export function buildClientStorePublicPathParts(input: {
+  tenantSlug?: string | null;
+  storeSlug?: string | null;
+  segments?: ClientStorePublicUrlSegment[] | null;
+}): string[] {
+  const shop = normalizeClientStoreSlug(String(input.tenantSlug || ""));
+  const store = normalizeClientStoreSlug(String(input.storeSlug || ""));
+  const parts: string[] = [];
+  for (const key of normalizeClientStorePublicUrlSegments(input.segments)) {
+    if (key === "shop" && shop) parts.push(shop);
+    if (key === "store" && store) parts.push(store);
+  }
+  return parts;
+}
+
+export function buildClientStorePublicPath(input: {
+  tenantSlug?: string | null;
+  storeSlug?: string | null;
+  segments?: ClientStorePublicUrlSegment[] | null;
+}): string {
+  const parts = buildClientStorePublicPathParts(input);
+  if (parts.length === 0) return "";
+  return `/store/${parts.map((part) => encodeURIComponent(part)).join("/")}`;
+}
 
 export type ClientStore = {
   id: string;
@@ -487,34 +543,21 @@ export function resolveClientStoreShareUrl(store: {
   sharePath?: string;
   tenantSlug?: string;
   slug?: string;
+  settings?: { publicUrlSegments?: ClientStorePublicUrlSegment[] };
 }): string {
-  const tenantSlug = String(store.tenantSlug || "")
-    .trim()
-    .toLowerCase();
-  const storeSlug = String(store.slug || "")
-    .trim()
-    .toLowerCase();
-  const friendlyPath =
+  const composedPath =
     store.sharePath ||
-    (tenantSlug && storeSlug
-      ? `/store/${encodeURIComponent(tenantSlug)}/${encodeURIComponent(storeSlug)}`
-      : null);
+    buildClientStorePublicPath({
+      tenantSlug: store.tenantSlug,
+      storeSlug: store.slug,
+      segments: store.settings?.publicUrlSegments,
+    });
 
-  if (friendlyPath) {
-    if (typeof window !== "undefined" && window.location?.hostname) {
-      const host = window.location.hostname.toLowerCase();
-      if (
-        (host === "flopilot.io" || host === "www.flopilot.io") &&
-        tenantSlug &&
-        storeSlug
-      ) {
-        return `https://${encodeURIComponent(tenantSlug)}.flopilot.io/store/${encodeURIComponent(storeSlug)}`;
-      }
-      if (window.location.origin) {
-        return `${window.location.origin}${friendlyPath}`;
-      }
+  if (composedPath) {
+    if (typeof window !== "undefined" && window.location?.origin) {
+      return `${window.location.origin}${composedPath}`;
     }
-    return store.shareUrl || friendlyPath;
+    return store.shareUrl || composedPath;
   }
 
   const token =
@@ -541,17 +584,26 @@ export function normalizeClientStoreSlug(value: string): string {
 }
 
 /**
- * Example customer-facing URL for the Overview preview (always production-style
- * when a shop slug is known).
+ * Example customer-facing URL for the Overview preview.
  */
 export function previewClientStoreCustomerUrl(input: {
   tenantSlug?: string | null;
   storeSlug?: string | null;
+  segments?: ClientStorePublicUrlSegment[] | null;
+  origin?: string | null;
 }): string {
-  const tenantSlug = normalizeClientStoreSlug(String(input.tenantSlug || ""));
-  const storeSlug = normalizeClientStoreSlug(String(input.storeSlug || ""));
-  if (!tenantSlug || !storeSlug) return "";
-  return `https://${tenantSlug}.flopilot.io/store/${storeSlug}`;
+  const path = buildClientStorePublicPath({
+    tenantSlug: input.tenantSlug,
+    storeSlug: input.storeSlug,
+    segments: input.segments,
+  });
+  if (!path) return "";
+  const origin =
+    (input.origin && String(input.origin).replace(/\/$/, "")) ||
+    (typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "https://www.flopilot.io");
+  return `${origin}${path}`;
 }
 
 function extractShareTokenFromUrl(shareUrl?: string): string | undefined {

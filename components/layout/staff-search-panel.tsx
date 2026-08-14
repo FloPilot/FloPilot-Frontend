@@ -13,10 +13,15 @@ import { useRouter } from "next/navigation";
 import { History, ListFilter, Search, UserRound, X } from "lucide-react";
 import { getVisibleNavItems } from "@/components/layout/nav-config";
 import { useStaffSearch } from "@/components/layout/staff-search-provider";
+import { useAuth } from "@/components/providers/auth-provider";
 import { useNewOrder } from "@/components/providers/new-order-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { useStaffAccess } from "@/hooks/use-staff-access";
+import {
+  peekDesignStudioCache,
+  useDesignStudioDesigns,
+} from "@/lib/design-studio-cache";
 import {
   buildStaffSearchResults,
   CATEGORY_SECTION_LABELS,
@@ -93,6 +98,7 @@ export function StaffSearchPanel({
 }) {
   const router = useRouter();
   const { openNewOrder } = useNewOrder();
+  const { getIdToken } = useAuth();
   const { searchAnchorRef, headerRef } = useStaffSearch();
   const { settings } = useShopSettings();
   const { role, access, filterMachines } = useStaffAccess();
@@ -105,6 +111,8 @@ export function StaffSearchPanel({
     activeScheduleBlocks,
     shopDataLoading,
   } = useSchedule();
+  const { designs, loading: designsLoading } =
+    useDesignStudioDesigns(getIdToken);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -145,6 +153,7 @@ export function StaffSearchPanel({
         recentOrders,
         productionTasks,
         scheduleBlocks: activeScheduleBlocks,
+        designs: designs.length > 0 ? designs : peekDesignStudioCache() ?? [],
       }),
     [
       query,
@@ -156,6 +165,7 @@ export function StaffSearchPanel({
       recentOrders,
       productionTasks,
       activeScheduleBlocks,
+      designs,
     ]
   );
 
@@ -393,7 +403,7 @@ export function StaffSearchPanel({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Search"
+              placeholder="Search orders, designs, files, PMS…"
               aria-label="Search workspace"
               className="min-w-[80px] flex-1 bg-transparent text-[14px] text-[#303030] outline-none placeholder:text-[#8c9196]"
             />
@@ -424,13 +434,27 @@ export function StaffSearchPanel({
         </div>
 
         <div className="max-h-[min(52vh,480px)] overflow-y-auto pb-1">
-          {shopDataLoading && (
+          {(shopDataLoading ||
+            (designsLoading &&
+              designs.length === 0 &&
+              (activeFilter === "designs" ||
+                activeFilter === "files" ||
+                activeFilter === "colors"))) && (
             <div className="px-4 py-8 text-center text-sm text-[#616161]">
               Loading shop data…
             </div>
           )}
 
-          {!shopDataLoading && isBrowseMode && recentRows.length > 0 && (
+          {!shopDataLoading &&
+            !(
+              designsLoading &&
+              designs.length === 0 &&
+              (activeFilter === "designs" ||
+                activeFilter === "files" ||
+                activeFilter === "colors")
+            ) &&
+            isBrowseMode &&
+            recentRows.length > 0 && (
             <>
               <div className="flex items-center justify-between px-4 pb-1 pt-3">
                 <p className="text-xs font-medium text-[#616161]">

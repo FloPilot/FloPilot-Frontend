@@ -645,6 +645,22 @@ export function inferPricingDecorationType(
   return undefined;
 }
 
+/** Persist explicit/inferred decoration types so renamed grids still match orders. */
+export function syncDecorationTypesInMethods(
+  methods: PricingMethod[]
+): PricingMethod[] {
+  return methods.map((method) => {
+    const decorationType = inferPricingDecorationType(
+      method.name,
+      method.decorationType
+    );
+    if (!decorationType || method.decorationType === decorationType) {
+      return method;
+    }
+    return { ...method, decorationType };
+  });
+}
+
 export function normalizePricingMatrix(
   raw?: Partial<PricingMatrix> | null
 ): PricingMatrix {

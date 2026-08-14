@@ -7,12 +7,23 @@ function PublicStorePageInner({ token }: { token: string }) {
   return <PublicStorefrontView token={token} />;
 }
 
-export default function PublicStorePage({
+/**
+ * Public store routes:
+ * - /store/{jwt}
+ * - /store/{storeSlug}
+ * - /store/{shopSlug}/{storeSlug}
+ */
+export default function PublicStoreCatchAllPage({
   params,
 }: {
-  params: Promise<{ token: string }>;
+  params: Promise<{ path: string[] }>;
 }) {
-  const { token } = use(params);
+  const { path } = use(params);
+  const token = (path || [])
+    .map((part) => decodeURIComponent(part))
+    .filter(Boolean)
+    .join("/");
+
   return (
     <Suspense
       fallback={
@@ -21,7 +32,7 @@ export default function PublicStorePage({
         </div>
       }
     >
-      <PublicStorePageInner token={decodeURIComponent(token)} />
+      <PublicStorePageInner token={token} />
     </Suspense>
   );
 }

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 export function StaffTopBarSearch({
   className,
-  placeholder = "Search",
+  placeholder = "Search orders, designs, files, PMS…",
 }: {
   className?: string;
   placeholder?: string;

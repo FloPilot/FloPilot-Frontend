@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
+  Copy,
   ExternalLink,
   History,
   Loader2,
@@ -25,6 +27,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import {
+  duplicateDesign as apiDuplicateDesign,
   getDesign,
   restoreDesignVersion as apiRestoreDesignVersion,
   updateDesign as apiUpdateDesign,
@@ -50,6 +53,7 @@ function imprintKey(jobId: string, imprintId: string): string {
 }
 
 export function DesignStudioWorkspace({ entryId }: { entryId: string }) {
+  const router = useRouter();
   const { getIdToken } = useAuth();
   const { orders, updateImprintDesignMockup, createDesignFromImprint } =
     useSchedule();
@@ -58,6 +62,7 @@ export function DesignStudioWorkspace({ entryId }: { entryId: string }) {
   const [design, setDesign] = useState<SavedDesign | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [duplicating, setDuplicating] = useState(false);
   const [versionModal, setVersionModal] = useState<DesignVersionSnapshot | null>(
     null
   );
@@ -271,6 +276,28 @@ export function DesignStudioWorkspace({ entryId }: { entryId: string }) {
     [design, getIdToken]
   );
 
+  const handleDuplicate = useCallback(async () => {
+    if (!design) return;
+    setDuplicating(true);
+    setError(null);
+    try {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      const { design: copy } = await apiDuplicateDesign(token, {
+        designId: design.id,
+        author: "Shop",
+      });
+      upsertDesignStudioCache(copy);
+      router.push(`${DESIGN_STUDIO_BASE}/${encodeURIComponent(copy.id)}`);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not duplicate design"
+      );
+    } finally {
+      setDuplicating(false);
+    }
+  }, [design, getIdToken, router]);
+
   useEffect(() => {
     if (linkedOrder) setArtInsights(null);
   }, [linkedOrder]);
@@ -323,6 +350,23 @@ export function DesignStudioWorkspace({ entryId }: { entryId: string }) {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          {design && !linkedOrder ? (
+            <Button
+              type="button"
+              variant="outline"
+              className={cn(dashboardControlClass, "h-9")}
+              disabled={duplicating}
+              title="Duplicate this design so you can change the blank color"
+              onClick={() => void handleDuplicate()}
+            >
+              {duplicating ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Copy className="size-3.5" />
+              )}
+              Duplicate
+            </Button>
+          ) : null}
           {linkedOrder ? (
             <Button
               type="button"
