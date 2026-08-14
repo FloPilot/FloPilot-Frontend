@@ -50,6 +50,7 @@ import {
   type ClientStoreCollection,
   type ClientStoreSection,
   type ClientStoreTheme,
+  type StoreHeroImagePosition,
   type StoreSectionType,
 } from "@/lib/client-store-theme";
 import type { ClientStore } from "@/lib/client-stores";
@@ -74,6 +75,21 @@ const COLOR_PRESETS = [
   "#eef1ff",
   "#ecfdf5",
   "#fff7ed",
+];
+
+const HERO_IMAGE_POSITIONS: {
+  value: StoreHeroImagePosition;
+  label: string;
+}[] = [
+  { value: "left top", label: "Top left" },
+  { value: "center top", label: "Top" },
+  { value: "right top", label: "Top right" },
+  { value: "left center", label: "Left" },
+  { value: "center center", label: "Center" },
+  { value: "right center", label: "Right" },
+  { value: "left bottom", label: "Bottom left" },
+  { value: "center bottom", label: "Bottom" },
+  { value: "right bottom", label: "Bottom right" },
 ];
 
 function SortableSectionRow({
@@ -409,9 +425,9 @@ export function StoreCustomizeBuilder({
         ) : null}
       </div>
 
-      <div className="grid min-h-[640px] lg:grid-cols-[220px_minmax(0,1fr)_300px]">
+      <div className="grid min-h-[640px] lg:h-[min(760px,calc(100vh-8rem))] lg:min-h-0 lg:grid-cols-[220px_minmax(0,1fr)_300px]">
         {/* Left rail */}
-        <aside className="border-b border-[#ebebeb] bg-[#fafafa] lg:border-b-0 lg:border-r">
+        <aside className="border-b border-[#ebebeb] bg-[#fafafa] lg:min-h-0 lg:overflow-y-auto lg:border-b-0 lg:border-r">
           {nav === "sections" ? (
             <div className="flex h-full flex-col">
               <div className="flex items-center justify-between px-3 py-3">
@@ -493,7 +509,7 @@ export function StoreCustomizeBuilder({
         </aside>
 
         {/* Center preview */}
-        <div className="min-h-[420px] overflow-y-auto bg-[#e8e8ea]">
+        <div className="min-h-[420px] overflow-y-auto bg-[#e8e8ea] lg:min-h-0">
           <div className="mx-auto max-w-[1100px] py-4 sm:py-6">
             <div
               className="overflow-hidden rounded-lg border border-[#d4d4d4] shadow-sm"
@@ -591,7 +607,7 @@ export function StoreCustomizeBuilder({
         </div>
 
         {/* Right settings */}
-        <aside className="border-t border-[#ebebeb] bg-white lg:border-l lg:border-t-0">
+        <aside className="border-t border-[#ebebeb] bg-white lg:min-h-0 lg:overflow-y-auto lg:border-l lg:border-t-0">
           {nav === "sections" && selectedSection ? (
             <SectionSettingsPanel
               section={selectedSection}
@@ -622,7 +638,7 @@ export function StoreCustomizeBuilder({
           ) : null}
 
           {nav === "branding" ? (
-            <div className="space-y-5 overflow-y-auto px-4 py-4">
+            <div className="space-y-5 px-4 py-4">
               <div>
                 <Label className="text-[12px]">Headline (legacy)</Label>
                 <Input
@@ -1170,7 +1186,15 @@ function SectionSettingsPanel({
                 <img
                   src={settings.imageUrl}
                   alt=""
-                  className="size-full object-cover"
+                  className={cn(
+                    "size-full",
+                    settings.imageFit === "contain"
+                      ? "object-contain"
+                      : "object-cover"
+                  )}
+                  style={{
+                    objectPosition: settings.imagePosition || "center center",
+                  }}
                 />
               ) : (
                 <ImagePlus className="size-5 text-[#c0c0c4]" />
@@ -1210,6 +1234,69 @@ function SectionSettingsPanel({
                 </Button>
               ) : null}
             </div>
+            {section.type === "hero" ? (
+              <>
+                <p className="mt-2 text-[11px] leading-relaxed text-[#8a8a8a]">
+                  Best results: upload a wide 12:5 image, at least 2400 × 1000
+                  px. Keep faces, logos, and important details near the focal
+                  point below.
+                </p>
+                <div className="mt-3">
+                  <Label className="text-[12px]">Image fit</Label>
+                  <div className="mt-1.5 grid grid-cols-2 gap-1">
+                    {(
+                      [
+                        ["cover", "Fill & crop"],
+                        ["contain", "Show whole image"],
+                      ] as const
+                    ).map(([fit, label]) => (
+                      <button
+                        key={fit}
+                        type="button"
+                        onClick={() => onPatchSettings({ imageFit: fit })}
+                        className={cn(
+                          "h-8 rounded-md border text-[12px] font-medium",
+                          (settings.imageFit || "cover") === fit
+                            ? "border-brand-primary bg-brand-primary/8 text-[#121a2e]"
+                            : "border-[#e3e3e3] text-[#616161]"
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <Label className="text-[12px]">Image focal point</Label>
+                  <div className="mt-1.5 grid grid-cols-3 gap-1">
+                    {HERO_IMAGE_POSITIONS.map((position) => (
+                      <button
+                        key={position.value}
+                        type="button"
+                        aria-label={position.label}
+                        title={position.label}
+                        onClick={() =>
+                          onPatchSettings({ imagePosition: position.value })
+                        }
+                        className={cn(
+                          "h-8 rounded-md border text-[11px] font-medium",
+                          (settings.imagePosition || "center center") ===
+                            position.value
+                            ? "border-brand-primary bg-brand-primary/8 text-[#121a2e]"
+                            : "border-[#e3e3e3] text-[#616161]"
+                        )}
+                      >
+                        {position.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-[11px] leading-relaxed text-[#8a8a8a]">
+                    Use this to keep the important part visible when Fill & crop
+                    is selected.
+                  </p>
+                </div>
+              </>
+            ) : null}
           </div>
         )}
 
