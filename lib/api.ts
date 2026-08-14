@@ -2354,7 +2354,13 @@ export async function updateClientStore(
   storeId: string,
   updates: Omit<
     Partial<import("@/lib/client-stores").ClientStore>,
-    "accentColorKey" | "logoUrl" | "heroImageUrl" | "settings"
+    | "accentColorKey"
+    | "logoUrl"
+    | "heroImageUrl"
+    | "shareTitle"
+    | "shareDescription"
+    | "shareImageUrl"
+    | "settings"
   > & {
     password?: string | null;
     clearPassword?: boolean;
