@@ -29,6 +29,67 @@ export type StoreHeroImagePosition =
   | "center bottom"
   | "right bottom";
 
+/** Ordered content blocks inside a hero section. */
+export type StoreHeroContentBlock =
+  | "logo"
+  | "overline"
+  | "heading"
+  | "subtitle"
+  | "button";
+
+export const DEFAULT_HERO_CONTENT_ORDER: StoreHeroContentBlock[] = [
+  "logo",
+  "overline",
+  "heading",
+  "subtitle",
+  "button",
+];
+
+const HERO_CONTENT_BLOCK_SET = new Set<StoreHeroContentBlock>(
+  DEFAULT_HERO_CONTENT_ORDER
+);
+
+export function normalizeHeroContentOrder(
+  value: unknown
+): StoreHeroContentBlock[] {
+  const seen = new Set<StoreHeroContentBlock>();
+  const ordered: StoreHeroContentBlock[] = [];
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (
+        typeof entry === "string" &&
+        HERO_CONTENT_BLOCK_SET.has(entry as StoreHeroContentBlock) &&
+        !seen.has(entry as StoreHeroContentBlock)
+      ) {
+        const block = entry as StoreHeroContentBlock;
+        seen.add(block);
+        ordered.push(block);
+      }
+    }
+  }
+  for (const block of DEFAULT_HERO_CONTENT_ORDER) {
+    if (!seen.has(block)) ordered.push(block);
+  }
+  return ordered;
+}
+
+export function heroContentBlockLabel(block: StoreHeroContentBlock): string {
+  switch (block) {
+    case "logo":
+      return "Logo";
+    case "overline":
+      return "Overline";
+    case "heading":
+      return "Heading";
+    case "subtitle":
+      return "Subheading";
+    case "button":
+      return "Button";
+    default:
+      return block;
+  }
+}
+
 export type StoreSectionSettings = {
   title?: string;
   subtitle?: string;
@@ -50,6 +111,12 @@ export type StoreSectionSettings = {
   imageFit?: StoreHeroImageFit;
   /** The focal point used when a cover image is cropped. */
   imagePosition?: StoreHeroImagePosition;
+  /** Optional logo displayed above the hero heading. */
+  heroLogoUrl?: string;
+  /** Original uploaded hero logo (restore target after cleanup/recolor). */
+  heroLogoOriginalUrl?: string;
+  /** Order of text/logo blocks inside the hero (logo, overline, heading…). */
+  heroContentOrder?: StoreHeroContentBlock[];
   collectionId?: string;
   /** all | collection */
   productSource?: "all" | "collection";
@@ -183,6 +250,7 @@ export const STORE_WIDGET_LIBRARY: StoreWidgetDefinition[] = [
       overlayOpacity: 40,
       imageFit: "cover",
       imagePosition: "center center",
+      heroContentOrder: [...DEFAULT_HERO_CONTENT_ORDER],
     },
   },
   {

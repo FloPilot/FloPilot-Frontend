@@ -32,8 +32,10 @@ import {
   Plus,
   Trash2,
   Upload,
+  Wand2,
 } from "lucide-react";
 import { CustomerAccentPicker } from "@/components/customers/customer-accent-picker";
+import { DesignStudioEditImageDialog } from "@/components/design-studio/design-studio-edit-image-dialog";
 import { StoreSectionRenderer } from "@/components/stores/store-section-renderer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -45,11 +47,14 @@ import {
   createSectionFromWidget,
   ensureStoreTheme,
   getPageById,
+  heroContentBlockLabel,
+  normalizeHeroContentOrder,
   sectionTypeLabel,
   updatePageSections,
   type ClientStoreCollection,
   type ClientStoreSection,
   type ClientStoreTheme,
+  type StoreHeroContentBlock,
   type StoreHeroImagePosition,
   type StoreSectionType,
 } from "@/lib/client-store-theme";
@@ -164,6 +169,62 @@ function SortableSectionRow({
     </div>
   );
 }
+
+function SortableHeroContentRow({
+  block,
+  index,
+}: {
+  block: StoreHeroContentBlock;
+  index: number;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: block });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+      }}
+      className={cn(
+        "flex items-center gap-1 rounded-lg border bg-white px-1 py-1.5",
+        isDragging
+          ? "z-20 border-brand-primary/40 shadow-[0_8px_24px_rgba(26,26,26,0.12)]"
+          : "border-[#e3e3e3]"
+      )}
+    >
+      <button
+        type="button"
+        className={cn(
+          "inline-flex size-7 shrink-0 cursor-grab items-center justify-center rounded-md text-[#c0c0c4] transition-colors",
+          "hover:bg-[#f1f1f1] hover:text-[#616161] active:cursor-grabbing",
+          isDragging && "cursor-grabbing text-[#616161]"
+        )}
+        aria-label={`Drag ${heroContentBlockLabel(block)}`}
+        {...attributes}
+        {...listeners}
+      >
+        <GripVertical className="size-3.5" />
+      </button>
+      <div className="min-w-0 flex-1 px-1.5">
+        <p className="text-[12px] font-medium text-[#303030]">
+          {heroContentBlockLabel(block)}
+        </p>
+      </div>
+      <span className="pr-2 text-[10px] tabular-nums text-[#c0c0c4]">
+        {index + 1}
+      </span>
+    </div>
+  );
+}
+
 export function StoreCustomizeBuilder({
   store,
   theme,
@@ -431,9 +492,14 @@ export function StoreCustomizeBuilder({
           {nav === "sections" ? (
             <div className="flex h-full flex-col">
               <div className="flex items-center justify-between px-3 py-3">
-                <p className="text-[12px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                  Page sections
-                </p>
+                <div>
+                  <p className="text-[12px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                    Page sections
+                  </p>
+                  <p className="mt-0.5 text-[10px] text-[#a0a0a0]">
+                    Drag the grip to rearrange
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => setLibraryOpen((open) => !open)}
@@ -817,11 +883,37 @@ function SectionSettingsPanel({
   onRemove: () => void;
   canRemove?: boolean;
 }) {
+  const [heroLogoEditorOpen, setHeroLogoEditorOpen] = useState(false);
   const settings = section.settings;
   const linkablePages = pages.filter(
     (page) => page.enabled !== false && page.handle !== "product"
   );
   const buttonLinkType = settings.buttonLinkType || "products";
+  const heroLogoWorkingUrl = settings.heroLogoUrl || "";
+  const heroLogoOriginalUrl =
+    settings.heroLogoOriginalUrl || settings.heroLogoUrl || "";
+  const heroContentOrder = normalizeHeroContentOrder(settings.heroContentOrder);
+  const heroContentSensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleHeroContentDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = heroContentOrder.indexOf(
+      active.id as StoreHeroContentBlock
+    );
+    const newIndex = heroContentOrder.indexOf(over.id as StoreHeroContentBlock);
+    if (oldIndex < 0 || newIndex < 0) return;
+    onPatchSettings({
+      heroContentOrder: arrayMove(heroContentOrder, oldIndex, newIndex),
+    });
+  };
 
   return (
     <div className="flex h-full max-h-[70vh] flex-col lg:max-h-none">
@@ -874,6 +966,130 @@ function SectionSettingsPanel({
       </div>
 
       <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
+        {section.type === "hero" ? (
+          <div>
+            <Label className="text-[12px]">Content order</Label>
+            <p className="mt-1 text-[11px] leading-relaxed text-[#8a8a8a]">
+              Drag to rearrange logo, overline, heading, subheading, and button
+              in the hero.
+            </p>
+            <div className="mt-2">
+              <DndContext
+                sensors={heroContentSensors}
+                collisionDetection={closestCenter}
+                modifiers={[restrictToVerticalAxis]}
+                onDragEnd={handleHeroContentDragEnd}
+              >
+                <SortableContext
+                  items={heroContentOrder}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-1">
+                    {heroContentOrder.map((block, index) => (
+                      <SortableHeroContentRow
+                        key={block}
+                        block={block}
+                        index={index}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            </div>
+          </div>
+        ) : null}
+
+        {section.type === "hero" ? (
+          <div>
+            <Label className="text-[12px]">Hero logo</Label>
+            <p className="mt-1 text-[11px] leading-relaxed text-[#8a8a8a]">
+              Displays above the overline and heading. Click the logo to remove
+              the background or recolor artwork — same tools as Design Studio.
+            </p>
+            <button
+              type="button"
+              disabled={!heroLogoWorkingUrl || uploadingField === `${section.id}-hero-logo`}
+              onClick={() => {
+                if (!heroLogoWorkingUrl) return;
+                setHeroLogoEditorOpen(true);
+              }}
+              className={cn(
+                "mt-2 flex h-16 w-full items-center justify-center overflow-hidden rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-2 transition-colors",
+                heroLogoWorkingUrl
+                  ? "cursor-pointer hover:border-brand-primary/40 hover:bg-[#f4f7ff]"
+                  : "cursor-default"
+              )}
+            >
+              {uploadingField === `${section.id}-hero-logo` ? (
+                <Loader2 className="size-4 animate-spin text-[#8a8a8a]" />
+              ) : heroLogoWorkingUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={heroLogoWorkingUrl}
+                  alt=""
+                  className="size-full object-contain"
+                />
+              ) : (
+                <ImagePlus className="size-5 text-[#c0c0c4]" />
+              )}
+            </button>
+            <div className="mt-2 flex gap-2">
+              <label
+                className={cn(
+                  dashboardControlClass,
+                  "flex-1 cursor-pointer justify-center"
+                )}
+              >
+                <Upload className="size-3.5" />
+                Upload logo
+                <input
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.webp"
+                  className="hidden"
+                  onChange={(e) => {
+                    void onUploadImage(
+                      `${section.id}-hero-logo`,
+                      e.target.files?.[0] || null,
+                      (url) =>
+                        onPatchSettings({
+                          heroLogoUrl: url,
+                          heroLogoOriginalUrl: url,
+                        })
+                    );
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {heroLogoWorkingUrl ? (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-9 border-[#e3e3e3] px-2.5 text-[#616161]"
+                    onClick={() => setHeroLogoEditorOpen(true)}
+                    title="Edit logo"
+                  >
+                    <Wand2 className="size-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-9 px-2.5 text-[#8a8a8a] hover:text-red-700"
+                    onClick={() =>
+                      onPatchSettings({
+                        heroLogoUrl: "",
+                        heroLogoOriginalUrl: "",
+                      })
+                    }
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
         {section.type === "product_detail" ? (
           <>
             <div>
@@ -1453,6 +1669,23 @@ function SectionSettingsPanel({
           </>
         ) : null}
       </div>
+
+      {heroLogoWorkingUrl ? (
+        <DesignStudioEditImageDialog
+          open={heroLogoEditorOpen}
+          onOpenChange={setHeroLogoEditorOpen}
+          originalUrl={heroLogoOriginalUrl}
+          workingUrl={heroLogoWorkingUrl}
+          fileLabel="Hero logo"
+          onApply={(result) => {
+            onPatchSettings({
+              heroLogoUrl: result.cleanUrl,
+              heroLogoOriginalUrl: heroLogoOriginalUrl || result.cleanUrl,
+            });
+            setHeroLogoEditorOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
