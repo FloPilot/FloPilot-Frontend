@@ -1631,6 +1631,22 @@ export async function createDesign(
   });
 }
 
+export async function duplicateDesign(
+  token: string,
+  body: {
+    designId: string;
+    name?: string;
+    blankColorHex?: string;
+    author?: string;
+  }
+) {
+  return callApi<{ design: import("@/types").SavedDesign }>("duplicateDesign", {
+    method: "POST",
+    body,
+    token,
+  });
+}
+
 export async function applyDesignToOrder(
   token: string,
   body: {

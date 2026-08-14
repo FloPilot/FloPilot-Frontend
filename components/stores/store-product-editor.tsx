@@ -59,6 +59,7 @@ import {
 } from "@/lib/supplier-integrations";
 import { readStoreMockupDataUrl } from "@/lib/artwork-preview";
 import { cn } from "@/lib/utils";
+import { StoreProductDesignStudioDialog } from "@/components/stores/store-product-design-studio-dialog";
 import {
   blankCostFromColors,
   buildVariantsFromSelection,
@@ -67,7 +68,6 @@ import {
   StoreCatalogConfigureStep,
   StoreCatalogMockupsStep,
 } from "@/components/stores/store-catalog-flow";
-import { StoreProductDesignStudio } from "@/components/stores/store-product-design-studio";
 
 const fieldClassName =
   "h-10 rounded-lg border-[#e3e3e3] bg-white text-[13px] text-[#303030] shadow-none focus-visible:border-brand-primary/40 focus-visible:ring-2 focus-visible:ring-brand-primary/15";
@@ -206,8 +206,9 @@ export function StoreProductEditor({
   const [tagDraft, setTagDraft] = useState("");
   const tagsRef = useRef<string[]>([]);
   const [mode, setMode] = useState<
-    "edit" | "search" | "configure" | "mockups" | "design"
+    "edit" | "search" | "configure" | "mockups"
   >("edit");
+  const [designStudioOpen, setDesignStudioOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploadingMockup, setUploadingMockup] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -288,7 +289,7 @@ export function StoreProductEditor({
     });
     if (current !== initialSnapshot) return true;
     if (tagDraft.trim()) return true;
-    if (mode === "configure" || mode === "mockups" || mode === "design") {
+    if (mode === "configure" || mode === "mockups") {
       return true;
     }
     return false;
@@ -475,7 +476,9 @@ export function StoreProductEditor({
   );
   const enabledSizeCount = draft.sizes.filter((row) => row.enabled).length;
   const hasDesignArtwork = Boolean(
-    draft.design?.artworkUrl || draft.design?.artworkCleanUrl
+    draft.design?.artworkUrl ||
+      draft.design?.artworkCleanUrl ||
+      (draft.design?.artLayers && draft.design.artLayers.length > 0)
   );
   const matchedCollections = useMemo(() => {
     const probe = { ...draft, enabled: true };
@@ -625,7 +628,7 @@ export function StoreProductEditor({
           }));
     updateDraft({ colorVariants: variants });
     setError(null);
-    setMode("design");
+    setDesignStudioOpen(true);
   };
 
   const handleStudioVariantsChange = (next: ClientStoreColorVariant[]) => {
@@ -797,10 +800,6 @@ export function StoreProductEditor({
 
   const headerBack = () => {
     setError(null);
-    if (mode === "design") {
-      setMode("edit");
-      return;
-    }
     if (mode === "mockups") {
       setMode(styleDetail ? "configure" : "edit");
       return;
@@ -852,9 +851,7 @@ export function StoreProductEditor({
                   ? "Choose which colors and sizes this store product should offer."
                   : mode === "mockups"
                     ? "Assign front and back mockups for each selected color."
-                    : mode === "design"
-                      ? "Drop your artwork onto each color’s blank and save decorated mockups."
-                      : "Set the mockup, sizes, and shopper price. Start from a supplier blank or enter details manually."}
+                    : "Set the mockup, sizes, and shopper price. Start from a supplier blank or enter details manually."}
               </p>
             </div>
           </div>
@@ -910,17 +907,6 @@ export function StoreProductEditor({
               >
                 {saving ? <Loader2 className="size-4 animate-spin" /> : null}
                 {mode === "search" ? "Continue to details" : "Save product"}
-              </Button>
-            ) : mode === "design" ? (
-              <Button
-                type="button"
-                className="h-9 rounded-lg bg-brand-primary px-4 text-[13px] font-medium text-white hover:bg-brand-primary/90"
-                onClick={() => {
-                  setMode("edit");
-                  setError(null);
-                }}
-              >
-                Done designing
               </Button>
             ) : (
               <Button
@@ -999,14 +985,6 @@ export function StoreProductEditor({
               backLabel={
                 styleDetail ? "Back to colors & sizes" : "Back to details"
               }
-            />
-          ) : mode === "design" ? (
-            <StoreProductDesignStudio
-              variants={draft.colorVariants || []}
-              design={draft.design}
-              onVariantsChange={handleStudioVariantsChange}
-              onDesignChange={handleStudioDesignChange}
-              onError={setError}
             />
           ) : mode === "search" ? (
             <div className="space-y-4">
@@ -1546,8 +1524,8 @@ export function StoreProductEditor({
                           <Wand2 className="size-3.5 shrink-0" />
                         )}
                         {hasDesignArtwork
-                          ? "Artwork saved — reopen studio to edit placement."
-                          : "No artwork yet — drop a logo onto each color."}
+                          ? "Artwork saved — reopen Design studio to edit."
+                          : "Open Design studio to place artwork on each color."}
                       </div>
                     </div>
                   </div>
@@ -2221,6 +2199,32 @@ export function StoreProductEditor({
             </p>
           ) : null}
         </div>
+
+      <StoreProductDesignStudioDialog
+        open={designStudioOpen}
+        onOpenChange={setDesignStudioOpen}
+        productName={draft.name}
+        supplierLabel={
+          draft.supplier ? supplierProviderLabel(draft.supplier) : null
+        }
+        variants={draft.colorVariants || []}
+        design={draft.design}
+        onVariantsChange={handleStudioVariantsChange}
+        onDesignChange={handleStudioDesignChange}
+        onError={setError}
+        onManageColors={() => {
+          setError(null);
+          setWizardVariants(
+            (draft.colorVariants || []).filter((variant) => variant.enabled)
+          );
+          setConfigureSizes(draft.sizes);
+          if ((draft.colorVariants || []).length > 0) {
+            setMode("mockups");
+            return;
+          }
+          setMode("search");
+        }}
+      />
     </div>
   );
 }

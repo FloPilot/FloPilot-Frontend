@@ -2,7 +2,10 @@ import type { LucideIcon } from "lucide-react";
 import {
   ClipboardList,
   Factory,
+  FileImage,
+  FolderOpen,
   LayoutDashboard,
+  Palette,
   Plus,
   UserPlus,
   Users,
@@ -10,7 +13,14 @@ import {
 } from "lucide-react";
 import type { NavItem } from "@/components/layout/nav-config";
 import { formatCustomerFullName } from "@/lib/customers";
-import type { Customer, Machine, Order, ScheduleBlock, Task } from "@/types";
+import type {
+  Customer,
+  Machine,
+  Order,
+  SavedDesign,
+  ScheduleBlock,
+  Task,
+} from "@/types";
 import { excludeArchivedOrders } from "@/lib/order-archive";
 import { orderStatusLabel } from "@/lib/order-status";
 import { documentTypeLabel } from "@/lib/reports/format";
@@ -26,6 +36,9 @@ export type SearchCategory =
   | "orders"
   | "customers"
   | "tasks"
+  | "designs"
+  | "files"
+  | "colors"
   | "pages"
   | "machines"
   | "actions";
@@ -48,13 +61,16 @@ export type ActiveSearchFilter = Exclude<SearchCategory, "all">;
 export const FILTER_CHIPS: { id: ActiveSearchFilter; label: string }[] = [
   { id: "orders", label: "Orders" },
   { id: "customers", label: "Customers" },
+  { id: "designs", label: "Designs" },
+  { id: "files", label: "Files" },
+  { id: "colors", label: "Colors / PMS" },
   { id: "tasks", label: "Tasks" },
   { id: "pages", label: "Pages" },
   { id: "machines", label: "Machines" },
   { id: "actions", label: "Actions" },
 ];
 
-export const RESULT_PREVIEW_LIMIT = 8;
+export const RESULT_PREVIEW_LIMIT = 10;
 
 const RECENT_SEARCHES_KEY = "flopilot:staff-search-recent";
 const MAX_RECENT = 8;
@@ -91,7 +107,9 @@ export function clearRecentSearches() {
 }
 
 function matchesQuery(haystack: string, query: string) {
-  return haystack.toLowerCase().includes(query.toLowerCase());
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  return haystack.toLowerCase().includes(q);
 }
 
 function flattenNavPages(items: NavItem[]): StaffSearchResult[] {
@@ -165,7 +183,71 @@ const QUICK_ACTIONS: StaffSearchResult[] = [
     href: "/app/customers",
     icon: Users,
   },
+  {
+    id: "action-design-studio",
+    category: "actions",
+    title: "Open design studio",
+    subtitle: "Designs, mockups, and artwork library",
+    href: "/app/design-studio",
+    icon: FileImage,
+  },
+  {
+    id: "action-files",
+    category: "actions",
+    title: "Browse files",
+    subtitle: "Artwork and production files",
+    href: "/app/files",
+    icon: FolderOpen,
+  },
 ];
+
+function orderDecorationHaystack(order: Order): string {
+  const parts: string[] = [];
+
+  for (const item of order.lineItems ?? []) {
+    parts.push(
+      item.productName,
+      item.brand,
+      item.color,
+      item.colorKey ?? "",
+      item.productKey ?? "",
+      item.supplierPartNumber ?? ""
+    );
+  }
+
+  for (const job of order.jobs ?? []) {
+    parts.push(job.name, job.kind ?? "");
+    for (const imprint of job.imprints ?? []) {
+      parts.push(
+        imprint.label,
+        imprint.customLabel ?? "",
+        imprint.locationKey ?? "",
+        imprint.artwork?.name ?? "",
+        imprint.artwork?.mockupLabel ?? "",
+        imprint.notes?.colors ?? "",
+        imprint.notes?.dimensions ?? "",
+        imprint.notes?.instructions ?? "",
+        imprint.notes?.placement ?? "",
+        imprint.notes?.inkType ?? ""
+      );
+      for (const ink of imprint.inkColors ?? []) {
+        parts.push(ink.name, ink.pmsCode ?? "", ink.transferType ?? "");
+      }
+      for (const slide of imprint.artwork?.proofSlides ?? []) {
+        parts.push(slide.label ?? "");
+      }
+      for (const version of imprint.artwork?.history ?? []) {
+        parts.push(version.name, version.mockupLabel ?? "");
+      }
+    }
+  }
+
+  for (const file of order.files ?? []) {
+    parts.push(file.name, file.kind, ...(file.kinds ?? []), file.notes ?? "");
+  }
+
+  return parts.filter(Boolean).join(" ");
+}
 
 function searchOrders(orders: Order[], query: string, limit = 20): StaffSearchResult[] {
   return [...excludeArchivedOrders(orders)]
@@ -180,8 +262,9 @@ function searchOrders(orders: Order[], query: string, limit = 20): StaffSearchRe
         order.status,
         orderStatusLabel(order.status),
         documentTypeLabel(order.type),
-        order.jobs.map((job) => job.name).join(" "),
-        order.lineItems.map((item) => item.productName).join(" "),
+        order.salesRepName ?? "",
+        order.clientStoreName ?? "",
+        orderDecorationHaystack(order),
       ].join(" ");
       return matchesQuery(haystack, query);
     })
@@ -320,6 +403,295 @@ function searchScheduleBlocks(
     }));
 }
 
+function designHaystack(design: SavedDesign): string {
+  const parts: string[] = [
+    design.name,
+    design.customerName ?? "",
+    design.company ?? "",
+    design.locationLabel,
+    design.locationKey,
+    design.decoration,
+    design.imprintCustomLabel ?? "",
+    design.sourceOrderCustomLabel ?? "",
+    design.sourceOrderNumber ?? "",
+    design.artwork?.name ?? "",
+    design.artwork?.mockupLabel ?? "",
+    design.notes?.colors ?? "",
+    design.notes?.dimensions ?? "",
+    design.notes?.instructions ?? "",
+    design.notes?.placement ?? "",
+    design.notes?.inkType ?? "",
+    ...(design.tags ?? []),
+    ...(design.pmsCodes ?? []),
+  ];
+
+  for (const ink of design.inkColors ?? []) {
+    parts.push(ink.name, ink.pmsCode ?? "", ink.transferType ?? "");
+  }
+
+  for (const location of design.locations ?? []) {
+    parts.push(location.locationLabel, location.locationKey);
+  }
+
+  for (const slide of design.artwork?.proofSlides ?? []) {
+    parts.push(slide.label ?? "");
+  }
+
+  return parts.filter(Boolean).join(" ");
+}
+
+function searchDesigns(
+  designs: SavedDesign[],
+  query: string,
+  limit = 20
+): StaffSearchResult[] {
+  return [...designs]
+    .sort((a, b) =>
+      (b.updatedAt || b.createdAt || "").localeCompare(
+        a.updatedAt || a.createdAt || ""
+      )
+    )
+    .filter((design) => matchesQuery(designHaystack(design), query))
+    .slice(0, limit)
+    .map((design) => {
+      const pms =
+        (design.pmsCodes ?? [])
+          .concat(
+            (design.inkColors ?? [])
+              .map((ink) => ink.pmsCode)
+              .filter((code): code is string => Boolean(code))
+          )
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(", ") || null;
+      const meta = [
+        design.company || design.customerName,
+        design.locationLabel,
+        pms ? `PMS ${pms}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+
+      return {
+        id: `design-${design.id}`,
+        category: "designs" as const,
+        title: design.name,
+        subtitle: meta || "Design library",
+        badge: design.decoration?.replace(/_/g, " "),
+        href: `/app/designs/${design.id}`,
+        icon: FileImage,
+      };
+    });
+}
+
+function searchOrderProofsAndFiles(
+  orders: Order[],
+  query: string,
+  limit = 20
+): StaffSearchResult[] {
+  const results: StaffSearchResult[] = [];
+
+  for (const order of excludeArchivedOrders(orders)) {
+    for (const job of order.jobs ?? []) {
+      for (const imprint of job.imprints ?? []) {
+        const artwork = imprint.artwork;
+        if (!artwork) continue;
+
+        const proofHaystack = [
+          artwork.name,
+          artwork.mockupLabel ?? "",
+          imprint.label,
+          imprint.customLabel ?? "",
+          ...(artwork.proofSlides ?? []).map((slide) => slide.label ?? ""),
+          ...(artwork.history ?? []).flatMap((version) => [
+            version.name,
+            version.mockupLabel ?? "",
+          ]),
+        ].join(" ");
+
+        if (matchesQuery(proofHaystack, query)) {
+          results.push({
+            id: `proof-${order.id}-${job.id}-${imprint.id}`,
+            category: "files",
+            title: artwork.name || imprint.customLabel || imprint.label,
+            subtitle: `${formatOrderDisplayLine(order)} · ${imprint.label}`,
+            badge:
+              artwork.status === "approved"
+                ? "Approved"
+                : artwork.status === "revision_requested"
+                  ? "Revision"
+                  : "Proof",
+            href: `/app/artwork/orders/${order.id}`,
+            icon: FileImage,
+          });
+        }
+      }
+    }
+
+    for (const file of order.files ?? []) {
+      const fileHaystack = [
+        file.name,
+        file.kind,
+        ...(file.kinds ?? []),
+        file.notes ?? "",
+        file.uploadedBy ?? "",
+      ].join(" ");
+      if (!matchesQuery(fileHaystack, query)) continue;
+      results.push({
+        id: `file-${order.id}-${file.id}`,
+        category: "files",
+        title: file.name,
+        subtitle: `${formatOrderDisplayLine(order)} · ${String(file.kind).replace(/_/g, " ")}`,
+        badge: "File",
+        href: `/app/orders/${order.id}`,
+        icon: FolderOpen,
+      });
+    }
+
+    if (results.length >= limit * 2) break;
+  }
+
+  return results.slice(0, limit);
+}
+
+function searchDesignFiles(
+  designs: SavedDesign[],
+  query: string,
+  limit = 12
+): StaffSearchResult[] {
+  return designs
+    .filter((design) => {
+      const haystack = [
+        design.artwork?.name ?? "",
+        design.artwork?.mockupLabel ?? "",
+        ...(design.artwork?.proofSlides ?? []).map((slide) => slide.label ?? ""),
+        design.name,
+      ].join(" ");
+      return matchesQuery(haystack, query);
+    })
+    .slice(0, limit)
+    .map((design) => ({
+      id: `design-file-${design.id}`,
+      category: "files" as const,
+      title: design.artwork?.name || design.name,
+      subtitle: `${design.name} · Design library`,
+      badge: "Design file",
+      href: `/app/designs/${design.id}`,
+      icon: FileImage,
+    }));
+}
+
+function searchColorsAndPms(
+  orders: Order[],
+  designs: SavedDesign[],
+  query: string,
+  limit = 20
+): StaffSearchResult[] {
+  const results: StaffSearchResult[] = [];
+  const seen = new Set<string>();
+
+  const pushUnique = (result: StaffSearchResult) => {
+    if (seen.has(result.id)) return;
+    seen.add(result.id);
+    results.push(result);
+  };
+
+  for (const order of excludeArchivedOrders(orders)) {
+    for (const item of order.lineItems ?? []) {
+      const garmentHaystack = [
+        item.color,
+        item.colorKey ?? "",
+        item.brand,
+        item.productName,
+      ].join(" ");
+      if (matchesQuery(garmentHaystack, query)) {
+        pushUnique({
+          id: `garment-color-${order.id}-${item.id}`,
+          category: "colors",
+          title: item.color || "Blank color",
+          subtitle: `${item.brand} ${item.productName} · ${formatOrderDisplayLine(order)}`,
+          badge: "Garment",
+          href: `/app/orders/${order.id}`,
+          icon: Palette,
+        });
+      }
+    }
+
+    for (const job of order.jobs ?? []) {
+      for (const imprint of job.imprints ?? []) {
+        for (const ink of imprint.inkColors ?? []) {
+          const inkHaystack = [
+            ink.name,
+            ink.pmsCode ?? "",
+            ink.transferType ?? "",
+            imprint.label,
+          ].join(" ");
+          if (!matchesQuery(inkHaystack, query)) continue;
+          pushUnique({
+            id: `ink-${order.id}-${job.id}-${imprint.id}-${ink.id}`,
+            category: "colors",
+            title: ink.pmsCode
+              ? `PMS ${ink.pmsCode}${ink.name ? ` · ${ink.name}` : ""}`
+              : ink.name || "Ink color",
+            subtitle: `${formatOrderDisplayLine(order)} · ${imprint.label}`,
+            badge: ink.isFlash ? "Flash" : "Ink",
+            href: `/app/orders/${order.id}`,
+            icon: Palette,
+          });
+        }
+
+        const notesColors = imprint.notes?.colors?.trim();
+        if (notesColors && matchesQuery(notesColors, query)) {
+          pushUnique({
+            id: `notes-color-${order.id}-${job.id}-${imprint.id}`,
+            category: "colors",
+            title: notesColors,
+            subtitle: `${formatOrderDisplayLine(order)} · ${imprint.label}`,
+            badge: "Color note",
+            href: `/app/orders/${order.id}`,
+            icon: Palette,
+          });
+        }
+      }
+    }
+
+    if (results.length >= limit) break;
+  }
+
+  for (const design of designs) {
+    for (const ink of design.inkColors ?? []) {
+      const inkHaystack = [ink.name, ink.pmsCode ?? ""].join(" ");
+      if (!matchesQuery(inkHaystack, query)) continue;
+      pushUnique({
+        id: `design-ink-${design.id}-${ink.id}`,
+        category: "colors",
+        title: ink.pmsCode
+          ? `PMS ${ink.pmsCode}${ink.name ? ` · ${ink.name}` : ""}`
+          : ink.name || "Ink color",
+        subtitle: `${design.name} · Design library`,
+        badge: "Design ink",
+        href: `/app/designs/${design.id}`,
+        icon: Palette,
+      });
+    }
+
+    for (const code of design.pmsCodes ?? []) {
+      if (!matchesQuery(code, query)) continue;
+      pushUnique({
+        id: `design-pms-${design.id}-${code}`,
+        category: "colors",
+        title: `PMS ${code}`,
+        subtitle: `${design.name} · Design library`,
+        badge: "PMS",
+        href: `/app/designs/${design.id}`,
+        icon: Palette,
+      });
+    }
+  }
+
+  return results.slice(0, limit);
+}
+
 function buildAttentionResults(orders: Order[]): StaffSearchResult[] {
   const attention: StaffSearchResult[] = [];
 
@@ -366,6 +738,7 @@ export function buildStaffSearchResults({
   recentOrders,
   productionTasks = [],
   scheduleBlocks = [],
+  designs = [],
 }: {
   query: string;
   category: SearchCategory;
@@ -376,6 +749,7 @@ export function buildStaffSearchResults({
   recentOrders: Order[];
   productionTasks?: Task[];
   scheduleBlocks?: ScheduleBlock[];
+  designs?: SavedDesign[];
 }): StaffSearchResult[] {
   const trimmed = query.trim();
 
@@ -383,6 +757,16 @@ export function buildStaffSearchResults({
     if (category === "orders") return searchOrders(orders, "", 20);
     if (category === "customers") return searchCustomers(customers, "", 20);
     if (category === "tasks") return searchTasks(productionTasks, "", 20);
+    if (category === "designs") return searchDesigns(designs, "", 20);
+    if (category === "files") {
+      return [
+        ...searchOrderProofsAndFiles(orders, "", 12),
+        ...searchDesignFiles(designs, "", 8),
+      ].slice(0, 20);
+    }
+    if (category === "colors") {
+      return searchColorsAndPms(orders, designs, "", 20);
+    }
     if (category === "pages") return navPages.slice(0, 20);
     if (category === "machines") return searchMachines(machines, "", 20);
     if (category === "actions") return QUICK_ACTIONS;
@@ -409,6 +793,12 @@ export function buildStaffSearchResults({
     machines,
     trimmed
   );
+  const designResults = searchDesigns(designs, trimmed);
+  const fileResults = [
+    ...searchOrderProofsAndFiles(orders, trimmed),
+    ...searchDesignFiles(designs, trimmed),
+  ];
+  const colorResults = searchColorsAndPms(orders, designs, trimmed);
   const pageResults = searchPages(navPages, trimmed);
   const machineResults = searchMachines(machines, trimmed);
   const actionResults = searchActions(trimmed);
@@ -424,14 +814,20 @@ export function buildStaffSearchResults({
     }
     return combinedTasks.slice(0, 20);
   }
+  if (category === "designs") return designResults;
+  if (category === "files") return fileResults.slice(0, 20);
+  if (category === "colors") return colorResults;
   if (category === "pages") return pageResults;
   if (category === "machines") return machineResults;
   if (category === "actions") return actionResults;
 
   const combined = [
     ...orderResults.slice(0, 4),
-    ...customerResults.slice(0, 3),
-    ...taskResults.slice(0, 3),
+    ...designResults.slice(0, 3),
+    ...fileResults.slice(0, 3),
+    ...colorResults.slice(0, 3),
+    ...customerResults.slice(0, 2),
+    ...taskResults.slice(0, 2),
     ...scheduleResults.slice(0, 2),
     ...pageResults.slice(0, 2),
     ...machineResults.slice(0, 2),
@@ -468,6 +864,9 @@ export const CATEGORY_SECTION_LABELS: Record<
   orders: "Orders",
   customers: "Customers",
   tasks: "Tasks",
+  designs: "Designs",
+  files: "Files",
+  colors: "Colors / PMS",
   pages: "Pages",
   machines: "Machines",
   actions: "Actions",

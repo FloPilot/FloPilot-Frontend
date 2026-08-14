@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, Loader2, Pencil, Plus, Sparkles, Trash2, Upload } from "lucide-react";
+import { Check, Loader2, Pencil, Plus, Sparkles, Trash2, Upload, BookMarked } from "lucide-react";
 import {
   DesignStudioArtStage,
   composeFullDesignPreview,
@@ -14,6 +14,7 @@ import {
   DesignStudioEditImageDialog,
   formatSelectedPmsForNotes,
 } from "@/components/design-studio/design-studio-edit-image-dialog";
+import { DesignStudioPickArtworkDialog } from "@/components/design-studio/design-studio-pick-artwork-dialog";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { Button } from "@/components/ui/button";
@@ -144,6 +145,7 @@ export function StandaloneDesignStudio({
   const [error, setError] = useState<string | null>(null);
   const [addingLocation, setAddingLocation] = useState(false);
   const [editImageOpen, setEditImageOpen] = useState(false);
+  const [pickArtworkOpen, setPickArtworkOpen] = useState(false);
   const [detectedColors, setDetectedColors] = useState<DetectedArtworkColor[]>(
     []
   );
@@ -442,6 +444,40 @@ export function StandaloneDesignStudio({
     patchLayers(next);
     setSelectedLayerId(layer.id);
     setEditImageOpen(true);
+  };
+
+  const handlePickLibraryArtwork = (
+    layers: DesignMockupArtLayer[],
+    source: { name?: string }
+  ) => {
+    if (!layers.length) {
+      setError("That library item has no artwork to add.");
+      return;
+    }
+    const added = layers.map((layer, index) =>
+      createArtLayer(
+        activeLayerUrl(layer) || layer.url,
+        layer.transform ||
+          (isColorStage ? defaultColorStageTransform() : defaultTransform()),
+        layer.label || source.name || `Artwork ${artLayers.length + index + 1}`
+      )
+    );
+    // Preserve cleanUrl / backgroundRemoved when available.
+    const merged = added.map((layer, index) => {
+      const sourceLayer = layers[index];
+      if (!sourceLayer) return layer;
+      return {
+        ...layer,
+        cleanUrl: sourceLayer.cleanUrl,
+        backgroundRemoved: sourceLayer.backgroundRemoved,
+        url: sourceLayer.url || layer.url,
+      };
+    });
+    const next = [...artLayers, ...merged];
+    patchLayers(next);
+    setSelectedLayerId(merged[merged.length - 1]?.id ?? null);
+    setMessage(`Added artwork from “${source.name || "library"}”.`);
+    setError(null);
   };
 
   const handleApplyArtworkEdit = (result: {
@@ -780,6 +816,18 @@ export function StandaloneDesignStudio({
                 <Upload className="size-3.5" />
                 {artLayers.length ? "Add artwork layer" : "Upload artwork"}
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className={cn(
+                  dashboardControlClass,
+                  "h-10 w-full justify-center"
+                )}
+                onClick={() => setPickArtworkOpen(true)}
+              >
+                <BookMarked className="size-3.5" />
+                From artwork library
+              </Button>
               {selectedLayer ? (
                 <Button
                   type="button"
@@ -847,6 +895,13 @@ export function StandaloneDesignStudio({
           onApply={handleApplyArtworkEdit}
         />
       ) : null}
+
+      <DesignStudioPickArtworkDialog
+        open={pickArtworkOpen}
+        onOpenChange={setPickArtworkOpen}
+        excludeDesignId={designProp.id}
+        onPick={handlePickLibraryArtwork}
+      />
     </div>
   );
 }

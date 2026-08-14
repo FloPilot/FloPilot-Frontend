@@ -456,13 +456,12 @@ export function PricingMatrixEditor({
                       value={
                         method.decorationType ||
                         inferPricingDecorationType(method.name) ||
-                        ""
+                        null
                       }
                       disabled={disabled}
                       onValueChange={(next) => {
-                        const decorationType = (next || undefined) as
-                          | DecorationType
-                          | undefined;
+                        if (!next) return;
+                        const decorationType = next as DecorationType;
                         const optionLabel = decorationTypeOptions.find(
                           (option) => option.value === decorationType
                         )?.label;
@@ -471,9 +470,7 @@ export function PricingMatrixEditor({
                           name:
                             method.name.trim() ||
                             optionLabel ||
-                            (decorationType
-                              ? decorationLabel(decorationType)
-                              : method.name),
+                            decorationLabel(decorationType),
                         });
                       }}
                     >
@@ -482,13 +479,13 @@ export function PricingMatrixEditor({
                           value={
                             method.decorationType ||
                             inferPricingDecorationType(method.name) ||
-                            ""
+                            null
                           }
                           options={decorationTypeOptions}
                           placeholder="Select type"
                         />
                       </SelectTrigger>
-                      <SelectContent>
+                      <SelectContent alignItemWithTrigger={false}>
                         {decorationTypeOptions.map((option) => (
                           <SelectItem key={option.value} value={option.value}>
                             {option.label}
