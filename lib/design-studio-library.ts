@@ -40,6 +40,10 @@ export type DesignStudioLine = {
   files: DesignStudioFile[];
   hasStudioMockup: boolean;
   versionCount: number;
+  /** True when every linked library design on this line is archived. */
+  archived: boolean;
+  /** Library design ids that can be archived/restored for this line. */
+  designIds: string[];
 };
 
 /** @deprecated Prefer DesignStudioFile — kept for older call sites. */
@@ -274,9 +278,26 @@ function lineNameForOrderGroup(
   return files[0]?.name || "Design line";
 }
 
+function designIdsForFiles(files: DesignStudioFile[]): string[] {
+  const ids = new Set<string>();
+  for (const file of files) {
+    if (file.designId?.trim()) ids.add(file.designId.trim());
+  }
+  return [...ids];
+}
+
+function lineArchivedFromDesigns(
+  designIds: string[],
+  designsById: Map<string, SavedDesign>
+): boolean {
+  if (designIds.length === 0) return false;
+  return designIds.every((id) => designsById.get(id)?.archived === true);
+}
+
 function buildLineFromFiles(
   files: DesignStudioFile[],
-  order?: Order
+  order?: Order,
+  designsById?: Map<string, SavedDesign>
 ): DesignStudioLine {
   const sorted = [...files].sort(
     (a, b) =>
@@ -286,6 +307,7 @@ function buildLineFromFiles(
   const id = sourceOrderId
     ? designLineIdForOrder(sourceOrderId)
     : designLineIdForSolo(sorted[0]!.id);
+  const designIds = designIdsForFiles(sorted);
 
   return {
     id,
@@ -304,6 +326,11 @@ function buildLineFromFiles(
     files: sorted,
     hasStudioMockup: sorted.some((file) => file.hasStudioMockup),
     versionCount: sorted.reduce((sum, file) => sum + file.versionCount, 0),
+    designIds,
+    archived: lineArchivedFromDesigns(
+      designIds,
+      designsById ?? new Map()
+    ),
   };
 }
 
@@ -349,7 +376,7 @@ export function mergeDesignStudioLines(
 
   for (const [orderId, groupFiles] of grouped) {
     const order = ordersById.get(orderId);
-    const line = buildLineFromFiles(groupFiles, order);
+    const line = buildLineFromFiles(groupFiles, order, designsById);
     line.customerLabel =
       order?.company ||
       order?.customerName ||
@@ -371,7 +398,7 @@ export function mergeDesignStudioLines(
 
   for (const [designId, groupFiles] of soloByDesign) {
     const linked = designsById.get(designId);
-    const line = buildLineFromFiles(groupFiles);
+    const line = buildLineFromFiles(groupFiles, undefined, designsById);
     line.id = designLineIdForSolo(designId);
     line.name = linked?.name || groupFiles[0]?.name || "Design";
     line.customerLabel =

@@ -62,6 +62,11 @@ export function garmentReceiveOverage(line: OrderMaterialLine): number {
   return Math.max(0, (line.receivedQty || 0) - (line.expectedQty || 0));
 }
 
+/** Extra inbound pieces received beyond the order's expected amount. */
+export function materialReceiveOverage(line: OrderMaterialLine): number {
+  return Math.max(0, (line.receivedQty || 0) - (line.expectedQty || 0));
+}
+
 export function isGarmentOverReceived(line: OrderMaterialLine): boolean {
   return line.kind === "garments" && garmentReceiveOverage(line) > 0;
 }
@@ -489,10 +494,17 @@ export function applyGarmentLineReceive(
       // Allow over-receipt — shops often get more blanks than ordered
       const qty = Math.max(0, Math.floor(receivedQty));
       const status = computeMaterialLineStatus(line.expectedQty, qty);
+      const extras = Math.max(0, qty - line.expectedQty);
       return {
         ...line,
         receivedQty: qty,
         status,
+        notes:
+          extras > 0
+            ? `Received ${extras} extra piece${extras === 1 ? "" : "s"}`
+            : line.notes?.startsWith("Received ")
+              ? undefined
+              : line.notes,
         receivedBy: qty > 0 ? receivedBy : undefined,
         receivedAt: qty > 0 ? now : undefined,
         updatedAt: now,
@@ -514,6 +526,51 @@ export function receiveAllGarmentLines(
       line.expectedQty,
       receivedBy
     );
+  }
+  return next;
+}
+
+/** Record a received quantity for one DTF transfer location, including extras. */
+export function applyDtfLineReceive(
+  materials: OrderMaterials,
+  lineId: string,
+  receivedQty: number,
+  receivedBy: string
+): OrderMaterials {
+  const now = new Date().toISOString();
+  return {
+    ...materials,
+    updatedAt: now,
+    lines: materials.lines.map((line) => {
+      if (line.id !== lineId || line.kind !== "dtf_transfers") return line;
+      const qty = Math.max(0, Math.floor(receivedQty));
+      const extras = Math.max(0, qty - line.expectedQty);
+      return {
+        ...line,
+        receivedQty: qty,
+        status: computeMaterialLineStatus(line.expectedQty, qty),
+        notes:
+          extras > 0
+            ? `Received ${extras} extra DTF sheet${extras === 1 ? "" : "s"}`
+            : line.notes?.startsWith("Received ")
+              ? undefined
+              : line.notes,
+        receivedBy: qty > 0 ? receivedBy : undefined,
+        receivedAt: qty > 0 ? now : undefined,
+        updatedAt: now,
+      };
+    }),
+  };
+}
+
+export function receiveAllDtfLines(
+  materials: OrderMaterials,
+  receivedBy: string
+): OrderMaterials {
+  let next = materials;
+  for (const line of getDtfReceivingLines(materials)) {
+    if (line.status === "received") continue;
+    next = applyDtfLineReceive(next, line.id, line.expectedQty, receivedBy);
   }
   return next;
 }

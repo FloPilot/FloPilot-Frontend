@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, Loader2, PackageOpen, Search } from "lucide-react";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { RushBadge } from "@/components/status-badges";
@@ -17,6 +17,7 @@ import { DepartmentsShell } from "@/components/departments/departments-shell";
 import {
   applyGarmentLineReceive,
   GARMENT_RECEIVE_STATUS_STYLES,
+  materialReceiveOverage,
   mergeOrderMaterials,
   receiveAllGarmentLines,
 } from "@/lib/order-materials";
@@ -55,12 +56,18 @@ function GarmentLineRow({
 }) {
   const [draft, setDraft] = useState(String(line.receivedQty || ""));
   const styles = GARMENT_RECEIVE_STATUS_STYLES[line.status];
+  const overage = materialReceiveOverage(line);
+
+  useEffect(() => {
+    setDraft(String(line.receivedQty || ""));
+  }, [line.receivedQty, line.id]);
 
   return (
     <div
       className={cn(
         "flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2",
-        styles.row
+        styles.row,
+        overage > 0 && "border-amber-300 bg-[#fffbeb]"
       )}
     >
       <div className="min-w-0 flex-1">
@@ -77,26 +84,37 @@ function GarmentLineRow({
       <Input
         type="number"
         min={0}
-        max={line.expectedQty}
         value={draft}
-        disabled={saving || line.status === "received"}
+        disabled={saving}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {
-          const parsed = Number.parseInt(draft, 10);
-          const qty = Number.isFinite(parsed) ? parsed : 0;
-          if (qty !== line.receivedQty) onReceive(qty);
+          const quantity = Math.max(0, Math.floor(Number(draft) || 0));
+          setDraft(String(quantity));
+          if (quantity !== line.receivedQty) onReceive(quantity);
         }}
-        className="h-8 w-16 text-center text-[12px]"
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+        className={cn(
+          "h-8 w-16 text-center text-[12px] tabular-nums",
+          overage > 0 && "border-amber-300 bg-[#fffbeb]"
+        )}
       />
       <button
         type="button"
-        disabled={saving || line.status === "received"}
+        disabled={saving || line.receivedQty === line.expectedQty}
         onClick={() => onReceive(line.expectedQty)}
         className={cn(dashboardGhostButtonClass, "h-8 px-2 text-[11px] font-semibold")}
       >
         <Check className="size-3.5" />
         All
       </button>
+      {overage > 0 ? (
+        <p className="basis-full text-right text-[11px] font-medium text-amber-800">
+          {line.notes?.trim() ||
+            `${overage} extra piece${overage === 1 ? "" : "s"} received`}
+        </p>
+      ) : null}
     </div>
   );
 }

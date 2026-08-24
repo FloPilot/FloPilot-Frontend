@@ -65,10 +65,17 @@ import type {
 } from "@/types";
 import { cn } from "@/lib/utils";
 
+export type OrderEstimatePricingDraft = {
+  selectedRateSheetId: string | null;
+  estimateAdjustments: OrderEstimateAdjustment[];
+  excludedContractFeeIds: string[];
+};
+
 export function OrderEstimatePricingPanel({
   order,
   customer,
   onPersist,
+  onDraftChange,
   readOnly = false,
 }: {
   order: Order;
@@ -79,6 +86,8 @@ export function OrderEstimatePricingPanel({
     estimateAdjustments?: OrderEstimateAdjustment[];
     excludedContractFeeIds?: string[];
   }) => Promise<void>;
+  /** Live draft for estimate preview (totals + pricing matrix) before save. */
+  onDraftChange?: (draft: OrderEstimatePricingDraft) => void;
   readOnly?: boolean;
 }) {
   const { settings } = useShopSettings();
@@ -90,7 +99,7 @@ export function OrderEstimatePricingPanel({
   const [draftManual, setDraftManual] = useState<OrderEstimateAdjustment | null>(
     null
   );
-  const [draft, setDraft] = useState({
+  const [draft, setDraft] = useState<OrderEstimatePricingDraft>({
     selectedRateSheetId: order.selectedRateSheetId ?? null,
     estimateAdjustments: order.estimateAdjustments ?? [],
     excludedContractFeeIds: order.excludedContractFeeIds ?? [],
@@ -108,6 +117,10 @@ export function OrderEstimatePricingPanel({
     order.estimateAdjustments,
     order.excludedContractFeeIds,
   ]);
+
+  useEffect(() => {
+    onDraftChange?.(draft);
+  }, [draft, onDraftChange]);
 
   const workingOrder = useMemo(
     () => ({
@@ -416,7 +429,7 @@ export function OrderEstimatePricingPanel({
                 {selectedRateSheetLabel}
               </SelectValue>
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent align="start" alignItemWithTrigger={false}>
               {shopRateSheets.map((sheet) => (
                 <SelectItem key={sheet.id} value={sheet.id}>
                   {sheet.name}
@@ -611,7 +624,7 @@ export function OrderEstimatePricingPanel({
                         {feeCategoryLabel(draftManual?.category ?? "setup")}
                       </SelectValue>
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent align="start" alignItemWithTrigger={false}>
                       {FEE_CATEGORY_OPTIONS.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
                           {option.label}

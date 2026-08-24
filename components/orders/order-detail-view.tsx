@@ -10,7 +10,6 @@ import {
 } from "@/components/layout/staff-unsaved-changes-provider";
 import { OrderMaterialsPanel } from "@/components/orders/order-materials-panel";
 import { OrderDesignTab } from "@/components/orders/order-design-tab";
-import { OrderDesignStudioTab } from "@/components/orders/order-design-studio-tab";
 import { OrderArtworkApprovalPanel } from "@/components/orders/order-artwork-approval-panel";
 import { OrderFilesTab } from "@/components/orders/order-files-tab";
 import { OrderEstimateTab } from "@/components/orders/order-estimate-tab";
@@ -452,15 +451,8 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
   }
 
   return (
-    <main
-      className={cn(
-        "flex w-full flex-col",
-        activeTab === "design"
-          ? "min-h-0 flex-1 gap-3 px-4 pb-[5px] pt-4 sm:px-6 sm:pt-6 lg:h-full lg:overflow-hidden lg:px-8 lg:pt-8"
-          : "flex-1 gap-5 p-4 sm:p-6 lg:p-8"
-      )}
-    >
-      <div className={activeTab === "design" ? "shrink-0" : undefined}>
+    <main className="flex w-full flex-1 flex-col gap-5 p-4 sm:p-6 lg:p-8">
+      <div>
         <OrderDetailHeader
           order={headerOrder ?? order}
           summary={summary}
@@ -484,8 +476,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       </div>
 
       {activeTab !== "produced_goods" &&
-      activeTab !== "invoice" &&
-      activeTab !== "design" ? (
+      activeTab !== "invoice" ? (
         <OrderProducedGoodsCallout order={order} />
       ) : null}
 
@@ -512,20 +503,10 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       ) : null}
 
       <div
-        className={cn(
-          "grid gap-5 xl:items-start",
-          activeTab === "design"
-            ? "min-h-0 grid-rows-1 lg:flex-1 xl:grid-cols-1"
-            : "xl:grid-cols-[minmax(0,1fr)_300px]"
-        )}
+        className="grid gap-5 xl:items-start xl:grid-cols-[minmax(0,1fr)_300px]"
       >
         <div
-          className={cn(
-            "order-2 min-w-0 xl:order-none",
-            activeTab === "design"
-              ? "flex min-h-0 flex-col lg:h-full"
-              : "space-y-4"
-          )}
+          className="order-2 min-w-0 space-y-4 xl:order-none"
         >
           {activeTab === "events" ? (
             <>
@@ -583,13 +564,6 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
 
           {activeTab === "inks" ? (
             <OrderMaterialsPanel order={order} section="inks" />
-          ) : null}
-
-          {activeTab === "design" ? (
-            <OrderDesignStudioTab
-              order={order}
-              onRequestAddBlank={() => changeTab("blanks")}
-            />
           ) : null}
 
           {activeTab === "proof" ? (
@@ -708,19 +682,17 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
           ) : null}
         </div>
 
-        {activeTab !== "design" ? (
-          <div className="order-1 space-y-4 xl:order-none xl:sticky xl:top-6 xl:z-0 xl:self-start">
-            <OrderActionPanel
-              order={order}
-              summary={summary}
-              canSchedule={canSchedule}
-              onAction={handlePanelAction}
-              onStatusChange={(status) => updateOrderStatus(order.id, status)}
-              onRushChange={(rush) => setOrderRush(order.id, rush)}
-            />
-            {isAdmin ? <OrderArchivePanel order={order} /> : null}
-          </div>
-        ) : null}
+        <div className="order-1 space-y-4 xl:order-none xl:sticky xl:top-6 xl:z-0 xl:self-start">
+          <OrderActionPanel
+            order={order}
+            summary={summary}
+            canSchedule={canSchedule}
+            onAction={handlePanelAction}
+            onStatusChange={(status) => updateOrderStatus(order.id, status)}
+            onRushChange={(rush) => setOrderRush(order.id, rush)}
+          />
+          {isAdmin ? <OrderArchivePanel order={order} /> : null}
+        </div>
       </div>
 
       <AddProductionStepDialog

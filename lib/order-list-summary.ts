@@ -223,7 +223,7 @@ function deriveNextStep({
   }
 
   if (order.status === "ready_to_ship") {
-    return "Ready to ship — production is done";
+    return "Production done — ship/pickup and send invoice";
   }
 
   if (order.status === "ready_to_invoice") {

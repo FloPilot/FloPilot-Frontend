@@ -9,6 +9,7 @@ import {
 import { RushBadge } from "@/components/status-badges";
 import { decorationLabel, formatDate } from "@/lib/format";
 import { formatOrderRef } from "@/lib/order-display";
+import { formatSchedulingPieceLabel } from "@/lib/order-scheduling-pieces";
 import type { SchedulingQueueOrder } from "@/lib/event-basket";
 import type { HealthStatus } from "@/lib/order-health";
 import {
@@ -35,6 +36,16 @@ function SchedulingQueueOrderCard({ item }: { item: SchedulingQueueOrder }) {
     (step) => step.status !== "scheduled"
   ).length;
   const href = `/app/orders/${item.orderId}`;
+  const nextPieceLabel = next
+    ? formatSchedulingPieceLabel({
+        ordered: next.orderedPieceCount,
+        decorate: next.pieceCount,
+      })
+    : "";
+  const orderPieceLabel = formatSchedulingPieceLabel({
+    ordered: item.orderedPieceCount,
+    decorate: item.totalPieceCount,
+  });
 
   return (
     <Link
@@ -69,7 +80,7 @@ function SchedulingQueueOrderCard({ item }: { item: SchedulingQueueOrder }) {
               <span className="text-brand-muted">
                 {" "}
                 · {decorationLabel(next.decoration)}
-                {next.pieceCount > 0 && ` · ${next.pieceCount.toLocaleString()} pcs`}
+                {nextPieceLabel ? ` · ${nextPieceLabel}` : ""}
               </span>
             </p>
           ) : (
@@ -89,9 +100,7 @@ function SchedulingQueueOrderCard({ item }: { item: SchedulingQueueOrder }) {
               {item.dueLabel}
             </span>
             <span>ETA {formatDate(item.inHandsDate)}</span>
-            {item.totalPieceCount > 0 && (
-              <span>{item.totalPieceCount.toLocaleString()} pcs total</span>
-            )}
+            {orderPieceLabel ? <span>{orderPieceLabel}</span> : null}
             <span>
               {item.progress.scheduled}/{item.progress.total} scheduled
               {remainingSteps > 0 && ` · ${formatEventsLeft(remainingSteps)}`}

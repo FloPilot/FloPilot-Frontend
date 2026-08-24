@@ -594,7 +594,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                       )}
                     </SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent align="start" alignItemWithTrigger={false}>
                     {SHIPPING_METHODS.map((method) => (
                       <SelectItem key={method.key} value={method.key}>
                         {method.label}
@@ -863,7 +863,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                             {shipToLabel}
                           </SelectValue>
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent align="start" alignItemWithTrigger={false}>
                           {customerLocations.map((location) => (
                             <SelectItem key={location.id} value={location.id}>
                               {formatLocationSelectLabel(location)}
@@ -893,7 +893,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                             {shippingMethodLabel(methodKey)}
                           </SelectValue>
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent align="start" alignItemWithTrigger={false}>
                           {SHIPPING_METHODS.filter(
                             (method) => method.key !== WILL_CALL_METHOD_KEY
                           ).map((method) => (
@@ -999,7 +999,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                           <SelectTrigger className={shippingSelectClass}>
                             <SelectValue placeholder="State" />
                           </SelectTrigger>
-                          <SelectContent>
+                          <SelectContent align="start" alignItemWithTrigger={false}>
                             {US_STATES.map((state) => (
                               <SelectItem key={state.value} value={state.value}>
                                 {state.label}
@@ -1053,7 +1053,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                             }
                           </SelectValue>
                         </SelectTrigger>
-                        <SelectContent>
+                        <SelectContent align="start" alignItemWithTrigger={false}>
                           {statusOptions.map((option) => (
                             <SelectItem key={option.value} value={option.value}>
                               {option.label}

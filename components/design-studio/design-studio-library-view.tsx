@@ -1,8 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Archive,
+  ArchiveRestore,
   ChevronDown,
   ChevronRight,
   Copy,
@@ -11,6 +13,7 @@ import {
   Search,
   Shirt,
 } from "lucide-react";
+import { BulkArchiveDesignsDialog } from "@/components/artwork/bulk-archive-designs-dialog";
 import { NewDesignBlankModal } from "@/components/design-studio/new-design-blank-modal";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
@@ -33,7 +36,13 @@ import {
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { DESIGN_STUDIO_BASE } from "@/components/layout/nav-config";
-import { duplicateDesign } from "@/lib/api";
+import {
+  archiveDesign as apiArchiveDesign,
+  bulkArchiveDesigns,
+  bulkRestoreDesigns,
+  duplicateDesign,
+  restoreDesign as apiRestoreDesign,
+} from "@/lib/api";
 import {
   upsertDesignStudioCache,
   useDesignStudioDesigns,
@@ -46,10 +55,14 @@ import {
 import { decorationLabel, formatDateTime } from "@/lib/format";
 import { formatOrderNumberWithLabel } from "@/lib/order-display";
 import { useImageBackgroundColor } from "@/lib/use-image-background-color";
-import type { DecorationType } from "@/types";
+import type { DecorationType, SavedDesign } from "@/types";
 import { cn } from "@/lib/utils";
 
+type LibraryScope = "active" | "archived";
+type LineFilter = "all" | "mockups";
+
 function resolveLibraryDesignId(line: DesignStudioLine): string | null {
+  if (line.designIds.length === 1) return line.designIds[0] ?? null;
   if (line.id.startsWith("line:solo:")) {
     const id = line.id.slice("line:solo:".length).trim();
     return id || null;
@@ -163,19 +176,29 @@ function FilesStack({
 function DesignLineRow({
   line,
   expanded,
+  selected,
+  canSelect,
+  onToggleSelected,
   onToggle,
   onOpenLine,
   onOpenFile,
   onDuplicate,
+  onArchiveToggle,
   duplicating,
+  archiveBusy,
 }: {
   line: DesignStudioLine;
   expanded: boolean;
+  selected: boolean;
+  canSelect: boolean;
+  onToggleSelected: () => void;
   onToggle: () => void;
   onOpenLine: () => void;
   onOpenFile: (file: DesignStudioFile) => void;
   onDuplicate?: () => void;
+  onArchiveToggle?: () => void;
   duplicating?: boolean;
+  archiveBusy?: boolean;
 }) {
   const locationSummary = line.files
     .map((file) => file.locationLabel)
@@ -187,10 +210,27 @@ function DesignLineRow({
   return (
     <>
       <TableRow
-        className="cursor-pointer border-[#ebebeb] hover:bg-[#fafafa]"
+        className={cn(
+          "cursor-pointer border-[#ebebeb] hover:bg-[#fafafa]",
+          selected && "bg-[#f4f7fd]",
+          line.archived && "opacity-75"
+        )}
         onClick={onOpenLine}
       >
-        <TableCell className="py-2.5 pl-3 sm:pl-4">
+        <TableCell
+          className="py-2.5 pl-3 sm:pl-4"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <input
+            type="checkbox"
+            checked={selected}
+            disabled={!canSelect}
+            onChange={onToggleSelected}
+            className="size-3.5 accent-[#2c6ecb] disabled:opacity-40"
+            aria-label={`Select ${line.name}`}
+          />
+        </TableCell>
+        <TableCell className="py-2.5">
           <button
             type="button"
             className="inline-flex size-7 items-center justify-center rounded-md text-[#8a8a8a] hover:bg-[#f1f1f1] hover:text-[#303030]"
@@ -211,9 +251,17 @@ function DesignLineRow({
           <FilesStack files={line.files} onOpenFile={onOpenFile} />
         </TableCell>
         <TableCell className="py-2.5">
-          <p className="truncate text-[13px] font-semibold text-[#303030]">
-            {line.name}
-          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <p className="truncate text-[13px] font-semibold text-[#303030]">
+              {line.name}
+            </p>
+            {line.archived ? (
+              <span className="inline-flex items-center gap-1 rounded-md border border-[#e3e3e3] bg-[#f1f1f1] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161]">
+                <Archive className="size-2.5" />
+                Archived
+              </span>
+            ) : null}
+          </div>
           <p className="mt-0.5 truncate text-[11px] text-[#8a8a8a]">
             {locationSummary}
             {extraLocations > 0 ? ` · +${extraLocations} more` : ""}
@@ -255,28 +303,54 @@ function DesignLineRow({
           {formatDateTime(line.updatedAt)}
         </TableCell>
         <TableCell className="py-2.5 pr-4 sm:pr-5">
-          {onDuplicate ? (
-            <Button
-              type="button"
-              variant="outline"
-              disabled={duplicating}
-              className={cn(dashboardControlClass, "h-8 px-2.5 text-[12px]")}
-              title="Duplicate — change blank color and save as a new file"
-              onClick={(event) => {
-                event.stopPropagation();
-                onDuplicate();
-              }}
-            >
-              {duplicating ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Copy className="size-3.5" />
-              )}
-              <span className="hidden sm:inline">Duplicate</span>
-            </Button>
-          ) : (
-            <span className="text-[11px] text-[#a3a3a3]">—</span>
-          )}
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            {onArchiveToggle ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={archiveBusy}
+                className={cn(dashboardControlClass, "h-8 px-2.5 text-[12px]")}
+                title={line.archived ? "Restore design" : "Archive design"}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onArchiveToggle();
+                }}
+              >
+                {archiveBusy ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : line.archived ? (
+                  <ArchiveRestore className="size-3.5" />
+                ) : (
+                  <Archive className="size-3.5" />
+                )}
+                <span className="hidden lg:inline">
+                  {line.archived ? "Restore" : "Archive"}
+                </span>
+              </Button>
+            ) : null}
+            {onDuplicate ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={duplicating}
+                className={cn(dashboardControlClass, "h-8 px-2.5 text-[12px]")}
+                title="Duplicate — change blank color and save as a new file"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDuplicate();
+                }}
+              >
+                {duplicating ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Copy className="size-3.5" />
+                )}
+                <span className="hidden sm:inline">Duplicate</span>
+              </Button>
+            ) : (
+              <span className="text-[11px] text-[#a3a3a3]">—</span>
+            )}
+          </div>
         </TableCell>
       </TableRow>
 
@@ -288,6 +362,7 @@ function DesignLineRow({
               onClick={() => onOpenFile(file)}
             >
               <TableCell className="py-2 pl-3 sm:pl-4" />
+              <TableCell className="py-2" />
               <TableCell className="py-2">
                 <div className="pl-2">
                   <FileThumb file={file} size="sm" />
@@ -336,24 +411,43 @@ export function DesignStudioLibraryView() {
   const router = useRouter();
   const { getIdToken } = useAuth();
   const { orders } = useSchedule();
-  const { designs, loading, refreshing } = useDesignStudioDesigns(getIdToken);
+  const { designs, loading, refreshing, refresh } = useDesignStudioDesigns(getIdToken);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "mockups">("all");
+  const [scope, setScope] = useState<LibraryScope>("active");
+  const [filter, setFilter] = useState<LineFilter>("all");
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [newDesignOpen, setNewDesignOpen] = useState(false);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [busyLineIds, setBusyLineIds] = useState<Set<string>>(() => new Set());
   const [actionError, setActionError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
-  // Wait for the designs fetch (or cache) before merging with orders so the
-  // table doesn't paint order-only rows first, then reshuffle.
   const lines = useMemo(() => {
     if (loading && designs.length === 0) return [];
     return mergeDesignStudioLines(designs, orders);
   }, [designs, orders, loading]);
 
+  const activeCount = useMemo(
+    () => lines.filter((line) => !line.archived).length,
+    [lines]
+  );
+  const archivedCount = lines.length - activeCount;
+
+  const scopedLines = useMemo(
+    () =>
+      lines.filter((line) =>
+        scope === "archived" ? line.archived : !line.archived
+      ),
+    [lines, scope]
+  );
+
+  const mockupCount = scopedLines.filter((line) => line.hasStudioMockup).length;
+
   const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return lines.filter((line) => {
+    return scopedLines.filter((line) => {
       if (filter === "mockups" && !line.hasStudioMockup) return false;
       if (!q) return true;
       const haystack = [
@@ -368,9 +462,44 @@ export function DesignStudioLibraryView() {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [lines, filter, search]);
+  }, [scopedLines, filter, search]);
 
-  const mockupCount = lines.filter((line) => line.hasStudioMockup).length;
+  const selectableLines = useMemo(
+    () => visible.filter((line) => line.designIds.length > 0),
+    [visible]
+  );
+
+  const selectedCount = selectedIds.size;
+  const allVisibleSelected =
+    selectableLines.length > 0 &&
+    selectableLines.every((line) => selectedIds.has(line.id));
+
+  const selectedDesignIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const line of visible) {
+      if (!selectedIds.has(line.id)) continue;
+      for (const designId of line.designIds) ids.add(designId);
+    }
+    return [...ids];
+  }, [visible, selectedIds]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setStatusMessage(null);
+  }, [scope, filter, search]);
+
+  useEffect(() => {
+    const visibleIds = new Set(selectableLines.map((line) => line.id));
+    setSelectedIds((current) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of current) {
+        if (visibleIds.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [selectableLines]);
 
   const openLine = (line: DesignStudioLine) => {
     router.push(`${DESIGN_STUDIO_BASE}/${encodeURIComponent(line.id)}`);
@@ -388,6 +517,35 @@ export function DesignStudioLibraryView() {
       return next;
     });
   };
+
+  const toggleSelected = (lineId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(lineId)) next.delete(lineId);
+      else next.add(lineId);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedIds((current) => {
+      const ids = selectableLines.map((line) => line.id);
+      const everySelected =
+        ids.length > 0 && ids.every((id) => current.has(id));
+      if (everySelected) return new Set();
+      return new Set(ids);
+    });
+  };
+
+  const applyDesignUpdates = useCallback(
+    async (updates: SavedDesign[]) => {
+      for (const design of updates) {
+        upsertDesignStudioCache(design);
+      }
+      await refresh({ force: true });
+    },
+    [refresh]
+  );
 
   const handleDuplicate = async (line: DesignStudioLine) => {
     const designId = resolveLibraryDesignId(line);
@@ -417,6 +575,81 @@ export function DesignStudioLibraryView() {
     }
   };
 
+  const handleArchiveToggle = async (line: DesignStudioLine) => {
+    if (line.designIds.length === 0) {
+      setActionError(
+        "Save this line to the design library before archiving it."
+      );
+      return;
+    }
+    const token = await getIdToken();
+    if (!token) return;
+    setActionError(null);
+    setBusyLineIds((current) => new Set(current).add(line.id));
+    try {
+      const updates: SavedDesign[] = [];
+      for (const designId of line.designIds) {
+        const { design } = line.archived
+          ? await apiRestoreDesign(token, designId)
+          : await apiArchiveDesign(token, designId);
+        updates.push(design);
+      }
+      await applyDesignUpdates(updates);
+      setStatusMessage(
+        line.archived
+          ? `Restored ${updates.length} design${updates.length === 1 ? "" : "s"}.`
+          : `Archived ${updates.length} design${updates.length === 1 ? "" : "s"}.`
+      );
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : line.archived
+            ? "Could not restore that design."
+            : "Could not archive that design."
+      );
+    } finally {
+      setBusyLineIds((current) => {
+        const next = new Set(current);
+        next.delete(line.id);
+        return next;
+      });
+    }
+  };
+
+  const handleBulkConfirm = async () => {
+    const token = await getIdToken();
+    if (!token) throw new Error("Sign in again to continue.");
+    if (selectedDesignIds.length === 0) {
+      throw new Error(
+        scope === "archived"
+          ? "Select at least one saved design line to restore."
+          : "Select at least one saved design line to archive."
+      );
+    }
+
+    if (scope === "archived") {
+      const result = await bulkRestoreDesigns(token, selectedDesignIds);
+      await applyDesignUpdates(result.designs);
+      setSelectedIds(new Set());
+      setStatusMessage(
+        result.errors.length > 0
+          ? `Restored ${result.restoredCount} of ${result.requestedCount}. ${result.errors.length} could not be restored.`
+          : `Restored ${result.restoredCount} design${result.restoredCount === 1 ? "" : "s"}.`
+      );
+      return;
+    }
+
+    const result = await bulkArchiveDesigns(token, selectedDesignIds);
+    await applyDesignUpdates(result.designs);
+    setSelectedIds(new Set());
+    setStatusMessage(
+      result.errors.length > 0
+        ? `Archived ${result.archivedCount} of ${result.requestedCount}. ${result.errors.length} could not be archived.`
+        : `Archived ${result.archivedCount} design${result.archivedCount === 1 ? "" : "s"}.`
+    );
+  };
+
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6 lg:p-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -437,43 +670,84 @@ export function DesignStudioLibraryView() {
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div
-          className={cn(
-            "flex w-fit gap-1.5 rounded-lg border border-[#e3e3e3] bg-white p-1",
-            dashboardElevatedShadow
-          )}
-        >
-          {(
-            [
-              {
-                value: "all" as const,
-                label: "All lines",
-                count: lines.length,
-              },
-              {
-                value: "mockups" as const,
-                label: "With mockups",
-                count: mockupCount,
-              },
-            ] as const
-          ).map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setFilter(option.value)}
-              className={cn(
-                "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors",
-                filter === option.value
-                  ? "bg-[#f4f7fd] text-[#2c6ecb]"
-                  : "text-[#616161] hover:text-[#303030]"
-              )}
-            >
-              {option.label}
-              <span className="ml-1.5 tabular-nums text-[10px] opacity-70">
-                {option.count}
-              </span>
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className={cn(
+              "flex w-fit gap-1.5 rounded-lg border border-[#e3e3e3] bg-white p-1",
+              dashboardElevatedShadow
+            )}
+          >
+            {(
+              [
+                {
+                  value: "active" as const,
+                  label: "Active",
+                  count: activeCount,
+                },
+                {
+                  value: "archived" as const,
+                  label: "Archived",
+                  count: archivedCount,
+                },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setScope(option.value)}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors",
+                  scope === option.value
+                    ? "bg-[#f4f7fd] text-[#2c6ecb]"
+                    : "text-[#616161] hover:text-[#303030]"
+                )}
+              >
+                {option.label}
+                <span className="ml-1.5 tabular-nums text-[10px] opacity-70">
+                  {option.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div
+            className={cn(
+              "flex w-fit gap-1.5 rounded-lg border border-[#e3e3e3] bg-white p-1",
+              dashboardElevatedShadow
+            )}
+          >
+            {(
+              [
+                {
+                  value: "all" as const,
+                  label: "All lines",
+                  count: scopedLines.length,
+                },
+                {
+                  value: "mockups" as const,
+                  label: "With mockups",
+                  count: mockupCount,
+                },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setFilter(option.value)}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors",
+                  filter === option.value
+                    ? "bg-[#f4f7fd] text-[#2c6ecb]"
+                    : "text-[#616161] hover:text-[#303030]"
+                )}
+              >
+                {option.label}
+                <span className="ml-1.5 tabular-nums text-[10px] opacity-70">
+                  {option.count}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex w-full items-center gap-2 sm:max-w-xs">
@@ -495,9 +769,71 @@ export function DesignStudioLibraryView() {
         </div>
       </div>
 
+      {visible.length > 0 && selectableLines.length > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-[#616161]">
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={toggleAllVisible}
+              className="size-3.5 accent-[#2c6ecb]"
+            />
+            Select all visible
+          </label>
+          {selectedCount > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#dbe6f5] bg-[#f4f7fd] px-3 py-2">
+              <p className="text-[13px] font-medium text-[#303030]">
+                {selectedCount} selected
+                {selectedDesignIds.length > 0
+                  ? ` · ${selectedDesignIds.length} design${selectedDesignIds.length === 1 ? "" : "s"}`
+                  : ""}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={cn(dashboardControlClass, "h-8")}
+                onClick={() => setSelectedIds(new Set())}
+              >
+                Clear
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className={cn(
+                  dashboardControlClass,
+                  "h-8",
+                  scope === "active" &&
+                    "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f] hover:bg-[#fde2e2] hover:text-[#8f1f1f]"
+                )}
+                onClick={() => setBulkOpen(true)}
+              >
+                {scope === "archived" ? (
+                  <>
+                    <ArchiveRestore className="size-3.5" />
+                    Restore selected
+                  </>
+                ) : (
+                  <>
+                    <Archive className="size-3.5" />
+                    Archive selected
+                  </>
+                )}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {actionError ? (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800">
           {actionError}
+        </p>
+      ) : null}
+
+      {statusMessage ? (
+        <p className="rounded-lg border border-[#cfe8d8] bg-[#e8f5ee] px-3 py-2 text-[13px] text-[#0d5c2e]">
+          {statusMessage}
         </p>
       ) : null}
 
@@ -509,33 +845,51 @@ export function DesignStudioLibraryView() {
       ) : visible.length === 0 ? (
         <section className={cn(dashboardCardClass, "px-6 py-14 text-center")}>
           <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-[#f4f7fd] text-[#2c6ecb]">
-            <Palette className="size-6" />
+            {scope === "archived" ? (
+              <Archive className="size-6" />
+            ) : (
+              <Palette className="size-6" />
+            )}
           </div>
           <p className="text-[14px] font-semibold text-[#303030]">
             {search.trim()
               ? "No design lines match that search"
-              : filter === "mockups"
-                ? "No design lines with mockups yet"
-                : "No design lines yet"}
+              : scope === "archived"
+                ? "No archived design lines"
+                : filter === "mockups"
+                  ? "No design lines with mockups yet"
+                  : "No design lines yet"}
           </p>
           <p className={cn("mx-auto mt-1 max-w-md", dashboardTaskDetailClass)}>
-            Create a design with New design, or compose mockups on an order —
-            locations from the same order group into one Design Line here.
+            {scope === "archived"
+              ? "Archive a saved design line to tuck it away here without deleting it."
+              : "Create a design with New design, or compose mockups on an order — locations from the same order group into one Design Line here."}
           </p>
-          <Button
-            type="button"
-            className={cn(dashboardPrimaryButtonClass, "mt-5 h-9")}
-            onClick={() => setNewDesignOpen(true)}
-          >
-            New design
-          </Button>
+          {scope === "active" ? (
+            <Button
+              type="button"
+              className={cn(dashboardPrimaryButtonClass, "mt-5 h-9")}
+              onClick={() => setNewDesignOpen(true)}
+            >
+              New design
+            </Button>
+          ) : null}
         </section>
       ) : (
         <section className={cn(dashboardCardClass, "overflow-hidden")}>
-          <Table className="min-w-[960px]">
+          <Table className="min-w-[1040px]">
             <TableHeader>
               <TableRow className="border-[#ebebeb] hover:bg-transparent">
-                <TableHead className="h-10 w-10 bg-[#fafafa] pl-3 sm:pl-4" />
+                <TableHead className="h-10 w-10 bg-[#fafafa] pl-3 sm:pl-4">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    className="size-3.5 accent-[#2c6ecb]"
+                    aria-label="Select all visible design lines"
+                  />
+                </TableHead>
+                <TableHead className="h-10 w-10 bg-[#fafafa]" />
                 <TableHead className="h-10 min-w-[160px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
                   Files
                 </TableHead>
@@ -560,7 +914,7 @@ export function DesignStudioLibraryView() {
                 <TableHead className="h-10 min-w-[140px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
                   Updated
                 </TableHead>
-                <TableHead className="h-10 min-w-[110px] bg-[#fafafa] pr-4 text-[12px] font-medium text-[#616161] sm:pr-5">
+                <TableHead className="h-10 min-w-[180px] bg-[#fafafa] pr-4 text-[12px] font-medium text-[#616161] sm:pr-5">
                   Actions
                 </TableHead>
               </TableRow>
@@ -571,6 +925,9 @@ export function DesignStudioLibraryView() {
                   key={line.id}
                   line={line}
                   expanded={expandedIds.has(line.id)}
+                  selected={selectedIds.has(line.id)}
+                  canSelect={line.designIds.length > 0}
+                  onToggleSelected={() => toggleSelected(line.id)}
                   onToggle={() => toggleExpanded(line.id)}
                   onOpenLine={() => openLine(line)}
                   onOpenFile={openFile}
@@ -579,7 +936,13 @@ export function DesignStudioLibraryView() {
                       ? () => void handleDuplicate(line)
                       : undefined
                   }
+                  onArchiveToggle={
+                    line.designIds.length > 0
+                      ? () => void handleArchiveToggle(line)
+                      : undefined
+                  }
                   duplicating={duplicatingId === line.id}
+                  archiveBusy={busyLineIds.has(line.id)}
                 />
               ))}
             </TableBody>
@@ -590,6 +953,14 @@ export function DesignStudioLibraryView() {
       <NewDesignBlankModal
         open={newDesignOpen}
         onOpenChange={setNewDesignOpen}
+      />
+
+      <BulkArchiveDesignsDialog
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        selectedCount={selectedDesignIds.length}
+        mode={scope === "archived" ? "restore" : "archive"}
+        onConfirm={handleBulkConfirm}
       />
     </div>
   );

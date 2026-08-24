@@ -62,6 +62,7 @@ import {
   removeOrderLineItem as apiRemoveOrderLineItem,
   removeProductionJob as apiRemoveProductionJob,
   archiveOrder as apiArchiveOrder,
+  bulkArchiveOrders as apiBulkArchiveOrders,
   restoreOrder as apiRestoreOrder,
   reorderOrder as apiReorderOrder,
   reportMachineIssue as apiReportMachineIssue,
@@ -171,7 +172,18 @@ type ScheduleContextValue = {
   createReorderFromOrder: (
     sourceOrderId: string
   ) => Promise<{ id: string; number: string } | null>;
-  archiveOrder: (orderId: string) => Promise<void>;
+  archiveOrder: (
+    orderId: string,
+    options?: { includeOrderData?: boolean }
+  ) => Promise<void>;
+  bulkArchiveOrders: (
+    orderIds: string[],
+    options?: { includeOrderData?: boolean }
+  ) => Promise<{
+    archivedCount: number;
+    requestedCount: number;
+    errors: Array<{ orderId: string; error: string }>;
+  }>;
   restoreOrder: (orderId: string) => Promise<void>;
   addProductionJob: (orderId: string, job: Job) => Promise<void>;
   removeProductionJob: (orderId: string, jobId: string) => void;
@@ -372,6 +384,8 @@ type ScheduleContextValue = {
       selectedRateSheetId?: string | null;
       estimateAdjustments?: OrderEstimateAdjustment[];
       excludedContractFeeIds?: string[];
+      taxEnabled?: boolean;
+      taxRate?: number;
     }
   ) => Promise<Order>;
   updateOrderShipments: (
@@ -631,6 +645,19 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     });
     setRecentOrders((prev) =>
       prev.map((entry) => (entry.id === order.id ? order : entry))
+    );
+  }, []);
+
+  const applyOrderUpdates = useCallback((updatedOrders: Order[]) => {
+    if (updatedOrders.length === 0) return;
+    const byId = new Map(updatedOrders.map((order) => [order.id, order]));
+    setOrders((prev) => {
+      const next = prev.map((entry) => byId.get(entry.id) ?? entry);
+      setProductionTasks(deriveProductionTasks(next));
+      return next;
+    });
+    setRecentOrders((prev) =>
+      prev.map((entry) => byId.get(entry.id) ?? entry)
     );
   }, []);
 
@@ -1065,14 +1092,32 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   );
 
   const archiveOrder = useCallback(
-    async (orderId: string) => {
+    async (orderId: string, options?: { includeOrderData?: boolean }) => {
       const token = await getIdToken();
       if (!token) return;
 
-      const { order } = await apiArchiveOrder(token, orderId);
+      const { order } = await apiArchiveOrder(token, orderId, options);
       applyOrderUpdate(order);
     },
     [getIdToken, applyOrderUpdate]
+  );
+
+  const bulkArchiveOrders = useCallback(
+    async (orderIds: string[], options?: { includeOrderData?: boolean }) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to archive orders.");
+      }
+
+      const result = await apiBulkArchiveOrders(token, orderIds, options);
+      applyOrderUpdates(result.orders);
+      return {
+        archivedCount: result.archivedCount,
+        requestedCount: result.requestedCount,
+        errors: result.errors,
+      };
+    },
+    [getIdToken, applyOrderUpdates]
   );
 
   const restoreOrder = useCallback(
@@ -1724,6 +1769,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         selectedRateSheetId?: string | null;
         estimateAdjustments?: OrderEstimateAdjustment[];
         excludedContractFeeIds?: string[];
+        taxEnabled?: boolean;
+        taxRate?: number;
       }
     ) => {
       const token = await getIdToken();
@@ -2093,6 +2140,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getOrdersByCustomerId,
       createReorderFromOrder,
       archiveOrder,
+      bulkArchiveOrders,
       restoreOrder,
       addProductionJob,
       removeProductionJob,
@@ -2183,6 +2231,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getOrdersByCustomerId,
       createReorderFromOrder,
       archiveOrder,
+      bulkArchiveOrders,
       restoreOrder,
       addProductionJob,
       removeProductionJob,

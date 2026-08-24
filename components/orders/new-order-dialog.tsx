@@ -5,15 +5,12 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  FileImage,
   Package,
   Palette,
   Plus,
   Trash2,
-  Upload,
   User,
   UserPlus,
-  X,
 } from "lucide-react";
 import { AddCustomerDialog } from "@/components/customers/add-customer-dialog";
 import {
@@ -34,7 +31,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -45,14 +41,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { readImagePreviewDataUrl } from "@/lib/artwork-preview";
 import {
   activeLineItems,
   applyAutoEventNames,
   compactOrderNumberForLabel,
   createEmptyNewOrderForm,
   createEmptyNewOrderJob,
-  createMockupDraftId,
   formatLineItemInputLabel,
   generateOrderNumber,
   NEW_ORDER_STEPS,
@@ -70,16 +64,12 @@ import {
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
-import {
-  EVENT_KIND_OPTIONS,
-  decorationLabel,
-} from "@/lib/format";
+import { EVENT_KIND_OPTIONS } from "@/lib/format";
 import {
   defaultPrintLocationKey,
   getDecorationTypeOptions,
   getPrintLocationOptions,
   resolvePrintLocationDecorationType,
-  resolvePrintLocationLabel,
 } from "@/lib/shop-settings";
 import { getProductionStepQuickPicks } from "@/lib/order-production";
 import { sortSubCustomers } from "@/lib/sub-customers";
@@ -87,7 +77,7 @@ import { eventLabel } from "@/lib/terminology";
 import type { DecorationType, ImprintLocationKey, Order } from "@/types";
 import { cn } from "@/lib/utils";
 
-const stepIcons = [User, Package, Palette, FileImage] as const;
+const stepIcons = [User, Package, Palette] as const;
 
 function formSnapshot(form: NewOrderFormInput) {
   return JSON.stringify(form);
@@ -199,10 +189,6 @@ export function NewOrderDialog({
     blanks.length > 0 && form.blankSource === undefined;
   const highlightBlankSource =
     step === 2 && blankSourceMissing && Boolean(error);
-  const decorationJobs = useMemo(
-    () => form.jobs.filter((job) => job.kind !== "finishing"),
-    [form.jobs]
-  );
 
   const patchForm = (patch: Partial<NewOrderFormInput>) => {
     setForm((current) => ({ ...current, ...patch }));
@@ -369,8 +355,7 @@ export function NewOrderDialog({
   const stepDescriptions: Record<number, string> = {
     1: "Choose the account this quote or sales order belongs to.",
     2: "Add blanks/garments now, or skip and add them from the order page later.",
-    3: `Create decoration events and attach blanks/garments. Names use your order number and placement (e.g. ${compactOrderNumberForLabel(previewOrderNumber)} - FRONT CHEST).`,
-    4: "Upload mockups if you have them, then create the order. Shipping, dates, and pricing live on the order detail page.",
+    3: `Create decoration events and attach blanks/garments. Names use your order number and placement (e.g. ${compactOrderNumberForLabel(previewOrderNumber)} - FRONT CHEST). Add mockups later on the Proofs tab.`,
   };
 
   return (
@@ -392,13 +377,13 @@ export function NewOrderDialog({
               New sales order
             </DialogTitle>
             <DialogDescription className={dashboardTaskDetailClass}>
-              Start with customer, blanks/garments, events, and mockups — finish
-              shipping and details on the order page.
+              Start with customer, blanks/garments, and events — add mockups on
+              the Proofs tab, and finish shipping and details on the order page.
             </DialogDescription>
           </DialogHeader>
 
         <div className="shrink-0 border-b border-[#ebebeb] px-5 py-3">
-          <nav className="grid grid-cols-4 gap-1.5">
+          <nav className="grid grid-cols-3 gap-1.5">
             {NEW_ORDER_STEPS.map((item, index) => {
               const Icon = stepIcons[index];
               const isActive = step === item.id;
@@ -711,38 +696,6 @@ export function NewOrderDialog({
             </div>
           )}
 
-          {step === 4 && (
-            <div className="space-y-4">
-              {decorationJobs.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-8 text-center">
-                  <p className="text-[13px] font-medium text-[#303030]">
-                    No decoration events
-                  </p>
-                  <p className={cn("mx-auto mt-1 max-w-sm", dashboardTaskDetailClass)}>
-                    Mockups attach to decoration events only. Skip this step if
-                    you did not add events, or go back to add them.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <p className={dashboardTaskDetailClass}>
-                    Optional — upload a mockup for each decoration event. Events
-                    without a file will show as no mockup attached on proofs.
-                  </p>
-                  <div className="space-y-3">
-                    {decorationJobs.map((job) => (
-                      <MockupUploadCard
-                        key={job.id}
-                        job={job}
-                        onChange={(patch) => updateJob(job.id, patch)}
-                      />
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
           {error && (
             <p className="mt-4 rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2.5 text-[13px] text-[#8f1f1f]">
               {error}
@@ -858,8 +811,7 @@ function JobStepCard({
           {job.name}
         </p>
         <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-          Named from order number and placement. Mockups and proofs use this
-          label.
+          Named from order number and placement. Proofs use this label.
         </p>
       </div>
 
@@ -999,99 +951,6 @@ function JobStepCard({
           className="min-h-[72px] resize-none rounded-lg"
         />
       </Field>
-    </div>
-  );
-}
-
-function MockupUploadCard({
-  job,
-  onChange,
-}: {
-  job: NewOrderJobInput;
-  onChange: (patch: Partial<NewOrderJobInput>) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const { settings } = useShopSettings();
-
-  const handleFiles = async (fileList: FileList | null) => {
-    const file = fileList?.[0];
-    if (!file) return;
-    const { previewUrl } = await readImagePreviewDataUrl(file);
-    onChange({
-      mockupFile: {
-        id: createMockupDraftId(),
-        name: file.name,
-        previewUrl: previewUrl || undefined,
-      },
-    });
-  };
-
-  return (
-    <div className="rounded-lg border border-[#ebebeb] bg-white p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold text-[#303030]">
-            {job.name || "Untitled event"}
-          </p>
-          <p className="text-[12px] text-[#616161]">
-            {decorationLabel(job.decorationType)} ·{" "}
-            {resolvePrintLocationLabel(
-              job.locationKey,
-              settings.productionDefaults
-            )}
-          </p>
-        </div>
-        {job.mockupFile ? (
-          <button
-            type="button"
-            onClick={() => onChange({ mockupFile: undefined })}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-[#616161] hover:bg-[#fff1f1] hover:text-[#8f1f1f]"
-          >
-            <X className="size-3" />
-            Remove
-          </button>
-        ) : null}
-      </div>
-
-      <input
-        ref={inputRef}
-        type="file"
-        className="hidden"
-        accept=".pdf,.ai,.eps,.png,.jpg,.jpeg,.svg"
-        onChange={(event) => {
-          void handleFiles(event.target.files);
-          event.target.value = "";
-        }}
-      />
-
-      {job.mockupFile?.previewUrl ? (
-        <div className="mt-3 overflow-hidden rounded-lg border border-[#ebebeb] bg-[#fafafa] p-2">
-          <img
-            src={job.mockupFile.previewUrl}
-            alt={job.mockupFile.name}
-            className="mx-auto max-h-40 w-full object-contain"
-          />
-          <p className="mt-2 truncate text-center text-[12px] text-[#616161]">
-            {job.mockupFile.name}
-          </p>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          className="mt-3 flex w-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-[#d9d9d9] bg-[#fafafa] px-4 py-8 text-center transition-colors hover:border-brand-ink/30 hover:bg-brand-ink/[0.03]"
-        >
-          <div className="flex size-10 items-center justify-center rounded-lg bg-[#f4f7fd] text-[#2c6ecb]">
-            <Upload className="size-4" />
-          </div>
-          <p className="text-[13px] font-medium text-[#303030]">
-            Upload mockup
-          </p>
-          <p className="text-[12px] text-[#616161]">
-            Optional — skip if you will add proofs later
-          </p>
-        </button>
-      )}
     </div>
   );
 }

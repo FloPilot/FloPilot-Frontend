@@ -43,12 +43,17 @@ import {
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
-import { useArchivedDesigns } from "@/lib/design-archive";
+import {
+  clearLocalArchivedDesignIds,
+  readLocalArchivedDesignIds,
+} from "@/lib/design-archive";
 import { useImageBackgroundColor } from "@/lib/use-image-background-color";
 import { INK_TYPE_OPTIONS } from "@/lib/imprint-design";
 import {
+  archiveDesign as apiArchiveDesign,
   getDesign,
   listDesigns,
+  restoreDesign as apiRestoreDesign,
   restoreDesignVersion as apiRestoreDesignVersion,
   updateDesign as apiUpdateDesign,
 } from "@/lib/api";
@@ -178,12 +183,14 @@ function DesignDetailSidebar({
   design,
   inkColors,
   archived,
+  archiveBusy,
   onEdit,
   onArchiveToggle,
 }: {
   design: SavedDesign;
   inkColors: ImprintInkColor[];
   archived: boolean;
+  archiveBusy?: boolean;
   onEdit: () => void;
   onArchiveToggle: () => void;
 }) {
@@ -221,6 +228,7 @@ function DesignDetailSidebar({
           </Button>
           <Button
             type="button"
+            disabled={archiveBusy}
             className={cn(dashboardControlClass, "h-9 w-full justify-center gap-1.5")}
             onClick={onArchiveToggle}
           >
@@ -417,7 +425,6 @@ export function DesignDetailView({ designId }: { designId: string }) {
   const router = useRouter();
   const { getIdToken } = useAuth();
   const { refreshShopData } = useSchedule();
-  const { archive, restore, isArchived } = useArchivedDesigns();
 
   const [design, setDesign] = useState<SavedDesign | null>(null);
   const [siblings, setSiblings] = useState<SavedDesign[]>([]);
@@ -426,7 +433,9 @@ export function DesignDetailView({ designId }: { designId: string }) {
   const [tab, setTab] = useState<DesignDetailTab>("overview");
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  const [localArchived, setLocalArchived] = useState(false);
   const [selectedVersion, setSelectedVersion] =
     useState<DesignVersionSnapshot | null>(null);
   const [versionModalOpen, setVersionModalOpen] = useState(false);
@@ -474,6 +483,10 @@ export function DesignDetailView({ designId }: { designId: string }) {
   }, [load]);
 
   useEffect(() => {
+    setLocalArchived(readLocalArchivedDesignIds().includes(designId));
+  }, [designId]);
+
+  useEffect(() => {
     if (!design) return;
     setEditing(false);
     setName(design.name);
@@ -491,9 +504,35 @@ export function DesignDetailView({ designId }: { designId: string }) {
     setDraftInks(design.inkColors ?? []);
   }, [design]);
 
-  const archived = design ? isArchived(design.id) : false;
+  const archived = design?.archived === true || localArchived;
   const activity = design?.activity ?? [];
   const versions = design?.versions ?? [];
+
+  const handleArchiveToggle = useCallback(async () => {
+    if (!design) return;
+    const token = await getIdToken();
+    if (!token) return;
+    setArchiveBusy(true);
+    setError(null);
+    try {
+      const { design: next } = archived
+        ? await apiRestoreDesign(token, design.id)
+        : await apiArchiveDesign(token, design.id);
+      setDesign(next);
+      clearLocalArchivedDesignIds([design.id]);
+      setLocalArchived(false);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : archived
+            ? "Could not restore this design."
+            : "Could not archive this design."
+      );
+    } finally {
+      setArchiveBusy(false);
+    }
+  }, [archived, design, getIdToken]);
 
   const resetDraftFromDesign = useCallback(() => {
     if (!design) return;
@@ -1095,10 +1134,10 @@ export function DesignDetailView({ designId }: { designId: string }) {
             design={design}
             inkColors={inkColors}
             archived={archived}
+            archiveBusy={archiveBusy}
             onEdit={() => setEditing(true)}
             onArchiveToggle={() => {
-              if (archived) restore(design.id);
-              else archive(design.id);
+              void handleArchiveToggle();
             }}
           />
         ) : null}

@@ -14,6 +14,7 @@ import type {
 import type { SchedulingQueueOrder } from "@/lib/event-basket";
 import { decorationLabel, formatDate } from "@/lib/format";
 import { formatOrderDisplayLine, formatOrderRef } from "@/lib/order-display";
+import { formatSchedulingPieceLabel } from "@/lib/order-scheduling-pieces";
 import type { HealthStatus } from "@/lib/order-health";
 import { isWillCallOrder } from "@/lib/order-shipping";
 import {
@@ -190,9 +191,13 @@ export function AttentionScheduleList({
                     </p>
                     <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
                       {decorationLabel(event.decoration)}
-                      {event.pieceCount > 0
-                        ? ` · ${event.pieceCount.toLocaleString()} pcs`
-                        : ""}
+                      {(() => {
+                        const label = formatSchedulingPieceLabel({
+                          ordered: event.orderedPieceCount,
+                          decorate: event.pieceCount,
+                        });
+                        return label ? ` · ${label}` : "";
+                      })()}
                       {event.flowTotal > 1
                         ? ` · ${formatEventXOfY(event.flowStep, event.flowTotal)}`
                         : ""}

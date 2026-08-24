@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
+  BarChart3,
   Check,
   Copy,
   ExternalLink,
@@ -51,6 +52,7 @@ import {
   useStaffUnsavedChanges,
 } from "@/components/layout/staff-unsaved-changes-provider";
 import { StoreCollectionsPanel } from "@/components/stores/store-collections-panel";
+import { StoreAnalyticsPanel } from "@/components/stores/store-analytics-panel";
 import { StoreConvertSubmissionDialog } from "@/components/stores/store-convert-submission-dialog";
 import { StoreCustomizeBuilder } from "@/components/stores/store-customize-builder";
 import { StoreEmployeesPanel } from "@/components/stores/store-employees-panel";
@@ -126,6 +128,7 @@ type EditorTab =
   | "pages"
   | "navigation"
   | "customize"
+  | "analytics"
   | "share"
   | "employees"
   | "orders";
@@ -1126,6 +1129,7 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       icon: Menu,
     },
     { id: "customize", label: "Customize", icon: LayoutTemplate },
+    { id: "analytics", label: "Analytics", icon: BarChart3 },
     { id: "share", label: "Share", icon: Link2 },
     ...(!isClientStoreReviewMode({ mode }) && !isClientStoreShowMode({ mode })
       ? [{ id: "employees" as const, label: "Employees", icon: Users }]
@@ -1802,6 +1806,10 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {tab === "analytics" ? (
+        <StoreAnalyticsPanel storeId={store.id} getIdToken={getIdToken} />
       ) : null}
 
       {tab === "products" ? (

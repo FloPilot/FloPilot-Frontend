@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BookMarked, ImageIcon } from "lucide-react";
+import { BookMarked, ImageIcon, Wand2 } from "lucide-react";
 import { ApplyDesignDialog } from "@/components/orders/apply-design-dialog";
 import { DecorationTypePill } from "@/components/orders/decoration-type-pill";
+import { OrderProofDesignStudioDialog } from "@/components/orders/order-proof-design-studio-dialog";
 import {
   ImprintDesignCard,
   type ImprintDesignCardAdapters,
@@ -43,6 +44,7 @@ export function OrderDesignTab({
   readOnly?: boolean;
 }) {
   const [applyOpen, setApplyOpen] = useState(false);
+  const [designStudioOpen, setDesignStudioOpen] = useState(false);
   const steps = useMemo(() => getOrderProductionSteps(order), [order]);
   const proofSteps = useMemo(
     () =>
@@ -93,16 +95,29 @@ export function OrderDesignTab({
               "Upload mockups, set specs, and send proofs — one per decoration location on this order."}
           </p>
         </div>
-        {!hideApplyFromLibrary ? (
-          <Button
-            type="button"
-            className={cn(dashboardControlClass, "h-8 shrink-0 text-[12px]")}
-            onClick={() => setApplyOpen(true)}
-          >
-            <BookMarked className="size-3.5" />
-            Apply from library
-          </Button>
-        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {!readOnly ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 shrink-0 rounded-lg border-brand-primary/30 bg-brand-primary/5 text-[12px] font-medium text-brand-primary hover:bg-brand-primary/10"
+              onClick={() => setDesignStudioOpen(true)}
+            >
+              <Wand2 className="size-3.5" />
+              Design studio
+            </Button>
+          ) : null}
+          {!hideApplyFromLibrary ? (
+            <Button
+              type="button"
+              className={cn(dashboardControlClass, "h-8 shrink-0 text-[12px]")}
+              onClick={() => setApplyOpen(true)}
+            >
+              <BookMarked className="size-3.5" />
+              Apply from library
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
@@ -165,6 +180,9 @@ export function OrderDesignTab({
               hideApprovalActions={hideApprovalActions}
               hideLinkFromFiles={hideLinkFromFiles}
               adapters={imprintAdapters}
+              onOpenDesignStudio={
+                readOnly ? undefined : () => setDesignStudioOpen(true)
+              }
             />
           ) : null}
         </div>
@@ -175,6 +193,15 @@ export function OrderDesignTab({
           order={order}
           open={applyOpen}
           onOpenChange={setApplyOpen}
+        />
+      ) : null}
+      {activeStep ? (
+        <OrderProofDesignStudioDialog
+          order={order}
+          jobId={activeStep.job.id}
+          imprintId={activeStep.imprint.id}
+          open={designStudioOpen}
+          onOpenChange={setDesignStudioOpen}
         />
       ) : null}
     </div>

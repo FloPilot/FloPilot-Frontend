@@ -25,6 +25,7 @@ import {
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { decorationLabel, formatDate } from "@/lib/format";
+import { formatSchedulingPieceLabel } from "@/lib/order-scheduling-pieces";
 import type { HealthStatus } from "@/lib/order-health";
 import { formatEventXOfY } from "@/lib/terminology";
 import { cn } from "@/lib/utils";
@@ -76,9 +77,13 @@ function EventPickerRow({
         </span>
         <span className="mt-0.5 block text-xs text-[#616161]">
           {decorationLabel(event.decoration)}
-          {event.pieceCount > 0
-            ? ` · ${event.pieceCount.toLocaleString()} pcs`
-            : ""}
+          {(() => {
+            const label = formatSchedulingPieceLabel({
+              ordered: event.orderedPieceCount,
+              decorate: event.pieceCount,
+            });
+            return label ? ` · ${label}` : "";
+          })()}
         </span>
       </span>
       {selected ? (
@@ -239,9 +244,13 @@ export function OrderScheduleSheet({
                     <p className={cn("mt-1", dashboardTaskDetailClass)}>
                       {selectedEvent.jobName} ·{" "}
                       {decorationLabel(selectedEvent.decoration)}
-                      {selectedEvent.pieceCount > 0
-                        ? ` · ${selectedEvent.pieceCount.toLocaleString()} pieces`
-                        : ""}
+                      {(() => {
+                        const label = formatSchedulingPieceLabel({
+                          ordered: selectedEvent.orderedPieceCount,
+                          decorate: selectedEvent.pieceCount,
+                        });
+                        return label ? ` · ${label}` : "";
+                      })()}
                     </p>
                   </div>
 

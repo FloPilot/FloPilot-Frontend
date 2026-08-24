@@ -27,6 +27,7 @@ import {
   Loader2,
   Shirt,
   Trash2,
+  Wand2,
 } from "lucide-react";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
@@ -308,6 +309,7 @@ export function ProofSlidesEditor({
   pinned,
   forceArtworkStatus,
   adapters,
+  onOpenDesignStudio,
 }: {
   orderId: string;
   job: Job;
@@ -316,6 +318,7 @@ export function ProofSlidesEditor({
   compact?: boolean;
   pinned?: boolean;
   forceArtworkStatus?: ArtworkFile["status"];
+  onOpenDesignStudio?: () => void;
   adapters?: {
     addProofSlide?: (
       orderId: string,
@@ -493,6 +496,18 @@ export function ProofSlidesEditor({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {onOpenDesignStudio ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={uploading}
+              className="h-8 rounded-lg border-brand-primary/30 bg-brand-primary/5 text-[12px] font-medium text-brand-primary hover:bg-brand-primary/10"
+              onClick={onOpenDesignStudio}
+            >
+              <Wand2 className="size-3.5" />
+              Design studio
+            </Button>
+          ) : null}
           <input
             ref={fileInputRef}
             type="file"

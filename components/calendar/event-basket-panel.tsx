@@ -40,6 +40,7 @@ import {
 } from "@/lib/event-basket";
 import { decorationLabel, formatDate } from "@/lib/format";
 import { formatOrderDisplayLine, formatOrderRef } from "@/lib/order-display";
+import { formatSchedulingPieceLabel } from "@/lib/order-scheduling-pieces";
 import type { HealthStatus } from "@/lib/order-health";
 import { eventsLabel, formatEventXOfY, formatMoreEvents } from "@/lib/terminology";
 import { cn } from "@/lib/utils";
@@ -151,6 +152,16 @@ function QueueOrderRow({
     ? formatEventXOfY(next.flowStep, next.flowTotal)
     : `${item.progress.scheduled}/${item.progress.total} scheduled`;
   const accent = getCustomerAccent(item.customerId, item.orderId);
+  const nextPieceLabel = next
+    ? formatSchedulingPieceLabel({
+        ordered: next.orderedPieceCount,
+        decorate: next.pieceCount,
+      })
+    : "";
+  const orderPieceLabel = formatSchedulingPieceLabel({
+    ordered: item.orderedPieceCount,
+    decorate: item.totalPieceCount,
+  });
 
   return (
     <article
@@ -206,8 +217,7 @@ function QueueOrderRow({
                 <span className="text-[#616161]">
                   {" "}
                   · {decorationLabel(next.decoration)}
-                  {next.pieceCount > 0 &&
-                    ` · ${next.pieceCount.toLocaleString()} pcs`}
+                  {nextPieceLabel ? ` · ${nextPieceLabel}` : ""}
                 </span>
               </p>
             ) : (
@@ -221,9 +231,7 @@ function QueueOrderRow({
                 {item.dueLabel}
               </span>
               <span>ETA {formatDate(item.inHandsDate)}</span>
-              {item.totalPieceCount > 0 && (
-                <span>{item.totalPieceCount.toLocaleString()} pcs total</span>
-              )}
+              {orderPieceLabel ? <span>{orderPieceLabel}</span> : null}
               {item.flowSteps.length > 1 && (
                 <span className="inline-flex items-center gap-1.5">
                   <FlowProgressDots steps={item.flowSteps} />

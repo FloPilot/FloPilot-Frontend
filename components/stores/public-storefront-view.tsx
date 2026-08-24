@@ -34,6 +34,7 @@ import {
   createClientStoreCheckout,
   getPublicClientStore,
   submitClientStoreOrder,
+  trackClientStoreVisit,
 } from "@/lib/api";
 import {
   clearClientStoreCart,
@@ -116,6 +117,27 @@ export function PublicStorefrontView({ token }: { token: string }) {
   const [submitted, setSubmitted] = useState(false);
   const [paidOnline, setPaidOnline] = useState(false);
   const searchParams = useSearchParams();
+
+  useEffect(() => {
+    try {
+      const key = "flopilot-client-store-visitor";
+      let visitorId = localStorage.getItem(key);
+      if (!visitorId) {
+        visitorId = crypto.randomUUID();
+        localStorage.setItem(key, visitorId);
+      }
+      void trackClientStoreVisit({
+        token,
+        visitorId,
+        referrer: document.referrer,
+        locale: navigator.language,
+      }).catch(() => {
+        // Analytics must never block the shopper experience.
+      });
+    } catch {
+      // Storage may be unavailable in private browsing contexts.
+    }
+  }, [token]);
 
   const openCart = useCallback(() => {
     setCheckoutStep("cart");

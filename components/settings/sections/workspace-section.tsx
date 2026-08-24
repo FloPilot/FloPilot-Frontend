@@ -262,6 +262,10 @@ export function WorkspaceSection() {
                 %
               </span>
             </div>
+            <p className="text-xs text-[#8a8a8a]">
+              Applied to new orders by default. Staff can turn tax off or
+              override the rate on an order&apos;s Estimate tab.
+            </p>
           </div>
         </div>
       </SettingsPanel>

@@ -1,25 +1,40 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertCircle,
   Archive,
+  ArchiveRestore,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
   Clock,
   FileImage,
   LayoutPanelLeft,
+  Loader2,
   RotateCcw,
   Search,
 } from "lucide-react";
 import { ArtworkDetailDialog } from "@/components/artwork/artwork-detail-dialog";
 import { DesignLibraryView } from "@/components/artwork/design-library-view";
+import {
+  BulkArchiveOrdersDialog,
+  type BulkArchiveMode,
+} from "@/components/orders/bulk-archive-orders-dialog";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import { useStaffAccess } from "@/hooks/use-staff-access";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -215,7 +230,8 @@ function EmptyState({
 }
 
 export function ArtworkView() {
-  const { orders } = useSchedule();
+  const { orders, bulkArchiveOrders, restoreOrder } = useSchedule();
+  const { isAdmin } = useStaffAccess();
   const [tab, setTab] = useState<"queue" | "library">("queue");
   const [filter, setFilter] = useState<ArtworkQueueFilter>("all");
   const [scope, setScope] = useState<ArtworkQueueScope>("active");
@@ -224,6 +240,12 @@ export function ArtworkView() {
     null
   );
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoreSaving, setRestoreSaving] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   const entries = useMemo(() => collectArtworkQueue(orders), [orders]);
   const scopeCounts = useMemo(() => countArtworkScopes(entries), [entries]);
@@ -242,10 +264,116 @@ export function ArtworkView() {
   }, [scopedEntries, filter, search]);
 
   const needsAttention = counts.pending + counts.revision_requested;
+  const canBulkSelect = isAdmin && scope !== "all";
+  const selectedCount = selectedKeys.size;
+
+  const selectedOrderIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const entry of filtered) {
+      if (selectedKeys.has(artworkQueueEntryKey(entry))) {
+        ids.add(entry.orderId);
+      }
+    }
+    return [...ids];
+  }, [filtered, selectedKeys]);
+
+  const allVisibleSelected =
+    canBulkSelect &&
+    filtered.length > 0 &&
+    filtered.every((entry) => selectedKeys.has(artworkQueueEntryKey(entry)));
+
+  useEffect(() => {
+    setSelectedKeys(new Set());
+    setStatusMessage(null);
+  }, [scope, filter, search, tab]);
+
+  useEffect(() => {
+    const visibleKeys = new Set(filtered.map((entry) => artworkQueueEntryKey(entry)));
+    setSelectedKeys((current) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const key of current) {
+        if (visibleKeys.has(key)) next.add(key);
+        else changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [filtered]);
 
   const openEntry = (entry: ArtworkQueueEntry) => {
     setSelectedEntry(entry);
     setDialogOpen(true);
+  };
+
+  const toggleEntry = (key: string) => {
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedKeys((current) => {
+      const visibleKeys = filtered.map((entry) => artworkQueueEntryKey(entry));
+      const everySelected =
+        visibleKeys.length > 0 && visibleKeys.every((key) => current.has(key));
+      if (everySelected) return new Set();
+      return new Set(visibleKeys);
+    });
+  };
+
+  const handleBulkArchive = async (mode: BulkArchiveMode) => {
+    if (selectedOrderIds.length === 0) {
+      throw new Error("Select at least one artwork row to archive its order.");
+    }
+    const result = await bulkArchiveOrders(selectedOrderIds, {
+      includeOrderData: mode === "orders_and_data",
+    });
+    setSelectedKeys(new Set());
+    setStatusMessage(
+      result.errors.length > 0
+        ? `Archived ${result.archivedCount} of ${result.requestedCount} orders. ${result.errors.length} could not be archived.`
+        : mode === "orders_and_data"
+          ? `Archived ${result.archivedCount} order${result.archivedCount === 1 ? "" : "s"} and linked design data.`
+          : `Archived ${result.archivedCount} order${result.archivedCount === 1 ? "" : "s"}. Artwork moved to Archived.`
+    );
+  };
+
+  const handleBulkRestore = async () => {
+    if (selectedOrderIds.length === 0) {
+      throw new Error("Select at least one artwork row to restore its order.");
+    }
+    setRestoreSaving(true);
+    setRestoreError(null);
+    let restored = 0;
+    const errors: string[] = [];
+    try {
+      for (const orderId of selectedOrderIds) {
+        try {
+          await restoreOrder(orderId);
+          restored += 1;
+        } catch (err) {
+          errors.push(
+            err instanceof Error ? err.message : "Could not restore an order."
+          );
+        }
+      }
+      setSelectedKeys(new Set());
+      setStatusMessage(
+        errors.length > 0
+          ? `Restored ${restored} of ${selectedOrderIds.length} orders. ${errors.length} could not be restored.`
+          : `Restored ${restored} order${restored === 1 ? "" : "s"}. Artwork moved to Active.`
+      );
+      setRestoreOpen(false);
+    } catch (err) {
+      setRestoreError(
+        err instanceof Error ? err.message : "Could not restore the selected orders."
+      );
+    } finally {
+      setRestoreSaving(false);
+    }
   };
 
   return (
@@ -438,6 +566,66 @@ export function ArtworkView() {
                       />
                     </div>
                   </div>
+
+                  {canBulkSelect && selectedCount > 0 ? (
+                    <div className="mx-3 mb-2.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#dbe6f5] bg-[#f4f7fd] px-3 py-2.5">
+                      <p className="text-[13px] font-medium text-[#303030]">
+                        {selectedCount} location
+                        {selectedCount === 1 ? "" : "s"} selected
+                        {selectedOrderIds.length > 0
+                          ? ` · ${selectedOrderIds.length} order${selectedOrderIds.length === 1 ? "" : "s"}`
+                          : ""}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className={cn(dashboardControlClass, "h-8")}
+                          onClick={() => setSelectedKeys(new Set())}
+                        >
+                          Clear
+                        </Button>
+                        {scope === "archived" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className={cn(dashboardControlClass, "h-8")}
+                            onClick={() => setRestoreOpen(true)}
+                          >
+                            <ArchiveRestore className="size-3.5" />
+                            Restore selected
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            size="sm"
+                            className={cn(
+                              dashboardControlClass,
+                              "h-8 border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f] hover:bg-[#fde2e2] hover:text-[#8f1f1f]"
+                            )}
+                            onClick={() => setArchiveOpen(true)}
+                          >
+                            <Archive className="size-3.5" />
+                            Archive selected
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {statusMessage ? (
+                    <p
+                      className={cn(
+                        "mx-3 mb-2.5 rounded-lg border px-3 py-2 text-[13px]",
+                        statusMessage.toLowerCase().includes("could not")
+                          ? "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f]"
+                          : "border-[#cfe8d8] bg-[#e8f5ee] text-[#0d5c2e]"
+                      )}
+                    >
+                      {statusMessage}
+                    </p>
+                  ) : null}
                 </div>
 
                 {filtered.length === 0 ? (
@@ -453,7 +641,23 @@ export function ArtworkView() {
                     <Table>
                       <TableHeader>
                         <TableRow className="border-[#ebebeb] hover:bg-transparent">
-                          <TableHead className="h-9 bg-[#fafafa] pl-4 text-[12px] font-medium text-[#616161] sm:pl-5">
+                          {canBulkSelect ? (
+                            <TableHead className="h-9 w-10 bg-[#fafafa] pl-4 sm:pl-5">
+                              <input
+                                type="checkbox"
+                                checked={allVisibleSelected}
+                                onChange={toggleAllVisible}
+                                className="size-3.5 accent-[#2c6ecb]"
+                                aria-label="Select all visible artwork"
+                              />
+                            </TableHead>
+                          ) : null}
+                          <TableHead
+                            className={cn(
+                              "h-9 bg-[#fafafa] text-[12px] font-medium text-[#616161]",
+                              !canBulkSelect && "pl-4 sm:pl-5"
+                            )}
+                          >
                             Location
                           </TableHead>
                           <TableHead className="h-9 bg-[#fafafa] text-[12px] font-medium text-[#616161]">
@@ -479,15 +683,18 @@ export function ArtworkView() {
                       </TableHeader>
                       <TableBody>
                         {filtered.map((entry) => {
+                          const entryKey = artworkQueueEntryKey(entry);
+                          const isSelected = selectedKeys.has(entryKey);
                           return (
                             <TableRow
-                              key={artworkQueueEntryKey(entry)}
+                              key={entryKey}
                               tabIndex={0}
                               role="button"
                               aria-label={`Review ${entry.imprintLabel} on ${formatOrderRef(entry)}`}
                               className={cn(
                                 "group cursor-pointer border-[#ebebeb] transition-colors hover:bg-[#f6f6f7] focus-visible:bg-[#f6f6f7] focus-visible:outline-none",
-                                entry.archived && "opacity-70"
+                                entry.archived && "opacity-70",
+                                isSelected && "bg-[#f4f7fd]"
                               )}
                               onClick={() => openEntry(entry)}
                               onKeyDown={(event) => {
@@ -497,7 +704,26 @@ export function ArtworkView() {
                                 }
                               }}
                             >
-                              <TableCell className="py-2.5 pl-4 sm:pl-5">
+                              {canBulkSelect ? (
+                                <TableCell
+                                  className="py-2.5 pl-4 sm:pl-5"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => toggleEntry(entryKey)}
+                                    className="size-3.5 accent-[#2c6ecb]"
+                                    aria-label={`Select ${entry.imprintLabel}`}
+                                  />
+                                </TableCell>
+                              ) : null}
+                              <TableCell
+                                className={cn(
+                                  "py-2.5",
+                                  !canBulkSelect && "pl-4 sm:pl-5"
+                                )}
+                              >
                                 <p className="text-[13px] font-medium text-[#303030] transition-colors group-hover:text-[#2c6ecb]">
                                   {entry.imprintLabel}
                                 </p>
@@ -593,6 +819,67 @@ export function ArtworkView() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
       />
+
+      <BulkArchiveOrdersDialog
+        open={archiveOpen}
+        onOpenChange={setArchiveOpen}
+        selectedCount={selectedOrderIds.length}
+        onConfirm={handleBulkArchive}
+      />
+
+      <Dialog
+        open={restoreOpen}
+        onOpenChange={(next) => {
+          if (restoreSaving) return;
+          setRestoreError(null);
+          setRestoreOpen(next);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Restore{" "}
+              {selectedOrderIds.length === 1
+                ? "1 order"
+                : `${selectedOrderIds.length.toLocaleString()} orders`}
+              ?
+            </DialogTitle>
+            <DialogDescription className={dashboardTaskDetailClass}>
+              Restored orders return to Active work. Their artwork locations
+              move back to the Active proof queue.
+            </DialogDescription>
+          </DialogHeader>
+          {restoreError ? (
+            <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[13px] text-[#8f1f1f]">
+              {restoreError}
+            </p>
+          ) : null}
+          <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className={cn(dashboardControlClass, "sm:min-w-[96px]")}
+              disabled={restoreSaving}
+              onClick={() => setRestoreOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className={cn(dashboardControlClass, "sm:min-w-[150px]")}
+              disabled={restoreSaving || selectedOrderIds.length <= 0}
+              onClick={() => void handleBulkRestore()}
+            >
+              {restoreSaving ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <ArchiveRestore className="size-3.5" />
+              )}
+              Restore orders
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

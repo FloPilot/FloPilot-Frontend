@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -11,6 +11,7 @@ import {
   Sparkles,
   Table2,
 } from "lucide-react";
+import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { PdfPreviewDialog } from "@/components/orders/pdf-preview-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -30,9 +31,13 @@ import {
 } from "@/lib/customer-pricing";
 import { computeEstimateTotals, computeEstimatePerPieceCosts } from "@/lib/order-estimate";
 import { OrderEstimateApprovalPanel } from "@/components/orders/order-estimate-approval-panel";
-import { OrderEstimatePricingPanel } from "@/components/orders/order-estimate-pricing-panel";
+import {
+  OrderEstimatePricingPanel,
+  type OrderEstimatePricingDraft,
+} from "@/components/orders/order-estimate-pricing-panel";
 import { EstimatePerPieceSummary } from "@/components/orders/estimate-per-piece-summary";
 import { StaffEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
+import { Input } from "@/components/ui/input";
 import { countExpectedGarmentPieces } from "@/lib/order-garments";
 import { orderHasDtfEvents } from "@/lib/order-materials";
 import {
@@ -55,20 +60,93 @@ type ToastState = {
   type: ToastType;
 } | null;
 
+function formatTaxPercent(rate: number): string {
+  return String(Number((rate * 100).toFixed(2)));
+}
+
+function pricingDraftFromOrder(order: Order): OrderEstimatePricingDraft {
+  return {
+    selectedRateSheetId: order.selectedRateSheetId ?? null,
+    estimateAdjustments: order.estimateAdjustments ?? [],
+    excludedContractFeeIds: order.excludedContractFeeIds ?? [],
+  };
+}
+
 export function OrderEstimateTab({ order }: { order: Order }) {
   const { settings } = useShopSettings();
-  const { previewOrderDocument, sendProofsAndEstimate, getCustomerById } =
+  const {
+    previewOrderDocument,
+    sendProofsAndEstimate,
+    getCustomerById,
+    updateOrderEstimatePricing,
+  } =
     useSchedule();
 
   const customer = getCustomerById(order.customerId);
+
+  const savedTaxEnabled = order.taxEnabled !== false;
+  const savedTaxRate = order.taxRate ?? settings.taxRate;
+  const [taxEnabledDraft, setTaxEnabledDraft] = useState(savedTaxEnabled);
+  const [taxRateDraft, setTaxRateDraft] = useState(formatTaxPercent(savedTaxRate));
+  const [taxSaving, setTaxSaving] = useState(false);
+  const [taxToggleBusy, setTaxToggleBusy] = useState(false);
+  const [pricingDraft, setPricingDraft] = useState<OrderEstimatePricingDraft>(
+    () => pricingDraftFromOrder(order)
+  );
+
+  useEffect(() => {
+    setTaxEnabledDraft(savedTaxEnabled);
+    setTaxRateDraft(formatTaxPercent(savedTaxRate));
+  }, [savedTaxEnabled, savedTaxRate, order.id]);
+
+  useEffect(() => {
+    setPricingDraft(pricingDraftFromOrder(order));
+  }, [
+    order.id,
+    order.selectedRateSheetId,
+    order.estimateAdjustments,
+    order.excludedContractFeeIds,
+  ]);
+
+  const handlePricingDraftChange = useCallback(
+    (draft: OrderEstimatePricingDraft) => {
+      setPricingDraft(draft);
+    },
+    []
+  );
+
+  const parsedTaxRateDraft = useMemo(() => {
+    const percentage = Number(taxRateDraft);
+    if (!Number.isFinite(percentage)) return savedTaxRate;
+    return Math.min(100, Math.max(0, percentage)) / 100;
+  }, [taxRateDraft, savedTaxRate]);
+
+  const previewOrder = useMemo(
+    () => ({
+      ...order,
+      selectedRateSheetId: pricingDraft.selectedRateSheetId,
+      estimateAdjustments: pricingDraft.estimateAdjustments,
+      excludedContractFeeIds: pricingDraft.excludedContractFeeIds,
+      taxEnabled: taxEnabledDraft,
+      taxRate: parsedTaxRateDraft,
+    }),
+    [order, pricingDraft, taxEnabledDraft, parsedTaxRateDraft]
+  );
+
   const pricingMatrix = useMemo(
-    () => resolveEffectivePricingMatrix(settings, customer, order),
-    [settings.pricingMatrix, customer, order]
+    () => resolveEffectivePricingMatrix(settings, customer, previewOrder),
+    [settings.pricingMatrix, settings.pricingRateSheets, customer, previewOrder]
   );
 
   const totals = useMemo(
-    () => computeEstimateTotals(order, settings.taxRate, pricingMatrix, customer),
-    [order, settings.taxRate, pricingMatrix, customer]
+    () =>
+      computeEstimateTotals(
+        previewOrder,
+        settings.taxRate,
+        pricingMatrix,
+        customer
+      ),
+    [previewOrder, settings.taxRate, pricingMatrix, customer]
   );
 
   const perPieceCosts = useMemo(
@@ -89,13 +167,13 @@ export function OrderEstimateTab({ order }: { order: Order }) {
   );
 
   const pricingLookup = useMemo(
-    () => resolveOrderPricingHighlights(order, pricingMatrix),
-    [order, pricingMatrix]
+    () => resolveOrderPricingHighlights(previewOrder, pricingMatrix),
+    [previewOrder, pricingMatrix]
   );
 
   const sortedPricingMethods = useMemo(() => {
     const filtered = filterMatrixMethodsForOrder(pricingMethods, {
-      hasDtf: orderHasDtfEvents(order),
+      hasDtf: orderHasDtfEvents(previewOrder),
       appliedMethodIds: pricingLookup.appliedMethodIds,
     });
     if (pricingLookup.appliedMethodIds.size === 0) return filtered;
@@ -105,7 +183,7 @@ export function OrderEstimateTab({ order }: { order: Order }) {
       if (aApplied === bApplied) return 0;
       return aApplied ? -1 : 1;
     });
-  }, [order, pricingMethods, pricingLookup.appliedMethodIds]);
+  }, [previewOrder, pricingMethods, pricingLookup.appliedMethodIds]);
 
   const dtfHighlights = useMemo(
     () => filterPricingHighlights(pricingLookup.highlights, "dtf"),
@@ -127,6 +205,10 @@ export function OrderEstimateTab({ order }: { order: Order }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
+
+  const taxDirty =
+    taxEnabledDraft !== savedTaxEnabled ||
+    formatTaxPercent(parsedTaxRateDraft) !== formatTaxPercent(savedTaxRate);
 
   const showToast = useCallback((message: string, type: ToastType) => {
     setToast({ message, type });
@@ -158,9 +240,121 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     }
   }, [sendProofsAndEstimate, order.id, showToast]);
 
+  const discardTaxChanges = useCallback(() => {
+    setTaxEnabledDraft(savedTaxEnabled);
+    setTaxRateDraft(formatTaxPercent(savedTaxRate));
+    setTaxToggleBusy(false);
+  }, [savedTaxEnabled, savedTaxRate]);
+
+  const saveTaxChanges = useCallback(async () => {
+    const percentage = Number(taxRateDraft);
+    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+      showToast("Enter a tax rate between 0% and 100%.", "error");
+      setTaxRateDraft(formatTaxPercent(savedTaxRate));
+      return;
+    }
+
+    setTaxSaving(true);
+    try {
+      await updateOrderEstimatePricing(order.id, {
+        taxEnabled: taxEnabledDraft,
+        taxRate: percentage / 100,
+      });
+      showToast("Tax settings saved.", "success");
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Could not update tax settings.",
+        "error"
+      );
+    } finally {
+      setTaxSaving(false);
+      setTaxToggleBusy(false);
+    }
+  }, [
+    taxRateDraft,
+    savedTaxRate,
+    showToast,
+    updateOrderEstimatePricing,
+    order.id,
+    taxEnabledDraft,
+  ]);
+
+  const handleTaxToggle = (checked: boolean) => {
+    setTaxToggleBusy(true);
+    setTaxEnabledDraft(checked);
+    // Brief selection animation so the toggle feels intentional before Save.
+    window.setTimeout(() => setTaxToggleBusy(false), 220);
+  };
+
+  useRegisterUnsavedChanges(
+    taxDirty || taxSaving
+      ? {
+          dirty: true,
+          saving: taxSaving,
+          label: "Unsaved tax settings",
+          persistAcrossTabs: true,
+          onSave: () => saveTaxChanges(),
+          onDiscard: discardTaxChanges,
+        }
+      : null,
+    `order-estimate-tax-${order.id}`
+  );
+
   return (
     <div className="space-y-4">
       <OrderEstimateApprovalPanel order={order} />
+
+      <section className={dashboardCardClass}>
+        <div className="flex flex-col gap-4 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div>
+            <h2 className={dashboardTaskTitleClass}>Tax</h2>
+            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+              Defaults to the rate configured in Settings. This order can be
+              tax-exempt or use a different rate.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <label
+              className={cn(
+                "inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[13px] font-medium transition-colors",
+                taxEnabledDraft
+                  ? "border-brand-primary/30 bg-brand-primary/5 text-brand-primary"
+                  : "border-[#e3e3e3] bg-white text-[#303030]",
+                (taxSaving || taxToggleBusy) && "opacity-80"
+              )}
+            >
+              {taxSaving || taxToggleBusy ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <input
+                  type="checkbox"
+                  checked={taxEnabledDraft}
+                  disabled={taxSaving}
+                  onChange={(event) => handleTaxToggle(event.target.checked)}
+                  className="size-4 rounded border-[#c9c9c9] text-brand-primary"
+                />
+              )}
+              Add tax
+            </label>
+            <div className="relative">
+              <Input
+                aria-label="Order tax rate percentage"
+                type="number"
+                min={0}
+                max={100}
+                step={0.01}
+                value={taxRateDraft}
+                disabled={!taxEnabledDraft || taxSaving}
+                onChange={(event) => setTaxRateDraft(event.target.value)}
+                className="h-9 w-24 pr-7 text-right tabular-nums"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-[#8a8a8a]">
+                %
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className={dashboardCardClass}>
         <div className="flex flex-col gap-3 border-b border-[#ebebeb] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -235,7 +429,11 @@ export function OrderEstimateTab({ order }: { order: Order }) {
         ) : null}
 
         <div className="space-y-4 p-4 sm:p-5">
-          <OrderEstimatePricingPanel order={order} customer={customer} />
+          <OrderEstimatePricingPanel
+            order={order}
+            customer={customer}
+            onDraftChange={handlePricingDraftChange}
+          />
           {perPieceCosts ? (
             <EstimatePerPieceSummary costs={perPieceCosts} />
           ) : null}

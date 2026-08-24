@@ -73,8 +73,8 @@ export const WORKSPACE_AREA_OPTIONS: {
   },
   {
     key: "artwork",
-    label: "Artwork",
-    description: "Proofs and artwork approvals",
+    label: "Designs",
+    description: "Design Studio and artwork library",
     moduleKey: "artwork",
   },
   {

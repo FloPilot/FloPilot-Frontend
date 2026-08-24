@@ -6,6 +6,7 @@ import {
   findScheduleBlockForStep,
   getOrderProductionSteps,
 } from "@/lib/order-production";
+import { resolveOrderSchedulingPieceCounts } from "@/lib/order-scheduling-pieces";
 
 /**
  * Orders that can appear in the calendar scheduling queue once estimate +
@@ -117,11 +118,7 @@ export function getSchedulableJobs(
     if (!statusAllowed) continue;
 
     for (const job of order.jobs) {
-      const pieceCount = order.lineItems.reduce(
-        (sum, li) =>
-          sum + li.sizes.reduce((sizeSum, size) => sizeSum + size.quantity, 0),
-        0
-      );
+      const pieces = resolveOrderSchedulingPieceCounts(order);
 
       for (const imprint of job.imprints) {
         optionsList.push({
@@ -135,7 +132,8 @@ export function getSchedulableJobs(
           imprintLabel: imprint.label,
           decoration: imprint.decoration,
           inHandsDate: order.inHandsDate,
-          pieceCount: pieceCount || 0,
+          pieceCount: pieces.decorate || 0,
+          orderedPieceCount: pieces.ordered || 0,
         });
       }
     }

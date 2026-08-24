@@ -48,7 +48,7 @@ import type {
 import { cn } from "@/lib/utils";
 
 function orderHref(orderId: string): string {
-  return `/app/orders/${orderId}?tab=design`;
+  return `/app/orders/${orderId}?tab=proof`;
 }
 
 function imprintKey(jobId: string, imprintId: string): string {

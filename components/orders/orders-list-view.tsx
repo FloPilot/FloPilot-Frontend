@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   AlertTriangle,
+  Archive,
   Calendar,
   Download,
   Palette,
@@ -13,14 +14,20 @@ import {
 } from "lucide-react";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { useStaffAccess } from "@/hooks/use-staff-access";
 import { NewOrderButton } from "@/components/providers/new-order-provider";
 import { Button } from "@/components/ui/button";
 import {
   filterOrdersWithAdvanced,
   OrderFilterBuilder,
 } from "@/components/orders/order-filter-builder";
+import {
+  BulkArchiveOrdersDialog,
+  type BulkArchiveMode,
+} from "@/components/orders/bulk-archive-orders-dialog";
 import { OrdersListViewConfig } from "@/components/orders/orders-list-view-config";
 import { OrdersListTable } from "@/components/orders/orders-list-table";
+import { isArchivedOrder } from "@/lib/order-archive";
 import type { OrderAdvancedFilter } from "@/lib/order-advanced-filters";
 import {
   filterOrdersList,
@@ -140,8 +147,16 @@ const KPI_CONFIG: {
 export function OrdersListView() {
   const searchParams = useSearchParams();
   const { settings } = useShopSettings();
-  const { orders, customers, scheduleBlocks, jobRuns, shopDataLoading, getCustomerById } =
-    useSchedule();
+  const { isAdmin } = useStaffAccess();
+  const {
+    orders,
+    customers,
+    scheduleBlocks,
+    jobRuns,
+    shopDataLoading,
+    getCustomerById,
+    bulkArchiveOrders,
+  } = useSchedule();
   const initialScope = searchParams.get("scope");
   const [scope, setScope] = useState<OrderListScope>(() => {
     if (
@@ -166,6 +181,9 @@ export function OrdersListView() {
     Partial<Record<OrdersListColumnId, string>>
   >({});
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveMessage, setArchiveMessage] = useState<string | null>(null);
 
   const customersById = useMemo(
     () => new Map(customers.map((customer) => [customer.id, customer])),
@@ -205,6 +223,73 @@ export function OrdersListView() {
     () => filterOrdersByQuickFilter(scopedOrders, summaries, quickFilter),
     [scopedOrders, summaries, quickFilter]
   );
+
+  const archivableOrders = useMemo(
+    () => filteredOrders.filter((order) => !isArchivedOrder(order)),
+    [filteredOrders]
+  );
+
+  const selectedCount = selectedIds.size;
+  const canBulkArchive = isAdmin && scope !== "archived";
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setArchiveMessage(null);
+  }, [scope, quickFilter, jobType, advancedFilters]);
+
+  useEffect(() => {
+    const visibleIds = new Set(filteredOrders.map((order) => order.id));
+    setSelectedIds((current) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of current) {
+        if (visibleIds.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [filteredOrders]);
+
+  const toggleOrder = (orderId: string) => {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  };
+
+  const toggleAllVisible = () => {
+    setSelectedIds((current) => {
+      const visibleArchivable = archivableOrders.map((order) => order.id);
+      const allSelected =
+        visibleArchivable.length > 0 &&
+        visibleArchivable.every((id) => current.has(id));
+      if (allSelected) return new Set();
+      return new Set(visibleArchivable);
+    });
+  };
+
+  const handleBulkArchive = async (mode: BulkArchiveMode) => {
+    const ids = [...selectedIds].filter((id) =>
+      archivableOrders.some((order) => order.id === id)
+    );
+    if (ids.length === 0) {
+      throw new Error("Select at least one active order to archive.");
+    }
+
+    const result = await bulkArchiveOrders(ids, {
+      includeOrderData: mode === "orders_and_data",
+    });
+    setSelectedIds(new Set());
+    setArchiveMessage(
+      result.errors.length > 0
+        ? `Archived ${result.archivedCount} of ${result.requestedCount}. ${result.errors.length} could not be archived.`
+        : mode === "orders_and_data"
+          ? `Archived ${result.archivedCount} order${result.archivedCount === 1 ? "" : "s"} and linked design data.`
+          : `Archived ${result.archivedCount} order${result.archivedCount === 1 ? "" : "s"}.`
+    );
+  };
 
   const kpis = useMemo(
     () => computeOrdersListKpis(scopedOrders, summaries),
@@ -457,6 +542,43 @@ export function OrdersListView() {
             </div>
           </div>
 
+          {canBulkArchive && selectedCount > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#dbe6f5] bg-[#f4f7fd] px-3 py-2.5">
+              <p className="text-[13px] font-medium text-[#303030]">
+                {selectedCount} selected
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className={cn(dashboardControlClass, "h-8")}
+                  onClick={() => setSelectedIds(new Set())}
+                >
+                  Clear
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className={cn(
+                    dashboardControlClass,
+                    "h-8 border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f] hover:bg-[#fde2e2] hover:text-[#8f1f1f]"
+                  )}
+                  onClick={() => setArchiveOpen(true)}
+                >
+                  <Archive className="size-3.5" />
+                  Archive selected
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {archiveMessage ? (
+            <p className="mt-3 rounded-lg border border-[#cfe8d8] bg-[#e8f5ee] px-3 py-2 text-[13px] text-[#0d5c2e]">
+              {archiveMessage}
+            </p>
+          ) : null}
+
           <OrdersListTable
             items={filteredOrders}
             summaries={summaries}
@@ -465,6 +587,10 @@ export function OrdersListView() {
             columns={tableColumns}
             columnLabels={columnLabels}
             customersById={customersById}
+            selectable={canBulkArchive}
+            selectedIds={selectedIds}
+            onToggleOrder={toggleOrder}
+            onToggleAll={toggleAllVisible}
             emptyMessage={
               shopDataLoading
                 ? "Loading orders…"
@@ -481,6 +607,13 @@ export function OrdersListView() {
           />
         </div>
       </section>
+
+      <BulkArchiveOrdersDialog
+        open={archiveOpen}
+        onOpenChange={setArchiveOpen}
+        selectedCount={selectedCount}
+        onConfirm={handleBulkArchive}
+      />
     </main>
   );
 }

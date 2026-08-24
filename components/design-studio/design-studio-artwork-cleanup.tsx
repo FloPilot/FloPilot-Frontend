@@ -35,6 +35,7 @@ export function DesignStudioArtworkCleanup({
   disabled,
   onApplyCleanUrl,
   onDetectedColors,
+  onAttachColorsToProof,
 }: {
   /** First uploaded artwork (restore target). */
   originalUrl: string;
@@ -43,6 +44,10 @@ export function DesignStudioArtworkCleanup({
   disabled?: boolean;
   onApplyCleanUrl: (cleanUrl: string) => void;
   onDetectedColors?: (colors: DetectedArtworkColor[]) => void;
+  /** Add selected estimated PMS colors to the active proof's ink list. */
+  onAttachColorsToProof?: (
+    colors: DetectedArtworkColor[]
+  ) => void | Promise<void>;
 }) {
   const [colors, setColors] = useState<DetectedArtworkColor[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -50,6 +55,7 @@ export function DesignStudioArtworkCleanup({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [replaceHex, setReplaceHex] = useState("#2C6ECB");
+  const [attachingColors, setAttachingColors] = useState(false);
   const onDetectedRef = useRef(onDetectedColors);
   onDetectedRef.current = onDetectedColors;
   const detectEpochRef = useRef(0);
@@ -197,6 +203,20 @@ export function DesignStudioArtworkCleanup({
     onApplyCleanUrl(originalUrl);
   };
 
+  const handleAttachColorsToProof = async () => {
+    if (!onAttachColorsToProof || selectedColors.length === 0) return;
+    setAttachingColors(true);
+    setError(null);
+    try {
+      await onAttachColorsToProof(selectedColors);
+      setSelectedIds(new Set());
+    } catch {
+      setError("Could not add those colors to the proof.");
+    } finally {
+      setAttachingColors(false);
+    }
+  };
+
   return (
     <div className="space-y-3 rounded-lg border border-[#ebebeb] bg-[#fafafa] p-3">
       <div className="flex items-start justify-between gap-2">
@@ -293,6 +313,27 @@ export function DesignStudioArtworkCleanup({
       </div>
 
       <div className="flex flex-wrap gap-2">
+        {onAttachColorsToProof ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={cn(dashboardControlClass, "h-8")}
+            disabled={
+              disabled ||
+              Boolean(busy) ||
+              attachingColors ||
+              selectedColors.length === 0
+            }
+            onClick={() => void handleAttachColorsToProof()}
+          >
+            {attachingColors ? (
+              <Loader2 className="size-3.5 animate-spin" />
+            ) : (
+              <Pipette className="size-3.5" />
+            )}
+            Add selected to proof colors
+          </Button>
+        ) : null}
         <Button
           type="button"
           variant="outline"

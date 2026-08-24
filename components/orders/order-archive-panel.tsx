@@ -29,19 +29,31 @@ export function OrderArchivePanel({ order }: { order: Order }) {
   const { archiveOrder, restoreOrder } = useSchedule();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const archived = isArchivedOrder(order);
 
-  const handleConfirm = async () => {
+  const handleRestore = async () => {
     setSaving(true);
+    setError(null);
     try {
-      if (archived) {
-        await restoreOrder(order.id);
-        setOpen(false);
-      } else {
-        await archiveOrder(order.id);
-        setOpen(false);
-        router.push("/app/orders?scope=archived");
-      }
+      await restoreOrder(order.id);
+      setOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not restore this order.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleArchive = async (includeOrderData: boolean) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await archiveOrder(order.id, { includeOrderData });
+      setOpen(false);
+      router.push("/app/orders?scope=archived");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not archive this order.");
     } finally {
       setSaving(false);
     }
@@ -69,7 +81,10 @@ export function OrderArchivePanel({ order }: { order: Order }) {
                 ? "border-[#2c6ecb]/30 text-[#2c6ecb] hover:bg-[#f4f7fd]"
                 : "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f] hover:bg-[#fde2e2] hover:text-[#8f1f1f]"
             )}
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              setError(null);
+              setOpen(true);
+            }}
           >
             {archived ? (
               <>
@@ -86,8 +101,15 @@ export function OrderArchivePanel({ order }: { order: Order }) {
         </div>
       </section>
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          if (saving) return;
+          setError(null);
+          setOpen(next);
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {archived ? "Restore this order?" : "Archive this order?"}
@@ -95,20 +117,54 @@ export function OrderArchivePanel({ order }: { order: Order }) {
             <DialogDescription>
               {archived ? (
                 <>
-                  Order <span className="font-medium text-[#303030]">{formatOrderDisplayLine(order)}</span>{" "}
-                  will return to your active orders list.
+                  Order{" "}
+                  <span className="font-medium text-[#303030]">
+                    {formatOrderDisplayLine(order)}
+                  </span>{" "}
+                  will return to your active orders list. Designs archived with
+                  this order are restored too.
                 </>
               ) : (
                 <>
-                  Order <span className="font-medium text-[#303030]">{formatOrderDisplayLine(order)}</span>{" "}
-                  will be hidden from active and historical lists. Find it anytime
-                  under <span className="font-medium text-[#303030]">Archived</span> on
-                  the orders page.
+                  Order{" "}
+                  <span className="font-medium text-[#303030]">
+                    {formatOrderDisplayLine(order)}
+                  </span>{" "}
+                  will be hidden from active lists. Find it anytime under{" "}
+                  <span className="font-medium text-[#303030]">Archived</span>.
                 </>
               )}
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+
+          {!archived ? (
+            <div className="space-y-3 py-1">
+              <div className="rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-3.5 py-3 text-[13px] text-[#616161]">
+                <p className="font-medium text-[#303030]">Archive order</p>
+                <p className="mt-1 leading-relaxed">
+                  Hide this order from active work. Artwork stays on the archived
+                  order.
+                </p>
+              </div>
+              <div className="rounded-lg border border-[#f0d9a8] bg-[#fff8eb] px-3.5 py-3 text-[13px] text-[#8a6116]">
+                <p className="font-medium text-[#8a6116]">
+                  Archive order and all order data
+                </p>
+                <p className="mt-1 leading-relaxed">
+                  Also archive designs in the design library created from this
+                  order.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {error ? (
+            <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[13px] text-[#8f1f1f]">
+              {error}
+            </p>
+          ) : null}
+
+          <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button
               type="button"
               variant="outline"
@@ -118,26 +174,45 @@ export function OrderArchivePanel({ order }: { order: Order }) {
             >
               Cancel
             </Button>
-            <Button
-              type="button"
-              className={cn(
-                dashboardControlClass,
-                "sm:min-w-[128px]",
-                archived
-                  ? "border-[#2c6ecb]/30 bg-[#f4f7fd] text-[#2c6ecb] hover:bg-[#e8f0fb]"
-                  : "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f] hover:bg-[#fde2e2] hover:text-[#8f1f1f]"
-              )}
-              disabled={saving}
-              onClick={handleConfirm}
-            >
-              {saving
-                ? archived
-                  ? "Restoring…"
-                  : "Archiving…"
-                : archived
-                  ? "Restore order"
-                  : "Archive order"}
-            </Button>
+            {archived ? (
+              <Button
+                type="button"
+                className={cn(
+                  dashboardControlClass,
+                  "border-[#2c6ecb]/30 bg-[#f4f7fd] text-[#2c6ecb] hover:bg-[#e8f0fb] sm:min-w-[128px]"
+                )}
+                disabled={saving}
+                onClick={() => void handleRestore()}
+              >
+                {saving ? "Restoring…" : "Restore order"}
+              </Button>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className={cn(
+                    dashboardControlClass,
+                    "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f] hover:bg-[#fde2e2] hover:text-[#8f1f1f] sm:min-w-[140px]"
+                  )}
+                  disabled={saving}
+                  onClick={() => void handleArchive(false)}
+                >
+                  {saving ? "Archiving…" : "Archive order"}
+                </Button>
+                <Button
+                  type="button"
+                  className={cn(
+                    dashboardControlClass,
+                    "border-[#8f1f1f] bg-[#8f1f1f] text-white hover:bg-[#751919] hover:text-white sm:min-w-[180px]"
+                  )}
+                  disabled={saving}
+                  onClick={() => void handleArchive(true)}
+                >
+                  {saving ? "Archiving…" : "Archive order + data"}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
