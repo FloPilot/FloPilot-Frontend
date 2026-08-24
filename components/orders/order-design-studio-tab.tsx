@@ -82,7 +82,6 @@ import {
 } from "@/lib/order-design-blank-cache";
 import {
   ArtworkLoadError,
-  composeCleanProofSheet,
   composeDesignMockup,
   createDesignMockupId,
   defaultColorStageTransform,
@@ -105,6 +104,7 @@ import type {
   DesignMockupTransform,
   Job,
   JobImprint,
+  ImprintInkColor,
   LineItem,
   Order,
   OrderDesignMockup,
@@ -135,6 +135,7 @@ export function OrderDesignStudioTab({
   blankContextLabel = "order",
   addBlankLabel = "Add a blank to this order",
   initialImprintKey,
+  onProofAttached,
 }: {
   order: Order;
   onRequestAddBlank?: () => void;
@@ -156,6 +157,8 @@ export function OrderDesignStudioTab({
   addBlankLabel?: string;
   /** Prefer this imprint key (`jobId:imprintId`) when opening the studio. */
   initialImprintKey?: string;
+  /** Called after the mockup, proof image, and detected colors are persisted. */
+  onProofAttached?: () => void;
 }) {
   const { settings } = useShopSettings();
   const { updateImprintDesignMockup } = useSchedule();
@@ -304,6 +307,7 @@ export function OrderDesignStudioTab({
           messages={messages}
           onReady={handleEditorReady}
           onDiscardRequest={handleDiscardEditor}
+          onProofAttached={onProofAttached}
         />
       </div>
     </div>
@@ -321,6 +325,7 @@ function DesignMockupEditor({
   messages,
   onReady,
   onDiscardRequest,
+  onProofAttached,
 }: {
   order: Order;
   job: Job;
@@ -341,9 +346,10 @@ function DesignMockupEditor({
   };
   onReady?: () => void;
   onDiscardRequest?: () => void;
+  onProofAttached?: () => void;
 }) {
   const { getIdToken } = useAuth();
-  const { updateOrderLineItem } = useSchedule();
+  const { updateOrderLineItem, updateImprintInkColors } = useSchedule();
   const blankOptions = order.lineItems;
   const preferredLineItemId =
     imprint.designMockup?.lineItemId ??
@@ -500,6 +506,9 @@ function DesignMockupEditor({
   const [productionNotes, setProductionNotes] = useState(
     () => imprint.designMockup?.productionNotes ?? ""
   );
+  const [detectedColors, setDetectedColors] = useState<
+    DetectedArtworkColor[]
+  >([]);
   const [artAspectRatio, setArtAspectRatio] = useState(1);
   const [historyPast, setHistoryPast] = useState<
     Array<{
@@ -1131,6 +1140,7 @@ function DesignMockupEditor({
 
   const handleDetectedColors = useCallback(
     (colors: DetectedArtworkColor[]) => {
+      setDetectedColors(colors);
       if (colors.length === 0) return;
       // Only seed empty notes during initial settle — never after the user can edit.
       if (allowDirtyRef.current) return;
@@ -1141,6 +1151,44 @@ function DesignMockupEditor({
       });
     },
     []
+  );
+
+  const attachDetectedColorsToProof = useCallback(
+    async (colors: DetectedArtworkColor[]) => {
+      const existing = imprint.inkColors ?? [];
+      const additions: ImprintInkColor[] = colors
+        .filter(
+          (color) =>
+            !existing.some(
+              (ink) =>
+                ink.pmsCode === color.pantoneCode ||
+                (!color.pantoneCode && ink.name === color.hex)
+            )
+        )
+        .map((color) => ({
+          id: `ink-${color.pantoneCode || color.hex.replace("#", "")}-${Date.now()}-${color.id}`,
+          name: color.pantone
+            ? `${color.pantone} (${color.hex})`
+            : color.hex,
+          pmsCode: color.pantoneCode,
+        }));
+
+      if (additions.length === 0) {
+        setMessage("Those colors are already attached to this proof.");
+        return;
+      }
+
+      await updateImprintInkColors(
+        order.id,
+        job.id,
+        imprint.id,
+        [...existing, ...additions]
+      );
+      setMessage(
+        `${additions.length} color${additions.length === 1 ? "" : "s"} added to the proof.`
+      );
+    },
+    [imprint.id, imprint.inkColors, job.id, order.id, updateImprintInkColors]
   );
 
   const handleDeleteLayer = (layerId: string) => {
@@ -1229,31 +1277,15 @@ function DesignMockupEditor({
     setError(null);
     setMessage(null);
     try {
-      const widthIn = scaleToPrintWidthIn(transform.scale);
-      const heightIn = printHeightFromWidth(widthIn, artAspectRatio);
-      const offsetIn = yToOffsetBelowCollarIn(transform.y);
       const saveOptions: DesignMockupSaveOptions = {
         attachToProof,
         proofLabel: `${imprintTitle(imprint)} mockup`,
       };
 
       if (attachToProof) {
-        saveOptions.proofPreviewUrl = await composeCleanProofSheet({
-          mockupDataUrl: previewUrl,
-          title: imprintTitle(imprint),
-          subtitle: lineItem
-            ? `${job.name} · ${formatBlankLabel(lineItem)}`
-            : job.name,
-          specs: [
-            formatPrintSpecLine({
-              widthIn,
-              heightIn,
-              offsetBelowCollarIn: offsetIn,
-              locationLabel: imprintTitle(imprint),
-            }),
-          ],
-          notes: productionNotes.trim() || undefined,
-        });
+        // The proof should show exactly what was designed. Specs and notes
+        // already live beside the proof, so do not burn text into the image.
+        saveOptions.proofPreviewUrl = previewUrl;
       }
 
       const savedOrder = await onSave(
@@ -1290,12 +1322,16 @@ function DesignMockupEditor({
       }
 
       clearDirty();
+      if (attachToProof && detectedColors.length > 0) {
+        await attachDetectedColorsToProof(detectedColors);
+      }
       setMessage(
         attachToProof
           ? messages?.attached ||
               "Mockup saved and attached to the Proofs tab for this event."
           : messages?.saved || "Mockup saved on this event."
       );
+      if (attachToProof) onProofAttached?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save mockup");
     } finally {
@@ -1580,6 +1616,7 @@ function DesignMockupEditor({
                   disabled={Boolean(busy) || !canSave}
                   onApplyCleanUrl={handleApplyArtworkClean}
                   onDetectedColors={handleDetectedColors}
+                  onAttachColorsToProof={attachDetectedColorsToProof}
                 />
               </>
             ) : null}

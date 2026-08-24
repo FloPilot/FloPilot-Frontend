@@ -112,8 +112,8 @@ export function buildOrderSuggestedActions({
         ? "Mark waiting for customer pickup"
         : "Mark ready to ship",
       description: willCall
-        ? "All decorations completed — ready for customer pickup"
-        : "All decorations completed — pack it up",
+        ? "All decorations completed — schedule pickup and send the invoice"
+        : "All decorations completed — pack, ship, and send the invoice",
       emphasis: "primary",
     });
   }

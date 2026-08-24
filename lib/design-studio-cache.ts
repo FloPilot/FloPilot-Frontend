@@ -25,6 +25,7 @@ export function designsFingerprint(designs: SavedDesign[]): string {
           design.designMockup?.composedPreviewUrl?.slice(0, 48) || "",
           design.artwork?.previewUrl?.slice(0, 48) || "",
           design.versions?.length ?? 0,
+          design.archived ? "1" : "0",
         ].join(":")
     )
     .sort()
@@ -61,7 +62,7 @@ export function upsertDesignStudioCache(design: SavedDesign): void {
 
 async function fetchDesigns(token: string): Promise<SavedDesign[]> {
   if (inflight) return inflight;
-  inflight = listDesigns(token)
+  inflight = listDesigns(token, { includeArchived: true })
     .then(({ designs }) => {
       writeDesignStudioCache(designs);
       return designs;
@@ -115,7 +116,7 @@ export function useDesignStudioDesigns(getIdToken: () => Promise<string | null>)
         let next: SavedDesign[];
         if (opts?.force) {
           inflight = null;
-          const result = await listDesigns(token);
+          const result = await listDesigns(token, { includeArchived: true });
           writeDesignStudioCache(result.designs);
           next = result.designs;
         } else {

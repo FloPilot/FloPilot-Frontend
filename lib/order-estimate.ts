@@ -57,6 +57,14 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/** Order-specific tax settings win over the current shop default. */
+export function resolveOrderTaxRate(order: Order, shopTaxRate: number): number {
+  if (order.taxEnabled === false) return 0;
+  const candidate =
+    typeof order.taxRate === "number" ? order.taxRate : shopTaxRate;
+  return Number.isFinite(candidate) ? Math.min(1, Math.max(0, candidate)) : 0;
+}
+
 export function lineItemPieceCount(item: LineItem): number {
   return (item.sizes || []).reduce((sum, row) => sum + (row.quantity || 0), 0);
 }
@@ -184,7 +192,7 @@ export function computeEstimateTotals(
   pricingMatrix?: PricingMatrix,
   customer?: Customer | null
 ): EstimateTotals {
-  const rate = typeof taxRate === "number" && taxRate >= 0 ? taxRate : 0.08;
+  const rate = resolveOrderTaxRate(order, taxRate);
 
   const garmentRows = buildGarmentRows(order, pricingMatrix);
   const decorationRows = buildDecorationRows(order, pricingMatrix);

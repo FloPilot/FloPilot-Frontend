@@ -33,6 +33,7 @@ import {
   type FlowStepStatus,
   type OrderFlowStep,
 } from "@/lib/production-flow";
+import { resolveOrderSchedulingPieceCounts } from "@/lib/order-scheduling-pieces";
 
 export type { OrderFlowStep };
 
@@ -50,6 +51,8 @@ export type UnscheduledEvent = {
   decoration: DecorationType;
   inHandsDate: string;
   pieceCount: number;
+  /** Ordered garment total — may differ from pieceCount when extras were received/produced. */
+  orderedPieceCount: number;
   rush: boolean;
   orderStatus: OrderStatus;
   artworkStatus: ArtworkFile["status"];
@@ -107,6 +110,7 @@ export type EventBasketGroup = {
   orderCreatedAt: string;
   daysSinceSubmitted: number;
   totalPieceCount: number;
+  orderedPieceCount: number;
   dueLabel: string;
   dueUrgency: HealthStatus;
   progress: { scheduled: number; total: number };
@@ -184,6 +188,8 @@ export function getUnscheduledEvents(
       (step) => step.jobId === job.jobId && step.imprintId === job.imprintId
     );
 
+    const pieces = resolveOrderSchedulingPieceCounts(order);
+
     events.push({
       key: schedulableJobKey(job.orderId, job.jobId, job.imprintId),
       orderId: job.orderId,
@@ -197,7 +203,8 @@ export function getUnscheduledEvents(
       imprintLabel: job.imprintLabel,
       decoration: job.decoration,
       inHandsDate: job.inHandsDate,
-      pieceCount: job.pieceCount,
+      pieceCount: pieces.decorate || job.pieceCount || 0,
+      orderedPieceCount: pieces.ordered || getOrderPieceCount(order),
       rush: order.rush,
       orderStatus: order.status,
       artworkStatus: imprint?.artwork.status ?? "pending",
@@ -218,7 +225,7 @@ export function getUnscheduledEvents(
       blockedByKey: undefined,
       priorityTier: priorityTierLabel(order.rush),
       daysSinceSubmitted: daysSinceSubmitted(order.createdAt),
-      totalPieceCount: getOrderPieceCount(order),
+      totalPieceCount: pieces.decorate || getOrderPieceCount(order),
     });
   }
 
@@ -368,6 +375,7 @@ export function groupUnscheduledEventsByOrder(
       orderCreatedAt: event.orderCreatedAt,
       daysSinceSubmitted: event.daysSinceSubmitted,
       totalPieceCount: event.totalPieceCount,
+      orderedPieceCount: event.orderedPieceCount,
       dueLabel: event.dueLabel,
       dueUrgency: event.dueUrgency,
       progress: event.orderProgress,
@@ -431,6 +439,7 @@ export type SchedulingQueueOrder = {
   inHandsDate: string;
   orderCreatedAt: string;
   totalPieceCount: number;
+  orderedPieceCount: number;
   dueLabel: string;
   dueUrgency: HealthStatus;
   progress: { scheduled: number; total: number };
@@ -470,6 +479,7 @@ export function buildSchedulingQueueOrders(
       inHandsDate: group.inHandsDate,
       orderCreatedAt: group.orderCreatedAt,
       totalPieceCount: group.totalPieceCount,
+      orderedPieceCount: group.orderedPieceCount,
       dueLabel: group.dueLabel,
       dueUrgency: group.dueUrgency,
       progress: group.progress,

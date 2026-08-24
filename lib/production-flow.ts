@@ -15,6 +15,7 @@ import {
   getOrderProductionSteps,
   type ProductionStep,
 } from "@/lib/order-production";
+import { resolveOrderSchedulingPieceCounts } from "@/lib/order-scheduling-pieces";
 
 /** Standard shop floor sequence — neck/labels first, garment prints, sleeves, finishing last */
 const LOCATION_FLOW_RANK: Record<string, number> = {
@@ -95,7 +96,7 @@ export function analyzeOrderProductionFlow(
   order: Order,
   scheduleBlocks: ScheduleBlock[]
 ): OrderFlowStep[] {
-  const pieceCount = getOrderPieceCount(order);
+  const pieceCount = resolveOrderSchedulingPieceCounts(order).decorate;
   const ordered = sortProductionStepsByFlow(order);
   const flowTotal = ordered.length;
 

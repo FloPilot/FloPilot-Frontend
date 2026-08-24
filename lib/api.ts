@@ -1128,10 +1128,38 @@ export async function reorderOrder(token: string, orderId: string) {
   });
 }
 
-export async function archiveOrder(token: string, orderId: string) {
+export async function archiveOrder(
+  token: string,
+  orderId: string,
+  options?: { includeOrderData?: boolean }
+) {
   return callApi<{ order: Order }>("archiveOrder", {
     method: "POST",
-    body: { orderId },
+    body: {
+      orderId,
+      includeOrderData: Boolean(options?.includeOrderData),
+    },
+    token,
+  });
+}
+
+export async function bulkArchiveOrders(
+  token: string,
+  orderIds: string[],
+  options?: { includeOrderData?: boolean }
+) {
+  return callApi<{
+    orders: Order[];
+    archivedCount: number;
+    requestedCount: number;
+    includeOrderData: boolean;
+    errors: Array<{ orderId: string; error: string }>;
+  }>("bulkArchiveOrders", {
+    method: "POST",
+    body: {
+      orderIds,
+      includeOrderData: Boolean(options?.includeOrderData),
+    },
     token,
   });
 }
@@ -1547,11 +1575,19 @@ export async function sendInvoice(token: string, orderId: string) {
 
 export async function listDesigns(
   token: string,
-  query?: { customerId?: string; search?: string }
+  query?: {
+    customerId?: string;
+    search?: string;
+    includeArchived?: boolean;
+  }
 ) {
   return callApi<{ designs: import("@/types").SavedDesign[] }>("listDesigns", {
     token,
-    query,
+    query: {
+      customerId: query?.customerId,
+      search: query?.search,
+      includeArchived: query?.includeArchived ? "1" : undefined,
+    },
   });
 }
 
@@ -1687,6 +1723,48 @@ export async function updateDesign(
   return callApi<{ design: import("@/types").SavedDesign }>("updateDesign", {
     method: "POST",
     body,
+    token,
+  });
+}
+
+export async function archiveDesign(token: string, designId: string) {
+  return callApi<{ design: import("@/types").SavedDesign }>("archiveDesign", {
+    method: "POST",
+    body: { designId },
+    token,
+  });
+}
+
+export async function restoreDesign(token: string, designId: string) {
+  return callApi<{ design: import("@/types").SavedDesign }>("restoreDesign", {
+    method: "POST",
+    body: { designId },
+    token,
+  });
+}
+
+export async function bulkArchiveDesigns(token: string, designIds: string[]) {
+  return callApi<{
+    designs: import("@/types").SavedDesign[];
+    archivedCount: number;
+    requestedCount: number;
+    errors: Array<{ designId: string; error: string }>;
+  }>("bulkArchiveDesigns", {
+    method: "POST",
+    body: { designIds },
+    token,
+  });
+}
+
+export async function bulkRestoreDesigns(token: string, designIds: string[]) {
+  return callApi<{
+    designs: import("@/types").SavedDesign[];
+    restoredCount: number;
+    requestedCount: number;
+    errors: Array<{ designId: string; error: string }>;
+  }>("bulkRestoreDesigns", {
+    method: "POST",
+    body: { designIds },
     token,
   });
 }
@@ -2457,6 +2535,47 @@ export async function getPublicClientStore(
       query: needsPost ? undefined : { token },
     }
   );
+}
+
+export async function trackClientStoreVisit(input: {
+  token: string;
+  visitorId: string;
+  referrer?: string;
+  locale?: string;
+}) {
+  return callApi<{ tracked: boolean }>("trackClientStoreVisit", {
+    method: "POST",
+    body: input,
+  });
+}
+
+export type ClientStoreAnalytics = {
+  rangeDays: number;
+  totals: { visitors: number; pageViews: number };
+  daily: { day: string; visitors: number; pageViews: number }[];
+  referrers: ClientStoreAnalyticsRow[];
+  regions: ClientStoreAnalyticsRow[];
+  devices: ClientStoreAnalyticsRow[];
+  browsers: ClientStoreAnalyticsRow[];
+  operatingSystems: ClientStoreAnalyticsRow[];
+};
+
+export type ClientStoreAnalyticsRow = {
+  label: string;
+  visitors: number;
+  pageViews: number;
+};
+
+export async function getClientStoreAnalytics(
+  token: string,
+  storeId: string,
+  days = 7
+) {
+  return callApi<{ analytics: ClientStoreAnalytics }>("getClientStoreAnalytics", {
+    method: "GET",
+    token,
+    query: { storeId, days: String(days) },
+  });
 }
 
 export async function submitClientStoreOrder(

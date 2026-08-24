@@ -735,6 +735,8 @@ export function OrderFilesTab({
                 items={filteredList}
                 onUpload={triggerImprintUpload}
                 onOpenFile={openFileDetails}
+                onReplaceOrderFile={triggerOrderFileReplace}
+                replacingId={replacingId}
                 selectedDownloads={selectedDownloads}
                 onToggleDownload={toggleDownload}
               />
@@ -904,42 +906,93 @@ function ArtworkByLocation({
   items,
   onUpload,
   onOpenFile,
+  onReplaceOrderFile,
+  replacingId,
   selectedDownloads,
   onToggleDownload,
 }: {
   items: OrderFileItem[];
   onUpload: (jobId: string, imprintId: string, kind: OrderFileKind) => void;
   onOpenFile?: (file: OrderFileItem) => void;
+  onReplaceOrderFile?: (file: OrderFileItem) => void;
+  replacingId?: string | null;
   selectedDownloads: DownloadSelection;
   onToggleDownload: (
     key: string,
     item: { name: string; url: string }
   ) => void;
 }) {
-  const byLocation = useMemo(() => {
+  const { locationGroups, generalItems } = useMemo(() => {
     const map = new Map<string, OrderFileItem[]>();
+    const general: OrderFileItem[] = [];
     for (const item of items) {
-      if (!item.imprintLabel) continue;
-      const key = `${item.jobName} · ${item.imprintLabel}`;
+      if (!item.imprintLabel) {
+        general.push(item);
+        continue;
+      }
+      const key = `${item.jobName ?? "Event"} · ${item.imprintLabel}`;
       const list = map.get(key) ?? [];
       list.push(item);
       map.set(key, list);
     }
-    return [...map.entries()];
+    return {
+      locationGroups: [...map.entries()],
+      generalItems: general,
+    };
   }, [items]);
 
-  if (byLocation.length === 0) {
+  if (locationGroups.length === 0 && generalItems.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-8 text-center">
-        No production artwork yet. Add events on the Production tab or switch to
-        Mockups to upload proofs.
+        No production artwork yet. Upload artwork here, or add it from All files
+        and tag it as Production artwork.
       </p>
     );
   }
 
   return (
     <div className="space-y-5">
-      {byLocation.map(([label, groupItems]) => {
+      {generalItems.length > 0 ? (
+        <div className="rounded-xl border border-border/60 overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/30 px-4 py-2.5 border-b border-border/60">
+            <div>
+              <p className="text-sm font-semibold">Order artwork</p>
+              <p className="text-[12px] text-muted-foreground">
+                Files tagged as artwork that aren’t linked to a print location
+              </p>
+            </div>
+          </div>
+          <div className="px-4">
+            {generalItems.map((file) => (
+              <FileRow
+                key={`${file.source}:${file.id}`}
+                file={file}
+                onOpen={onOpenFile ? () => onOpenFile(file) : undefined}
+                onReplace={
+                  onReplaceOrderFile && file.source === "order"
+                    ? () => onReplaceOrderFile(file)
+                    : undefined
+                }
+                replacing={replacingId === file.id}
+                selected={Boolean(
+                  selectedDownloads[`file:${file.source}:${file.id}`]
+                )}
+                onToggleSelect={() => {
+                  const url = file.downloadUrl || file.previewUrl;
+                  if (url) {
+                    onToggleDownload(`file:${file.source}:${file.id}`, {
+                      name: file.name,
+                      url,
+                    });
+                  }
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {locationGroups.map(([label, groupItems]) => {
         const current = groupItems.find((f) => !f.archived);
         const jobId = current?.jobId;
         const imprintId = current?.imprintId;

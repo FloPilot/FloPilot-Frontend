@@ -23,6 +23,7 @@ import { formatOrderDisplayLine } from "@/lib/order-display";
 import {
   applyGarmentLineReceive,
   GARMENT_RECEIVE_STATUS_STYLES,
+  materialReceiveOverage,
   mergeOrderMaterials,
   receiveAllGarmentLines,
 } from "@/lib/order-materials";
@@ -212,13 +213,20 @@ function GarmentReceiveRow({
 }) {
   const [draft, setDraft] = useState(String(line.receivedQty || ""));
   const styles = GARMENT_RECEIVE_STATUS_STYLES[line.status];
+  const overage = materialReceiveOverage(line);
 
   useEffect(() => {
     setDraft(String(line.receivedQty || ""));
   }, [line.receivedQty, line.id]);
 
   return (
-    <tr className={cn("border-t border-[#ebebeb]", styles.row)}>
+    <tr
+      className={cn(
+        "border-t border-[#ebebeb]",
+        styles.row,
+        overage > 0 && "bg-[#fffbeb]"
+      )}
+    >
       <td className="px-4 py-3 align-top sm:pl-5">
         <p className="text-[13px] font-semibold text-[#303030]">
           {line.productName}
@@ -226,6 +234,12 @@ function GarmentReceiveRow({
         <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
           {[line.brand, line.color].filter(Boolean).join(" · ")}
         </p>
+        {overage > 0 ? (
+          <p className="mt-1 text-[11px] font-medium text-amber-800">
+            {line.notes?.trim() ||
+              `${overage} extra piece${overage === 1 ? "" : "s"} received`}
+          </p>
+        ) : null}
       </td>
       <td className="px-3 py-3 align-top">
         <span className="inline-flex rounded-md border border-[#e3e3e3] bg-white px-2 py-1 text-[12px] font-semibold tabular-nums text-[#303030]">
@@ -240,23 +254,25 @@ function GarmentReceiveRow({
           <Input
             type="number"
             min={0}
-            max={line.expectedQty}
             value={draft}
-            disabled={saving || line.status === "received"}
+            disabled={saving}
             onChange={(event) => setDraft(event.target.value)}
             onBlur={() => {
-              const parsed = Number.parseInt(draft, 10);
-              const qty = Number.isFinite(parsed) ? parsed : 0;
-              if (qty !== line.receivedQty) onReceive(qty);
+              const quantity = Math.max(0, Math.floor(Number(draft) || 0));
+              setDraft(String(quantity));
+              if (quantity !== line.receivedQty) onReceive(quantity);
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
                 event.currentTarget.blur();
               }
             }}
-            className="h-9 w-[72px] rounded-lg border-[#e3e3e3] text-right text-[13px] tabular-nums"
+            className={cn(
+              "h-9 w-[72px] rounded-lg border-[#e3e3e3] text-right text-[13px] tabular-nums",
+              overage > 0 && "border-amber-300 bg-[#fffbeb]"
+            )}
           />
-          {line.status !== "received" ? (
+          {line.receivedQty !== line.expectedQty ? (
             <button
               type="button"
               disabled={saving}
@@ -265,7 +281,7 @@ function GarmentReceiveRow({
                 dashboardGhostButtonClass,
                 "h-9 shrink-0 px-2.5 text-[12px] font-semibold"
               )}
-              title="Receive remaining quantity"
+              title="Receive ordered quantity"
             >
               All
             </button>
@@ -280,10 +296,12 @@ function GarmentReceiveRow({
         <span
           className={cn(
             "inline-flex rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-            styles.badge
+            overage > 0
+              ? "border-amber-300 bg-[#fffbeb] text-amber-900"
+              : styles.badge
           )}
         >
-          {styles.label}
+          {overage > 0 ? `Over (+${overage})` : styles.label}
         </span>
         {line.receivedBy ? (
           <p className={cn("mt-1.5 max-w-[140px]", dashboardTaskDetailClass)}>

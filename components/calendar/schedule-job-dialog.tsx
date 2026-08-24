@@ -26,6 +26,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { schedulableJobKey } from "@/lib/job-imprints";
 import { formatOrderDisplayLine, formatOrderRef, formatOrderNumberWithLabel } from "@/lib/order-display";
+import { formatSchedulingPieceLabel } from "@/lib/order-scheduling-pieces";
 import { isWillCallOrder } from "@/lib/order-shipping";
 import {
   dashboardControlClass,
@@ -38,6 +39,7 @@ import {
   getCustomerAccent,
   getCustomerInitials,
 } from "@/lib/production-customer-colors";
+import { ScheduleCapacityPreview } from "@/components/calendar/schedule-capacity-preview";
 import { decorationLabel } from "@/lib/format";
 import {
   clampBlockToMachineHours,
@@ -594,12 +596,12 @@ export function ScheduleJobDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "flex max-h-[min(92vh,920px)] w-full flex-col gap-0 overflow-hidden rounded-xl border-[#e3e3e3] p-0",
+          "flex max-h-[min(94vh,960px)] w-full flex-col gap-0 overflow-hidden rounded-xl border-[#e3e3e3] p-0",
           showEmptyState && blockedQueueOrders.length > 0
-            ? "sm:max-w-3xl"
+            ? "sm:max-w-5xl"
             : hasMultiJobRun
-              ? "sm:max-w-3xl"
-              : "sm:max-w-2xl"
+              ? "sm:max-w-5xl"
+              : "sm:max-w-4xl"
         )}
       >
         <form
@@ -854,7 +856,12 @@ export function ScheduleJobDialog({
             )}
 
             {(selectedJob && selectedOrder && accent) || hasMultiJobRun ? (
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div
+                className={cn(
+                  "grid gap-4",
+                  hasMultiJobRun && "lg:grid-cols-2"
+                )}
+              >
                 {selectedJob && selectedOrder && accent ? (
                   <div
                     className={cn(
@@ -882,8 +889,13 @@ export function ScheduleJobDialog({
                       </p>
                       <p className="text-[12px] leading-relaxed text-[#616161]">
                         {selectedJob.jobName} ·{" "}
-                        {selectedJob.pieceCount.toLocaleString()} pcs · Client
-                        ETA {formatDate(selectedOrder.inHandsDate)}
+                        {formatSchedulingPieceLabel({
+                          ordered:
+                            selectedJob.orderedPieceCount ??
+                            selectedJob.pieceCount,
+                          decorate: selectedJob.pieceCount,
+                        }) || `${selectedJob.pieceCount.toLocaleString()} pcs`}{" "}
+                        · Client ETA {formatDate(selectedOrder.inHandsDate)}
                         {selectedOrder.rush ? " · Rush" : ""}
                       </p>
                       {selectedFlowStep && selectedFlowStep.flowTotal > 1 ? (
@@ -949,7 +961,7 @@ export function ScheduleJobDialog({
               </div>
             )}
 
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1.75fr)]">
               <div className="space-y-2">
                 <Label className={labelClass}>Machine</Label>
                 <Select
@@ -1007,7 +1019,7 @@ export function ScheduleJobDialog({
                 ) : null}
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-3 sm:gap-5">
                 <div className="space-y-2">
                   <Label htmlFor="sched-date" className={labelClass}>
                     Date
@@ -1019,7 +1031,7 @@ export function ScheduleJobDialog({
                     onChange={(e) =>
                       setForm((f) => ({ ...f, date: e.target.value }))
                     }
-                    className="h-10 rounded-lg border-[#e3e3e3] text-[13px]"
+                    className="h-10 min-w-0 rounded-lg border-[#e3e3e3] text-[13px]"
                   />
                 </div>
                 <div className="space-y-2">
@@ -1033,7 +1045,7 @@ export function ScheduleJobDialog({
                     onChange={(e) =>
                       setForm((f) => ({ ...f, startTime: e.target.value }))
                     }
-                    className="h-10 rounded-lg border-[#e3e3e3] text-[13px]"
+                    className="h-10 min-w-0 rounded-lg border-[#e3e3e3] text-[13px]"
                   />
                 </div>
                 <div className="space-y-2">
@@ -1052,7 +1064,7 @@ export function ScheduleJobDialog({
                         durationHours: Number(e.target.value) || 1,
                       }))
                     }
-                    className="h-10 rounded-lg border-[#e3e3e3] text-[13px] tabular-nums"
+                    className="h-10 min-w-0 rounded-lg border-[#e3e3e3] text-[13px] tabular-nums"
                   />
                   {selectedMachine?.capacityPerHour ? (
                     <button
@@ -1067,6 +1079,22 @@ export function ScheduleJobDialog({
                 </div>
               </div>
             </div>
+
+            {!editingBlock && selectedMachine ? (
+              <ScheduleCapacityPreview
+                machine={selectedMachine}
+                blocks={scheduleBlocks}
+                durationHours={form.durationHours}
+                selectedDate={form.date}
+                onApplySlot={(date, startTime) =>
+                  setForm((current) => ({
+                    ...current,
+                    date,
+                    startTime,
+                  }))
+                }
+              />
+            ) : null}
 
             <div className="space-y-2">
               <Label htmlFor="sched-notes" className={labelClass}>

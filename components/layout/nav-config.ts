@@ -97,6 +97,11 @@ export function isArtworkSection(pathname: string): boolean {
   );
 }
 
+/** Design Studio + Artwork library (and design detail pages). */
+export function isDesignsSection(pathname: string): boolean {
+  return isDesignStudioSection(pathname) || isArtworkSection(pathname);
+}
+
 export function shouldExpandNavChildren(
   pathname: string,
   item: NavItem
@@ -180,20 +185,28 @@ export const navItems: NavItem[] = [
     })),
   },
   {
-    href: DESIGN_STUDIO_BASE,
-    label: "Design Studio",
+    href: ARTWORK_BASE,
+    label: "Designs",
     icon: Palette,
     moduleKey: "artwork",
     workspaceArea: "artwork",
-    isActive: isDesignStudioSection,
-  },
-  {
-    href: ARTWORK_BASE,
-    label: "Artwork",
-    icon: FileImage,
-    moduleKey: "artwork",
-    workspaceArea: "artwork",
-    isActive: isArtworkSection,
+    isActive: isDesignsSection,
+    children: [
+      {
+        href: ARTWORK_BASE,
+        label: "Artwork",
+        icon: FileImage,
+        moduleKey: "artwork",
+        isActive: isArtworkSection,
+      },
+      {
+        href: DESIGN_STUDIO_BASE,
+        label: "Design Studio",
+        icon: Palette,
+        moduleKey: "artwork",
+        isActive: isDesignStudioSection,
+      },
+    ],
   },
   {
     href: FILES_BASE,

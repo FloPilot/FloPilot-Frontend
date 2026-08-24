@@ -6,6 +6,7 @@ import {
   PackageOpen,
   Palette,
   Scissors,
+  Shirt,
 } from "lucide-react";
 import type { ShopModuleKey } from "@/lib/shop-settings";
 
@@ -15,6 +16,7 @@ export const DEPARTMENT_SLUGS = [
   "artwork",
   "screens",
   "inks",
+  "dtf",
   "production",
   "finishing",
   "receiving",
@@ -60,6 +62,15 @@ export const DEPARTMENT_DEFINITIONS: DepartmentDefinition[] = [
     icon: Droplets,
     moduleKey: "productionTasks",
     href: `${DEPARTMENTS_BASE}/inks`,
+  },
+  {
+    slug: "dtf",
+    label: "DTF",
+    shortLabel: "DTF",
+    description:
+      "Check in ordered DTF transfers by print location before production.",
+    icon: Shirt,
+    href: `${DEPARTMENTS_BASE}/dtf`,
   },
   {
     slug: "production",

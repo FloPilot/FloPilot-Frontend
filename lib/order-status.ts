@@ -46,7 +46,7 @@ export const ORDER_STATUS_DESCRIPTIONS: Record<OrderStatus, string> = {
     "Estimate and proofs approved — schedule production events on the calendar.",
   in_production:
     "On the floor — finish receiving, run scheduled events, and complete production.",
-  ready_to_ship: "Production is complete — pack and ship or schedule pickup.",
+  ready_to_ship: "Production is complete — pack and ship or schedule pickup, then send the invoice.",
   shipped:
     "Order has left the shop — mark delivered when the customer receives it.",
   ready_to_invoice:
@@ -60,7 +60,7 @@ export const WILL_CALL_STATUS_DESCRIPTIONS: Partial<
   Record<OrderStatus, string>
 > = {
   ready_to_ship:
-    "Production is complete — waiting for the customer to pick up at the shop.",
+    "Production is complete — waiting for the customer to pick up at the shop. Send the invoice when ready.",
   shipped: "Customer has picked up this order from the shop.",
   ready_to_invoice:
     "Customer has picked up — confirm produced counts, send the invoice, then record payment.",

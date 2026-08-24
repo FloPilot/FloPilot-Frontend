@@ -299,6 +299,7 @@ export function ImprintDesignCard({
   hideApprovalActions = false,
   hideLinkFromFiles = false,
   adapters,
+  onOpenDesignStudio,
 }: {
   order: Order;
   job: Job;
@@ -310,6 +311,7 @@ export function ImprintDesignCard({
   hideApprovalActions?: boolean;
   hideLinkFromFiles?: boolean;
   adapters?: ImprintDesignCardAdapters;
+  onOpenDesignStudio?: () => void;
 }) {
   const {
     updateImprintNotes,
@@ -670,6 +672,7 @@ export function ImprintDesignCard({
               compact={compact}
               pinned={highlighted}
               forceArtworkStatus={forceArtworkStatus}
+              onOpenDesignStudio={onOpenDesignStudio}
               adapters={
                 adapters?.addProofSlide || adapters?.updateProofSlides
                   ? {

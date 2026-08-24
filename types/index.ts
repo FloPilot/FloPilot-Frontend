@@ -752,6 +752,10 @@ export interface Order {
   total: number;
   paid: number;
   balance: number;
+  /** Set false for tax-exempt orders; otherwise the shop rate applies. */
+  taxEnabled?: boolean;
+  /** Optional order-specific tax rate (decimal; e.g. 0.0825 for 8.25%). */
+  taxRate?: number;
   rush: boolean;
   /** Customer approved the estimate / quote */
   quoteApproved?: boolean;
@@ -859,6 +863,10 @@ export interface SavedDesign {
   createdAt: string;
   updatedAt?: string;
   lastUsedAt?: string;
+  archived?: boolean;
+  archivedAt?: string;
+  archivedBy?: string;
+  archivedWithOrderId?: string;
   activity?: DesignActivityEvent[];
   versions?: DesignVersionSnapshot[];
 }
@@ -1027,7 +1035,10 @@ export interface SchedulableJobOption {
   imprintLabel: string;
   decoration: DecorationType;
   inHandsDate: string;
+  /** Quantity to schedule time for (received/produced when known). */
   pieceCount: number;
+  /** Original ordered total — may differ from pieceCount. */
+  orderedPieceCount?: number;
 }
 
 export type StaffNotificationType =

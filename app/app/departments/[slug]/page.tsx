@@ -3,6 +3,7 @@
 import { notFound } from "next/navigation";
 import { use } from "react";
 import { ArtworkDepartmentPanel } from "@/components/departments/artwork-department-panel";
+import { DtfDepartmentPanel } from "@/components/departments/dtf-department-panel";
 import { FinishingDepartmentPanel } from "@/components/departments/finishing-department-panel";
 import { InksDepartmentPanel } from "@/components/departments/inks-department-panel";
 import { ProductionDepartmentPanel } from "@/components/departments/production-department-panel";
@@ -18,6 +19,7 @@ const PANELS = {
   artwork: ArtworkDepartmentPanel,
   screens: ScreensDepartmentPanel,
   inks: InksDepartmentPanel,
+  dtf: DtfDepartmentPanel,
   production: ProductionDepartmentPanel,
   finishing: FinishingDepartmentPanel,
   receiving: ReceivingDepartmentPanel,

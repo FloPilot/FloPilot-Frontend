@@ -43,12 +43,12 @@ import {
   computeMaterialLineStatus,
   countExpectedGarmentPieces,
   GARMENT_RECEIVE_STATUS_STYLES,
-  garmentReceiveOverage,
   getDtfReceivingLines,
   getGarmentReceivingLines,
   getInkPrepLines,
   getScreenSetupLine,
   isGarmentOverReceived,
+  materialReceiveOverage,
   mergeOrderMaterials,
   materialStatusLabel,
 } from "@/lib/order-materials";
@@ -300,10 +300,10 @@ function ReceivingStatusPill({
 }: {
   line: Pick<OrderMaterialLine, "status" | "kind" | "receivedQty" | "expectedQty">;
 }) {
-  if (isGarmentOverReceived(line as OrderMaterialLine)) {
+  if (materialReceiveOverage(line as OrderMaterialLine) > 0) {
     return (
       <span className="inline-flex rounded-md bg-[#fffbeb] px-2 py-0.5 text-[11px] font-medium text-amber-900">
-        Over (+{garmentReceiveOverage(line as OrderMaterialLine)})
+        Over (+{materialReceiveOverage(line as OrderMaterialLine)})
       </span>
     );
   }
@@ -352,46 +352,39 @@ function QtyReceivedInput({
     }
   };
 
-  const overage = garmentReceiveOverage(line);
+  const overage = materialReceiveOverage(line);
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <div className="flex items-center justify-end gap-1.5">
-        <Input
-          type="number"
-          min={0}
-          value={value}
-          disabled={saving}
-          onChange={(event) => setValue(event.target.value)}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.currentTarget.blur();
-            }
-          }}
-          className={cn(
-            "h-8 w-[72px] rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums",
-            overage > 0 && "border-amber-300 bg-[#fffbeb]"
-          )}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          disabled={saving || line.receivedQty === line.expectedQty}
-          className={cn(dashboardControlClass, "h-8 px-2 text-[11px]")}
-          onClick={() => {
-            setValue(String(line.expectedQty));
-            onSave(line.expectedQty);
-          }}
-        >
-          All
-        </Button>
-      </div>
-      {overage > 0 ? (
-        <span className="text-[10px] font-medium text-amber-800">
-          +{overage} over
-        </span>
-      ) : null}
+    <div className="flex items-center justify-end gap-1.5">
+      <Input
+        type="number"
+        min={0}
+        value={value}
+        disabled={saving}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+        className={cn(
+          "h-8 w-[72px] rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums",
+          overage > 0 && "border-amber-300 bg-[#fffbeb]"
+        )}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        disabled={saving || line.receivedQty === line.expectedQty}
+        className={cn(dashboardControlClass, "h-8 px-2 text-[11px]")}
+        onClick={() => {
+          setValue(String(line.expectedQty));
+          onSave(line.expectedQty);
+        }}
+      >
+        All
+      </Button>
     </div>
   );
 }
@@ -1111,10 +1104,23 @@ export function OrderMaterialsPanel({
     const lines = materials.lines.map((line) => {
       if (line.id !== lineId) return line;
       const nextQty = Math.max(0, Math.floor(receivedQty));
+      const extras = Math.max(0, nextQty - line.expectedQty);
+      const overageNote =
+        line.kind === "dtf_transfers"
+          ? `Received ${extras} extra DTF sheet${extras === 1 ? "" : "s"}`
+          : line.kind === "garments"
+            ? `Received ${extras} extra piece${extras === 1 ? "" : "s"}`
+            : undefined;
       return {
         ...line,
         receivedQty: nextQty,
         status: computeMaterialLineStatus(line.expectedQty, nextQty),
+        notes:
+          extras > 0 && overageNote
+            ? overageNote
+            : line.notes?.startsWith("Received ")
+              ? undefined
+              : line.notes,
       };
     });
     void saveLines(lines);
@@ -1946,7 +1952,12 @@ export function OrderMaterialsPanel({
                         className="border-b border-[#ebebeb] last:border-0"
                       >
                         <td className="px-4 py-3 font-medium text-[#303030]">
-                          {line.label}
+                          <div>{line.label}</div>
+                          {line.notes ? (
+                            <p className="mt-0.5 text-[11px] font-normal text-amber-800">
+                              {line.notes}
+                            </p>
+                          ) : null}
                         </td>
                         <td className="px-3 py-3 text-right tabular-nums text-[#303030]">
                           {line.expectedQty}

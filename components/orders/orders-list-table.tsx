@@ -40,8 +40,9 @@ function orderPieceCount(order: Order): number {
   );
 }
 
-function stickyOffset(columnId: OrdersListColumnId): string | undefined {
-  if (columnId === "order") return "0";
+function stickyOffset(columnId: OrdersListColumnId | "select"): string | undefined {
+  if (columnId === "select") return "0";
+  if (columnId === "order") return "40px";
   return undefined;
 }
 
@@ -284,6 +285,10 @@ export function OrdersListTable({
   columnLabels,
   customersById,
   emptyMessage,
+  selectable = false,
+  selectedIds,
+  onToggleOrder,
+  onToggleAll,
 }: {
   items: Order[];
   summaries: Map<string, OrderListSummary>;
@@ -293,6 +298,10 @@ export function OrdersListTable({
   columnLabels?: Partial<Record<OrdersListColumnId, string>>;
   customersById: Map<string, Customer>;
   emptyMessage: string;
+  selectable?: boolean;
+  selectedIds?: Set<string>;
+  onToggleOrder?: (orderId: string) => void;
+  onToggleAll?: () => void;
 }) {
   const router = useRouter();
 
@@ -304,7 +313,19 @@ export function OrdersListTable({
     );
   }
 
-  const minWidth = Math.max(720, columns.length * 108);
+  const minWidth = Math.max(720, columns.length * 108 + (selectable ? 48 : 0));
+  const selected = selectedIds ?? new Set<string>();
+  const allSelected =
+    selectable &&
+    items.filter((order) => !order.archived).length > 0 &&
+    items
+      .filter((order) => !order.archived)
+      .every((order) => selected.has(order.id));
+  const someSelected =
+    selectable &&
+    items.some((order) => !order.archived && selected.has(order.id)) &&
+    !allSelected;
+
   const groupedItems = (() => {
     const byRun = new Map<string, Order[]>();
     for (const order of items) {
@@ -333,6 +354,23 @@ export function OrdersListTable({
       <Table className="min-w-full" style={{ minWidth }}>
         <TableHeader>
           <TableRow className="border-[#ebebeb] hover:bg-transparent">
+            {selectable ? (
+              <TableHead
+                className="sticky left-0 z-20 h-9 w-10 bg-[#fafafa] pl-4 shadow-[1px_0_0_#ebebeb] sm:pl-5"
+                style={{ left: 0 }}
+              >
+                <input
+                  type="checkbox"
+                  aria-label="Select all orders in this list"
+                  className="size-4 cursor-pointer rounded border-[#c9cccf] accent-[#2c6ecb]"
+                  checked={allSelected}
+                  ref={(node) => {
+                    if (node) node.indeterminate = someSelected;
+                  }}
+                  onChange={() => onToggleAll?.()}
+                />
+              </TableHead>
+            ) : null}
             {columns.map((columnId) => {
               const def = getOrdersListColumnDef(columnId);
               const stickyLeft = stickyOffset(columnId);
@@ -350,7 +388,7 @@ export function OrdersListTable({
                     stickyLeft != null &&
                       "sticky z-20 shadow-[1px_0_0_#ebebeb]",
                     columnId === columns[columns.length - 1] && "pr-4 sm:pr-5",
-                    columnId === columns[0] && "pl-4 sm:pl-5"
+                    columnId === columns[0] && !selectable && "pl-4 sm:pl-5"
                   )}
                   style={{
                     minWidth: def?.minWidth,
@@ -385,6 +423,8 @@ export function OrdersListTable({
             const isRunLast =
               Boolean(runId) &&
               groupedItems[orderIndex + 1]?.productionRun?.id !== runId;
+            const isSelected = selected.has(order.id);
+            const isRowArchived = order.archived === true;
 
             return (
               <TableRow
@@ -398,7 +438,8 @@ export function OrdersListTable({
                     "bg-[#fffdf5] hover:bg-[#f6f6f7] focus-visible:bg-[#f6f6f7]",
                   order.productionRun &&
                     "hover:bg-[#f6f6f7] focus-visible:bg-[#f6f6f7]",
-                  order.productionRun && isRunLast && "border-b-0"
+                  order.productionRun && isRunLast && "border-b-0",
+                  isSelected && "bg-[#f4f7fd] hover:bg-[#edf3fc]"
                 )}
                 onClick={() => router.push(href)}
                 onKeyDown={(event) => {
@@ -408,6 +449,26 @@ export function OrdersListTable({
                   }
                 }}
               >
+                {selectable ? (
+                  <TableCell
+                    className={cn(
+                      "sticky left-0 z-10 w-10 bg-white py-2.5 pl-4 shadow-[1px_0_0_#ebebeb] transition-colors group-hover:bg-[#f6f6f7] group-focus-visible:bg-[#f6f6f7] sm:pl-5",
+                      order.rush && "bg-[#fffdf5]",
+                      isSelected && "bg-[#f4f7fd] group-hover:bg-[#edf3fc]"
+                    )}
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${formatOrderDisplayLine(order)}`}
+                      className="size-4 cursor-pointer rounded border-[#c9cccf] accent-[#2c6ecb] disabled:cursor-not-allowed disabled:opacity-40"
+                      checked={isSelected}
+                      disabled={isRowArchived}
+                      onChange={() => onToggleOrder?.(order.id)}
+                    />
+                  </TableCell>
+                ) : null}
                 {columns.map((columnId) => {
                   const def = getOrdersListColumnDef(columnId);
                   const stickyLeft = stickyOffset(columnId);
@@ -424,8 +485,11 @@ export function OrdersListTable({
                         isRunLast
                           ? "inset 0 -1px 0 rgba(44, 110, 203, 0.48)"
                           : "",
-                        isFirstColumn
+                        isFirstColumn && !selectable
                           ? "inset 1px 0 0 rgba(44, 110, 203, 0.48)"
+                          : "",
+                        selectable && columnId === columns[0]
+                          ? ""
                           : "",
                         isLastColumn
                           ? "inset -1px 0 0 rgba(44, 110, 203, 0.48)"
@@ -443,11 +507,15 @@ export function OrdersListTable({
                         stickyLeft != null &&
                           "sticky z-10 bg-white shadow-[1px_0_0_#ebebeb]",
                         order.rush && stickyLeft != null && "bg-[#fffdf5]",
+                        isSelected &&
+                          stickyLeft != null &&
+                          "bg-[#f4f7fd] group-hover:bg-[#edf3fc]",
                         order.productionRun &&
                           "bg-white group-hover:bg-[#f6f6f7] group-focus-visible:bg-[#f6f6f7]",
                         order.productionRun &&
                           isRunFirst &&
                           isFirstColumn &&
+                          !selectable &&
                           "rounded-tl-lg",
                         order.productionRun &&
                           isRunFirst &&
@@ -456,6 +524,7 @@ export function OrdersListTable({
                         order.productionRun &&
                           isRunLast &&
                           isFirstColumn &&
+                          !selectable &&
                           "rounded-bl-lg",
                         order.productionRun &&
                           isRunLast &&
@@ -463,7 +532,7 @@ export function OrdersListTable({
                           "rounded-br-lg",
                         columnId === columns[columns.length - 1] &&
                           "pr-4 sm:pr-5",
-                        columnId === columns[0] && "pl-4 sm:pl-5"
+                        columnId === columns[0] && !selectable && "pl-4 sm:pl-5"
                       )}
                       style={{
                         minWidth: def?.minWidth,

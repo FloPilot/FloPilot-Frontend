@@ -336,7 +336,7 @@ export function buildExpandedShopTasks({
     pushTask({
       id: `ship-${order.id}`,
       title: formatOrderDisplayLine(order),
-      detail: `Ready to ship · ${order.company}`,
+      detail: `Production done · ship/pickup + invoice · ${order.company}`,
       href: `/app/orders/${order.id}`,
       tone: "default",
       kind: "ready_to_ship",

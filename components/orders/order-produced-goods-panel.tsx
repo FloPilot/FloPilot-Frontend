@@ -25,16 +25,22 @@ import {
   setAllProducedToOrdered,
   varianceCallout,
 } from "@/lib/order-produced-goods";
+import {
+  getGarmentReceivingLines,
+  mergeOrderMaterials,
+} from "@/lib/order-materials";
 import type { Order, OrderProducedGoodsLine } from "@/types";
 import { cn } from "@/lib/utils";
 import { formatDateTime } from "@/lib/format";
 
 function QtyProducedInput({
   line,
+  receivedQty,
   saving,
   onChange,
 }: {
   line: OrderProducedGoodsLine;
+  receivedQty: number;
   saving: boolean;
   onChange: (producedQty: number) => void;
 }) {
@@ -54,36 +60,25 @@ function QtyProducedInput({
     }
   };
 
-  const delta = line.producedQty - line.orderedQty;
+  const vsOrdered = line.producedQty - line.orderedQty;
+  const vsReceived = line.producedQty - receivedQty;
 
   return (
-    <div className="flex flex-col items-end gap-1">
-      <Input
-        type="number"
-        min={0}
-        value={value}
-        disabled={saving}
-        onChange={(event) => setValue(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") event.currentTarget.blur();
-        }}
-        className={cn(
-          "h-8 w-[80px] rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums",
-          delta !== 0 && "border-amber-300 bg-[#fffbeb]"
-        )}
-      />
-      {delta !== 0 ? (
-        <span
-          className={cn(
-            "text-[10px] font-medium",
-            delta > 0 ? "text-amber-800" : "text-[#8f1f1f]"
-          )}
-        >
-          {delta > 0 ? `+${delta}` : delta} vs ordered
-        </span>
-      ) : null}
-    </div>
+    <Input
+      type="number"
+      min={0}
+      value={value}
+      disabled={saving}
+      onChange={(event) => setValue(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") event.currentTarget.blur();
+      }}
+      className={cn(
+        "ml-auto h-8 w-[80px] rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums",
+        (vsOrdered !== 0 || vsReceived < 0) && "border-amber-300 bg-[#fffbeb]"
+      )}
+    />
   );
 }
 
@@ -112,6 +107,26 @@ export function OrderProducedGoodsPanel({
   const orderedTotal = countOrderedPieces(produced);
   const producedTotal = countProducedPieces(produced);
   const hasVariance = hasProducedGoodsVariance(produced);
+
+  const receivedByLineKey = useMemo(() => {
+    const materials = mergeOrderMaterials(order);
+    const map = new Map<string, number>();
+    for (const line of getGarmentReceivingLines(materials)) {
+      if (!line.lineItemId || !line.size) continue;
+      map.set(`${line.lineItemId}::${line.size}`, line.receivedQty || 0);
+    }
+    return map;
+  }, [order]);
+
+  const receivedTotal = useMemo(() => {
+    return produced.lines.reduce((sum, line) => {
+      const key = `${line.lineItemId}::${line.size}`;
+      return sum + (receivedByLineKey.get(key) ?? 0);
+    }, 0);
+  }, [produced.lines, receivedByLineKey]);
+
+  const getReceivedQty = (line: OrderProducedGoodsLine) =>
+    receivedByLineKey.get(`${line.lineItemId}::${line.size}`) ?? 0;
 
   const recorder =
     (profile?.type === "staff" && profile.user.name) ||
@@ -242,8 +257,9 @@ export function OrderProducedGoodsPanel({
               {compact ? "Produced goods" : "Produced goods"}
             </h2>
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-              Enter what the shop actually printed. Counts can be higher or lower
-              than ordered — the invoice uses these quantities.
+              Enter what the shop actually printed. Received comes from blank
+              check-in — compare it to produced to spot damage or shorts. Invoice
+              uses produced quantities.
             </p>
             {produced.confirmedAt ? (
               <p className="mt-1 text-[12px] text-[#616161]">
@@ -289,6 +305,12 @@ export function OrderProducedGoodsPanel({
             </span>
           </div>
           <div>
+            <span className="text-[#616161]">Received</span>{" "}
+            <span className="font-semibold tabular-nums text-[#303030]">
+              {receivedTotal}
+            </span>
+          </div>
+          <div>
             <span className="text-[#616161]">Produced</span>{" "}
             <span className="font-semibold tabular-nums text-[#303030]">
               {producedTotal}
@@ -314,7 +336,7 @@ export function OrderProducedGoodsPanel({
 
         <div className={cn(dashboardInsetSurfaceClass, "m-4 overflow-hidden sm:m-5")}>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-[13px]">
+            <table className="w-full min-w-[720px] text-[13px]">
               <thead>
                 <tr className="border-b border-[#ebebeb] bg-[#fafafa]">
                   <th className="px-4 py-2.5 text-left font-medium text-[#616161]">
@@ -327,6 +349,9 @@ export function OrderProducedGoodsPanel({
                     Ordered
                   </th>
                   <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
+                    Received
+                  </th>
+                  <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
                     Produced
                   </th>
                   <th className="px-3 py-2.5 text-right font-medium text-[#616161]">
@@ -337,13 +362,15 @@ export function OrderProducedGoodsPanel({
               <tbody>
                 {produced.lines.map((line) => {
                   const style = PRODUCED_STATUS_STYLES[line.status];
-                  const delta = line.producedQty - line.orderedQty;
+                  const receivedQty = getReceivedQty(line);
+                  const vsOrdered = line.producedQty - line.orderedQty;
+                  const vsReceived = line.producedQty - receivedQty;
                   return (
                     <tr
                       key={line.id}
                       className={cn(
                         "border-b border-[#ebebeb] last:border-0",
-                        delta !== 0 && "bg-[#fffdf5]"
+                        (vsOrdered !== 0 || vsReceived < 0) && "bg-[#fffdf5]"
                       )}
                     >
                       <td className="px-4 py-3">
@@ -363,9 +390,24 @@ export function OrderProducedGoodsPanel({
                       <td className="px-3 py-3 text-right tabular-nums text-[#303030]">
                         {line.orderedQty}
                       </td>
+                      <td className="px-3 py-3 text-right">
+                        <span
+                          className={cn(
+                            "tabular-nums text-[#303030]",
+                            receivedQty > line.orderedQty &&
+                              "font-semibold text-amber-900",
+                            receivedQty > 0 &&
+                              receivedQty < line.orderedQty &&
+                              "font-semibold text-[#8f1f1f]"
+                          )}
+                        >
+                          {receivedQty}
+                        </span>
+                      </td>
                       <td className="px-3 py-3">
                         <QtyProducedInput
                           line={line}
+                          receivedQty={receivedQty}
                           saving={saving}
                           onChange={(qty) => handleQty(line.id, qty)}
                         />

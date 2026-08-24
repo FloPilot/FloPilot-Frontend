@@ -13,6 +13,7 @@ import { buildReceivingQueue } from "@/lib/receiving-queue";
 import { getOrderScreenFiles } from "@/lib/order-receiving-checkpoints";
 import {
   getInkPrepLines,
+  getDtfReceivingLines,
   getScreenSetupLine,
   mergeOrderMaterials,
 } from "@/lib/order-materials";
@@ -298,6 +299,50 @@ export type InkQueueEntry = {
   readinessReason?: string;
 };
 
+export type DtfQueueEntry = {
+  order: Order;
+  line: OrderMaterialLine;
+  jobName: string;
+  imprintLabel: string;
+};
+
+export function collectDtfQueue(
+  orders: Order[],
+  options?: { includeCompleted?: boolean }
+): DtfQueueEntry[] {
+  const includeCompleted = options?.includeCompleted === true;
+  const entries: DtfQueueEntry[] = [];
+
+  for (const order of orders) {
+    if (!isActiveProductionOrder(order)) continue;
+    const materials = mergeOrderMaterials(order);
+    for (const line of getDtfReceivingLines(materials)) {
+      if (!includeCompleted && line.status === "received") continue;
+      const job = order.jobs.find((entry) => entry.id === line.jobId);
+      const imprint = job?.imprints.find((entry) => entry.id === line.imprintId);
+      if (!job || !imprint) continue;
+      entries.push({
+        order,
+        line,
+        jobName: job.name,
+        imprintLabel: imprint.label,
+      });
+    }
+  }
+
+  return entries.sort((a, b) => {
+    const aDone = a.line.status === "received";
+    const bDone = b.line.status === "received";
+    if (aDone !== bDone) return aDone ? 1 : -1;
+    if (a.order.rush !== b.order.rush) return a.order.rush ? -1 : 1;
+    const dueOrder =
+      new Date(a.order.inHandsDate).getTime() -
+      new Date(b.order.inHandsDate).getTime();
+    if (dueOrder !== 0) return dueOrder;
+    return a.order.number.localeCompare(b.order.number);
+  });
+}
+
 export type InkQueueCluster =
   | { type: "single"; entry: InkQueueEntry }
   | { type: "run"; runId: string; orderCount: number; entries: InkQueueEntry[] };
@@ -454,6 +499,7 @@ export function departmentQueueCounts(input: {
   const artwork = collectArtworkDepartmentQueue(input.orders);
   const screens = collectScreenQueue(input.orders, input.scheduleBlocks);
   const inks = collectInkQueue(input.orders, input.scheduleBlocks);
+  const dtf = collectDtfQueue(input.orders);
   const finishing = collectFinishingDepartmentTasks(
     input.productionBoardTasks
   ).filter((task) => task.status !== "done");
@@ -486,6 +532,7 @@ export function departmentQueueCounts(input: {
     artwork: artwork.length,
     screens: screens.length,
     inks: inks.length,
+    dtf: dtf.length,
     production,
     finishing: finishing.length,
     receiving,

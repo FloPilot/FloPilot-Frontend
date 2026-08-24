@@ -1,18 +1,11 @@
-"use client";
-
-import { useCallback, useEffect, useState } from "react";
-
 /**
- * Client-side archive for saved designs.
- *
- * The backend does not yet expose an archive endpoint for the design library,
- * so archived design ids are persisted in localStorage. This keeps the UX fully
- * functional today and can be swapped for a server-backed flag (e.g. a
- * `archived` field via updateDesign) without changing the component API.
+ * Legacy client-side archive ids (pre server-backed design.archived).
+ * New archive/restore goes through the API; this helper only keeps older
+ * local-only archives visible until they are re-archived on the server.
  */
 const STORAGE_KEY = "pressflow.designLibrary.archivedIds";
 
-function readArchived(): string[] {
+export function readLocalArchivedDesignIds(): string[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -26,46 +19,14 @@ function readArchived(): string[] {
   }
 }
 
-function writeArchived(ids: string[]) {
-  if (typeof window === "undefined") return;
+export function clearLocalArchivedDesignIds(ids: string[]) {
+  if (typeof window === "undefined" || ids.length === 0) return;
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+    const current = readLocalArchivedDesignIds();
+    const remove = new Set(ids);
+    const next = current.filter((id) => !remove.has(id));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
   } catch {
-    /* ignore quota / serialization errors */
+    /* ignore */
   }
-}
-
-export function useArchivedDesigns() {
-  const [archivedIds, setArchivedIds] = useState<string[]>([]);
-  const [hydrated, setHydrated] = useState(false);
-
-  useEffect(() => {
-    setArchivedIds(readArchived());
-    setHydrated(true);
-  }, []);
-
-  const archive = useCallback((id: string) => {
-    setArchivedIds((current) => {
-      if (current.includes(id)) return current;
-      const next = [...current, id];
-      writeArchived(next);
-      return next;
-    });
-  }, []);
-
-  const restore = useCallback((id: string) => {
-    setArchivedIds((current) => {
-      if (!current.includes(id)) return current;
-      const next = current.filter((value) => value !== id);
-      writeArchived(next);
-      return next;
-    });
-  }, []);
-
-  const isArchived = useCallback(
-    (id: string) => archivedIds.includes(id),
-    [archivedIds]
-  );
-
-  return { archivedIds, hydrated, archive, restore, isArchived };
 }

@@ -137,7 +137,6 @@ export const NEW_ORDER_STEPS = [
   { id: 1, title: "Customer" },
   { id: 2, title: "Blanks/garments" },
   { id: 3, title: "Events" },
-  { id: 4, title: "Mockups" },
 ] as const;
 
 export const NEW_ORDER_STEP_COUNT = NEW_ORDER_STEPS.length;
@@ -284,8 +283,6 @@ export function validateNewOrderStep(
       }
       return null;
     }
-    case 4:
-      return null;
     default:
       return null;
   }
