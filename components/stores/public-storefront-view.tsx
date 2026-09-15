@@ -57,7 +57,9 @@ import {
   getMockupsForColor,
   getProductColorNames,
   isClientStoreShowMode,
+  resolveClientStoreUnitPrice,
 } from "@/lib/client-stores";
+import { StoreProductPriceLabel } from "@/components/stores/store-product-price-breaks";
 import {
   CUSTOMER_ACCENT_OPTIONS,
   type CustomerAccent,
@@ -76,6 +78,29 @@ type CartLine = {
   unitPrice: number;
   mockupUrl?: string;
 };
+
+function withTieredCartPrices(
+  lines: CartLine[],
+  products: PublicClientStoreProduct[]
+): CartLine[] {
+  const byId = new Map(products.map((product) => [product.id, product]));
+  const qtyByProduct = new Map<string, number>();
+  for (const line of lines) {
+    qtyByProduct.set(
+      line.productId,
+      (qtyByProduct.get(line.productId) || 0) + line.qty
+    );
+  }
+  return lines.map((line) => {
+    const product = byId.get(line.productId);
+    if (!product) return line;
+    const unitPrice = resolveClientStoreUnitPrice(
+      product,
+      qtyByProduct.get(line.productId) || line.qty
+    );
+    return unitPrice === line.unitPrice ? line : { ...line, unitPrice };
+  });
+}
 
 function accentFor(key?: string): CustomerAccent {
   return (
@@ -221,6 +246,23 @@ export function PublicStorefrontView({ token }: { token: string }) {
     setCart(stored);
     setCartHydrated(true);
   }, [token]);
+
+  useEffect(() => {
+    if (!store?.products?.length || !cartHydrated) return;
+    setCart((prev) => {
+      const next = withTieredCartPrices(prev, store.products);
+      const unchanged =
+        next.length === prev.length &&
+        next.every(
+          (line, index) =>
+            line === prev[index] ||
+            (line.key === prev[index]?.key &&
+              line.qty === prev[index]?.qty &&
+              line.unitPrice === prev[index]?.unitPrice)
+        );
+      return unchanged ? prev : next;
+    });
+  }, [store?.products, cartHydrated]);
 
   useEffect(() => {
     if (!cartHydrated) return;
@@ -413,24 +455,24 @@ export function PublicStorefrontView({ token }: { token: string }) {
     setError(null);
     setCart((prev) => {
       const current = prev.find((line) => line.key === key);
-      if (current) {
-        return prev.map((line) =>
-          line.key === key ? { ...line, qty: line.qty + qty } : line
-        );
-      }
-      return [
-        ...prev,
-        {
-          key,
-          productId: selected.id,
-          productName: selected.name,
-          size,
-          color: color || undefined,
-          qty,
-          unitPrice: selected.sellPrice || 0,
-          mockupUrl: activeMockup || selected.mockupUrl,
-        },
-      ];
+      const nextLines = current
+        ? prev.map((line) =>
+            line.key === key ? { ...line, qty: line.qty + qty } : line
+          )
+        : [
+            ...prev,
+            {
+              key,
+              productId: selected.id,
+              productName: selected.name,
+              size,
+              color: color || undefined,
+              qty,
+              unitPrice: selected.sellPrice || 0,
+              mockupUrl: activeMockup || selected.mockupUrl,
+            },
+          ];
+      return withTieredCartPrices(nextLines, store?.products || []);
     });
     setCheckoutStep("cart");
     setCheckoutOpen(true);
@@ -736,11 +778,12 @@ export function PublicStorefrontView({ token }: { token: string }) {
                       </p>
                     ) : null}
                     <StoreProductCommerceMeta product={product} />
-                    <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
-                      {product.sellPrice != null
-                        ? formatCurrency(product.sellPrice)
-                        : null}
-                    </p>
+                    {product.sellPrice != null ? (
+                      <StoreProductPriceLabel
+                        product={product}
+                        className="mt-1.5 text-[13px] font-semibold text-[#303030]"
+                      />
+                    ) : null}
                   </button>
                 ))}
               </div>
@@ -933,13 +976,17 @@ export function PublicStorefrontView({ token }: { token: string }) {
                                     (row) => row.productId !== line.productId
                                   );
                                 }
-                                return prev
+                                const next = prev
                                   .map((row) =>
                                     row.key === line.key
                                       ? { ...row, qty: row.qty - 1 }
                                       : row
                                   )
                                   .filter((row) => row.qty > 0);
+                                return withTieredCartPrices(
+                                  next,
+                                  store.products
+                                );
                               });
                             }}
                           >
@@ -953,10 +1000,13 @@ export function PublicStorefrontView({ token }: { token: string }) {
                             className="flex size-8 items-center justify-center text-[#616161] transition-colors hover:bg-[#f6f6f7]"
                             onClick={() =>
                               setCart((prev) =>
-                                prev.map((row) =>
-                                  row.key === line.key
-                                    ? { ...row, qty: row.qty + 1 }
-                                    : row
+                                withTieredCartPrices(
+                                  prev.map((row) =>
+                                    row.key === line.key
+                                      ? { ...row, qty: row.qty + 1 }
+                                      : row
+                                  ),
+                                  store.products
                                 )
                               )
                             }

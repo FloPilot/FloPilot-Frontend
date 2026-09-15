@@ -314,6 +314,7 @@ export function StoreCustomizeBuilder({
           decorationLocations: product.decorationLocations || [],
           minOrderQty: product.minOrderQty,
           setupFee: product.setupFee,
+          priceBreaks: product.priceBreaks || [],
         })),
     [store.products]
   );

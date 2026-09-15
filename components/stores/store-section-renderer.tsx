@@ -18,8 +18,8 @@ import { getProductCardImages } from "@/lib/client-stores";
 import { StoreProductDetailPreview } from "@/components/stores/store-product-detail";
 import { StoreProductCardMedia } from "@/components/stores/store-product-card-media";
 import { StoreProductCommerceMeta } from "@/components/stores/store-product-commerce-meta";
+import { StoreProductPriceLabel } from "@/components/stores/store-product-price-breaks";
 import { sampleImageCornerColor } from "@/lib/sample-image-color";
-import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 function productsForSection(
@@ -117,9 +117,10 @@ function ProductCard({
       ) : null}
       <StoreProductCommerceMeta product={product} />
       {showPrices && product.sellPrice != null ? (
-        <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
-          {formatCurrency(product.sellPrice)}
-        </p>
+        <StoreProductPriceLabel
+          product={product}
+          className="mt-1.5 text-[13px] font-semibold text-[#303030]"
+        />
       ) : null}
     </button>
   );

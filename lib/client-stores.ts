@@ -102,6 +102,12 @@ export type ClientStoreColorVariant = {
   blankMockupUrls?: string[];
 };
 
+/** Quantity tier: when product total qty >= minQty, use this unit price. */
+export type ClientStorePriceBreak = {
+  minQty: number;
+  unitPrice: number;
+};
+
 export type ClientStoreProduct = {
   id: string;
   name: string;
@@ -153,6 +159,11 @@ export type ClientStoreProduct = {
   markupPercent: number;
   sellPrice: number;
   sellPriceMode: ClientStoreSellPriceMode;
+  /**
+   * Optional quantity discounts. Base `sellPrice` applies below the first break.
+   * Resolved against total pieces of this product across sizes/colors.
+   */
+  priceBreaks?: ClientStorePriceBreak[];
   sortOrder: number;
   enabled: boolean;
 };
@@ -374,6 +385,7 @@ export type PublicClientStoreProduct = {
   decorationLocations?: ClientStoreDecorationLocation[];
   minOrderQty?: number;
   setupFee?: number;
+  priceBreaks?: ClientStorePriceBreak[];
 };
 
 export type ClientStoreEmployee = {
@@ -489,6 +501,107 @@ export function computeClientStoreSellPrice(product: {
   const cost = blank + decoration;
   const markup = Math.max(0, Number(product.markupPercent) || 0);
   return Math.round(cost * (1 + markup / 100) * 100) / 100;
+}
+
+export function normalizeClientStorePriceBreaks(
+  raw: unknown
+): ClientStorePriceBreak[] {
+  if (!Array.isArray(raw)) return [];
+  const byMin = new Map<number, number>();
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const minQty = Math.max(
+      1,
+      Math.floor(Number((row as ClientStorePriceBreak).minQty) || 0)
+    );
+    const unitPrice = Math.max(
+      0,
+      Math.round(Number((row as ClientStorePriceBreak).unitPrice) * 100) / 100 ||
+        0
+    );
+    if (!Number.isFinite(minQty) || !Number.isFinite(unitPrice)) continue;
+    byMin.set(minQty, unitPrice);
+  }
+  return [...byMin.entries()]
+    .map(([minQty, unitPrice]) => ({ minQty, unitPrice }))
+    .sort((a, b) => a.minQty - b.minQty)
+    .slice(0, 12);
+}
+
+/** Unit price for a product given total pieces across sizes/colors. */
+export function resolveClientStoreUnitPrice(
+  product: {
+    sellPrice?: number;
+    priceBreaks?: ClientStorePriceBreak[] | null;
+  },
+  quantity: number
+): number {
+  const base = Math.max(0, Number(product.sellPrice) || 0);
+  const breaks = normalizeClientStorePriceBreaks(product.priceBreaks);
+  if (breaks.length === 0) return base;
+  const qty = Math.max(0, Math.floor(Number(quantity) || 0));
+  const sorted = [...breaks].sort((a, b) => b.minQty - a.minQty);
+  for (const tier of sorted) {
+    if (qty >= tier.minQty) return tier.unitPrice;
+  }
+  return base;
+}
+
+export type ClientStorePriceBreakDisplayRow = {
+  minQty: number;
+  maxQty: number | null;
+  unitPrice: number;
+  label: string;
+};
+
+/** Human-readable qty ranges for storefront price tables. */
+export function clientStorePriceBreakDisplayRows(product: {
+  sellPrice?: number;
+  priceBreaks?: ClientStorePriceBreak[] | null;
+}): ClientStorePriceBreakDisplayRow[] {
+  const base = Math.max(0, Number(product.sellPrice) || 0);
+  const breaks = normalizeClientStorePriceBreaks(product.priceBreaks);
+  if (breaks.length === 0) return [];
+
+  const rows: ClientStorePriceBreakDisplayRow[] = [];
+  const firstMin = breaks[0].minQty;
+  if (firstMin > 1) {
+    rows.push({
+      minQty: 1,
+      maxQty: firstMin - 1,
+      unitPrice: base,
+      label: firstMin - 1 === 1 ? "1" : `1–${firstMin - 1}`,
+    });
+  }
+  for (let i = 0; i < breaks.length; i += 1) {
+    const tier = breaks[i];
+    const next = breaks[i + 1];
+    const maxQty = next ? next.minQty - 1 : null;
+    rows.push({
+      minQty: tier.minQty,
+      maxQty,
+      unitPrice: tier.unitPrice,
+      label:
+        maxQty == null
+          ? `${tier.minQty}+`
+          : maxQty === tier.minQty
+            ? `${tier.minQty}`
+            : `${tier.minQty}–${maxQty}`,
+    });
+  }
+  return rows;
+}
+
+/** Lowest shopper unit price (for “From $X” cards). */
+export function clientStoreStartingPrice(product: {
+  sellPrice?: number;
+  priceBreaks?: ClientStorePriceBreak[] | null;
+}): number | null {
+  if (product.sellPrice == null && !product.priceBreaks?.length) return null;
+  const base = Math.max(0, Number(product.sellPrice) || 0);
+  const breaks = normalizeClientStorePriceBreaks(product.priceBreaks);
+  if (breaks.length === 0) return base;
+  return Math.min(base, ...breaks.map((row) => row.unitPrice));
 }
 
 /** Shop-facing unit economics for a store product (staff view). */
@@ -840,19 +953,25 @@ export function duplicateClientStoreProduct(
     name: `${baseName}${suffix}`.slice(0, 120),
     colors: [...(product.colors || [])],
     tags: [...(product.tags || [])],
-    galleryUrls: product.galleryUrls ? [...product.galleryUrls] : undefined,
+    // galleryUrls mirror mockups and inflate the Firestore doc — drop on copy.
+    galleryUrls: undefined,
     sizes: (product.sizes || []).map((row) => ({ ...row })),
-    colorVariants: (product.colorVariants || []).map((variant, index) => ({
-      ...variant,
-      id: `color-${stamp}-${index}-${Math.random().toString(36).slice(2, 6)}`.slice(
-        0,
-        64
-      ),
-      mockupUrls: [...(variant.mockupUrls || [])],
-      blankMockupUrls: variant.blankMockupUrls
-        ? [...variant.blankMockupUrls]
-        : undefined,
-    })),
+    colorVariants: (product.colorVariants || []).map((variant, index) => {
+      // Keep hosted blank mockups; skip inline data URLs (backend externalizes on save,
+      // but duplicating them can push the request/doc over the 1MB cap first).
+      const blankMockupUrls = (variant.blankMockupUrls || []).filter(
+        (url) => typeof url === "string" && url && !url.startsWith("data:")
+      );
+      return {
+        ...variant,
+        id: `color-${stamp}-${index}-${Math.random().toString(36).slice(2, 6)}`.slice(
+          0,
+          64
+        ),
+        mockupUrls: [...(variant.mockupUrls || [])],
+        blankMockupUrls: blankMockupUrls.length ? blankMockupUrls : undefined,
+      };
+    }),
     decorationLocations: (product.decorationLocations || []).map(
       (location, index) => ({
         ...location,

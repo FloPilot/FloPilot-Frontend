@@ -10,6 +10,7 @@ import {
   ImagePlus,
   Layers,
   Loader2,
+  Plus,
   Search,
   Trash2,
   Truck,
@@ -37,10 +38,12 @@ import {
   getEnabledColorVariants,
   getMockupsForColor,
   getPrimaryMockupUrl,
+  normalizeClientStorePriceBreaks,
   normalizeClientStoreProductKind,
   sizesForClientStoreProductKind,
   syncProductDerivedFields,
   type ClientStoreColorVariant,
+  type ClientStorePriceBreak,
   type ClientStoreProduct,
   type ClientStoreProductDesign,
   type ClientStoreProductKind,
@@ -122,6 +125,7 @@ function emptyProduct(): ClientStoreProduct {
     markupPercent: 40,
     sellPrice: 0,
     sellPriceMode: "markup",
+    priceBreaks: [],
     sortOrder: 0,
     enabled: true,
   };
@@ -772,6 +776,7 @@ export function StoreProductEditor({
       });
       await onSave({
         ...synced,
+        priceBreaks: normalizeClientStorePriceBreaks(synced.priceBreaks),
         // Force "" through JSON.stringify (undefined would be omitted).
         color: clearedColor ? synced.color || clearedColor : "",
       });
@@ -1983,6 +1988,155 @@ export function StoreProductEditor({
                       {formatCurrency(previewPrice)}
                     </span>
                   </div>
+                </div>
+
+                <div className="mt-5 border-t border-[#ebebeb] pt-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[13px] font-medium text-[#303030]">
+                        Quantity price breaks
+                      </p>
+                      <p className="mt-0.5 text-[11px] leading-relaxed text-[#8a8a8a]">
+                        Optional volume discounts. Shopper price above applies
+                        below the first break; tiers use total pieces of this
+                        product across sizes.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-8 border-[#e3e3e3] px-2.5 text-[12px] text-[#616161]"
+                      onClick={() => {
+                        const existing = normalizeClientStorePriceBreaks(
+                          draft.priceBreaks
+                        );
+                        const last = existing[existing.length - 1];
+                        const nextMin = last ? last.minQty + 12 : 12;
+                        const next: ClientStorePriceBreak[] = [
+                          ...existing,
+                          {
+                            minQty: nextMin,
+                            unitPrice: Math.max(
+                              0,
+                              Math.round(previewPrice * 0.9 * 100) / 100
+                            ),
+                          },
+                        ];
+                        updateDraft({
+                          priceBreaks: normalizeClientStorePriceBreaks(next),
+                        });
+                      }}
+                    >
+                      <Plus className="mr-1 size-3.5" />
+                      Add break
+                    </Button>
+                  </div>
+
+                  {(draft.priceBreaks || []).length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      <div className="hidden grid-cols-[1fr_1fr_auto] gap-2 px-1 text-[11px] font-medium text-[#8a8a8a] sm:grid">
+                        <span>Min. qty</span>
+                        <span>Unit price</span>
+                        <span className="w-8" />
+                      </div>
+                      {(draft.priceBreaks || []).map((tier, index) => (
+                          <div
+                            key={index}
+                            className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]"
+                          >
+                            <div>
+                              <Label className="text-[11px] text-[#8a8a8a] sm:sr-only">
+                                Min. qty
+                              </Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={tier.minQty}
+                                onFocus={(event) =>
+                                  event.currentTarget.select()
+                                }
+                                onChange={(e) => {
+                                  const next = [...(draft.priceBreaks || [])];
+                                  next[index] = {
+                                    ...next[index],
+                                    minQty: Math.max(
+                                      1,
+                                      Math.floor(Number(e.target.value) || 1)
+                                    ),
+                                  };
+                                  updateDraft({ priceBreaks: next });
+                                }}
+                                onBlur={() =>
+                                  updateDraft({
+                                    priceBreaks:
+                                      normalizeClientStorePriceBreaks(
+                                        draft.priceBreaks
+                                      ),
+                                  })
+                                }
+                                className={fieldClassName}
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-[11px] text-[#8a8a8a] sm:sr-only">
+                                Unit price
+                              </Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={tier.unitPrice}
+                                onFocus={(event) =>
+                                  event.currentTarget.select()
+                                }
+                                onChange={(e) => {
+                                  const next = [...(draft.priceBreaks || [])];
+                                  next[index] = {
+                                    ...next[index],
+                                    unitPrice: Math.max(
+                                      0,
+                                      Number(e.target.value) || 0
+                                    ),
+                                  };
+                                  updateDraft({ priceBreaks: next });
+                                }}
+                                onBlur={() =>
+                                  updateDraft({
+                                    priceBreaks:
+                                      normalizeClientStorePriceBreaks(
+                                        draft.priceBreaks
+                                      ),
+                                  })
+                                }
+                                className={fieldClassName}
+                              />
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              className="h-10 w-10 shrink-0 p-0 text-[#8a8a8a] hover:text-red-700"
+                              title="Remove break"
+                              onClick={() => {
+                                const next = (draft.priceBreaks || []).filter(
+                                  (_, i) => i !== index
+                                );
+                                updateDraft({
+                                  priceBreaks:
+                                    normalizeClientStorePriceBreaks(next),
+                                });
+                              }}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-[12px] text-[#8a8a8a]">
+                      No breaks yet — shoppers see a single unit price.
+                    </p>
+                  )}
                 </div>
               </Section>
 
