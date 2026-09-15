@@ -794,10 +794,14 @@ export function StoreEditorView({ storeId }: { storeId: string }) {
       productId
     );
     if (!result) return;
-    await saveProducts(result.products);
-    setEditingProduct(result.duplicate);
-    setProductOpen(true);
-    setProductDirty(false);
+    try {
+      await saveProducts(result.products);
+      setEditingProduct(result.duplicate);
+      setProductOpen(true);
+      setProductDirty(false);
+    } catch {
+      // saveProducts already surfaced the message in the editor banner.
+    }
   };
 
   const sortedCatalogProducts = useMemo(

@@ -16,6 +16,11 @@ import {
 } from "@/lib/client-stores";
 import { sampleImageCornerColor } from "@/lib/sample-image-color";
 import { StoreProductCommerceMeta } from "@/components/stores/store-product-commerce-meta";
+import {
+  StoreProductPriceBreaksTable,
+  StoreProductPriceLabel,
+} from "@/components/stores/store-product-price-breaks";
+import { resolveClientStoreUnitPrice } from "@/lib/client-stores";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -216,9 +221,11 @@ export function StoreProductDetailPreview({
           >
             {product?.name || "Sample product"}
           </h2>
-          <p className="mt-3 text-[1.15rem] font-semibold tabular-nums">
-            {formatCurrency(product?.sellPrice || 0)}
-          </p>
+          <StoreProductPriceLabel
+            product={product}
+            className="mt-3 text-[1.15rem] font-semibold"
+          />
+          <StoreProductPriceBreaksTable product={product} />
           <StoreProductCommerceMeta product={product} density="detail" />
           {product?.description ? (
             <p className="mt-3 text-[13px] leading-relaxed opacity-80">
@@ -418,10 +425,25 @@ export function StoreProductDetailInteractive({
             {product.name}
           </h1>
           <p className="mt-3 text-[1.25rem] font-semibold tabular-nums">
-            {product.sellPrice != null
-              ? formatCurrency(product.sellPrice)
-              : null}
+            {product.sellPrice != null ? (
+              (product.priceBreaks || []).length > 0 ? (
+                <>
+                  {formatCurrency(
+                    resolveClientStoreUnitPrice(product, controls.qty)
+                  )}
+                  <span className="ml-1.5 text-[12px] font-normal text-[#8a8a8a]">
+                    /ea
+                  </span>
+                </>
+              ) : (
+                formatCurrency(product.sellPrice)
+              )
+            ) : null}
           </p>
+          <StoreProductPriceBreaksTable
+            product={product}
+            activeQty={controls.qty}
+          />
           <StoreProductCommerceMeta product={product} density="detail" />
           {product.description ? (
             <p className="mt-4 text-[14px] leading-relaxed opacity-80">

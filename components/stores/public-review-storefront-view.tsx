@@ -70,8 +70,11 @@ import {
   CUSTOMER_ACCENT_OPTIONS,
   type CustomerAccent,
 } from "@/lib/production-customer-colors";
-import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  StoreProductPriceBreaksTable,
+  StoreProductPriceLabel,
+} from "@/components/stores/store-product-price-breaks";
 
 function accentFor(key?: string): CustomerAccent {
   return (
@@ -398,9 +401,13 @@ function ReviewProductDetail({
           {product.name}
         </h1>
         {showPrices && product.sellPrice != null ? (
-          <p className="mt-2 text-[15px] font-semibold tabular-nums text-[#303030]">
-            {formatCurrency(product.sellPrice)}
-          </p>
+          <>
+            <StoreProductPriceLabel
+              product={product}
+              className="mt-2 text-[15px] font-semibold text-[#303030]"
+            />
+            <StoreProductPriceBreaksTable product={product} />
+          </>
         ) : null}
 
         <StoreProductCommerceMeta product={product} density="detail" />
@@ -1196,9 +1203,10 @@ export function PublicReviewStorefrontView({ token }: { token: string }) {
                     ) : null}
                     <StoreProductCommerceMeta product={product} />
                     {showPrices && product.sellPrice != null ? (
-                      <p className="mt-1.5 text-[13px] font-semibold tabular-nums text-[#303030]">
-                        {formatCurrency(product.sellPrice)}
-                      </p>
+                      <StoreProductPriceLabel
+                        product={product}
+                        className="mt-1.5 text-[13px] font-semibold text-[#303030]"
+                      />
                     ) : null}
                   </button>
                 ))}
