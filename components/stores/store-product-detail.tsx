@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Minus, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import type {
@@ -20,6 +19,7 @@ import {
   StoreProductPriceBreaksTable,
   StoreProductPriceLabel,
 } from "@/components/stores/store-product-price-breaks";
+import { StoreQtyStepper } from "@/components/stores/store-qty-stepper";
 import { resolveClientStoreUnitPrice } from "@/lib/client-stores";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -310,16 +310,8 @@ export function StoreProductDetailPreview({
 
           <div className="mt-5">
             <p className="text-[13px] font-medium">Quantity</p>
-            <div className="mt-2.5 inline-flex items-center rounded-lg border border-[#e3e3e3]">
-              <span className="inline-flex size-10 items-center justify-center text-[#c0c0c4]">
-                <Minus className="size-3.5" />
-              </span>
-              <span className="min-w-10 text-center text-[14px] font-semibold tabular-nums">
-                1
-              </span>
-              <span className="inline-flex size-10 items-center justify-center text-[#c0c0c4]">
-                <Plus className="size-3.5" />
-              </span>
+            <div className="mt-2.5">
+              <StoreQtyStepper value={1} onChange={() => {}} disabled />
             </div>
           </div>
 
@@ -528,30 +520,15 @@ export function StoreProductDetailInteractive({
           {!browseOnly ? (
             <div className="mt-6">
               <Label className="text-[13px] font-medium">Quantity</Label>
-              <div className="mt-2.5 inline-flex items-center rounded-lg border border-[#e3e3e3]">
-                <button
-                  type="button"
-                  className="inline-flex size-10 items-center justify-center text-[#616161] hover:bg-[#f6f6f7]"
-                  onClick={() => {
-                    const floor = Math.max(
-                      1,
-                      Math.floor(Number(product.minOrderQty) || 0) || 1
-                    );
-                    controls.onQtyChange(Math.max(floor, controls.qty - 1));
-                  }}
-                >
-                  <Minus className="size-3.5" />
-                </button>
-                <span className="min-w-10 text-center text-[14px] font-semibold tabular-nums">
-                  {controls.qty}
-                </span>
-                <button
-                  type="button"
-                  className="inline-flex size-10 items-center justify-center text-[#616161] hover:bg-[#f6f6f7]"
-                  onClick={() => controls.onQtyChange(controls.qty + 1)}
-                >
-                  <Plus className="size-3.5" />
-                </button>
+              <div className="mt-2.5">
+                <StoreQtyStepper
+                  value={controls.qty}
+                  min={Math.max(
+                    1,
+                    Math.floor(Number(product.minOrderQty) || 0) || 1
+                  )}
+                  onChange={controls.onQtyChange}
+                />
               </div>
               {Number(product.minOrderQty) > 0 ? (
                 <p className="mt-1.5 text-[11px] text-[#8a8a8a]">

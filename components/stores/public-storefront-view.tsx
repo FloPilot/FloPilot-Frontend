@@ -8,8 +8,6 @@ import {
   CreditCard,
   Eye,
   Loader2,
-  Minus,
-  Plus,
   Trash2,
   X,
 } from "lucide-react";
@@ -19,6 +17,7 @@ import { StoreHeader } from "@/components/stores/store-header";
 import { StoreProductCardMedia } from "@/components/stores/store-product-card-media";
 import { StoreProductCommerceMeta } from "@/components/stores/store-product-commerce-meta";
 import { StoreProductDetailInteractive, StoreProductMediaThumb } from "@/components/stores/store-product-detail";
+import { StoreQtyStepper } from "@/components/stores/store-qty-stepper";
 import { StoreSectionRenderer } from "@/components/stores/store-section-renderer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -948,11 +947,12 @@ export function PublicStorefrontView({ token }: { token: string }) {
                         <p className="mt-1 text-[13px] font-semibold tabular-nums">
                           {formatCurrency(line.unitPrice * line.qty)}
                         </p>
-                        <div className="mt-2 inline-flex items-center rounded-lg border border-[#e3e3e3]">
-                          <button
-                            type="button"
-                            className="flex size-8 items-center justify-center text-[#616161] transition-colors hover:bg-[#f6f6f7]"
-                            onClick={() => {
+                        <div className="mt-2">
+                          <StoreQtyStepper
+                            size="sm"
+                            value={line.qty}
+                            min={1}
+                            onChange={(nextQty) => {
                               const product = store.products.find(
                                 (row) => row.id === line.productId
                               );
@@ -961,15 +961,16 @@ export function PublicStorefrontView({ token }: { token: string }) {
                                 Math.floor(Number(product?.minOrderQty) || 0)
                               );
                               setCart((prev) => {
-                                const productQty = prev
+                                const otherQty = prev
                                   .filter(
-                                    (row) => row.productId === line.productId
+                                    (row) =>
+                                      row.productId === line.productId &&
+                                      row.key !== line.key
                                   )
                                   .reduce((sum, row) => sum + row.qty, 0);
                                 if (
                                   moq > 0 &&
-                                  productQty - 1 < moq &&
-                                  productQty > 0
+                                  otherQty + nextQty < moq
                                 ) {
                                   // Drop all lines for this product rather than leave under MOQ
                                   return prev.filter(
@@ -979,7 +980,7 @@ export function PublicStorefrontView({ token }: { token: string }) {
                                 const next = prev
                                   .map((row) =>
                                     row.key === line.key
-                                      ? { ...row, qty: row.qty - 1 }
+                                      ? { ...row, qty: nextQty }
                                       : row
                                   )
                                   .filter((row) => row.qty > 0);
@@ -989,30 +990,7 @@ export function PublicStorefrontView({ token }: { token: string }) {
                                 );
                               });
                             }}
-                          >
-                            <Minus className="size-3.5" />
-                          </button>
-                          <span className="min-w-8 text-center text-[13px] tabular-nums text-[#303030]">
-                            {line.qty}
-                          </span>
-                          <button
-                            type="button"
-                            className="flex size-8 items-center justify-center text-[#616161] transition-colors hover:bg-[#f6f6f7]"
-                            onClick={() =>
-                              setCart((prev) =>
-                                withTieredCartPrices(
-                                  prev.map((row) =>
-                                    row.key === line.key
-                                      ? { ...row, qty: row.qty + 1 }
-                                      : row
-                                  ),
-                                  store.products
-                                )
-                              )
-                            }
-                          >
-                            <Plus className="size-3.5" />
-                          </button>
+                          />
                         </div>
                       </div>
                       <button
