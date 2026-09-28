@@ -18,7 +18,9 @@ export type OrderDetailTab =
   | "inks"
   | "proof"
   | "estimate"
+  | "purchase_order"
   | "files"
+  | "notes"
   | "customer"
   | "produced_goods"
   | "shipping"
@@ -53,10 +55,12 @@ export function buildOrderDetailTabs(order: Order): OrderDetailTabConfig[] {
   }
 
   tabs.push(
+    { id: "purchase_order", label: "Purchase order" },
+    { id: "shipping", label: "Shipping / Handling" },
     { id: "files", label: "Files" },
+    { id: "notes", label: "Notes" },
     { id: "customer", label: "Customer" },
     { id: "produced_goods", label: "Produced goods" },
-    { id: "shipping", label: "Shipping / Handling" },
     { id: "invoice", label: "Invoice" },
     { id: "activity", label: "Activity" }
   );
@@ -100,7 +104,18 @@ export function parseOrderDetailTab(tab: string | null): OrderDetailTab {
   if (tab === "estimate" || tab === "pricing" || tab === "quote") {
     return "estimate";
   }
+  if (
+    tab === "purchase_order" ||
+    tab === "po" ||
+    tab === "purchase-order" ||
+    tab === "customer_po"
+  ) {
+    return "purchase_order";
+  }
   if (tab === "files") return "files";
+  if (tab === "notes" || tab === "note" || tab === "internal_notes") {
+    return "notes";
+  }
   if (
     tab === "produced_goods" ||
     tab === "produced" ||

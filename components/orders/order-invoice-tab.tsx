@@ -59,6 +59,14 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
     () => resolveEffectivePricingMatrix(settings, customer, order),
     [settings.pricingMatrix, customer, order]
   );
+  const shopPricing = useMemo(
+    () => ({
+      pricingMatrix,
+      pricingRateSheets: settings.pricingRateSheets,
+      productionDefaults: settings.productionDefaults,
+    }),
+    [pricingMatrix, settings.pricingRateSheets, settings.productionDefaults]
+  );
 
   const produced = useMemo(() => mergeOrderProducedGoods(order), [order]);
   const ready = invoiceReadyForBilling(order);
@@ -69,13 +77,13 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
   );
 
   const estimateTotals = useMemo(
-    () => computeEstimateTotals(order, settings.taxRate, pricingMatrix, customer),
-    [order, settings.taxRate, pricingMatrix, customer]
+    () => computeEstimateTotals(order, settings.taxRate, shopPricing, customer),
+    [order, settings.taxRate, shopPricing, customer]
   );
 
   const invoiceTotals = useMemo(
-    () => computeInvoiceTotals(order, settings.taxRate, pricingMatrix, customer),
-    [order, settings.taxRate, pricingMatrix, customer]
+    () => computeInvoiceTotals(order, settings.taxRate, shopPricing, customer),
+    [order, settings.taxRate, shopPricing, customer]
   );
 
   const [previewOpen, setPreviewOpen] = useState(false);

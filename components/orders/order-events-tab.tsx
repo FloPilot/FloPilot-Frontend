@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { CalendarPlus, Plus } from "lucide-react";
 import { ProductionEventSheet } from "@/components/tasks/production-event-sheet";
 import {
   CheckpointStatusBadge,
@@ -19,9 +19,11 @@ import {
 import {
   dashboardCardClass,
   dashboardControlClass,
+  dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
+import { formatJobBlankAssignmentSummary } from "@/lib/job-line-items";
 import {
   computeEventStatusCards,
   findEventStatusCard,
@@ -90,21 +92,39 @@ export function OrderEventsTab({
     [eventRows, order]
   );
 
+  const eventSingular = eventsLabel.endsWith("s")
+    ? eventsLabel.slice(0, -1)
+    : eventsLabel;
+
   if (eventRows.length === 0) {
     return (
-      <section className={cn(dashboardCardClass, "px-4 py-12 text-center sm:px-5")}>
-        <p className={dashboardTaskDetailClass}>
-          No {eventsLabel.toLowerCase()} yet. Add one for each decoration you
-          need to run on the floor.
-        </p>
-        <Button
-          type="button"
-          className={cn(dashboardControlClass, "mt-4 h-9")}
-          onClick={onAddEvent}
-        >
-          <Plus className="size-3.5" />
-          Add {eventsLabel.endsWith("s") ? eventsLabel.slice(0, -1) : eventsLabel}
-        </Button>
+      <section className={dashboardCardClass}>
+        <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
+          <h2 className={dashboardTaskTitleClass}>{eventsLabel}</h2>
+          <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+            Decoration to run on the floor for this order.
+          </p>
+        </div>
+        <div className="p-4 sm:p-5">
+          <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-12 text-center">
+            <CalendarPlus className="mx-auto mb-3 size-8 text-[#c9c9c9]" />
+            <p className="text-[13px] font-medium text-[#303030]">
+              No {eventsLabel.toLowerCase()} yet
+            </p>
+            <p className={cn("mx-auto mt-1 max-w-sm", dashboardTaskDetailClass)}>
+              Add one for each decoration you need to run on the floor — then
+              proofs, materials, and scheduling unlock from there.
+            </p>
+            <Button
+              type="button"
+              className={cn(dashboardPrimaryButtonClass, "mt-4 h-9")}
+              onClick={onAddEvent}
+            >
+              <Plus className="size-3.5" />
+              Add {eventSingular.toLowerCase()}
+            </Button>
+          </div>
+        </div>
       </section>
     );
   }
@@ -117,8 +137,8 @@ export function OrderEventsTab({
             <h2 className={dashboardTaskTitleClass}>{eventsLabel}</h2>
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
               {eventRows.length === 1
-                ? "1 decoration on this order — status cards match the orders list"
-                : `${eventRows.length} decorations on this order — status cards match the orders list`}
+                ? "1 decoration on this order — open an event to assign blanks for matrix pricing"
+                : `${eventRows.length} decorations on this order — assign blanks on each event for matrix pricing`}
             </p>
           </div>
           <Button
@@ -163,6 +183,12 @@ export function OrderEventsTab({
                         {imprint.label}
                       </p>
                       <DecorationTypePill decoration={imprint.decoration} />
+                      {job.kind !== "finishing" &&
+                      imprint.decoration !== "finishing" ? (
+                        <p className="truncate text-[11px] text-[#8a8a8a]">
+                          {formatJobBlankAssignmentSummary(order, job)}
+                        </p>
+                      ) : null}
                     </div>
                   </TableCell>
                   {columnHeaders.map((column) => (

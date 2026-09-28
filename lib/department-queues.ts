@@ -141,8 +141,10 @@ export function collectArtworkDepartmentQueue(
   return collectArtworkQueue(orders).filter(
     (entry) =>
       !entry.archived &&
-      (entry.artwork.status === "pending" ||
-        entry.artwork.status === "revision_requested")
+      (entry.artwork.status === "with_art" ||
+        entry.artwork.status === "revision_requested" ||
+        // Legacy open proofs that were never submitted to art.
+        entry.artwork.status === "pending")
   );
 }
 

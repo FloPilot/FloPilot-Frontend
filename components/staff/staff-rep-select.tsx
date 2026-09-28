@@ -24,6 +24,7 @@ export function StaffRepSelect({
   triggerClassName,
   placeholder = "No rep assigned",
   disabled,
+  allowNone = true,
 }: {
   value?: string | null;
   onChange: (salesRepId: string | null) => void;
@@ -32,6 +33,8 @@ export function StaffRepSelect({
   triggerClassName?: string;
   placeholder?: string;
   disabled?: boolean;
+  /** When false, the “no rep” option is hidden (required assignment). */
+  allowNone?: boolean;
 }) {
   const { getIdToken } = useAuth();
   const [members, setMembers] = useState<AssignableStaffMember[]>([]);
@@ -66,7 +69,7 @@ export function StaffRepSelect({
 
   const selectItems = useMemo(() => {
     const items = [
-      { value: NONE_VALUE, label: placeholder },
+      ...(allowNone ? [{ value: NONE_VALUE, label: placeholder }] : []),
       ...candidates.map((member) => ({
         value: member.id,
         label: member.name,
@@ -84,13 +87,13 @@ export function StaffRepSelect({
       });
     }
     return items;
-  }, [candidates, members, placeholder, value]);
+  }, [allowNone, candidates, members, placeholder, value]);
 
-  const currentValue = value || NONE_VALUE;
+  const currentValue = value || (allowNone ? NONE_VALUE : "");
 
   return (
     <Select
-      value={currentValue}
+      value={currentValue || null}
       onValueChange={(next) =>
         onChange(!next || next === NONE_VALUE ? null : next)
       }
@@ -106,9 +109,9 @@ export function StaffRepSelect({
         )}
       >
         <LabeledSelectValue
-          value={currentValue}
+          value={currentValue || null}
           options={selectItems}
-          placeholder={placeholder}
+          placeholder={allowNone ? placeholder : "Select a sales rep"}
         />
       </SelectTrigger>
       <SelectContent>

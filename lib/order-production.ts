@@ -24,6 +24,7 @@ export type ProductionStepTemplate = {
   locationKey: ImprintLocationKey;
   decoration: DecorationType;
   kind: "decoration" | "finishing";
+  finishingStepId?: string;
 };
 
 export const PRODUCTION_STEP_TEMPLATES: ProductionStepTemplate[] = [
@@ -84,9 +85,10 @@ export function getProductionStepQuickPicks(
     .map((step) => ({
       id: `finishing-${step.id}`,
       name: step.name,
-      locationKey: "other",
+      locationKey: "other" as const,
       decoration: "finishing" as DecorationType,
       kind: "finishing" as const,
+      finishingStepId: step.id,
     }));
 
   return [...decorationPicks, ...finishingPicks];
@@ -145,6 +147,9 @@ export function buildJobFromTemplate(
     id: createJobId(),
     name: template.name,
     kind: template.kind,
+    ...(template.kind === "finishing" && template.finishingStepId
+      ? { finishingStepId: template.finishingStepId }
+      : {}),
     imprints: [
       {
         id: imprintId,
@@ -176,6 +181,7 @@ export function buildCustomProductionJob(
     locationKey: ImprintLocationKey;
     decoration: DecorationType;
     kind: "decoration" | "finishing";
+    finishingStepId?: string;
   },
   productionDefaults?: ShopProductionDefaults | null
 ): Job {
@@ -186,6 +192,9 @@ export function buildCustomProductionJob(
       locationKey: input.locationKey,
       decoration: input.decoration,
       kind: input.kind,
+      ...(input.kind === "finishing" && input.finishingStepId
+        ? { finishingStepId: input.finishingStepId }
+        : {}),
     },
     productionDefaults
   );

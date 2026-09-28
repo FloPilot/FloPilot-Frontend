@@ -16,6 +16,13 @@ import {
   orderWithProducedQuantities,
   producedGoodsAreRecorded,
 } from "@/lib/order-produced-goods";
+import {
+  asShopPricingSource,
+  type ShopPricingSource,
+} from "@/lib/shop-pricing";
+
+/** Effective matrix and/or full shop settings (for finishing + rate sheets). */
+export type EstimatePricingInput = PricingMatrix | ShopPricingSource;
 
 export type EstimateRowKind = "garment" | "decoration" | "fee";
 
@@ -57,8 +64,13 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** Order-specific tax settings win over the current shop default. */
-export function resolveOrderTaxRate(order: Order, shopTaxRate: number): number {
+/** Shop default, unless the order or customer opts out of tax. */
+export function resolveOrderTaxRate(
+  order: Order,
+  shopTaxRate: number,
+  customer?: Customer | null
+): number {
+  if (customer?.taxExempt) return 0;
   if (order.taxEnabled === false) return 0;
   const candidate =
     typeof order.taxRate === "number" ? order.taxRate : shopTaxRate;
@@ -166,9 +178,9 @@ function buildDecorationRows(
 function buildFeeRows(
   order: Order,
   customer?: Customer | null,
-  pricingMatrix?: PricingMatrix
+  shop?: EstimatePricingInput | null
 ): EstimateRow[] {
-  return buildFeeEstimateRows(order, customer, pricingMatrix).map((entry) => ({
+  return buildFeeEstimateRows(order, customer, shop).map((entry) => ({
     id: entry.id,
     kind: "fee" as const,
     description: entry.label,
@@ -182,21 +194,30 @@ function buildFeeRows(
   }));
 }
 
+function pricingMatrixFromInput(
+  input?: EstimatePricingInput | null
+): PricingMatrix {
+  return asShopPricingSource(input).pricingMatrix;
+}
+
 /**
  * Mirrors the backend estimate math: garment costs plus decoration pricing from
- * the shop matrix when enabled, plus contract and manual fees.
+ * the shop matrix when enabled, plus contract and manual fees (including
+ * finishing services when productionDefaults are passed).
  */
 export function computeEstimateTotals(
   order: Order,
   taxRate: number,
-  pricingMatrix?: PricingMatrix,
+  pricingMatrixOrShop?: EstimatePricingInput | null,
   customer?: Customer | null
 ): EstimateTotals {
-  const rate = resolveOrderTaxRate(order, taxRate);
+  const rate = resolveOrderTaxRate(order, taxRate, customer);
+  const shop = asShopPricingSource(pricingMatrixOrShop);
+  const pricingMatrix = pricingMatrixFromInput(pricingMatrixOrShop);
 
   const garmentRows = buildGarmentRows(order, pricingMatrix);
   const decorationRows = buildDecorationRows(order, pricingMatrix);
-  const feeRows = buildFeeRows(order, customer, pricingMatrix);
+  const feeRows = buildFeeRows(order, customer, shop);
   const rows = [...garmentRows, ...decorationRows, ...feeRows];
 
   let garmentSubtotal = round2(
@@ -271,10 +292,15 @@ export function computeEstimatePerPieceCosts(
 export function resolveOrderFinancials(
   order: Order,
   taxRate: number,
-  pricingMatrix?: PricingMatrix,
+  pricingMatrixOrShop?: EstimatePricingInput | null,
   customer?: Customer | null
 ) {
-  const totals = computeEstimateTotals(order, taxRate, pricingMatrix, customer);
+  const totals = computeEstimateTotals(
+    order,
+    taxRate,
+    pricingMatrixOrShop,
+    customer
+  );
   return {
     subtotal: totals.subtotal,
     tax: totals.tax,
@@ -291,14 +317,14 @@ export function resolveOrderFinancials(
 export function computeInvoiceTotals(
   order: Order,
   taxRate: number,
-  pricingMatrix?: PricingMatrix,
+  pricingMatrixOrShop?: EstimatePricingInput | null,
   customer?: Customer | null
 ): EstimateTotals {
   const billingOrder = orderWithProducedQuantities(order);
   return computeEstimateTotals(
     billingOrder,
     taxRate,
-    pricingMatrix,
+    pricingMatrixOrShop,
     customer
   );
 }

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { FileImage, RotateCcw } from "lucide-react";
+import { FileImage, Palette, RotateCcw } from "lucide-react";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import {
   DepartmentCardTitle,
@@ -18,14 +18,16 @@ import { departmentArtworkProofHref } from "@/lib/departments";
 import { decorationLabel, formatDate } from "@/lib/format";
 import { latestRevisionNote } from "@/lib/revision-notes";
 import { resolveArtworkRevisionNotes } from "@/lib/artwork-routes";
+import { ARTWORK_STATUS_LABELS } from "@/lib/artwork-status";
 import { dashboardControlClass, dashboardTaskDetailClass } from "@/lib/dashboard-styles";
 import { cn } from "@/lib/utils";
 
-type ArtworkFilter = "all" | "pending" | "revision_requested";
+type ArtworkFilter = "all" | "with_art" | "pending" | "revision_requested";
 
 const FILTERS: { value: ArtworkFilter; label: string }[] = [
   { value: "all", label: "All open" },
-  { value: "pending", label: "Pending" },
+  { value: "with_art", label: "With art" },
+  { value: "pending", label: "Drafting" },
   { value: "revision_requested", label: "Revision" },
 ];
 
@@ -44,7 +46,10 @@ export function ArtworkDepartmentPanel() {
     return entries.filter((entry) => entry.artwork.status === filter);
   }, [entries, filter]);
 
-  const pendingCount = entries.filter((e) => e.artwork.status === "pending").length;
+  const withArtCount = entries.filter((e) => e.artwork.status === "with_art")
+    .length;
+  const pendingCount = entries.filter((e) => e.artwork.status === "pending")
+    .length;
   const revisionCount = entries.filter(
     (e) => e.artwork.status === "revision_requested"
   ).length;
@@ -53,38 +58,43 @@ export function ArtworkDepartmentPanel() {
     <DepartmentsShell
       activeSlug="artwork"
       title="Artwork queue"
-      description="Proofs waiting for review or customer revisions — click a location to open the full proof view."
+      description="Proofs submitted to art, assigned artists, and customer revisions — open a location to finish tech packs and mockups."
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        {FILTERS.map((item) => (
-          <button
-            key={item.value}
-            type="button"
-            onClick={() => setFilter(item.value)}
-            className={cn(
-              dashboardControlClass,
-              "h-8 px-3 text-xs font-semibold",
-              filter === item.value
-                ? "border-[#2c6ecb] bg-[#f0f5ff] text-[#2c6ecb]"
-                : "text-[#303030]"
-            )}
-          >
-            {item.label}
-            {item.value === "pending" && pendingCount > 0
-              ? ` (${pendingCount})`
-              : null}
-            {item.value === "revision_requested" && revisionCount > 0
-              ? ` (${revisionCount})`
-              : null}
-          </button>
-        ))}
+        {FILTERS.map((item) => {
+          const count =
+            item.value === "with_art"
+              ? withArtCount
+              : item.value === "pending"
+                ? pendingCount
+                : item.value === "revision_requested"
+                  ? revisionCount
+                  : 0;
+          return (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => setFilter(item.value)}
+              className={cn(
+                dashboardControlClass,
+                "h-8 px-3 text-xs font-semibold",
+                filter === item.value
+                  ? "border-[#2c6ecb] bg-[#f0f5ff] text-[#2c6ecb]"
+                  : "text-[#303030]"
+              )}
+            >
+              {item.label}
+              {item.value !== "all" && count > 0 ? ` (${count})` : null}
+            </button>
+          );
+        })}
       </div>
 
       {filtered.length === 0 ? (
         <DepartmentEmptyState
           icon={FileImage}
           title="Art queue is clear"
-          description="New proofs appear here when orders need review or the customer requests changes."
+          description="Proofs appear here when the team submits them to artwork or the customer requests changes."
         />
       ) : (
         <div className="space-y-2.5">
@@ -95,6 +105,7 @@ export function ArtworkDepartmentPanel() {
             const latestNote = latestRevisionNote(
               resolveArtworkRevisionNotes(order, entry)
             );
+            const assignee = entry.artwork.artAssigneeName?.trim();
 
             return (
               <DepartmentQueueCard
@@ -128,6 +139,15 @@ export function ArtworkDepartmentPanel() {
                     />
                     <span className="mx-1 text-[#c9cccf]">·</span>
                     {decorationLabel(entry.decoration)} · {entry.jobName}
+                    {assignee ? (
+                      <>
+                        <span className="mx-1 text-[#c9cccf]">·</span>
+                        <span className="inline-flex items-center gap-1">
+                          <Palette className="size-3" />
+                          {assignee}
+                        </span>
+                      </>
+                    ) : null}
                   </>
                 }
                 meta={
@@ -138,7 +158,11 @@ export function ArtworkDepartmentPanel() {
                         Customer requested changes
                       </span>
                     ) : (
-                      departmentStatusPill("Awaiting proof", "progress")
+                      departmentStatusPill(
+                        ARTWORK_STATUS_LABELS[entry.artwork.status] ||
+                          "In artwork",
+                        "progress"
+                      )
                     )}
                     {latestNote ? (
                       <>

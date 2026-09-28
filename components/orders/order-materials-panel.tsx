@@ -74,7 +74,6 @@ import {
   compactOrderNumberForLabel,
   NEW_ORDER_COLORS,
   NEW_ORDER_PRODUCTS,
-  NEW_ORDER_SIZES,
 } from "@/lib/create-order";
 import {
   buildLineItemFromCatalog,
@@ -272,7 +271,6 @@ function rebuildLineItemQuantity(
   const productKey = guessProductKey(item);
   const colorKey = guessColorKey(item);
   const sizeRecord = sizesToRecord(item.sizes);
-  const sizeKey = size as (typeof NEW_ORDER_SIZES)[number];
 
   return {
     ...buildLineItemFromCatalog(
@@ -280,7 +278,7 @@ function rebuildLineItemQuantity(
       colorKey as (typeof NEW_ORDER_COLORS)[number]["key"],
       {
         ...sizeRecord,
-        ...(sizeKey in sizeRecord ? { [sizeKey]: quantity } : {}),
+        [size]: quantity,
       },
       item.id
     ),

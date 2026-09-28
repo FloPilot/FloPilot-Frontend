@@ -7,6 +7,7 @@ import {
   FileUp,
   FolderOpen,
   Loader2,
+  Plus,
   RotateCcw,
   Send,
   Upload,
@@ -28,6 +29,7 @@ import { readImagePreviewDataUrl, readUploadContent } from "@/lib/artwork-previe
 import {
   dashboardControlClass,
   dashboardPrimaryButtonClass,
+  dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import { decorationLabel, formatDateTime } from "@/lib/format";
 import { formatOrderDisplayLine } from "@/lib/order-display";
@@ -124,6 +126,7 @@ export function OrderFilesTab({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const orderFileInputRef = useRef<HTMLInputElement>(null);
   const replaceFileInputRef = useRef<HTMLInputElement>(null);
+  const pendingOrderUploadKindRef = useRef<OrderFileKind | null>(null);
   const [pendingImprintUpload, setPendingImprintUpload] = useState<{
     jobId: string;
     imprintId: string;
@@ -234,12 +237,20 @@ export function OrderFilesTab({
     }
   };
 
+  const triggerOrderFileUpload = (kind?: OrderFileKind) => {
+    pendingOrderUploadKindRef.current = kind ?? null;
+    orderFileInputRef.current?.click();
+  };
+
   const handleOrderFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = "";
     if (files.length === 0) return;
+
+    const forcedKind = pendingOrderUploadKindRef.current;
+    pendingOrderUploadKindRef.current = null;
 
     setUploadingFiles(true);
     setUploadFeedback(null);
@@ -249,7 +260,7 @@ export function OrderFilesTab({
         if (error) throw new Error(error);
         await uploadOrderFile(order.id, {
           name: file.name,
-          kind: defaultUploadKindForCategory(category),
+          kind: forcedKind ?? defaultUploadKindForCategory(category),
           uploadedBy: "Shop",
           contentBase64: base64,
           contentType,
@@ -351,7 +362,9 @@ export function OrderFilesTab({
   const uploadLabel =
     category === "mockups" || category === "artwork"
       ? "Upload artwork"
-      : `Upload ${FILE_CATEGORY_TABS.find((t) => t.id === category)?.label.toLowerCase() ?? "file"}`;
+      : category === "purchase_order"
+        ? "Upload PO"
+        : `Upload ${FILE_CATEGORY_TABS.find((t) => t.id === category)?.label.toLowerCase() ?? "file"}`;
 
   const openFileDetails = (file: OrderFileItem) => {
     setCategoryError(null);
@@ -474,10 +487,10 @@ export function OrderFilesTab({
                     category === "mockups" ? "mockup" : "production_art"
                   );
                 } else {
-                  orderFileInputRef.current?.click();
+                  triggerOrderFileUpload();
                 }
               } else {
-                orderFileInputRef.current?.click();
+                triggerOrderFileUpload();
               }
             }}
           >
@@ -717,9 +730,43 @@ export function OrderFilesTab({
           </CardHeader>
           <CardContent>
             {filteredList.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">
-                No files in this category yet. Use Upload to add one.
-              </p>
+              <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-12 text-center">
+                <FolderOpen className="mx-auto mb-3 size-8 text-[#c9c9c9]" />
+                <p className="text-[13px] font-medium text-[#303030]">
+                  {category === "purchase_order"
+                    ? "No purchase orders yet"
+                    : "No files in this category yet"}
+                </p>
+                <p
+                  className={cn(
+                    "mx-auto mt-1 max-w-sm",
+                    dashboardTaskDetailClass
+                  )}
+                >
+                  {category === "purchase_order"
+                    ? "Upload the customer PO so it’s saved with this order."
+                    : "Upload a document to keep it with this order."}
+                </p>
+                <Button
+                  type="button"
+                  disabled={uploadingFiles}
+                  className={cn(dashboardPrimaryButtonClass, "mt-4 h-9")}
+                  onClick={() =>
+                    triggerOrderFileUpload(
+                      category === "purchase_order"
+                        ? "purchase_order"
+                        : defaultUploadKindForCategory(category)
+                    )
+                  }
+                >
+                  {uploadingFiles ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Plus className="size-3.5" />
+                  )}
+                  {uploadingFiles ? "Uploading…" : uploadLabel}
+                </Button>
+              </div>
             ) : category === "all" ? (
               <AllFilesGrouped
                 items={filteredList}

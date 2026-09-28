@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarClock,
   CalendarPlus,
@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { MockupPreview } from "@/components/orders/artwork/mockup-preview";
+import { EventBlankAssignment } from "@/components/orders/event-blank-assignment";
 import { EventReadinessPanel } from "@/components/orders/event-readiness-panel";
 import { OrderProducedGoodsPanel } from "@/components/orders/order-produced-goods-panel";
 import { FlowStepList } from "@/components/calendar/order-production-flow";
@@ -31,6 +32,9 @@ import {
   dashboardControlClass,
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
+import {
+  resolveJobLineItems,
+} from "@/lib/job-line-items";
 import { decorationLabel, formatDate } from "@/lib/format";
 import { formatOrderDisplayLine } from "@/lib/order-display";
 import { getDueDateUrgency } from "@/lib/order-health";
@@ -91,9 +95,13 @@ export function ProductionEventSheet({
     scheduleBlocks,
     jobRuns,
     updateProductionEventWorkflow,
+    updateProductionJobLineItems,
     removeProductionJob,
   } = useSchedule();
   const [saving, setSaving] = useState(false);
+  const [savingBlanks, setSavingBlanks] = useState(false);
+  const [selectedBlankIds, setSelectedBlankIds] = useState<string[]>([]);
+  const [blankError, setBlankError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ProductionEventWorkflow>({});
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -145,6 +153,21 @@ export function ProductionEventSheet({
       onHold: imprint.workflow?.onHold ?? false,
     });
   }, [imprint, open]);
+
+  const blankSyncKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      blankSyncKeyRef.current = null;
+      return;
+    }
+    if (!order || !job) return;
+    const key = `${orderId}:${jobId}`;
+    if (blankSyncKeyRef.current === key) return;
+    blankSyncKeyRef.current = key;
+    setSelectedBlankIds(resolveJobLineItems(order, job).map((item) => item.id));
+    setBlankError(null);
+  }, [open, order, job, orderId, jobId]);
 
   if (!order || !job || !imprint || !resolved) return null;
 
@@ -204,6 +227,44 @@ export function ProductionEventSheet({
   const isFinishingEvent =
     imprint.decoration === "finishing" || job.kind === "finishing";
 
+  const persistBlankIds = async (nextIds: string[]) => {
+    if (!orderId || !jobId || isFinishingEvent) return;
+    if (nextIds.length === 0) {
+      setBlankError("Keep at least one blank selected for this decoration.");
+      return;
+    }
+    const previous = selectedBlankIds;
+    setSelectedBlankIds(nextIds);
+    setBlankError(null);
+    setSavingBlanks(true);
+    try {
+      await updateProductionJobLineItems(orderId, jobId, nextIds);
+    } catch (err) {
+      setSelectedBlankIds(previous);
+      setBlankError(
+        err instanceof Error
+          ? err.message
+          : "Could not update blanks for this event."
+      );
+    } finally {
+      setSavingBlanks(false);
+    }
+  };
+
+  const toggleBlank = (lineItemId: string) => {
+    const next = selectedBlankIds.includes(lineItemId)
+      ? selectedBlankIds.filter((id) => id !== lineItemId)
+      : [...selectedBlankIds, lineItemId];
+    if (next.length === 0) return;
+    void persistBlankIds(next);
+  };
+
+  const selectAllBlanks = () => {
+    const allIds = order.lineItems.map((item) => item.id);
+    if (allIds.length === 0) return;
+    void persistBlankIds(allIds);
+  };
+
   const closeAndOpenTab = (tab: OrderDetailTab) => {
     onOpenChange(false);
     if (onOpenTab) {
@@ -246,6 +307,27 @@ export function ProductionEventSheet({
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#f6f6f7] px-5 py-4">
           {showArtworkBanner ? (
             <MockupPreview entry={{ job, imprint }} banner />
+          ) : null}
+
+          {!isFinishingEvent ? (
+            <div className={cn(dashboardCardClass, "px-4 py-4")}>
+              {blankError ? (
+                <div
+                  role="alert"
+                  className="mb-3 rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[13px] font-medium text-[#8f1f1f]"
+                >
+                  {blankError}
+                </div>
+              ) : null}
+              <EventBlankAssignment
+                order={order}
+                job={job}
+                selectedIds={selectedBlankIds}
+                onToggle={toggleBlank}
+                onSelectAll={selectAllBlanks}
+                saving={savingBlanks}
+              />
+            </div>
           ) : null}
 
           <div className={cn(dashboardCardClass, "px-4 py-3")}>

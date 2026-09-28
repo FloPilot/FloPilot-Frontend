@@ -6,12 +6,12 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
   dashboardControlClass,
+  dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import type { OrderMaterialLine } from "@/types";
@@ -39,12 +39,21 @@ export function RemoveBlankSizeDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-md" showCloseButton>
-        <DialogHeader className="border-b border-[#ebebeb] px-5 py-4">
+      <DialogContent
+        className={cn(
+          "w-[calc(100%-2rem)] gap-0 overflow-hidden rounded-xl border border-[#ebebeb] bg-white p-0 shadow-lg sm:max-w-md"
+        )}
+      >
+        <DialogHeader className="space-y-0 border-b border-[#ebebeb] px-5 py-4 pr-12 text-left">
           <DialogTitle className={dashboardTaskTitleClass}>
             Remove this size?
           </DialogTitle>
-          <DialogDescription className="text-[13px] leading-snug text-[#616161]">
+        </DialogHeader>
+
+        <div className="px-5 py-4">
+          <DialogDescription
+            className={cn(dashboardTaskDetailClass, "text-[13px] leading-relaxed")}
+          >
             {blockedReason ? (
               blockedReason
             ) : (
@@ -59,9 +68,9 @@ export function RemoveBlankSizeDialog({
               </>
             )}
           </DialogDescription>
-        </DialogHeader>
+        </div>
 
-        <DialogFooter className="flex flex-col-reverse gap-2 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-4 sm:flex-row sm:justify-end">
+        <div className="flex flex-col-reverse gap-2 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-3.5 sm:flex-row sm:justify-end">
           <Button
             type="button"
             variant="outline"
@@ -89,7 +98,7 @@ export function RemoveBlankSizeDialog({
               "Remove size"
             )}
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

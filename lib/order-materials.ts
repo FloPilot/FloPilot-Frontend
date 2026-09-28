@@ -32,7 +32,7 @@ export const BLANK_SOURCE_LABELS: Record<
   string
 > = {
   shop_orders: "Shop orders blanks",
-  customer_supplies: "Customer ships garments",
+  customer_supplies: "Customer supplied goods",
 };
 
 export function garmentReceivingLineId(lineItemId: string, size: string): string {

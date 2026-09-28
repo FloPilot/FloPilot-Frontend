@@ -67,7 +67,7 @@ export function blankSourceLabel(source?: BlankSource): string {
     case "shop_orders":
       return "Shop orders";
     case "customer_supplies":
-      return "Customer ships";
+      return "Customer supplied";
     default:
       return "Not set";
   }

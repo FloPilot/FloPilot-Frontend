@@ -201,11 +201,24 @@ export type ShopDecorationMethodKey =
 
 export type ShopDecorationMethods = Record<ShopDecorationMethodKey, boolean>;
 
+export type FinishingChargeMode = "per_piece" | "per_order";
+
+export type FinishingPriceTier = {
+  minQty: number;
+  unitPrice: number;
+};
+
 export type FinishingStepPreset = {
   id: string;
   name: string;
   description: string;
   enabled: boolean;
+  /** How this finishing service is billed on estimates. */
+  chargeMode?: FinishingChargeMode;
+  /** Fallback / base price (per piece or per order). */
+  unitPrice?: number;
+  /** Qty breaks for per-piece pricing (highest qualifying minQty wins). */
+  quantityTiers?: FinishingPriceTier[];
 };
 
 export type ShopWarehouse = {
@@ -1205,27 +1218,13 @@ export function normalizeProductionDefaults(
   const seenFinishing = new Set<string>();
   const finishingSteps = Array.isArray(input.finishingSteps)
     ? input.finishingSteps
-        .map((item, index) => {
-          const name =
-            typeof item?.name === "string" ? item.name.trim().slice(0, 80) : "";
-          if (!name) return null;
-          const id =
-            typeof item?.id === "string" && item.id.trim()
-              ? item.id.trim().slice(0, 64)
-              : `finishing-${index}`;
-          if (seenFinishing.has(id)) return null;
-          seenFinishing.add(id);
-          return {
-            id,
-            name,
-            description:
-              typeof item?.description === "string"
-                ? item.description.trim().slice(0, 280)
-                : "",
-            enabled: item?.enabled !== false,
-          };
-        })
+        .map((item, index) => normalizeFinishingStepPreset(item, index))
         .filter((item): item is FinishingStepPreset => item !== null)
+        .filter((item) => {
+          if (seenFinishing.has(item.id)) return false;
+          seenFinishing.add(item.id);
+          return true;
+        })
         .slice(0, 20)
     : [];
 
@@ -1611,26 +1610,146 @@ export const STARTER_FINISHING_STEPS: FinishingStepPreset[] = [
     name: "Folding",
     description: "Fold garments before bagging",
     enabled: true,
+    chargeMode: "per_piece",
+    unitPrice: 0.6,
+    quantityTiers: [
+      { minQty: 50, unitPrice: 0.6 },
+      { minQty: 100, unitPrice: 0.45 },
+      { minQty: 250, unitPrice: 0.35 },
+      { minQty: 500, unitPrice: 0.3 },
+    ],
   },
   {
     id: "bagging",
     name: "Bagging",
     description: "Individual poly bags per piece or size run",
     enabled: true,
+    chargeMode: "per_piece",
+    unitPrice: 1.1,
+    quantityTiers: [
+      { minQty: 50, unitPrice: 1.1 },
+      { minQty: 100, unitPrice: 0.9 },
+      { minQty: 250, unitPrice: 0.75 },
+      { minQty: 500, unitPrice: 0.65 },
+    ],
   },
   {
     id: "labeling",
     name: "Labeling",
     description: "Size stickers, UPC, or custom labels",
     enabled: true,
+    chargeMode: "per_piece",
+    unitPrice: 0.35,
+    quantityTiers: [
+      { minQty: 50, unitPrice: 0.35 },
+      { minQty: 100, unitPrice: 0.28 },
+      { minQty: 250, unitPrice: 0.22 },
+      { minQty: 500, unitPrice: 0.18 },
+    ],
+  },
+  {
+    id: "fold-bag-label",
+    name: "Fold, bag & label",
+    description: "Retail-ready fold, poly bag, and size sticker",
+    enabled: true,
+    chargeMode: "per_piece",
+    unitPrice: 1.3,
+    quantityTiers: [
+      { minQty: 50, unitPrice: 1.3 },
+      { minQty: 100, unitPrice: 1.1 },
+      { minQty: 250, unitPrice: 0.9 },
+      { minQty: 500, unitPrice: 0.8 },
+    ],
   },
   {
     id: "boxing",
     name: "Boxing & ship prep",
     description: "Carton pack-out for wholesale or bulk ship",
     enabled: false,
+    chargeMode: "per_order",
+    unitPrice: 25,
+    quantityTiers: [],
   },
 ];
+
+export function normalizeFinishingPriceTiers(
+  raw: unknown
+): FinishingPriceTier[] {
+  if (!Array.isArray(raw)) return [];
+  const byMin = new Map<number, number>();
+  for (const row of raw) {
+    if (!row || typeof row !== "object") continue;
+    const minQty = Math.max(
+      1,
+      Math.floor(Number((row as FinishingPriceTier).minQty) || 0)
+    );
+    const unitPrice = Math.max(
+      0,
+      Math.round(Number((row as FinishingPriceTier).unitPrice) * 100) / 100 || 0
+    );
+    if (!Number.isFinite(minQty) || !Number.isFinite(unitPrice)) continue;
+    byMin.set(minQty, unitPrice);
+  }
+  return [...byMin.entries()]
+    .map(([minQty, unitPrice]) => ({ minQty, unitPrice }))
+    .sort((a, b) => a.minQty - b.minQty)
+    .slice(0, 16);
+}
+
+export function normalizeFinishingStepPreset(
+  item: Partial<FinishingStepPreset> | null | undefined,
+  index = 0
+): FinishingStepPreset | null {
+  const name =
+    typeof item?.name === "string" ? item.name.trim().slice(0, 80) : "";
+  if (!name) return null;
+  const id =
+    typeof item?.id === "string" && item.id.trim()
+      ? item.id.trim().slice(0, 64)
+      : `finishing-${index}`;
+  const chargeMode: FinishingChargeMode =
+    item?.chargeMode === "per_order" ? "per_order" : "per_piece";
+  const unitPrice = Math.max(
+    0,
+    Math.round(Number(item?.unitPrice || 0) * 100) / 100
+  );
+  return {
+    id,
+    name,
+    description:
+      typeof item?.description === "string"
+        ? item.description.trim().slice(0, 280)
+        : "",
+    enabled: item?.enabled !== false,
+    chargeMode,
+    unitPrice,
+    quantityTiers: normalizeFinishingPriceTiers(item?.quantityTiers),
+  };
+}
+
+/** Resolve unit/order price for a finishing step at a given piece count. */
+export function resolveFinishingStepPrice(
+  step: Pick<
+    FinishingStepPreset,
+    "chargeMode" | "unitPrice" | "quantityTiers"
+  >,
+  pieceCount: number
+): number {
+  const base = Math.max(0, Number(step.unitPrice) || 0);
+  if (step.chargeMode === "per_order") return base;
+  const tiers = normalizeFinishingPriceTiers(step.quantityTiers);
+  if (tiers.length === 0) return base;
+  const qty = Math.max(0, Math.floor(Number(pieceCount) || 0));
+  const sorted = [...tiers].sort((a, b) => b.minQty - a.minQty);
+  for (const tier of sorted) {
+    if (qty >= tier.minQty) return tier.unitPrice;
+  }
+  return base;
+}
+
+export function finishingStepContractFeeId(stepId: string): string {
+  return `finishing:${String(stepId || "").trim().slice(0, 52)}`;
+}
 
 export function getMeshPresetOptions(
   productionDefaults?: ShopProductionDefaults | null

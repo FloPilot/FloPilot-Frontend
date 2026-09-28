@@ -12,7 +12,10 @@ import {
   Wrench,
 } from "lucide-react";
 import type { NavItem } from "@/components/layout/nav-config";
-import { formatCustomerFullName } from "@/lib/customers";
+import {
+  formatCustomerBillingAddress,
+  formatCustomerFullName,
+} from "@/lib/customers";
 import type {
   Customer,
   Machine,
@@ -256,6 +259,7 @@ function searchOrders(orders: Order[], query: string, limit = 20): StaffSearchRe
       const haystack = [
         order.number,
         order.customLabel ?? "",
+        order.customerPoNumber ?? "",
         formatOrderDisplayLine(order),
         order.customerName,
         order.company,
@@ -301,6 +305,8 @@ function searchCustomers(
         customer.phone,
         customer.city,
         customer.state,
+        customer.postalCode ?? "",
+        formatCustomerBillingAddress(customer),
       ].join(" ");
       return matchesQuery(haystack, query);
     })

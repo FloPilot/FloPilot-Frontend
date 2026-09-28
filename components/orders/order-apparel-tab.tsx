@@ -22,7 +22,7 @@ import {
 import {
   NEW_ORDER_COLORS,
   NEW_ORDER_PRODUCTS,
-  NEW_ORDER_SIZES,
+  orderedManualSizeKeys,
 } from "@/lib/create-order";
 import { formatCurrency } from "@/lib/format";
 import {
@@ -69,7 +69,7 @@ function GarmentCard({
     updateOrderLineItem(orderId, item.id, rebuilt);
   };
 
-  const updateSize = (size: (typeof NEW_ORDER_SIZES)[number], value: string) => {
+  const updateSize = (size: string, value: string) => {
     const quantity = Math.max(0, parseInt(value, 10) || 0);
     applyCatalog(productKey, colorKey, {
       ...sizeRecord,
@@ -173,13 +173,13 @@ function GarmentCard({
       <div className="border-t border-border/60 px-4 pb-4 sm:px-5 sm:pb-5">
         <Label className="text-xs text-muted-foreground">Size matrix</Label>
         <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {NEW_ORDER_SIZES.map((size) => (
+          {orderedManualSizeKeys(sizeRecord).map((size) => (
             <div key={size} className="space-y-1.5">
               <Label className="text-[11px] text-muted-foreground">{size}</Label>
               <Input
                 type="number"
                 min={0}
-                value={sizeRecord[size]}
+                value={sizeRecord[size] || ""}
                 onChange={(event) => updateSize(size, event.target.value)}
                 className={inputClassName}
               />

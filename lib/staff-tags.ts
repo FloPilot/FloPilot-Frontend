@@ -48,3 +48,11 @@ export function listSalesRepCandidates(
   const reps = members.filter((member) => staffHasTag(member, "rep"));
   return reps.length > 0 ? reps : members;
 }
+
+/** Art / prepress staff for proof assignment — tagged artists first, else all active. */
+export function listArtStaffCandidates(
+  members: AssignableStaffMember[]
+): AssignableStaffMember[] {
+  const artists = members.filter((member) => staffHasTag(member, "art"));
+  return artists.length > 0 ? artists : members;
+}

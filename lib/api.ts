@@ -188,6 +188,24 @@ export async function fetchMe(token: string) {
   return callApi<MeResponse>("getMe", { token });
 }
 
+/** Public — emails a Firebase Auth password-reset link via Resend. */
+export async function requestPasswordReset(body: {
+  email: string;
+  continuePath?: string;
+  /** Origin of the app UI (e.g. http://localhost:3000) for the email link. */
+  appOrigin?: string;
+}) {
+  return callApi<{
+    ok: boolean;
+    message: string;
+    dev?: boolean;
+    resetUrl?: string;
+  }>("requestPasswordReset", {
+    method: "POST",
+    body,
+  });
+}
+
 export type UserTenantSummary = {
   kind?: "staff";
   tenantId: string;
@@ -919,10 +937,16 @@ export type CustomerUpdate = Partial<NewCustomerInput> & {
   logoUrl?: string | null;
   /** Production accent color key; null clears to auto */
   accentColorKey?: string | null;
+  /** Structured billing address object (preferred) */
+  billingAddress?: import("@/types").CustomerBillingAddress | string;
   shippingLocations?: import("@/types").CustomerShippingLocation[];
+  contacts?: import("@/types").CustomerContact[];
+  accountNotes?: import("@/types").CustomerNote[];
   subCustomers?: import("@/types").SubCustomer[];
   negotiatedPricing?: import("@/types").CustomerNegotiatedPricing;
   salesRepId?: string | null;
+  taxExempt?: boolean;
+  taxExemptNumber?: string;
 };
 
 export async function updateCustomer(
@@ -938,6 +962,69 @@ export async function updateCustomer(
       token,
     }
   );
+}
+
+export async function uploadCustomerTaxDocument(
+  token: string,
+  customerId: string,
+  payload: {
+    name: string;
+    kind: import("@/types").CustomerTaxDocument["kind"];
+    contentBase64?: string;
+    contentType?: string;
+    inlineDataUrl?: string;
+    uploadedBy?: string;
+  }
+) {
+  return callApi<{ customer: Customer }>("uploadCustomerTaxDocument", {
+    method: "POST",
+    body: { customerId, ...payload },
+    token,
+  });
+}
+
+export async function deleteCustomerTaxDocument(
+  token: string,
+  customerId: string,
+  documentId: string
+) {
+  return callApi<{ customer: Customer }>("deleteCustomerTaxDocument", {
+    method: "POST",
+    body: { customerId, documentId },
+    token,
+  });
+}
+
+export async function uploadCustomerFile(
+  token: string,
+  customerId: string,
+  payload: {
+    name: string;
+    kind?: import("@/types").CustomerFile["kind"];
+    contentBase64?: string;
+    contentType?: string;
+    inlineDataUrl?: string;
+    size?: number;
+    uploadedBy?: string;
+  }
+) {
+  return callApi<{ customer: Customer }>("uploadCustomerFile", {
+    method: "POST",
+    body: { customerId, ...payload },
+    token,
+  });
+}
+
+export async function deleteCustomerFile(
+  token: string,
+  customerId: string,
+  fileId: string
+) {
+  return callApi<{ customer: Customer }>("deleteCustomerFile", {
+    method: "POST",
+    body: { customerId, fileId },
+    token,
+  });
 }
 
 export async function archiveCustomer(token: string, customerId: string) {
@@ -1196,6 +1283,19 @@ export async function removeProductionJob(
   });
 }
 
+export async function updateProductionJobLineItems(
+  token: string,
+  orderId: string,
+  jobId: string,
+  lineItemIds: string[]
+) {
+  return callApi<{ order: Order }>("updateProductionJobLineItems", {
+    method: "PATCH",
+    body: { orderId, jobId, lineItemIds },
+    token,
+  });
+}
+
 export async function sendOrderMessage(
   token: string,
   orderId: string,
@@ -1409,6 +1509,8 @@ export async function setArtworkStatus(
     message?: string;
     messageRole?: "staff" | "customer";
     notifyOrderMessage?: boolean;
+    assigneeId?: string | null;
+    clearAssignee?: boolean;
   }
 ) {
   return callApi<{ order: Order }>("setArtworkStatus", {
@@ -1421,6 +1523,8 @@ export async function setArtworkStatus(
       message: options?.message,
       messageRole: options?.messageRole,
       notifyOrderMessage: options?.notifyOrderMessage,
+      assigneeId: options?.assigneeId,
+      clearAssignee: options?.clearAssignee,
     },
     token,
   });

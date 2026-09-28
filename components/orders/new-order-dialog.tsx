@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  AlertTriangle,
   Check,
   Package,
   Palette,
@@ -13,6 +14,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { AddCustomerDialog } from "@/components/customers/add-customer-dialog";
+import { CustomerWarningDialog } from "@/components/customers/customer-warning-dialog";
 import {
   useRegisterUnsavedChanges,
   useStaffUnsavedChanges,
@@ -21,6 +23,7 @@ import { EventQuickPickBrowser } from "@/components/orders/event-quick-picks";
 import { OrderCustomLabelField } from "@/components/orders/order-custom-label-field";
 import { StaffRepSelect } from "@/components/staff/staff-rep-select";
 import { NewOrderBlanksStep } from "@/components/orders/new-order-blanks-step";
+import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { Button } from "@/components/ui/button";
@@ -51,12 +54,17 @@ import {
   generateOrderNumber,
   NEW_ORDER_STEPS,
   NEW_ORDER_STEP_COUNT,
+  resolveDefaultSalesRepId,
   validateNewOrderForm,
   validateNewOrderStep,
   type NewOrderFormInput,
   type NewOrderJobInput,
 } from "@/lib/create-order";
-import type { NewCustomerInput } from "@/lib/customers";
+import {
+  formatCustomerBillingAddress,
+  type NewCustomerInput,
+} from "@/lib/customers";
+import { getCustomerWarningNotes } from "@/lib/customer-notes";
 import {
   dashboardControlClass,
   dashboardGhostButtonClass,
@@ -102,7 +110,10 @@ export function NewOrderDialog({
     addCustomer,
   } = useSchedule();
   const { settings } = useShopSettings();
+  const { profile } = useAuth();
   const { requestLeave } = useStaffUnsavedChanges();
+  const currentUserId =
+    profile?.type === "staff" ? profile.user.id : null;
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<NewOrderFormInput>(() =>
     createEmptyNewOrderForm(initialCustomerId)
@@ -110,25 +121,50 @@ export function NewOrderDialog({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
+  const [warningCustomerId, setWarningCustomerId] = useState<string | null>(
+    null
+  );
+  const warnedCustomerIdsRef = useRef<Set<string>>(new Set());
   const baselineRef = useRef(formSnapshot(createEmptyNewOrderForm(initialCustomerId)));
   const allowCloseRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
-    const empty = createEmptyNewOrderForm(initialCustomerId ?? "");
+    const preselected = initialCustomerId
+      ? getCustomerById(initialCustomerId)
+      : undefined;
+    const empty = {
+      ...createEmptyNewOrderForm(initialCustomerId ?? ""),
+      salesRepId: resolveDefaultSalesRepId(preselected, currentUserId),
+    };
     setStep(1);
     setForm(empty);
     baselineRef.current = formSnapshot(empty);
     setError(null);
     setAddCustomerOpen(false);
+    setWarningCustomerId(null);
+    warnedCustomerIdsRef.current = new Set();
     allowCloseRef.current = false;
-  }, [open, initialCustomerId]);
+
+    if (initialCustomerId) {
+      const warnings = getCustomerWarningNotes(preselected);
+      if (warnings.length > 0) {
+        warnedCustomerIdsRef.current.add(initialCustomerId);
+        setWarningCustomerId(initialCustomerId);
+      }
+    }
+  }, [open, initialCustomerId, getCustomerById, currentUserId]);
 
   const formDirty = open && formSnapshot(form) !== baselineRef.current;
 
   const selectedCustomer = form.customerId
     ? getCustomerById(form.customerId)
     : undefined;
+
+  const warningCustomer = warningCustomerId
+    ? getCustomerById(warningCustomerId)
+    : undefined;
+  const activeWarnings = getCustomerWarningNotes(warningCustomer);
 
   const subCustomerOptions = useMemo(
     () => sortSubCustomers(selectedCustomer?.subCustomers ?? []),
@@ -195,9 +231,27 @@ export function NewOrderDialog({
     if (error) setError(null);
   };
 
+  const selectCustomer = (customerId: string) => {
+    const nextCustomer = customers.find((entry) => entry.id === customerId);
+    patchForm({
+      customerId,
+      subCustomerId: "",
+      salesRepId: resolveDefaultSalesRepId(nextCustomer, currentUserId),
+    });
+
+    if (
+      customerId &&
+      !warnedCustomerIdsRef.current.has(customerId) &&
+      getCustomerWarningNotes(nextCustomer).length > 0
+    ) {
+      warnedCustomerIdsRef.current.add(customerId);
+      setWarningCustomerId(customerId);
+    }
+  };
+
   const handleCreateCustomer = async (input: NewCustomerInput) => {
     const customer = await addCustomer(input);
-    patchForm({ customerId: customer.id, subCustomerId: "" });
+    selectCustomer(customer.id);
     return customer;
   };
 
@@ -247,7 +301,12 @@ export function NewOrderDialog({
       decorationType: template.decoration,
       locationKey: template.locationKey,
       kind: template.kind,
-      ...(template.kind === "finishing" ? { name: template.name } : {}),
+      ...(template.kind === "finishing"
+        ? {
+            name: template.name,
+            finishingStepId: template.finishingStepId,
+          }
+        : {}),
     });
   };
 
@@ -494,15 +553,7 @@ export function NewOrderDialog({
                     value={form.customerId || null}
                     items={customerSelectItems}
                     onValueChange={(value) => {
-                      const customerId = value ?? "";
-                      const nextCustomer = customers.find(
-                        (entry) => entry.id === customerId
-                      );
-                      patchForm({
-                        customerId,
-                        subCustomerId: "",
-                        salesRepId: nextCustomer?.salesRepId ?? "",
-                      });
+                      selectCustomer(value ?? "");
                     }}
                   >
                     <SelectTrigger
@@ -530,19 +581,35 @@ export function NewOrderDialog({
               </div>
 
               {selectedCustomer && (
-                <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-4 py-3 text-sm">
-                  <p className="font-medium text-[#303030]">
-                    {selectedCustomer.company}
-                  </p>
-                  <p className="mt-0.5 text-[#616161]">
-                    {selectedCustomer.email} · {selectedCustomer.phone}
-                  </p>
-                  <p className="text-[#616161]">
-                    {[selectedCustomer.city, selectedCustomer.state]
-                      .map((part) => part?.trim())
-                      .filter(Boolean)
-                      .join(", ")}
-                  </p>
+                <div className="space-y-2">
+                  <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-4 py-3 text-sm">
+                    <p className="font-medium text-[#303030]">
+                      {selectedCustomer.company}
+                    </p>
+                    <p className="mt-0.5 text-[#616161]">
+                      {selectedCustomer.email} · {selectedCustomer.phone}
+                    </p>
+                    <p className="text-[#616161]">
+                      {formatCustomerBillingAddress(selectedCustomer)}
+                    </p>
+                  </div>
+                  {getCustomerWarningNotes(selectedCustomer).length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => setWarningCustomerId(selectedCustomer.id)}
+                      className="flex w-full items-start gap-2.5 rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3.5 py-2.5 text-left transition-colors hover:bg-[#fdf2f2]"
+                    >
+                      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-[#b42318]" />
+                      <span className="min-w-0">
+                        <span className="block text-[12px] font-semibold text-[#b42318]">
+                          Customer warning on file
+                        </span>
+                        <span className="mt-0.5 block text-[12px] text-[#616161]">
+                          Tap to review before continuing.
+                        </span>
+                      </span>
+                    </button>
+                  ) : null}
                 </div>
               )}
 
@@ -591,17 +658,19 @@ export function NewOrderDialog({
                 id="new-order-custom-label"
               />
 
-              <Field label="Sales rep (optional)" htmlFor="new-order-sales-rep">
+              <Field label="Sales rep" htmlFor="new-order-sales-rep">
                 <StaffRepSelect
                   id="new-order-sales-rep"
                   value={form.salesRepId || null}
+                  allowNone={false}
+                  placeholder="Select a sales rep"
                   onChange={(salesRepId) =>
                     patchForm({ salesRepId: salesRepId ?? "" })
                   }
                 />
                 <p className={cn("mt-1.5", dashboardTaskDetailClass)}>
-                  Order notifications go to this rep. Defaults from the customer
-                  account when set.
+                  Required. Defaults to the customer&apos;s sales rep, or you if
+                  the account has none assigned.
                 </p>
               </Field>
             </div>
@@ -756,6 +825,16 @@ export function NewOrderDialog({
         description="Create the account now — we'll select them on this order as soon as you save."
         submitLabel="Save & select"
       />
+
+      <CustomerWarningDialog
+        open={Boolean(warningCustomerId) && activeWarnings.length > 0}
+        onOpenChange={(next) => {
+          if (!next) setWarningCustomerId(null);
+        }}
+        customer={warningCustomer}
+        warnings={activeWarnings}
+        confirmLabel="Got it — continue"
+      />
     </>
   );
 }
@@ -824,6 +903,8 @@ function JobStepCard({
                 kind: (value ?? "decoration") as NewOrderJobInput["kind"],
                 decorationType:
                   value === "finishing" ? "finishing" : job.decorationType,
+                finishingStepId:
+                  value === "finishing" ? job.finishingStepId : undefined,
               })
             }
           >

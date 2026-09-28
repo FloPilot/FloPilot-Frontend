@@ -28,17 +28,35 @@ export type DecorationType = BuiltInDecorationType | (string & {});
 
 export type DocumentType = "quote" | "sales_order" | "invoice";
 
+/** Billing address on a customer account (street / suite / city / state / ZIP). */
+export type CustomerBillingAddress = {
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country?: string;
+};
+
 export interface Customer {
   id: string;
   company: string;
   email: string;
   phone: string;
+  /**
+   * Structured billing address. May be a legacy free-form string from an
+   * earlier iteration — prefer object shape going forward.
+   */
+  billingAddress?: CustomerBillingAddress | string;
   city: string;
   state: string;
+  postalCode?: string;
   totalOrders: number;
   lifetimeValue: number;
-  /** Staff-only notes about this account */
+  /** Staff-only notes about this account (legacy freeform) */
   notes?: string;
+  /** Structured internal notes — use priority "warning" for order alerts */
+  accountNotes?: CustomerNote[];
   /** Contact first name */
   firstName?: string;
   /** Contact last name */
@@ -59,6 +77,8 @@ export interface Customer {
   archivedBy?: string;
   /** Saved ship-to addresses for split shipments */
   shippingLocations?: CustomerShippingLocation[];
+  /** Additional people at this company (estimators, POs, A/P, etc.) */
+  contacts?: CustomerContact[];
   /** End businesses / accounts under a broker or contractor parent */
   subCustomers?: SubCustomer[];
   /** Account-specific pricing shared with the customer in their portal */
@@ -68,7 +88,61 @@ export interface Customer {
   /** Default sales rep for new orders on this account */
   salesRepId?: string;
   salesRepName?: string;
+  /** When true, tax is not applied to this account's orders */
+  taxExempt?: boolean;
+  /** Resale / exemption certificate number on file */
+  taxExemptNumber?: string;
+  /** Uploaded exemption certificates and related tax documents */
+  taxDocuments?: CustomerTaxDocument[];
+  /** General supporting documents on the account (contracts, art briefs, etc.) */
+  files?: CustomerFile[];
 }
+
+/** Internal staff note on a customer account. */
+export type CustomerNotePriority = "normal" | "high" | "warning";
+
+export type CustomerNote = {
+  id: string;
+  content: string;
+  priority: CustomerNotePriority;
+  createdAt: string;
+  updatedAt: string;
+  author?: string;
+};
+
+/** Certificate or supporting tax document stored on a customer account. */
+export type CustomerTaxDocument = {
+  id: string;
+  name: string;
+  kind: "sales_certificate" | "supporting";
+  uploadedBy: string;
+  uploadedAt: string;
+  downloadUrl?: string;
+  storagePath?: string;
+  storageBucket?: string;
+  previewUrl?: string;
+  previewPath?: string;
+  contentType?: string;
+  /** Small images may be stored inline instead of Cloud Storage */
+  dataUrl?: string;
+};
+
+/** General customer file (supporting docs beyond tax certificates). */
+export type CustomerFile = {
+  id: string;
+  name: string;
+  kind: "supporting" | "other";
+  uploadedBy: string;
+  uploadedAt: string;
+  downloadUrl?: string;
+  storagePath?: string;
+  storageBucket?: string;
+  previewUrl?: string;
+  previewPath?: string;
+  contentType?: string;
+  dataUrl?: string;
+  size?: number;
+};
 
 export type CustomerActivityType =
   | "created"
@@ -81,6 +155,14 @@ export type CustomerActivityType =
   | "shipping_location_added"
   | "shipping_location_updated"
   | "shipping_location_removed"
+  | "contact_added"
+  | "contact_updated"
+  | "contact_removed"
+  | "tax_exemption_updated"
+  | "tax_document_uploaded"
+  | "tax_document_removed"
+  | "file_uploaded"
+  | "file_removed"
   | "pricing_note_updated"
   | "pricing_sheet_added"
   | "pricing_sheet_updated"
@@ -195,6 +277,18 @@ export interface CustomerShippingLocation extends ShippingAddress {
   isDefault?: boolean;
 }
 
+/** A person at a customer company who can be attached to estimates/invoices. */
+export interface CustomerContact {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  department?: string;
+  position?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 /** An end business or brand managed under a broker/contractor customer account. */
 export interface SubCustomer {
   id: string;
@@ -267,7 +361,19 @@ export interface ArtworkFile {
   id: string;
   name: string;
   version: number;
-  status: "pending" | "approved" | "revision_requested";
+  /**
+   * Proof pipeline:
+   * - pending: drafting / not yet with art (legacy open proofs also use this)
+   * - with_art: submitted to the artwork department
+   * - art_ready: art complete — ready for the team to send to the client
+   * - approved / revision_requested: customer sign-off states
+   */
+  status:
+    | "pending"
+    | "with_art"
+    | "art_ready"
+    | "approved"
+    | "revision_requested";
   uploadedAt: string;
   uploadedBy?: string;
   /** Short label for mockup preview, e.g. dimensions and colors */
@@ -281,6 +387,11 @@ export interface ArtworkFile {
   history?: ArtworkVersion[];
   /** Customer or staff notes tied to this proof (revision requests, follow-ups) */
   revisionNotes?: RevisionNote[];
+  /** Assigned artwork artist (staff user id) */
+  artAssigneeId?: string;
+  artAssigneeName?: string;
+  artSubmittedAt?: string;
+  artCompletedAt?: string;
 }
 
 export interface ArtworkVersion {
@@ -673,6 +784,8 @@ export interface Job {
   tasks: Task[];
   /** Finishing steps like bagging don't need garment decoration specs */
   kind?: "decoration" | "finishing";
+  /** Links to shop finishing step preset for priced bagging/labeling/etc. */
+  finishingStepId?: string;
 }
 
 export interface ShipmentAllocation {
@@ -798,6 +911,8 @@ export interface Order {
   excludedContractFeeIds?: string[];
   /** Optional shop label shown after order number, e.g. "CUSTOM NAME" */
   customLabel?: string;
+  /** Customer purchase order number / reference */
+  customerPoNumber?: string | null;
   /** Origin channel — client storefront checkouts use "client_store" */
   source?: "client_store";
   clientStoreId?: string;

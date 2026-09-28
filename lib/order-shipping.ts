@@ -189,15 +189,29 @@ export function resolveCustomerShippingLocations(
     });
   }
 
-  if (customer.city || customer.state || customer.company) {
+  if (customer.billingAddress || customer.city || customer.state || customer.company) {
+    const structured =
+      customer.billingAddress && typeof customer.billingAddress === "object"
+        ? customer.billingAddress
+        : null;
+    const legacyLine =
+      typeof customer.billingAddress === "string"
+        ? customer.billingAddress.trim()
+        : "";
     return [
       {
         id: "profile-default",
         label: "Customer profile",
-        line1: customer.company || customer.name,
-        city: customer.city,
-        state: customer.state,
-        postalCode: "",
+        line1:
+          structured?.line1 ||
+          legacyLine ||
+          customer.company ||
+          customer.name,
+        line2: structured?.line2,
+        city: structured?.city || customer.city || "",
+        state: structured?.state || customer.state || "",
+        postalCode:
+          structured?.postalCode || customer.postalCode || "",
         isDefault: true,
       },
     ];

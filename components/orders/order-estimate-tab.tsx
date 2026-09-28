@@ -138,15 +138,24 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     [settings.pricingMatrix, settings.pricingRateSheets, customer, previewOrder]
   );
 
+  const shopPricing = useMemo(
+    () => ({
+      pricingMatrix,
+      pricingRateSheets: settings.pricingRateSheets,
+      productionDefaults: settings.productionDefaults,
+    }),
+    [pricingMatrix, settings.pricingRateSheets, settings.productionDefaults]
+  );
+
   const totals = useMemo(
     () =>
       computeEstimateTotals(
         previewOrder,
         settings.taxRate,
-        pricingMatrix,
+        shopPricing,
         customer
       ),
-    [previewOrder, settings.taxRate, pricingMatrix, customer]
+    [previewOrder, settings.taxRate, shopPricing, customer]
   );
 
   const perPieceCosts = useMemo(

@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { CheckCircle2, RotateCcw, Send } from "lucide-react";
+import { CheckCircle2, Palette, RotateCcw, Send } from "lucide-react";
 import { ProofSlidesViewer } from "@/components/orders/artwork/proof-slides-gallery";
 import { ProofNotesThread } from "@/components/orders/proof-notes-thread";
+import { StaffArtistSelect } from "@/components/staff/staff-artist-select";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -25,14 +27,17 @@ import {
 } from "@/lib/artwork-queue";
 import { resolveArtworkRevisionNotes } from "@/lib/artwork-routes";
 import { ORDER_FILE_KIND_LABELS } from "@/lib/order-files";
+import { ARTWORK_STATUS_LABELS } from "@/lib/artwork-status";
 import type { ArtworkFile } from "@/types";
 import { cn } from "@/lib/utils";
 
-const STATUS_OPTIONS: { value: ArtworkFile["status"]; label: string }[] = [
-  { value: "pending", label: "Pending" },
-  { value: "revision_requested", label: "Revision requested" },
-  { value: "approved", label: "Approved" },
-];
+const STATUS_OPTIONS: { value: ArtworkFile["status"]; label: string }[] =
+  (
+    Object.entries(ARTWORK_STATUS_LABELS) as [
+      ArtworkFile["status"],
+      string,
+    ][]
+  ).map(([value, label]) => ({ value, label }));
 
 export function ArtworkProofDetail({
   entry,
@@ -78,7 +83,12 @@ export function ArtworkProofDetail({
 
   const handleStatusChange = (
     status: ArtworkFile["status"],
-    options?: { message?: string; messageRole?: "staff" | "customer" }
+    options?: {
+      message?: string;
+      messageRole?: "staff" | "customer";
+      assigneeId?: string | null;
+      clearAssignee?: boolean;
+    }
   ) => {
     setArtworkStatus(
       liveEntry.orderId,
@@ -90,13 +100,29 @@ export function ArtworkProofDetail({
             message: options.message,
             messageRole: options.messageRole ?? "staff",
             notifyOrderMessage: false,
+            assigneeId: options.assigneeId,
+            clearAssignee: options.clearAssignee,
           }
-        : undefined
+        : options?.assigneeId !== undefined || options?.clearAssignee
+          ? {
+              assigneeId: options.assigneeId,
+              clearAssignee: options.clearAssignee,
+            }
+          : undefined
     );
     if (status === "revision_requested") {
       setShowRevisionForm(false);
       setRevisionDraft("");
     }
+  };
+
+  const handleAssigneeChange = (artistId: string | null) => {
+    const current = liveEntry.artwork.artAssigneeId ?? null;
+    if (artistId === current) return;
+    handleStatusChange(liveEntry.artwork.status, {
+      assigneeId: artistId,
+      clearAssignee: !artistId,
+    });
   };
 
   const submitRevisionRequest = () => {
@@ -179,7 +205,7 @@ export function ArtworkProofDetail({
           <section className="rounded-lg border border-[#e3e3e3] bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-[#616161]">
-                Review actions
+                Art workflow
               </p>
               <Select
                 value={liveEntry.artwork.status}
@@ -210,10 +236,51 @@ export function ArtworkProofDetail({
               </Select>
             </div>
 
+            <div className="mt-4 space-y-1.5">
+              <Label className="text-[11px] font-medium text-[#8a8a8a]">
+                Assign artist
+              </Label>
+              <StaffArtistSelect
+                id={`art-detail-artist-${liveEntry.imprintId}`}
+                value={liveEntry.artwork.artAssigneeId}
+                onChange={handleAssigneeChange}
+                disabled={locked}
+                placeholder="Unassigned"
+                triggerClassName="h-9"
+              />
+            </div>
+
             <div className="mt-4 flex flex-wrap gap-2">
+              {liveEntry.artwork.status === "pending" ||
+              liveEntry.artwork.status === "revision_requested" ? (
+                <Button
+                  type="button"
+                  className={cn(dashboardPrimaryButtonClass, "h-9")}
+                  onClick={() =>
+                    handleStatusChange("with_art", {
+                      assigneeId: liveEntry.artwork.artAssigneeId ?? undefined,
+                    })
+                  }
+                  disabled={locked}
+                >
+                  <Send className="size-3.5" />
+                  Submit to artwork
+                </Button>
+              ) : null}
+              {liveEntry.artwork.status === "with_art" ? (
+                <Button
+                  type="button"
+                  className={cn(dashboardPrimaryButtonClass, "h-9")}
+                  onClick={() => handleStatusChange("art_ready")}
+                  disabled={locked}
+                >
+                  <Palette className="size-3.5" />
+                  Artwork complete
+                </Button>
+              ) : null}
               <Button
                 type="button"
-                className={cn(dashboardPrimaryButtonClass, "h-9")}
+                className={cn(dashboardControlClass, "h-9")}
                 onClick={() => void handleSendProof()}
                 disabled={
                   locked ||

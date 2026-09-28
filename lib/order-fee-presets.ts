@@ -1,6 +1,10 @@
 import type { Customer, CustomerContractFee, Order, OrderEstimateFeeCategory } from "@/types";
 import type { PricingMatrix } from "@/lib/shop-settings";
 import {
+  finishingStepContractFeeId,
+  resolveFinishingStepPrice,
+} from "@/lib/shop-settings";
+import {
   listCustomerRateSheets,
   resolveRateSheetForOrder,
 } from "@/lib/customer-pricing";
@@ -119,6 +123,43 @@ function presetsFromContractFees(
   return rows;
 }
 
+function presetsFromFinishingSteps(
+  shopSettings: ShopPricingSource | null | undefined,
+  order: Order
+): OrderFeePreset[] {
+  const steps = shopSettings?.productionDefaults?.finishingSteps ?? [];
+  const pieceCount = countOrderPieces(order);
+  const rows: OrderFeePreset[] = [];
+
+  for (const step of steps) {
+    if (step.enabled === false) continue;
+    const unitPrice = resolveFinishingStepPrice(step, pieceCount);
+    if (unitPrice <= 0) continue;
+    const perPiece = step.chargeMode !== "per_order";
+    const qty = perPiece ? Math.max(1, pieceCount) : 1;
+    const amountLabel = perPiece
+      ? `${formatCurrency(unitPrice)}/pc`
+      : formatCurrency(unitPrice);
+    rows.push({
+      value: `finishing:${step.id}`,
+      sourceName: "Finishing",
+      label: `${step.name} — ${amountLabel}`,
+      category: "finishing",
+      feeLabel: step.name,
+      qty,
+      unitPrice,
+      detail:
+        step.description ||
+        (perPiece
+          ? `Shop finishing rate · ${pieceCount} pcs`
+          : "Flat finishing charge"),
+      contractFeeId: finishingStepContractFeeId(step.id),
+    });
+  }
+
+  return rows;
+}
+
 export function buildOrderFeePresets({
   customer,
   shopMatrix,
@@ -188,6 +229,8 @@ export function buildOrderFeePresets({
       )
     );
   }
+
+  pushUnique(presetsFromFinishingSteps(source, order));
 
   for (const item of customer?.negotiatedPricing?.items ?? []) {
     if (!item.label || item.unitPrice == null) continue;

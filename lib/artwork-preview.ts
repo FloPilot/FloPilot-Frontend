@@ -1,10 +1,12 @@
-const IMAGE_TYPES = new Set([
+const RASTER_IMAGE_TYPES = new Set([
   "image/png",
   "image/jpeg",
   "image/jpg",
   "image/webp",
   "image/gif",
 ]);
+
+const SVG_IMAGE_TYPE = "image/svg+xml";
 
 /** Max size of the base64 preview we store on the order in Firestore. */
 const MAX_PREVIEW_BYTES = 450 * 1024;
@@ -15,12 +17,39 @@ const MAX_DIMENSION = 1600;
 /** Files at or below this size are embedded as-is when the data URL fits. */
 const DIRECT_EMBED_FILE_BYTES = 200 * 1024;
 
-export function isImageFileName(name: string): boolean {
+export type ImagePreviewResult = {
+  previewUrl: string;
+  error?: string;
+  /** True when a large file was resized/compressed for Firestore storage. */
+  compressed?: boolean;
+};
+
+export function isRasterImageFileName(name: string): boolean {
   return /\.(png|jpe?g|webp|gif)$/i.test(name);
 }
 
+export function isSvgFileName(name: string): boolean {
+  return /\.svg$/i.test(name);
+}
+
+export function isImageFileName(name: string): boolean {
+  return isRasterImageFileName(name) || isSvgFileName(name);
+}
+
+export function isSvgUpload(file: File): boolean {
+  return (
+    file.type === SVG_IMAGE_TYPE ||
+    file.type === "image/svg" ||
+    isSvgFileName(file.name)
+  );
+}
+
+export function isRasterImageUpload(file: File): boolean {
+  return RASTER_IMAGE_TYPES.has(file.type) || isRasterImageFileName(file.name);
+}
+
 export function isImageUpload(file: File): boolean {
-  return IMAGE_TYPES.has(file.type) || isImageFileName(file.name);
+  return isRasterImageUpload(file) || isSvgUpload(file);
 }
 
 function dataUrlByteSize(dataUrl: string): number {
@@ -40,6 +69,31 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => resolve("");
     reader.readAsDataURL(file);
   });
+}
+
+/** Ensure SVG data URLs use a browser-friendly MIME so <img> can render them. */
+function normalizeSvgDataUrl(dataUrl: string): string {
+  if (!dataUrl.startsWith("data:")) return dataUrl;
+  if (/^data:image\/svg\+xml/i.test(dataUrl)) return dataUrl;
+  return dataUrl.replace(/^data:[^;,]*/, `data:${SVG_IMAGE_TYPE}`);
+}
+
+async function readSvgPreviewDataUrl(file: File): Promise<ImagePreviewResult> {
+  const raw = await readFileAsDataUrl(file);
+  if (!raw) {
+    return { previewUrl: "", error: "Could not read SVG for preview." };
+  }
+
+  const previewUrl = normalizeSvgDataUrl(raw);
+  if (dataUrlByteSize(previewUrl) > MAX_PREVIEW_BYTES) {
+    return {
+      previewUrl: "",
+      error:
+        "SVG is too large to store as a preview on this order. Filename is still saved.",
+    };
+  }
+
+  return { previewUrl };
 }
 
 function loadImageFromFile(file: File): Promise<HTMLImageElement> {
@@ -93,13 +147,6 @@ async function compressImageToDataUrl(
   return canvas.toDataURL("image/jpeg", 0.42);
 }
 
-export type ImagePreviewResult = {
-  previewUrl: string;
-  error?: string;
-  /** True when a large file was resized/compressed for Firestore storage. */
-  compressed?: boolean;
-};
-
 /** Max size of a downloadable attachment we embed on the order doc. */
 const MAX_ATTACHMENT_BYTES = 700 * 1024;
 
@@ -152,6 +199,16 @@ export type UploadContent = {
   error?: string;
 };
 
+function contentTypeForUpload(file: File): string {
+  if (file.type) return file.type;
+  if (isSvgFileName(file.name)) return SVG_IMAGE_TYPE;
+  if (/\.png$/i.test(file.name)) return "image/png";
+  if (/\.jpe?g$/i.test(file.name)) return "image/jpeg";
+  if (/\.webp$/i.test(file.name)) return "image/webp";
+  if (/\.gif$/i.test(file.name)) return "image/gif";
+  return "application/octet-stream";
+}
+
 /**
  * Reads a file into raw base64 (no data URL prefix) for upload to Cloud
  * Storage. Works for any file type and supports far larger files than the
@@ -161,7 +218,7 @@ export async function readUploadContent(file: File): Promise<UploadContent> {
   if (file.size > MAX_UPLOAD_BYTES) {
     return {
       base64: "",
-      contentType: file.type || "application/octet-stream",
+      contentType: contentTypeForUpload(file),
       error: `This file is ${(file.size / (1024 * 1024)).toFixed(1)}MB. The limit is 20MB — please compress or flatten it and try again.`,
     };
   }
@@ -170,7 +227,7 @@ export async function readUploadContent(file: File): Promise<UploadContent> {
   if (!dataUrl) {
     return {
       base64: "",
-      contentType: file.type || "application/octet-stream",
+      contentType: contentTypeForUpload(file),
       error: "Could not read this file.",
     };
   }
@@ -179,7 +236,7 @@ export async function readUploadContent(file: File): Promise<UploadContent> {
   const base64 = comma === -1 ? dataUrl : dataUrl.slice(comma + 1);
   return {
     base64,
-    contentType: file.type || "application/octet-stream",
+    contentType: contentTypeForUpload(file),
   };
 }
 
@@ -188,6 +245,10 @@ export async function readImagePreviewDataUrl(
 ): Promise<ImagePreviewResult> {
   if (!isImageUpload(file)) {
     return { previewUrl: "" };
+  }
+
+  if (isSvgUpload(file)) {
+    return readSvgPreviewDataUrl(file);
   }
 
   try {
@@ -270,7 +331,7 @@ export async function compressStoreMockupDataUrl(
 export async function readStoreMockupDataUrl(
   file: File
 ): Promise<ImagePreviewResult> {
-  if (!isImageUpload(file)) {
+  if (!isRasterImageUpload(file)) {
     return {
       previewUrl: "",
       error: "Please choose a PNG, JPG, or WebP image.",

@@ -43,6 +43,10 @@ import {
   addProductionJob as apiAddProductionJob,
   createCustomer as apiCreateCustomer,
   updateCustomer as apiUpdateCustomer,
+  uploadCustomerTaxDocument as apiUploadCustomerTaxDocument,
+  deleteCustomerTaxDocument as apiDeleteCustomerTaxDocument,
+  uploadCustomerFile as apiUploadCustomerFile,
+  deleteCustomerFile as apiDeleteCustomerFile,
   archiveCustomer as apiArchiveCustomer,
   restoreCustomer as apiRestoreCustomer,
   type CustomerUpdate,
@@ -61,6 +65,7 @@ import {
   listScheduleBlocks as apiListScheduleBlocks,
   removeOrderLineItem as apiRemoveOrderLineItem,
   removeProductionJob as apiRemoveProductionJob,
+  updateProductionJobLineItems as apiUpdateProductionJobLineItems,
   archiveOrder as apiArchiveOrder,
   bulkArchiveOrders as apiBulkArchiveOrders,
   restoreOrder as apiRestoreOrder,
@@ -153,6 +158,35 @@ type ScheduleContextValue = {
   getCustomerById: (id: string) => Customer | undefined;
   addCustomer: (input: NewCustomerInput) => Promise<Customer>;
   updateCustomer: (id: string, updates: CustomerUpdate) => Promise<Customer>;
+  uploadCustomerTaxDocument: (
+    customerId: string,
+    payload: {
+      name: string;
+      kind: import("@/types").CustomerTaxDocument["kind"];
+      contentBase64?: string;
+      contentType?: string;
+      inlineDataUrl?: string;
+    }
+  ) => Promise<Customer>;
+  deleteCustomerTaxDocument: (
+    customerId: string,
+    documentId: string
+  ) => Promise<Customer>;
+  uploadCustomerFile: (
+    customerId: string,
+    payload: {
+      name: string;
+      kind?: import("@/types").CustomerFile["kind"];
+      contentBase64?: string;
+      contentType?: string;
+      inlineDataUrl?: string;
+      size?: number;
+    }
+  ) => Promise<Customer>;
+  deleteCustomerFile: (
+    customerId: string,
+    fileId: string
+  ) => Promise<Customer>;
   archiveCustomer: (id: string) => Promise<number>;
   restoreCustomer: (id: string) => Promise<number>;
   createOrderFromForm: (form: NewOrderFormInput) => Promise<Order>;
@@ -187,6 +221,11 @@ type ScheduleContextValue = {
   restoreOrder: (orderId: string) => Promise<void>;
   addProductionJob: (orderId: string, job: Job) => Promise<void>;
   removeProductionJob: (orderId: string, jobId: string) => void;
+  updateProductionJobLineItems: (
+    orderId: string,
+    jobId: string,
+    lineItemIds: string[]
+  ) => Promise<void>;
   machines: Machine[];
   scheduleBlocks: ScheduleBlock[];
   /** Schedule blocks excluding archived orders - use on shop floor views. */
@@ -238,8 +277,10 @@ type ScheduleContextValue = {
       message?: string;
       messageRole?: "staff" | "customer";
       notifyOrderMessage?: boolean;
+      assigneeId?: string | null;
+      clearAssignee?: boolean;
     }
-  ) => void;
+  ) => void | Promise<void>;
   addArtworkProofNote: (
     orderId: string,
     jobId: string,
@@ -365,6 +406,10 @@ type ScheduleContextValue = {
   updateOrderCustomLabel: (
     orderId: string,
     customLabel: string
+  ) => Promise<Order>;
+  updateOrderCustomerPoNumber: (
+    orderId: string,
+    customerPoNumber: string
   ) => Promise<Order>;
   updateOrderEndBusiness: (
     orderId: string,
@@ -708,6 +753,101 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       return customer;
     },
     [getIdToken, refreshShopData]
+  );
+
+  const uploadCustomerTaxDocument = useCallback(
+    async (
+      customerId: string,
+      payload: {
+        name: string;
+        kind: import("@/types").CustomerTaxDocument["kind"];
+        contentBase64?: string;
+        contentType?: string;
+        inlineDataUrl?: string;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      const { customer } = await apiUploadCustomerTaxDocument(
+        token,
+        customerId,
+        payload
+      );
+      setCustomers((prev) =>
+        prev
+          .map((existing) => (existing.id === customerId ? customer : existing))
+          .sort((a, b) => a.company.localeCompare(b.company))
+      );
+      return customer;
+    },
+    [getIdToken]
+  );
+
+  const deleteCustomerTaxDocument = useCallback(
+    async (customerId: string, documentId: string) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      const { customer } = await apiDeleteCustomerTaxDocument(
+        token,
+        customerId,
+        documentId
+      );
+      setCustomers((prev) =>
+        prev
+          .map((existing) => (existing.id === customerId ? customer : existing))
+          .sort((a, b) => a.company.localeCompare(b.company))
+      );
+      return customer;
+    },
+    [getIdToken]
+  );
+
+  const uploadCustomerFile = useCallback(
+    async (
+      customerId: string,
+      payload: {
+        name: string;
+        kind?: import("@/types").CustomerFile["kind"];
+        contentBase64?: string;
+        contentType?: string;
+        inlineDataUrl?: string;
+        size?: number;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      const { customer } = await apiUploadCustomerFile(
+        token,
+        customerId,
+        payload
+      );
+      setCustomers((prev) =>
+        prev
+          .map((existing) => (existing.id === customerId ? customer : existing))
+          .sort((a, b) => a.company.localeCompare(b.company))
+      );
+      return customer;
+    },
+    [getIdToken]
+  );
+
+  const deleteCustomerFile = useCallback(
+    async (customerId: string, fileId: string) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      const { customer } = await apiDeleteCustomerFile(
+        token,
+        customerId,
+        fileId
+      );
+      setCustomers((prev) =>
+        prev
+          .map((existing) => (existing.id === customerId ? customer : existing))
+          .sort((a, b) => a.company.localeCompare(b.company))
+      );
+      return customer;
+    },
+    [getIdToken]
   );
 
   const archiveCustomer = useCallback(
@@ -1192,6 +1332,57 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate, refreshScheduleData]
   );
 
+  const updateProductionJobLineItems = useCallback(
+    async (orderId: string, jobId: string, lineItemIds: string[]) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const existing = orders.find((entry) => entry.id === orderId);
+      if (!existing) throw new Error("Order not found");
+
+      if (!existing.jobs.some((entry) => entry.id === jobId)) {
+        throw new Error("Production event not found");
+      }
+
+      const validIds = new Set(existing.lineItems.map((item) => item.id));
+      const nextIds = [
+        ...new Set(lineItemIds.filter((id) => validIds.has(id))),
+      ];
+      if (nextIds.length === 0) {
+        throw new Error("Select at least one blank for this decoration event");
+      }
+
+      const nextJobs = existing.jobs.map((entry) =>
+        entry.id === jobId ? { ...entry, lineItemIds: nextIds } : entry
+      );
+
+      // Optimistic local update so checkboxes don't snap back while saving.
+      applyOrderUpdate({ ...existing, jobs: nextJobs });
+
+      try {
+        try {
+          const { order } = await apiUpdateProductionJobLineItems(
+            token,
+            orderId,
+            jobId,
+            nextIds
+          );
+          applyOrderUpdate(order);
+        } catch {
+          // Dedicated function may not be deployed yet — use updateOrder.
+          const { order } = await apiUpdateOrder(token, orderId, {
+            jobs: nextJobs,
+          });
+          applyOrderUpdate(order);
+        }
+      } catch (err) {
+        applyOrderUpdate(existing);
+        throw err;
+      }
+    },
+    [getIdToken, applyOrderUpdate, orders]
+  );
+
   const getOrderMessages = useCallback(
     (orderId: string): Message[] =>
       orders.find((o) => o.id === orderId)?.messages ?? [],
@@ -1221,6 +1412,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         message?: string;
         messageRole?: "staff" | "customer";
         notifyOrderMessage?: boolean;
+        assigneeId?: string | null;
+        clearAssignee?: boolean;
       }
     ) => {
       const token = await getIdToken();
@@ -1713,6 +1906,23 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateOrderCustomerPoNumber = useCallback(
+    async (orderId: string, customerPoNumber: string) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update the PO number.");
+      }
+
+      const trimmed = customerPoNumber.trim();
+      const { order } = await apiUpdateOrder(token, orderId, {
+        customerPoNumber: trimmed || null,
+      });
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const updateOrderEndBusiness = useCallback(
     async (orderId: string, subCustomerId: string | null) => {
       const token = await getIdToken();
@@ -2124,6 +2334,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getCustomerById,
       addCustomer,
       updateCustomer,
+      uploadCustomerTaxDocument,
+      deleteCustomerTaxDocument,
+      uploadCustomerFile,
+      deleteCustomerFile,
       archiveCustomer,
       restoreCustomer,
       createOrderFromForm,
@@ -2144,6 +2358,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       restoreOrder,
       addProductionJob,
       removeProductionJob,
+      updateProductionJobLineItems,
       machines,
       scheduleBlocks,
       activeScheduleBlocks,
@@ -2193,6 +2408,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateOrderPayment,
       setOrderRush,
       updateOrderCustomLabel,
+      updateOrderCustomerPoNumber,
       updateOrderEndBusiness,
       updateOrderSalesRep,
       updateOrderProductionRun,
@@ -2215,6 +2431,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getCustomerById,
       addCustomer,
       updateCustomer,
+      uploadCustomerTaxDocument,
+      deleteCustomerTaxDocument,
+      uploadCustomerFile,
+      deleteCustomerFile,
       archiveCustomer,
       restoreCustomer,
       createOrderFromForm,
@@ -2235,6 +2455,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       restoreOrder,
       addProductionJob,
       removeProductionJob,
+      updateProductionJobLineItems,
       machines,
       scheduleBlocks,
       activeScheduleBlocks,
@@ -2284,6 +2505,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateOrderPayment,
       setOrderRush,
       updateOrderCustomLabel,
+      updateOrderCustomerPoNumber,
       updateOrderEndBusiness,
       updateOrderSalesRep,
       updateOrderProductionRun,

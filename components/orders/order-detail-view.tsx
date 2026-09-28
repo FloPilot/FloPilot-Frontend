@@ -12,6 +12,7 @@ import { OrderMaterialsPanel } from "@/components/orders/order-materials-panel";
 import { OrderDesignTab } from "@/components/orders/order-design-tab";
 import { OrderArtworkApprovalPanel } from "@/components/orders/order-artwork-approval-panel";
 import { OrderFilesTab } from "@/components/orders/order-files-tab";
+import { OrderPurchaseOrderTab } from "@/components/orders/order-purchase-order-tab";
 import { OrderEstimateTab } from "@/components/orders/order-estimate-tab";
 import { OrderInvoiceTab } from "@/components/orders/order-invoice-tab";
 import {
@@ -59,7 +60,7 @@ import { getOrderProductionSteps, type ProductionStep } from "@/lib/order-produc
 import type { ScheduleBlock, Job } from "@/types";
 import { cn } from "@/lib/utils";
 
-type CustomerSection = "messages" | "payment" | "notes";
+type CustomerSection = "messages" | "payment";
 
 function OrderMessagesPanel({ orderId }: { orderId: string }) {
   const { getOrderMessages, sendOrderMessage } = useSchedule();
@@ -133,7 +134,6 @@ function CustomerSubNav({
   const items: { id: CustomerSection; label: string }[] = [
     { id: "messages", label: "Messages" },
     { id: "payment", label: "Payment" },
-    { id: "notes", label: "Notes" },
   ];
 
   return (
@@ -458,6 +458,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
           summary={summary}
           activeTab={activeTab}
           onTabChange={changeTab}
+          customer={customer}
           subCustomers={customer?.subCustomers}
           onCustomLabelDraftChange={(customLabel) =>
             setHeaderDraft((current) => ({ ...current, customLabel }))
@@ -586,7 +587,13 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
                   </p>
                 </div>
                 <div className="p-4 sm:p-5">
-                  <OrderDesignTab order={order} />
+                  <OrderDesignTab
+                    order={order}
+                    onAddEvents={() => {
+                      changeTab("events");
+                      setAddStepOpen(true);
+                    }}
+                  />
                 </div>
               </section>
             </div>
@@ -594,13 +601,17 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
 
           {activeTab === "estimate" ? <OrderEstimateTab order={order} /> : null}
 
+          {activeTab === "purchase_order" ? (
+            <OrderPurchaseOrderTab order={order} />
+          ) : null}
+
           {activeTab === "files" ? (
             <section className={dashboardCardClass}>
               <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
                 <h2 className={dashboardTaskTitleClass}>Order files</h2>
                 <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-                  Mockups, separations, POs, and production art. Image previews
-                  are stored inline for files under 600 KB.
+                  Mockups, separations, and production art. Image previews are
+                  stored inline for files under 600 KB.
                 </p>
               </div>
               <div className="p-4 sm:p-5">
@@ -649,13 +660,13 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
                   {customerSection === "payment" ? (
                     <OrderCustomerPaymentPanel order={order} />
                   ) : null}
-
-                  {customerSection === "notes" ? (
-                    <OrderInternalNotes orderId={orderId} />
-                  ) : null}
                 </div>
               </section>
             </div>
+          ) : null}
+
+          {activeTab === "notes" ? (
+            <OrderInternalNotes orderId={orderId} />
           ) : null}
 
           {activeTab === "produced_goods" ? (

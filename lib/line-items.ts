@@ -1,7 +1,8 @@
 import {
   NEW_ORDER_COLORS,
   NEW_ORDER_PRODUCTS,
-  NEW_ORDER_SIZES,
+  orderedManualSizeKeys,
+  type ManualSizeQtyRecord,
 } from "@/lib/create-order";
 import type { LineItem, SizeBreakdown } from "@/types";
 
@@ -31,35 +32,29 @@ export function guessColorKey(item: LineItem): string {
   return match?.key ?? NEW_ORDER_COLORS[0].key;
 }
 
-export function sizesToRecord(
-  sizes: SizeBreakdown[]
-): Record<(typeof NEW_ORDER_SIZES)[number], number> {
-  const record = Object.fromEntries(
-    NEW_ORDER_SIZES.map((size) => [size, 0])
-  ) as Record<(typeof NEW_ORDER_SIZES)[number], number>;
-
+export function sizesToRecord(sizes: SizeBreakdown[]): ManualSizeQtyRecord {
+  const record: ManualSizeQtyRecord = {};
   for (const row of sizes) {
-    if (row.size in record) {
-      record[row.size as (typeof NEW_ORDER_SIZES)[number]] = row.quantity;
-    }
+    const size = row.size?.trim();
+    if (!size) continue;
+    record[size] = (record[size] || 0) + (row.quantity || 0);
   }
-
   return record;
 }
 
-export function recordToSizes(
-  record: Record<(typeof NEW_ORDER_SIZES)[number], number>
-): SizeBreakdown[] {
-  return NEW_ORDER_SIZES.map((size) => ({
-    size,
-    quantity: record[size] || 0,
-  })).filter((row) => row.quantity > 0);
+export function recordToSizes(record: ManualSizeQtyRecord): SizeBreakdown[] {
+  return orderedManualSizeKeys(record)
+    .map((size) => ({
+      size,
+      quantity: record[size] || 0,
+    }))
+    .filter((row) => row.quantity > 0);
 }
 
 export function buildLineItemFromCatalog(
   productKey: (typeof NEW_ORDER_PRODUCTS)[number]["key"],
   colorKey: (typeof NEW_ORDER_COLORS)[number]["key"],
-  sizes: Record<(typeof NEW_ORDER_SIZES)[number], number>,
+  sizes: ManualSizeQtyRecord,
   id = createLineItemId()
 ): LineItem {
   const product =

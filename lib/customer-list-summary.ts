@@ -1,6 +1,6 @@
 import { parseISO, subDays, startOfDay } from "date-fns";
 import type { Customer, Order } from "@/types";
-import { formatCustomerFullName } from "@/lib/customers";
+import { formatCustomerBillingAddress, formatCustomerFullName } from "@/lib/customers";
 import {
   resolveOrderFinancialsInContext,
   type OrderFinancialContext,
@@ -187,6 +187,8 @@ export function searchCustomers(
       customer.phone,
       customer.city,
       customer.state,
+      customer.postalCode ?? "",
+      formatCustomerBillingAddress(customer),
       customer.notes ?? "",
     ]
       .join(" ")

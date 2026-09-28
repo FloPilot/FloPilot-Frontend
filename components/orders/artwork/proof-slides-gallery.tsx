@@ -512,7 +512,7 @@ export function ProofSlidesEditor({
             ref={fileInputRef}
             type="file"
             className="hidden"
-            accept=".png,.jpg,.jpeg,.webp,.gif"
+            accept=".png,.jpg,.jpeg,.webp,.gif,.svg,image/svg+xml"
             multiple
             onChange={(event) => void handleAddImages(event)}
           />
@@ -539,7 +539,7 @@ export function ProofSlidesEditor({
             No images on this proof yet
           </p>
           <p className="mt-1 max-w-xs text-[13px] text-[#8a8a8a]">
-            Upload a mockup, logo, or reference image. You can add up to{" "}
+            Upload a mockup, logo, SVG, or reference image. You can add up to{" "}
             {MAX_PROOF_SLIDES} images per location.
           </p>
         </div>

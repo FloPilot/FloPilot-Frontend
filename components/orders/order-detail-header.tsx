@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Info } from "lucide-react";
+import { CustomerWarningDialog } from "@/components/customers/customer-warning-dialog";
 import { OrderCustomLabelEditor } from "@/components/orders/order-custom-label-field";
 import { OrderEndBusinessEditor } from "@/components/orders/order-end-business-editor";
 import { OrderSalesRepEditor } from "@/components/orders/order-sales-rep-editor";
@@ -12,6 +14,7 @@ import {
   dashboardSectionTitleClass,
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
+import { getCustomerWarningNotes } from "@/lib/customer-notes";
 import { formatDate } from "@/lib/format";
 import { isArchivedOrder } from "@/lib/order-archive";
 import {
@@ -19,7 +22,7 @@ import {
   type OrderDetailTab,
 } from "@/lib/order-detail-tabs";
 import type { OrderListSummary } from "@/lib/order-list-summary";
-import type { Order, SubCustomer } from "@/types";
+import type { Customer, Order, SubCustomer } from "@/types";
 import { cn } from "@/lib/utils";
 
 export type { OrderDetailTab } from "@/lib/order-detail-tabs";
@@ -34,6 +37,7 @@ export function OrderDetailHeader({
   onTabChange,
   onCustomLabelSave,
   onCustomLabelDraftChange,
+  customer,
   subCustomers,
   onEndBusinessSave,
   onEndBusinessDraftChange,
@@ -48,6 +52,7 @@ export function OrderDetailHeader({
   onTabChange: (tab: OrderDetailTab) => void;
   onCustomLabelSave?: (customLabel: string) => Promise<void | Order>;
   onCustomLabelDraftChange?: (customLabel: string) => void;
+  customer?: Customer | null;
   subCustomers?: SubCustomer[];
   onEndBusinessSave?: (subCustomerId: string | null) => Promise<void | Order>;
   onEndBusinessDraftChange?: (subCustomerId: string | null) => void;
@@ -56,6 +61,8 @@ export function OrderDetailHeader({
   orders?: Order[];
   onProductionRunSave?: (linkedOrderIds: string[]) => Promise<void | Order>;
 }) {
+  const [warningOpen, setWarningOpen] = useState(false);
+  const warnings = getCustomerWarningNotes(customer);
   const tabs = buildOrderDetailTabs(order);
   const showEndBusiness =
     Boolean(onEndBusinessSave || onEndBusinessDraftChange) &&
@@ -117,6 +124,18 @@ export function OrderDetailHeader({
             <span className="inline-flex rounded-md bg-[#f1f1f1] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
               Archived
             </span>
+          ) : null}
+          {warnings.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setWarningOpen(true)}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-[#f5b5b5] bg-[#fff1f1] px-2 text-[11px] font-semibold uppercase tracking-wide text-[#b42318] transition-colors hover:bg-[#fdf2f2]"
+              aria-label="View customer warning"
+              title="Customer warning"
+            >
+              <Info className="size-3.5" />
+              Warning
+            </button>
           ) : null}
         </div>
 
@@ -191,6 +210,14 @@ export function OrderDetailHeader({
           </button>
         ))}
       </div>
+
+      <CustomerWarningDialog
+        open={warningOpen}
+        onOpenChange={setWarningOpen}
+        customer={customer}
+        warnings={warnings}
+        confirmLabel="Close"
+      />
     </header>
   );
 }

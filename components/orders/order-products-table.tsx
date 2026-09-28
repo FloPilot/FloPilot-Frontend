@@ -122,9 +122,17 @@ export function OrderFinancialSummary({ order }: { order: Order }) {
     () => resolveEffectivePricingMatrix(settings, customer, order),
     [settings.pricingMatrix, customer, order]
   );
+  const shopPricing = useMemo(
+    () => ({
+      pricingMatrix,
+      pricingRateSheets: settings.pricingRateSheets,
+      productionDefaults: settings.productionDefaults,
+    }),
+    [pricingMatrix, settings.pricingRateSheets, settings.productionDefaults]
+  );
   const totals = useMemo(
-    () => computeEstimateTotals(order, settings.taxRate, pricingMatrix, customer),
-    [order, settings.taxRate, pricingMatrix, customer]
+    () => computeEstimateTotals(order, settings.taxRate, shopPricing, customer),
+    [order, settings.taxRate, shopPricing, customer]
   );
 
   const taxLabel = `Tax (${(totals.taxRate * 100).toFixed(

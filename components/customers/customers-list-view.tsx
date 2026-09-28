@@ -51,7 +51,11 @@ import {
   type CustomerListSort,
   type CustomerQuickFilter,
 } from "@/lib/customer-list-summary";
-import { formatCustomerFullName, type NewCustomerInput } from "@/lib/customers";
+import {
+  formatCustomerBillingAddress,
+  formatCustomerFullName,
+  type NewCustomerInput,
+} from "@/lib/customers";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -483,7 +487,7 @@ export function CustomersListView() {
                   <Input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search company, contact, email, city…"
+                    placeholder="Search company, contact, email, address…"
                     className={cn(dashboardControlClass, "h-9 w-full pl-9")}
                   />
                 </div>
@@ -541,7 +545,7 @@ export function CustomersListView() {
                         Contact
                       </TableHead>
                       <TableHead className="hidden text-[#616161] lg:table-cell">
-                        Location
+                        Billing address
                       </TableHead>
                       <TableHead className="text-right text-[#616161]">
                         Open orders
@@ -643,7 +647,7 @@ export function CustomersListView() {
                               </div>
                             </TableCell>
                             <TableCell className="hidden text-[#616161] lg:table-cell">
-                              {customer.city}, {customer.state}
+                              {formatCustomerBillingAddress(customer) || "—"}
                             </TableCell>
                             <TableCell className="text-right tabular-nums text-[#303030]">
                               {summary?.openOrderCount ?? 0}

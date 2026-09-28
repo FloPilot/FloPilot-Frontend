@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BookMarked, ImageIcon, Wand2 } from "lucide-react";
+import { BookMarked, ImageIcon, Plus, Wand2 } from "lucide-react";
 import { ApplyDesignDialog } from "@/components/orders/apply-design-dialog";
 import { DecorationTypePill } from "@/components/orders/decoration-type-pill";
 import { OrderProofDesignStudioDialog } from "@/components/orders/order-proof-design-studio-dialog";
@@ -12,12 +12,13 @@ import {
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { Button } from "@/components/ui/button";
 import {
-  dashboardCardClass,
   dashboardControlClass,
   dashboardInsetSurfaceClass,
+  dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
+import { artworkStatusDetail } from "@/lib/artwork-status";
 import { getOrderProductionSteps } from "@/lib/order-production";
 import { imprintDisplayName } from "@/lib/imprint-display";
 import type { ArtworkFile, Order } from "@/types";
@@ -32,6 +33,7 @@ export function OrderDesignTab({
   imprintAdapters,
   subtitle,
   readOnly = false,
+  onAddEvents,
 }: {
   order: Order;
   /** Force every location badge to this status (order requests → pending). */
@@ -42,6 +44,8 @@ export function OrderDesignTab({
   imprintAdapters?: ImprintDesignCardAdapters;
   subtitle?: string;
   readOnly?: boolean;
+  /** Jump to Events and open the add-event modal when proofs have no locations yet. */
+  onAddEvents?: () => void;
 }) {
   const [applyOpen, setApplyOpen] = useState(false);
   const [designStudioOpen, setDesignStudioOpen] = useState(false);
@@ -71,13 +75,26 @@ export function OrderDesignTab({
 
   if (proofSteps.length === 0) {
     return (
-      <section className={cn(dashboardCardClass, "px-4 py-12 text-center sm:px-5")}>
+      <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-12 text-center">
         <ImageIcon className="mx-auto mb-3 size-8 text-[#c9c9c9]" />
-        <p className={dashboardTaskDetailClass}>
+        <p className="text-[13px] font-medium text-[#303030]">
+          No decoration events yet
+        </p>
+        <p className={cn("mx-auto mt-1 max-w-sm", dashboardTaskDetailClass)}>
           Add decoration events first — then build a mockup and proof for each
           location here.
         </p>
-      </section>
+        {onAddEvents && !readOnly ? (
+          <Button
+            type="button"
+            className={cn(dashboardPrimaryButtonClass, "mt-4 h-9")}
+            onClick={onAddEvents}
+          >
+            <Plus className="size-3.5" />
+            Add events
+          </Button>
+        ) : null}
+      </div>
     );
   }
 
@@ -92,7 +109,7 @@ export function OrderDesignTab({
           <h2 className={dashboardTaskTitleClass}>Proof by location</h2>
           <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
             {subtitle ||
-              "Upload mockups, set specs, and send proofs — one per decoration location on this order."}
+              "Upload proofs, submit to artwork, and track status — one location at a time."}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -128,11 +145,16 @@ export function OrderDesignTab({
           )}
         >
           <p className="px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-            Locations
+            Proofs
           </p>
           {proofSteps.map(({ job, imprint }) => {
             const key = `${job.id}-${imprint.id}`;
             const selected = activeKey === key;
+            const status = forceArtworkStatus ?? imprint.artwork.status;
+            const detail = artworkStatusDetail({
+              ...imprint.artwork,
+              status,
+            });
 
             return (
               <button
@@ -156,10 +178,15 @@ export function OrderDesignTab({
                     {imprintDisplayName(imprint)}
                   </p>
                   <ArtworkStatusBadge
-                    status={forceArtworkStatus ?? imprint.artwork.status}
+                    status={status}
                     className="shrink-0 scale-90"
                   />
                 </div>
+                {detail ? (
+                  <p className="mt-1 line-clamp-1 text-[11px] text-[#8a8a8a]">
+                    {detail}
+                  </p>
+                ) : null}
                 <div className="mt-1.5">
                   <DecorationTypePill decoration={imprint.decoration} />
                 </div>

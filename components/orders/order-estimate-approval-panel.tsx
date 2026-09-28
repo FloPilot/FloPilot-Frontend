@@ -104,7 +104,11 @@ export function OrderEstimateApprovalPanel({ order }: { order: Order }) {
     return computeEstimateTotals(
       order,
       settings.taxRate,
-      pricingMatrix,
+      {
+        pricingMatrix,
+        pricingRateSheets: settings.pricingRateSheets,
+        productionDefaults: settings.productionDefaults,
+      },
       customer
     );
   }, [order, settings, customer]);

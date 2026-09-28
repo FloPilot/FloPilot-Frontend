@@ -77,14 +77,20 @@ function ArtworkStatusBadge({ status }: { status: string }) {
         "inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold",
         status === "approved" && "bg-[#f1faf1] text-[#0d5c2e]",
         status === "revision_requested" && "bg-[#fff1d6] text-[#8a6116]",
-        status === "pending" && "bg-[#ebf4ff] text-[#2c6ecb]"
+        status === "art_ready" && "bg-[#e8f1ff] text-[#1f4b99]",
+        status === "with_art" && "bg-[#eef2ff] text-[#3b4cca]",
+        (status === "pending" || !status) && "bg-[#ebf4ff] text-[#2c6ecb]"
       )}
     >
       {status === "approved"
         ? "Approved"
         : status === "revision_requested"
           ? "Revision requested"
-          : "Pending review"}
+          : status === "art_ready"
+            ? "Ready to review"
+            : status === "with_art"
+              ? "In artwork"
+              : "Pending review"}
     </span>
   );
 }
