@@ -8,10 +8,12 @@ import {
   Send,
 } from "lucide-react";
 import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
+import { SendProofsEstimateDialog } from "@/components/orders/send-proofs-estimate-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import {
   dashboardCardClass,
+  dashboardControlClass,
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
@@ -62,7 +64,6 @@ const STATUS_COPY: Record<
 export function OrderEstimateApprovalPanel({ order }: { order: Order }) {
   const {
     approveOrderEstimate,
-    sendProofsAndEstimate,
     getCustomerById,
   } = useSchedule();
   const { settings } = useShopSettings();
@@ -70,6 +71,7 @@ export function OrderEstimateApprovalPanel({ order }: { order: Order }) {
     message: string;
     type: "success" | "error";
   } | null>(null);
+  const [sendOpen, setSendOpen] = useState(false);
 
   const customer = getCustomerById(order.customerId);
   const quoteApproved = isQuoteApproved(order);
@@ -142,19 +144,8 @@ export function OrderEstimateApprovalPanel({ order }: { order: Order }) {
     }
   };
 
-  const handleSend = async () => {
-    try {
-      const email = await sendProofsAndEstimate(order.id);
-      showToast(`Proofs & estimate emailed to ${email.to}.`);
-    } catch (err) {
-      showToast(
-        err instanceof Error
-          ? err.message
-          : "Could not send the email. Please try again.",
-        "error"
-      );
-      throw err;
-    }
+  const handleSend = () => {
+    setSendOpen(true);
   };
 
   const compactComplete = quoteApproved && !expanded;
@@ -289,16 +280,17 @@ export function OrderEstimateApprovalPanel({ order }: { order: Order }) {
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center gap-2">
-                  <ProofActionButton
-                    variant="secondary"
-                    successLabel="Emailed"
+                  <button
+                    type="button"
+                    className={cn(
+                      dashboardControlClass,
+                      "inline-flex h-9 items-center gap-1.5 px-3 text-[13px]"
+                    )}
                     onClick={handleSend}
                   >
-                    <span className="inline-flex items-center gap-1.5">
-                      <Send className="size-3.5" />
-                      Send to customer
-                    </span>
-                  </ProofActionButton>
+                    <Send className="size-3.5" />
+                    Send to customer
+                  </button>
                   <ProofActionButton
                     variant="success"
                     successLabel="Approved"
@@ -330,6 +322,13 @@ export function OrderEstimateApprovalPanel({ order }: { order: Order }) {
           </div>
         </div>
       </div>
+
+      <SendProofsEstimateDialog
+        order={order}
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+        onSent={(message) => showToast(message)}
+      />
     </section>
   );
 }

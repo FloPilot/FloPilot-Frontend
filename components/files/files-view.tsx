@@ -3,8 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
-  Download,
-  ExternalLink,
+  Eye,
   File as FileIcon,
   FileImage,
   FileText,
@@ -12,6 +11,7 @@ import {
   Search,
   X,
 } from "lucide-react";
+import { FilePreviewDialog } from "@/components/files/file-preview-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { DesignLibraryView } from "@/components/artwork/design-library-view";
 import {
@@ -19,13 +19,6 @@ import {
   FILES_BASE,
   FILES_SCREENS,
 } from "@/components/layout/nav-config";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -38,10 +31,10 @@ import {
   dashboardCardClass,
   dashboardControlClass,
   dashboardInsetSurfaceClass,
-  dashboardPrimaryButtonClass,
   dashboardSectionTitleClass,
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
+import { filePreviewSource } from "@/lib/file-preview";
 import { formatDateTime } from "@/lib/format";
 import { formatOrderRef } from "@/lib/order-display";
 import { isArchivedOrder } from "@/lib/order-archive";
@@ -71,6 +64,7 @@ const KIND_LABELS: Record<OrderFileKind, string> = {
   packing_list: "Packing list",
   customer_supplied: "Customer supplied",
   internal: "Internal",
+  tech_pack: "Tech pack",
   other: "Other",
 };
 
@@ -172,7 +166,21 @@ function FileBrowser({ scope }: { scope: "all" | "screens" }) {
   const { orders, shopDataLoading } = useSchedule();
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<OrderFileKind | "all">("all");
-  const [preview, setPreview] = useState<FileRow | null>(null);
+  const [preview, setPreview] = useState<{
+    url: string;
+    name: string;
+    subtitle?: string;
+  } | null>(null);
+
+  const openPreview = (row: FileRow) => {
+    const url = filePreviewSource(row.file);
+    if (!url) return;
+    setPreview({
+      url,
+      name: row.file.name,
+      subtitle: `${kindLabel(row.file.kind)} · ${row.company || row.customerName}`,
+    });
+  };
 
   const rows = useMemo<FileRow[]>(() => {
     const collected: FileRow[] = [];
@@ -311,11 +319,20 @@ function FileBrowser({ scope }: { scope: "all" | "screens" }) {
           loading={shopDataLoading}
           scope={scope}
           hasFilters={hasFilters}
-          onSelect={setPreview}
+          onSelect={openPreview}
         />
       </div>
 
-      <FilePreviewDialog row={preview} onClose={() => setPreview(null)} />
+      <FilePreviewDialog
+        open={Boolean(preview)}
+        onOpenChange={(open) => {
+          if (!open) setPreview(null);
+        }}
+        title={preview?.name || "File"}
+        subtitle={preview?.subtitle}
+        url={preview?.url ?? null}
+        filename={preview?.name}
+      />
     </section>
   );
 }
@@ -394,7 +411,7 @@ function FilesTable({
             <TableHead className="h-9 min-w-[150px] bg-[#fafafa] text-[12px] font-medium text-[#616161]">
               Uploaded
             </TableHead>
-            <TableHead className="h-9 w-[120px] bg-[#fafafa] pr-4 text-right text-[12px] font-medium text-[#616161] sm:pr-5">
+            <TableHead className="h-9 w-[200px] bg-[#fafafa] pr-4 text-right text-[12px] font-medium text-[#616161] sm:pr-5">
               Actions
             </TableHead>
           </TableRow>
@@ -490,142 +507,42 @@ function FilesTable({
                   {file.uploadedAt ? formatDateTime(file.uploadedAt) : "—"}
                 </TableCell>
                 <TableCell className="py-2.5 pr-4 text-right sm:pr-5">
-                  {file.downloadUrl ? (
-                    <a
-                      href={file.downloadUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  <div className="flex items-center justify-end gap-1.5">
+                    {filePreviewSource(file) ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onSelect(row);
+                        }}
+                        className={cn(
+                          dashboardControlClass,
+                          "h-8 gap-1.5 px-2.5 text-[12px]"
+                        )}
+                      >
+                        <Eye className="size-3.5" strokeWidth={1.75} />
+                        Preview
+                      </button>
+                    ) : (
+                      <span className="text-[12px] text-[#8a8a8a]">—</span>
+                    )}
+                    <Link
+                      href={`/app/orders/${row.orderId}`}
                       onClick={(event) => event.stopPropagation()}
                       className={cn(
                         dashboardControlClass,
                         "h-8 gap-1.5 px-2.5 text-[12px]"
                       )}
                     >
-                      <Download className="size-3.5" strokeWidth={1.75} />
-                      Download
-                    </a>
-                  ) : (
-                    <span className="text-[12px] text-[#8a8a8a]">Preview</span>
-                  )}
+                      Open order
+                    </Link>
+                  </div>
                 </TableCell>
               </TableRow>
             );
           })}
         </TableBody>
       </Table>
-    </div>
-  );
-}
-
-function FilePreviewDialog({
-  row,
-  onClose,
-}: {
-  row: FileRow | null;
-  onClose: () => void;
-}) {
-  const file = row?.file;
-
-  return (
-    <Dialog open={row !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        showCloseButton
-        className="gap-0 overflow-hidden p-0 sm:max-w-2xl"
-      >
-        {file && row ? (
-          <>
-            <DialogHeader className="border-b border-[#ebebeb] px-5 py-4">
-              <DialogTitle className="truncate text-[15px] font-semibold text-[#303030]">
-                {file.name}
-              </DialogTitle>
-              <DialogDescription className="text-[13px] text-[#616161]">
-                {kindLabel(file.kind)} · {row.company || row.customerName}
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="space-y-4 px-5 py-4">
-              <div className="flex items-center justify-center overflow-hidden rounded-lg border border-[#ebebeb] bg-[#f6f6f7] p-3">
-                {file.previewUrl ? (
-                  <img
-                    src={file.previewUrl}
-                    alt={file.name}
-                    className="max-h-[360px] w-full object-contain"
-                  />
-                ) : (
-                  <div className="flex flex-col items-center gap-2 py-12 text-[#8a8a8a]">
-                    <FileKindIcon kind={file.kind} className="size-9" />
-                    <span className="text-[12px] font-medium">
-                      No inline preview for this file
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-[13px]">
-                <Meta label="Type" value={kindLabel(file.kind)} />
-                <Meta label="Order" value={formatOrderRef(row)} />
-                {file.source === "imprint" && file.imprintLabel ? (
-                  <Meta label="Location" value={file.imprintLabel} />
-                ) : null}
-                {file.version ? (
-                  <Meta label="Version" value={`v${file.version}`} />
-                ) : null}
-                <Meta label="Uploaded by" value={file.uploadedBy || "—"} />
-                <Meta
-                  label="Uploaded"
-                  value={
-                    file.uploadedAt ? formatDateTime(file.uploadedAt) : "—"
-                  }
-                />
-              </div>
-
-              {file.notes ? (
-                <div className="rounded-lg border border-[#e3e3e3] bg-white px-3 py-2.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                    Notes
-                  </p>
-                  <p className="mt-1 text-[13px] text-[#303030]">{file.notes}</p>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-4">
-              <Link
-                href={`/app/orders/${row.orderId}`}
-                className={cn(dashboardControlClass, "h-9")}
-                onClick={onClose}
-              >
-                <ExternalLink className="size-3.5" strokeWidth={1.75} />
-                Open order
-              </Link>
-              {file.downloadUrl ? (
-                <a
-                  href={file.downloadUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={cn(dashboardPrimaryButtonClass, "h-9")}
-                >
-                  <Download className="size-3.5" strokeWidth={1.75} />
-                  Download
-                </a>
-              ) : null}
-            </div>
-          </>
-        ) : null}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function Meta({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-[#e3e3e3] bg-white px-3 py-2">
-      <p className="text-[11px] uppercase tracking-wide text-[#8a8a8a]">
-        {label}
-      </p>
-      <p className="mt-0.5 truncate text-[13px] font-medium text-[#303030]">
-        {value}
-      </p>
     </div>
   );
 }

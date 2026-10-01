@@ -190,23 +190,24 @@ export const navItems: NavItem[] = [
     icon: Palette,
     moduleKey: "artwork",
     workspaceArea: "artwork",
-    isActive: isDesignsSection,
-    children: [
-      {
-        href: ARTWORK_BASE,
-        label: "Artwork",
-        icon: FileImage,
-        moduleKey: "artwork",
-        isActive: isArtworkSection,
-      },
-      {
-        href: DESIGN_STUDIO_BASE,
-        label: "Design Studio",
-        icon: Palette,
-        moduleKey: "artwork",
-        isActive: isDesignStudioSection,
-      },
-    ],
+    isActive: isArtworkSection,
+    // Design Studio temporarily hidden from Designs nav — routes/code kept.
+    // children: [
+    //   {
+    //     href: ARTWORK_BASE,
+    //     label: "Artwork",
+    //     icon: FileImage,
+    //     moduleKey: "artwork",
+    //     isActive: isArtworkSection,
+    //   },
+    //   {
+    //     href: DESIGN_STUDIO_BASE,
+    //     label: "Design Studio",
+    //     icon: Palette,
+    //     moduleKey: "artwork",
+    //     isActive: isDesignStudioSection,
+    //   },
+    // ],
   },
   {
     href: FILES_BASE,

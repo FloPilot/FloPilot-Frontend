@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   Archive,
@@ -23,6 +22,8 @@ import { CustomerBrandMarkFromRecord } from "@/components/customers/customer-bra
 import { ReportsLauncher } from "@/components/reports/reports-launcher";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { useWorkspaceScope } from "@/components/providers/workspace-scope-provider";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -71,6 +72,7 @@ import { formatCompactCurrency, formatCurrency, formatDate } from "@/lib/format"
 import { downloadReportCsv } from "@/lib/reports/csv";
 import { getReportsForContext, runReport } from "@/lib/reports/registry";
 import { EMPTY_SHOP_REPORT_DATA } from "@/lib/reports/shop-report-data";
+import { applyWorkspaceScopeToCustomers } from "@/lib/workspace-scope";
 import { cn } from "@/lib/utils";
 
 const QUICK_FILTERS: {
@@ -188,7 +190,7 @@ function FilterChip({
 }
 
 export function CustomersListView() {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const {
     customers,
     orders,
@@ -200,6 +202,7 @@ export function CustomersListView() {
     getCustomerById,
   } = useSchedule();
   const { settings } = useShopSettings();
+  const { scope: workspaceScope, currentUserId } = useWorkspaceScope();
 
   const reportFinancials = useMemo(
     () => ({
@@ -225,10 +228,14 @@ export function CustomersListView() {
 
   const baseCustomers = useMemo(
     () =>
-      customers.filter((customer) =>
-        archivedOnly ? customer.archived === true : customer.archived !== true
+      applyWorkspaceScopeToCustomers(
+        customers.filter((customer) =>
+          archivedOnly ? customer.archived === true : customer.archived !== true
+        ),
+        workspaceScope,
+        currentUserId
       ),
-    [customers, archivedOnly]
+    [customers, archivedOnly, workspaceScope, currentUserId]
   );
 
   const activeCustomers = useMemo(

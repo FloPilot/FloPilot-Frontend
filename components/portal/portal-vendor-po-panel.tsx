@@ -11,6 +11,7 @@ import {
   Upload,
 } from "lucide-react";
 import { usePortalAccess } from "@/components/portal/use-portal-access";
+import { useNameBeforeUpload } from "@/hooks/use-name-before-upload";
 import {
   parsePortalVendorPurchaseOrder,
   type PortalVendorPoParseResult,
@@ -179,6 +180,7 @@ export function PortalVendorPoPanel({
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const { promptRename, nameFilesDialog } = useNameBeforeUpload();
 
   const stage: Stage = (() => {
     if (vendorPo?.confirmed && lineItems.length > 0) return "confirmed";
@@ -239,10 +241,18 @@ export function PortalVendorPoPanel({
       return;
     }
 
+    const named = await promptRename([file], {
+      title: "Name this purchase order",
+      description:
+        "Choose a clear name before we read styles and quantities from your PO.",
+    });
+    if (!named?.length) return;
+    const { file: namedFile, name: savedName } = named[0];
+
     setError(null);
     let dataUrl = "";
     try {
-      dataUrl = await readFileAsDataUrl(file);
+      dataUrl = await readFileAsDataUrl(namedFile);
     } catch {
       setError("Could not read that file.");
       return;
@@ -251,17 +261,17 @@ export function PortalVendorPoPanel({
     const contentType =
       type && type !== "application/octet-stream"
         ? type
-        : /\.pdf$/i.test(file.name)
+        : /\.pdf$/i.test(savedName)
           ? "application/pdf"
-          : /\.png$/i.test(file.name)
+          : /\.png$/i.test(savedName)
             ? "image/png"
-            : /\.webp$/i.test(file.name)
+            : /\.webp$/i.test(savedName)
               ? "image/webp"
               : type.startsWith("image/")
                 ? type
                 : "application/pdf";
     onVendorPoChange({
-      fileName: file.name,
+      fileName: savedName,
       contentType,
       fileUrl: dataUrl,
       vendorName: "",
@@ -276,7 +286,7 @@ export function PortalVendorPoPanel({
       const result = await parsePortalVendorPurchaseOrder(
         accessToken,
         {
-          fileName: file.name,
+          fileName: savedName,
           contentType,
           base64: dataUrlToBase64(dataUrl),
         },
@@ -285,7 +295,7 @@ export function PortalVendorPoPanel({
 
       if (!result.readable || result.lineItems.length === 0) {
         onVendorPoChange({
-          fileName: file.name,
+          fileName: savedName,
           contentType,
           fileUrl: dataUrl,
           vendorName: result.vendorName || "",
@@ -302,7 +312,7 @@ export function PortalVendorPoPanel({
       }
 
       onVendorPoChange({
-        fileName: file.name,
+        fileName: savedName,
         contentType,
         fileUrl: dataUrl,
         vendorName: result.vendorName || "",
@@ -315,17 +325,16 @@ export function PortalVendorPoPanel({
       onLineItemsChange(parsedToDraftItems(result.lineItems));
     } catch (err) {
       onVendorPoChange({
-        fileName: file.name,
+        fileName: savedName,
         contentType,
         fileUrl: dataUrl,
         vendorName: "",
         poNumber: "",
         parseStatus: "failed",
-        parseConfidence: "low",
         parseNotes:
           err instanceof Error
             ? err.message
-            : "Could not read that document.",
+            : "Could not parse that purchase order.",
         confirmed: false,
       });
       onLineItemsChange([]);
@@ -681,6 +690,7 @@ export function PortalVendorPoPanel({
           {error}
         </p>
       ) : null}
+      {nameFilesDialog}
     </div>
   );
 }

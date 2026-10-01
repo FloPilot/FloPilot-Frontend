@@ -42,6 +42,8 @@ import {
   dashboardTaskDetailClass,
   dashboardValueClass,
 } from "@/lib/dashboard-styles";
+import { applyWorkspaceScopeToScheduleBlocks } from "@/lib/workspace-scope";
+import { useWorkspaceScope } from "@/components/providers/workspace-scope-provider";
 import type { Machine, ScheduleBlock } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -55,7 +57,8 @@ function sortMachines(list: Machine[]) {
 }
 
 export function ShopTimelineCalendar() {
-  const { machines, activeScheduleBlocks } = useSchedule();
+  const { machines, activeScheduleBlocks, orders } = useSchedule();
+  const { scope: workspaceScope, currentUserId } = useWorkspaceScope();
   const [weekStart, setWeekStart] = useState(() =>
     startOfWeek(new Date(), { weekStartsOn: 1 })
   );
@@ -68,6 +71,17 @@ export function ShopTimelineCalendar() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const sortedMachines = useMemo(() => sortMachines(machines), [machines]);
+
+  const scopedScheduleBlocks = useMemo(
+    () =>
+      applyWorkspaceScopeToScheduleBlocks(
+        activeScheduleBlocks,
+        orders,
+        workspaceScope,
+        currentUserId
+      ),
+    [activeScheduleBlocks, orders, workspaceScope, currentUserId]
+  );
 
   const defaultMachineId = useMemo(() => {
     const firstActive = sortedMachines.find((m) => m.active);
@@ -101,15 +115,15 @@ export function ShopTimelineCalendar() {
   );
 
   const shopKpis = useMemo(
-    () => computeShopWeekKpis(machines, activeScheduleBlocks, weekStart),
-    [machines, activeScheduleBlocks, weekStart]
+    () => computeShopWeekKpis(machines, scopedScheduleBlocks, weekStart),
+    [machines, scopedScheduleBlocks, weekStart]
   );
 
   const singleMachineKpis =
     visibleMachines.length === 1
       ? computeMachineWeekKpis(
           visibleMachines[0],
-          activeScheduleBlocks,
+          scopedScheduleBlocks,
           weekStart
         )
       : null;

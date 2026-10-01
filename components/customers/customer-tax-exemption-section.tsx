@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useNameBeforeUpload } from "@/hooks/use-name-before-upload";
 import { readUploadContent } from "@/lib/artwork-preview";
 import {
   createPendingUploadId,
@@ -67,6 +68,7 @@ export function CustomerTaxExemptionSection({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [staging, setStaging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { promptRename, nameFilesDialog } = useNameBeforeUpload();
 
   const documents = useMemo(() => {
     return [...taxDocuments].sort((a, b) => {
@@ -85,11 +87,23 @@ export function CustomerTaxExemptionSection({
   const stageUpload = async (files: FileList | null) => {
     const file = files?.[0];
     if (!file) return;
+
+    const named = await promptRename([file], {
+      title: "Name this tax document",
+      description:
+        "Choose a clear name before attaching the sales certificate or supporting doc.",
+    });
+    if (!named?.length) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setStaging(true);
     setError(null);
     try {
+      const { file: namedFile, name } = named[0];
       const { base64, contentType, error: readError } =
-        await readUploadContent(file);
+        await readUploadContent(namedFile);
       if (readError) throw new Error(readError);
 
       const pending: CustomerPendingUpload & {
@@ -97,11 +111,11 @@ export function CustomerTaxExemptionSection({
         pending: true;
       } = {
         localId: createPendingUploadId(),
-        name: file.name,
+        name,
         contentBase64: base64,
         contentType,
-        size: file.size,
-        preferInline: shouldPreferInlineCustomerFile(contentType, file.size),
+        size: namedFile.size,
+        preferInline: shouldPreferInlineCustomerFile(contentType, namedFile.size),
         previewUrl: contentType.startsWith("image/")
           ? `data:${contentType};base64,${base64}`
           : undefined,
@@ -307,6 +321,7 @@ export function CustomerTaxExemptionSection({
           </p>
         ) : null}
       </div>
+      {nameFilesDialog}
     </section>
   );
 }

@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import {
   Archive,
   ArchiveRestore,
   ChevronRight,
+  Eye,
   ExternalLink,
+  FileImage,
   History,
   Loader2,
   Pencil,
@@ -19,6 +21,7 @@ import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-cha
 import { MockupPreview } from "@/components/orders/artwork/mockup-preview";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { ImprintInkColorsEditor } from "@/components/orders/imprint-ink-colors-editor";
+import { FilePreviewDialog } from "@/components/files/file-preview-dialog";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
@@ -47,6 +50,7 @@ import {
   clearLocalArchivedDesignIds,
   readLocalArchivedDesignIds,
 } from "@/lib/design-archive";
+import { previewForDesign } from "@/lib/design-studio-library";
 import { useImageBackgroundColor } from "@/lib/use-image-background-color";
 import { INK_TYPE_OPTIONS } from "@/lib/imprint-design";
 import {
@@ -57,7 +61,15 @@ import {
   restoreDesignVersion as apiRestoreDesignVersion,
   updateDesign as apiUpdateDesign,
 } from "@/lib/api";
+import { artworkOrderWorkspaceHref } from "@/lib/artwork-routes";
+import { filePreviewSource } from "@/lib/file-preview";
 import { decorationLabel, formatDate, formatDateTime } from "@/lib/format";
+import {
+  buildOrderFileList,
+  ORDER_FILE_KIND_LABELS,
+  type OrderFileItem,
+} from "@/lib/order-files";
+import { resolveArtworkDisplayName } from "@/lib/proof-slides";
 import type {
   DesignVersionSnapshot,
   ImprintInkColor,
@@ -93,6 +105,9 @@ function DesignSpecsContent({
           label="Decoration"
           value={decorationLabel(design.decoration)}
         />
+        {design.designCode?.trim() ? (
+          <MetaField label="Design code" value={design.designCode.trim()} />
+        ) : null}
         <MetaField label="Location" value={design.locationLabel} />
         {design.imprintCustomLabel ? (
           <MetaField label="Proof name" value={design.imprintCustomLabel} />
@@ -206,6 +221,18 @@ function DesignDetailSidebar({
           </div>
         </div>
         <div className="space-y-3 px-4 py-4">
+          {design.sourceOrderId ? (
+            <Button
+              className={cn(dashboardControlClass, "h-9 w-full justify-center gap-1.5")}
+              nativeButton={false}
+              render={
+                <Link href={artworkOrderWorkspaceHref(design.sourceOrderId)} />
+              }
+            >
+              <FileImage className="size-3.5" />
+              Open artwork package
+            </Button>
+          ) : null}
           {design.sourceOrderNumber ? (
             <Button
               className={cn(dashboardControlClass, "h-9 w-full justify-center gap-1.5")}
@@ -336,10 +363,10 @@ function DesignThumb({
   design,
   className,
 }: {
-  design: Pick<SavedDesign, "artwork" | "name" | "decoration">;
+  design: SavedDesign;
   className?: string;
 }) {
-  const previewUrl = design.artwork.previewUrl;
+  const previewUrl = previewForDesign(design);
   if (previewUrl) {
     return (
       <img
@@ -422,9 +449,9 @@ function VersionRow({
 }
 
 export function DesignDetailView({ designId }: { designId: string }) {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const { getIdToken } = useAuth();
-  const { refreshShopData } = useSchedule();
+  const { refreshShopData, orders } = useSchedule();
 
   const [design, setDesign] = useState<SavedDesign | null>(null);
   const [siblings, setSiblings] = useState<SavedDesign[]>([]);
@@ -439,8 +466,14 @@ export function DesignDetailView({ designId }: { designId: string }) {
   const [selectedVersion, setSelectedVersion] =
     useState<DesignVersionSnapshot | null>(null);
   const [versionModalOpen, setVersionModalOpen] = useState(false);
+  const [filePreview, setFilePreview] = useState<{
+    url: string;
+    name: string;
+    subtitle?: string;
+  } | null>(null);
 
   const [name, setName] = useState("");
+  const [designCodeDraft, setDesignCodeDraft] = useState("");
   const [tagsText, setTagsText] = useState("");
   const [dimensions, setDimensions] = useState("");
   const [placement, setPlacement] = useState("");
@@ -490,6 +523,7 @@ export function DesignDetailView({ designId }: { designId: string }) {
     if (!design) return;
     setEditing(false);
     setName(design.name);
+    setDesignCodeDraft(design.designCode?.trim() || "");
     setTagsText((design.tags ?? []).join(", "));
     setDimensions(design.notes?.dimensions ?? "");
     setPlacement(design.notes?.placement ?? "");
@@ -503,6 +537,23 @@ export function DesignDetailView({ designId }: { designId: string }) {
     setInstructions(design.notes?.instructions ?? "");
     setDraftInks(design.inkColors ?? []);
   }, [design]);
+
+  const relatedFiles = useMemo((): OrderFileItem[] => {
+    if (!design?.sourceOrderId) return [];
+    const order = orders.find((entry) => entry.id === design.sourceOrderId);
+    if (!order) return [];
+    return buildOrderFileList(order).filter((file) => {
+      if (file.archived) return false;
+      return (
+        file.kind === "tech_pack" ||
+        file.kind === "production_art" ||
+        file.kind === "mockup" ||
+        file.kind === "separation" ||
+        file.kind === "embroidery_file" ||
+        file.kinds.includes("tech_pack")
+      );
+    });
+  }, [design?.sourceOrderId, orders]);
 
   const archived = design?.archived === true || localArchived;
   const activity = design?.activity ?? [];
@@ -537,6 +588,7 @@ export function DesignDetailView({ designId }: { designId: string }) {
   const resetDraftFromDesign = useCallback(() => {
     if (!design) return;
     setName(design.name);
+    setDesignCodeDraft(design.designCode?.trim() || "");
     setTagsText((design.tags ?? []).join(", "));
     setDimensions(design.notes?.dimensions ?? "");
     setPlacement(design.notes?.placement ?? "");
@@ -558,6 +610,8 @@ export function DesignDetailView({ designId }: { designId: string }) {
       .map((tag) => tag.trim())
       .filter(Boolean);
     const nextName = name.trim() || design.name;
+    const nextCode = designCodeDraft.trim().toUpperCase() || null;
+    const currentCode = design.designCode?.trim() || null;
     const isScreenPrint = design.decoration === "screen_print";
     const nextNotes: ImprintProductionNotes = {
       ...design.notes,
@@ -578,6 +632,7 @@ export function DesignDetailView({ designId }: { designId: string }) {
     };
     return (
       nextName !== design.name ||
+      (nextCode || "") !== (currentCode || "") ||
       nextTags.join("|") !== (design.tags ?? []).join("|") ||
       JSON.stringify(nextNotes) !== JSON.stringify(design.notes ?? {}) ||
       JSON.stringify(draftInks) !== JSON.stringify(design.inkColors ?? [])
@@ -586,6 +641,7 @@ export function DesignDetailView({ designId }: { designId: string }) {
     design,
     editing,
     name,
+    designCodeDraft,
     tagsText,
     dimensions,
     placement,
@@ -609,6 +665,14 @@ export function DesignDetailView({ designId }: { designId: string }) {
       .map((tag) => tag.trim())
       .filter(Boolean);
     const nextName = name.trim() || design.name;
+    const nextCode =
+      designCodeDraft
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^A-Z0-9._-]/g, "")
+        .slice(0, 40) || null;
+    const currentCode = design.designCode?.trim() || null;
     const isScreenPrint = design.decoration === "screen_print";
 
     const nextNotes: ImprintProductionNotes = {
@@ -631,6 +695,7 @@ export function DesignDetailView({ designId }: { designId: string }) {
 
     const changed: string[] = [];
     if (nextName !== design.name) changed.push("name");
+    if ((nextCode || "") !== (currentCode || "")) changed.push("design code");
     if (nextTags.join("|") !== (design.tags ?? []).join("|"))
       changed.push("tags");
     if (JSON.stringify(nextNotes) !== JSON.stringify(design.notes ?? {}))
@@ -650,6 +715,7 @@ export function DesignDetailView({ designId }: { designId: string }) {
         designId: design.id,
         patch: {
           name: nextName,
+          designCode: nextCode,
           tags: nextTags,
           notes: nextNotes,
           inkColors: draftInks,
@@ -776,6 +842,11 @@ export function DesignDetailView({ designId }: { designId: string }) {
         <div className="min-w-0 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className={dashboardSectionTitleClass}>{design.name}</h1>
+            {design.designCode?.trim() ? (
+              <span className="inline-flex items-center rounded-md border border-[#c4d7f2] bg-[#f4f7fd] px-2 py-0.5 font-mono text-[12px] font-semibold tracking-wide text-[#2c6ecb]">
+                {design.designCode.trim()}
+              </span>
+            ) : null}
             {archived ? (
               <span className="inline-flex items-center gap-1 rounded-md border border-[#e3e3e3] bg-[#f1f1f1] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
                 <Archive className="size-3" />
@@ -859,6 +930,19 @@ export function DesignDetailView({ designId }: { designId: string }) {
                       value={name}
                       onChange={(event) => setName(event.target.value)}
                       className={editFieldClass}
+                    />
+                  </div>
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-[11px] font-medium text-[#8a8a8a]">
+                      Design code
+                    </Label>
+                    <Input
+                      value={designCodeDraft}
+                      onChange={(event) =>
+                        setDesignCodeDraft(event.target.value)
+                      }
+                      placeholder="DC-1063"
+                      className={cn(editFieldClass, "font-mono uppercase")}
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -1041,6 +1125,78 @@ export function DesignDetailView({ designId }: { designId: string }) {
                 />
               </section>
 
+              {relatedFiles.length > 0 ? (
+                <section className={dashboardCardClass}>
+                  <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
+                    <h2 className={dashboardTaskTitleClass}>
+                      Files from this order
+                    </h2>
+                    <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+                      Tech packs, proofs, and artwork attached to{" "}
+                      {design.sourceOrderNumber || "the source order"}.
+                    </p>
+                  </div>
+                  <ul className="divide-y divide-[#ebebeb]">
+                    {relatedFiles.map((file) => {
+                      const preview = filePreviewSource(file);
+                      return (
+                        <li
+                          key={file.id}
+                          className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5"
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[#ebebeb] bg-[#f6f6f7]">
+                              {preview &&
+                              /\.(png|jpe?g|gif|webp|svg)/i.test(file.name) ? (
+                                <img
+                                  src={preview}
+                                  alt=""
+                                  className="max-h-full max-w-full object-contain"
+                                />
+                              ) : (
+                                <FileImage className="size-4 text-[#8a8a8a]" />
+                              )}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate text-[13px] font-medium text-[#303030]">
+                                {file.name}
+                              </p>
+                              <p className="truncate text-[11px] text-[#8a8a8a]">
+                                {ORDER_FILE_KIND_LABELS[file.kind]}
+                                {file.imprintLabel
+                                  ? ` · ${file.imprintLabel}`
+                                  : ""}
+                                {" · "}
+                                {formatDateTime(file.uploadedAt)}
+                              </p>
+                            </div>
+                          </div>
+                          {preview ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setFilePreview({
+                                  url: preview,
+                                  name: file.name,
+                                  subtitle: ORDER_FILE_KIND_LABELS[file.kind],
+                                })
+                              }
+                              className={cn(
+                                dashboardControlClass,
+                                "inline-flex h-8 shrink-0 items-center gap-1.5 px-2.5 text-[12px]"
+                              )}
+                            >
+                              <Eye className="size-3.5" />
+                              Preview
+                            </button>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ) : null}
+
               {siblings.length > 0 ? (
                 <section className={dashboardCardClass}>
                   <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
@@ -1099,8 +1255,8 @@ export function DesignDetailView({ designId }: { designId: string }) {
               <div className="space-y-3">
                 <VersionRow
                   label={`Current · v${design.artwork.version}`}
-                  sublabel={`${design.artwork.name} · ${formatDateTime(design.artwork.uploadedAt)}`}
-                  previewUrl={design.artwork.previewUrl}
+                  sublabel={`${resolveArtworkDisplayName(design.artwork)} · ${formatDateTime(design.artwork.uploadedAt)}`}
+                  previewUrl={previewForDesign(design)}
                   active
                 />
 
@@ -1118,7 +1274,15 @@ export function DesignDetailView({ designId }: { designId: string }) {
                         sublabel={`${formatDateTime(version.createdAt)}${
                           version.createdBy ? ` · ${version.createdBy}` : ""
                         }`}
-                        previewUrl={version.snapshot.artwork?.previewUrl}
+                        previewUrl={
+                          version.snapshot.artwork
+                            ? previewForDesign({
+                                ...design,
+                                artwork: version.snapshot.artwork,
+                                designMockup: design.designMockup,
+                              })
+                            : version.snapshot.composedPreviewUrl || undefined
+                        }
                         onClick={() => openVersion(version)}
                       />
                     ))}
@@ -1150,6 +1314,17 @@ export function DesignDetailView({ designId }: { designId: string }) {
         onOpenChange={setVersionModalOpen}
         onRestore={handleRestoreVersion}
         restoring={restoring}
+      />
+
+      <FilePreviewDialog
+        open={Boolean(filePreview)}
+        onOpenChange={(open) => {
+          if (!open) setFilePreview(null);
+        }}
+        title={filePreview?.name || "File preview"}
+        url={filePreview?.url ?? null}
+        filename={filePreview?.name}
+        subtitle={filePreview?.subtitle}
       />
     </main>
   );

@@ -36,7 +36,7 @@ const orderStatusConfig: Record<
     className: "bg-blue-50 text-blue-700 border-blue-100",
   },
   completed: {
-    className: "bg-muted text-muted-foreground",
+    className: "bg-emerald-50 text-emerald-800 border-emerald-100",
   },
 };
 

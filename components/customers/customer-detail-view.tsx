@@ -21,6 +21,7 @@ import { CustomerTaxExemptionSection } from "@/components/customers/customer-tax
 import { CustomerContactsSection } from "@/components/customers/customer-contacts-section";
 import { CustomerSubCustomersSection } from "@/components/customers/customer-sub-customers-section";
 import { CustomerSalesRepSection } from "@/components/customers/customer-sales-rep-section";
+import { CustomerPaymentTermsSection } from "@/components/customers/customer-payment-terms-section";
 import { CustomerNotesSection } from "@/components/customers/customer-notes-section";
 import { CustomerNegotiatedPricingSection } from "@/components/customers/customer-negotiated-pricing-section";
 import { CustomerFilesSection } from "@/components/customers/customer-files-section";
@@ -155,6 +156,8 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
     try {
       let latest = await updateCustomer(customer.id, {
         salesRepId: draft.salesRepId,
+        paymentTermsLabel: draft.paymentTermsLabel,
+        paymentTermsDays: draft.paymentTermsDays,
         taxExempt: draft.taxExempt,
         taxExemptNumber: draft.taxExemptNumber.trim(),
         contacts: draft.contacts,
@@ -641,6 +644,24 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                 );
               }}
             />
+
+            {draft ? (
+              <CustomerPaymentTermsSection
+                paymentTermsLabel={draft.paymentTermsLabel}
+                paymentTermsDays={draft.paymentTermsDays}
+                onChange={(patch) => {
+                  setDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          paymentTermsLabel: patch.paymentTermsLabel,
+                          paymentTermsDays: patch.paymentTermsDays,
+                        }
+                      : current
+                  );
+                }}
+              />
+            ) : null}
 
             {draft ? (
               <CustomerTaxExemptionSection

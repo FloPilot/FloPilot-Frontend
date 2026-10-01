@@ -39,7 +39,7 @@ export const DEPARTMENT_DEFINITIONS: DepartmentDefinition[] = [
     slug: "artwork",
     label: "Artwork",
     shortLabel: "Art",
-    description: "Proofs submitted to art, assigned artists, and customer revisions.",
+    description: "Submitted proofs, assigned artists, due dates, and customer revisions.",
     icon: Palette,
     moduleKey: "artwork",
     href: `${DEPARTMENTS_BASE}/artwork`,

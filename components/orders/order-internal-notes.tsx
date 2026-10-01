@@ -2,13 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { Loader2, Lock, StickyNote } from "lucide-react";
+import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
   dashboardCardClass,
-  dashboardControlClass,
   dashboardInsetSurfaceClass,
   dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
@@ -20,10 +20,16 @@ import { cn } from "@/lib/utils";
 export function OrderInternalNotes({
   orderId,
   variant = "card",
+  title = "Notes",
+  description = "Internal notes for this order. Come back anytime to reread what the team left.",
+  placeholder = "Add a note for the team — reminders, vendor calls, special handling…",
 }: {
   orderId: string;
   /** `card` wraps in a dashboard card; `embedded` is content-only for nested panels. */
   variant?: "card" | "embedded";
+  title?: string;
+  description?: string;
+  placeholder?: string;
 }) {
   const { profile } = useAuth();
   const { getOrderById, addInternalNote } = useSchedule();
@@ -42,6 +48,8 @@ export function OrderInternalNotes({
       ? profile.user.name?.trim() || profile.user.email || "Shop"
       : "Shop";
 
+  const draftDirty = draft.trim().length > 0;
+
   const handleAdd = async () => {
     const content = draft.trim();
     if (!content || saving) return;
@@ -57,6 +65,23 @@ export function OrderInternalNotes({
     }
   };
 
+  useRegisterUnsavedChanges(
+    draftDirty || saving
+      ? {
+          dirty: true,
+          saving,
+          label: "Unsaved internal note",
+          persistAcrossTabs: false,
+          onSave: () => handleAdd(),
+          onDiscard: () => {
+            setDraft("");
+            setError(null);
+          },
+        }
+      : null,
+    `order-internal-notes-${orderId}`
+  );
+
   const body = (
     <div className="space-y-4">
       <div className="space-y-2">
@@ -66,7 +91,7 @@ export function OrderInternalNotes({
             setDraft(event.target.value);
             if (error) setError(null);
           }}
-          placeholder="Add a note for the team — reminders, vendor calls, special handling…"
+          placeholder={placeholder}
           rows={3}
           className="min-h-[88px] resize-none rounded-lg border-[#e3e3e3] text-[13px]"
           disabled={saving}
@@ -115,17 +140,17 @@ export function OrderInternalNotes({
           {notes.map((note) => (
             <li
               key={note.id}
-              className={cn(dashboardInsetSurfaceClass, "rounded-lg px-3.5 py-3")}
+              className={cn(dashboardInsetSurfaceClass, "px-3 py-3")}
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[12px] font-semibold text-[#303030]">
+              <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[13px] font-medium text-[#303030]">
                   {note.author}
                 </p>
-                <time className="text-[11px] text-[#8a8a8a]">
+                <p className="text-[11px] text-[#8a8a8a]">
                   {formatDateTime(note.timestamp)}
-                </time>
+                </p>
               </div>
-              <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed text-[#303030]">
+              <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-[#616161]">
                 {note.content}
               </p>
             </li>
@@ -141,15 +166,11 @@ export function OrderInternalNotes({
 
   return (
     <section className={dashboardCardClass}>
-      <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
-        <h2 className={cn(dashboardTaskTitleClass, "flex items-center gap-2")}>
-          <StickyNote className="size-4 text-[#2c6ecb]" />
-          Notes
-        </h2>
-        <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-          Internal notes for this order. Come back anytime to reread what the
-          team left.
-        </p>
+      <div className="border-b border-[#ebebeb] bg-[#fafafa] px-4 py-3 sm:px-5">
+        <h3 className={dashboardTaskTitleClass}>{title}</h3>
+        {description ? (
+          <p className={cn("mt-0.5", dashboardTaskDetailClass)}>{description}</p>
+        ) : null}
       </div>
       <div className="p-4 sm:p-5">{body}</div>
     </section>

@@ -4,11 +4,13 @@ import { useCallback, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  DollarSign,
   FileText,
-  Loader2,
   Send,
 } from "lucide-react";
+import { AddInvoicePaymentDialog } from "@/components/orders/add-invoice-payment-dialog";
 import { PdfPreviewDialog } from "@/components/orders/pdf-preview-dialog";
+import { SendInvoiceDialog } from "@/components/orders/send-invoice-dialog";
 import { OrderProducedGoodsCallout } from "@/components/orders/order-produced-goods-panel";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -48,11 +50,7 @@ type ToastState = {
 
 export function OrderInvoiceTab({ order }: { order: Order }) {
   const { settings } = useShopSettings();
-  const {
-    previewOrderDocument,
-    sendInvoice,
-    getCustomerById,
-  } = useSchedule();
+  const { previewOrderDocument, getCustomerById } = useSchedule();
 
   const customer = getCustomerById(order.customerId);
   const pricingMatrix = useMemo(
@@ -87,7 +85,8 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
   );
 
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [paymentOpen, setPaymentOpen] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
 
   const showToast = useCallback((message: string, type: ToastType) => {
@@ -102,26 +101,11 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
     [previewOrderDocument, order.id]
   );
 
-  const handleSend = useCallback(async () => {
-    setSending(true);
-    showToast("Sending invoice…", "loading");
-    try {
-      const email = await sendInvoice(order.id);
-      showToast(`Invoice emailed to ${email.to}.`, "success");
-    } catch (err) {
-      showToast(
-        err instanceof Error
-          ? err.message
-          : "Could not send the invoice. Please try again.",
-        "error"
-      );
-    } finally {
-      setSending(false);
-    }
-  }, [sendInvoice, order.id, showToast]);
-
   const delta =
     Math.round((invoiceTotals.total - estimateTotals.total) * 100) / 100;
+  const isPaid =
+    invoiceTotals.balance <= 0 && invoiceTotals.total > 0;
+  const canAddPayment = ready && invoiceTotals.total > 0;
 
   return (
     <div className="space-y-4">
@@ -150,8 +134,8 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
               Same layout as the estimate, billed on produced quantities
               (garments + decoration scale with pcs made). Preview the PDF or
-              email it to the customer. QuickBooks push stays optional under
-              integrations.
+              email it to the customer. Take walk-in payments here when they
+              pay at the counter.
               {pricingMatrix.rateSheetName && !pricingMatrix.usingShopPricing ? (
                 <span className="mt-1 block text-[#2c6ecb]">
                   Using negotiated rates: {pricingMatrix.rateSheetName}
@@ -185,18 +169,31 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
             </button>
             <button
               type="button"
-              onClick={handleSend}
-              disabled={sending || !ready}
+              onClick={() => setPaymentOpen(true)}
+              disabled={!canAddPayment}
+              className={cn(
+                dashboardControlClass,
+                "inline-flex h-9 items-center gap-1.5 px-3 text-[13px] disabled:cursor-not-allowed disabled:opacity-60",
+                isPaid && "border-[#86d4a8] text-[#0d5c2e]"
+              )}
+            >
+              {isPaid ? (
+                <CheckCircle2 className="size-3.5" />
+              ) : (
+                <DollarSign className="size-3.5" />
+              )}
+              {isPaid ? "Paid in full" : "Add payment"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSendOpen(true)}
+              disabled={!ready}
               className={cn(
                 dashboardPrimaryButtonClass,
                 "inline-flex h-9 items-center gap-1.5 px-3 text-[13px] disabled:cursor-not-allowed disabled:opacity-70"
               )}
             >
-              {sending ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Send className="size-3.5" />
-              )}
+              <Send className="size-3.5" />
               Send invoice
             </button>
           </div>
@@ -218,14 +215,12 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
               <CheckCircle2 className="size-3.5 shrink-0" />
             ) : toast.type === "error" ? (
               <AlertCircle className="size-3.5 shrink-0" />
-            ) : (
-              <Loader2 className="size-3.5 animate-spin shrink-0" />
-            )}
+            ) : null}
             <span>{toast.message}</span>
           </div>
         ) : null}
 
-        <div className="grid gap-3 border-b border-[#ebebeb] px-4 py-4 sm:grid-cols-3 sm:px-5">
+        <div className="grid gap-3 border-b border-[#ebebeb] px-4 py-4 sm:grid-cols-2 lg:grid-cols-4 sm:px-5">
           <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-3 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
               Estimate total
@@ -245,24 +240,46 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
           <div
             className={cn(
               "rounded-lg border px-3 py-3",
-              delta === 0
-                ? "border-[#ebebeb] bg-[#fafafa]"
-                : delta > 0
-                  ? "border-amber-300 bg-[#fffbeb]"
-                  : "border-[#f5b5b5] bg-[#fff1f1]"
+              invoiceTotals.paid > 0
+                ? "border-[#86d4a8] bg-[#f1faf1]"
+                : "border-[#ebebeb] bg-[#fafafa]"
             )}
           >
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
-              Difference
+              Paid
             </p>
             <p className="mt-1 text-lg font-semibold tabular-nums text-[#303030]">
-              {delta > 0 ? "+" : ""}
-              {formatCurrency(delta)}
+              {formatCurrency(invoiceTotals.paid)}
             </p>
-            {hasVariance ? (
+          </div>
+          <div
+            className={cn(
+              "rounded-lg border px-3 py-3",
+              isPaid
+                ? "border-[#86d4a8] bg-[#f1faf1]"
+                : invoiceTotals.balance > 0 && ready
+                  ? "border-[#f0d9a8] bg-[#fffbeb]"
+                  : delta === 0
+                    ? "border-[#ebebeb] bg-[#fafafa]"
+                    : delta > 0
+                      ? "border-amber-300 bg-[#fffbeb]"
+                      : "border-[#f5b5b5] bg-[#fff1f1]"
+            )}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#616161]">
+              {ready ? "Balance due" : "Difference"}
+            </p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-[#303030]">
+              {ready
+                ? formatCurrency(invoiceTotals.balance)
+                : `${delta > 0 ? "+" : ""}${formatCurrency(delta)}`}
+            </p>
+            {!ready && hasVariance ? (
               <p className="mt-1 text-[11px] text-[#616161]">
                 Driven by produced qty vs ordered
               </p>
+            ) : isPaid ? (
+              <p className="mt-1 text-[11px] text-[#0d5c2e]">Paid in full</p>
             ) : null}
           </div>
         </div>
@@ -302,6 +319,20 @@ export function OrderInvoiceTab({ order }: { order: Order }) {
         title={`Invoice · Order ${formatOrderDisplayLine(order)}`}
         subtitle="Customer-facing invoice PDF based on produced goods."
         load={loadInvoicePdf}
+      />
+
+      <SendInvoiceDialog
+        order={order}
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+        onSent={(message) => showToast(message, "success")}
+      />
+
+      <AddInvoicePaymentDialog
+        order={order}
+        open={paymentOpen}
+        onOpenChange={setPaymentOpen}
+        onRecorded={(message, type) => showToast(message, type || "success")}
       />
     </div>
   );

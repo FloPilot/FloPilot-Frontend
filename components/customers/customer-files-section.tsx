@@ -10,6 +10,7 @@ import {
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useNameBeforeUpload } from "@/hooks/use-name-before-upload";
 import { readUploadContent } from "@/lib/artwork-preview";
 import {
   createPendingUploadId,
@@ -61,6 +62,7 @@ export function CustomerFilesSection({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [staging, setStaging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { promptRename, nameFilesDialog } = useNameBeforeUpload();
 
   const documents = useMemo(() => {
     return [...files].sort((a, b) => {
@@ -77,11 +79,25 @@ export function CustomerFilesSection({
   const stageUpload = async (fileList: FileList | null) => {
     const selected = fileList ? Array.from(fileList) : [];
     if (selected.length === 0) return;
+
+    const named = await promptRename(selected, {
+      title:
+        selected.length > 1
+          ? `Name ${selected.length} files`
+          : "Name this file",
+      description:
+        "Choose a clear name before attaching supporting documents to this customer.",
+    });
+    if (!named?.length) {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setStaging(true);
     setError(null);
     try {
       const staged: DraftFile[] = [];
-      for (const file of selected) {
+      for (const { file, name } of named) {
         const { base64, contentType, error: readError } =
           await readUploadContent(file);
         if (readError) throw new Error(readError);
@@ -91,7 +107,7 @@ export function CustomerFilesSection({
           pending: true;
         } = {
           localId: createPendingUploadId(),
-          name: file.name,
+          name,
           contentBase64: base64,
           contentType,
           size: file.size,
@@ -261,6 +277,7 @@ export function CustomerFilesSection({
           </p>
         ) : null}
       </div>
+      {nameFilesDialog}
     </section>
   );
 }

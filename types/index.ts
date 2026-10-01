@@ -88,6 +88,12 @@ export interface Customer {
   /** Default sales rep for new orders on this account */
   salesRepId?: string;
   salesRepName?: string;
+  /**
+   * Payment terms for invoices (e.g. Net 30).
+   * `paymentTermsDays` drives due dates; label is what staff see.
+   */
+  paymentTermsDays?: number | null;
+  paymentTermsLabel?: string | null;
   /** When true, tax is not applied to this account's orders */
   taxExempt?: boolean;
   /** Resale / exemption certificate number on file */
@@ -277,6 +283,19 @@ export interface CustomerShippingLocation extends ShippingAddress {
   isDefault?: boolean;
 }
 
+/** Account billing profile option in order Bill To select. */
+export const ORDER_BILL_TO_ACCOUNT = "account_billing";
+
+/**
+ * Bill-to / ship-to selection on an order.
+ * `locationId` is `account_billing`, a customer shipping location id, or omitted when cleared.
+ * `address` is a snapshot used for documents when the book entry changes later.
+ */
+export type OrderAddressSelection = {
+  locationId?: string | null;
+  address?: ShippingAddress | null;
+};
+
 /** A person at a customer company who can be attached to estimates/invoices. */
 export interface CustomerContact {
   id: string;
@@ -365,7 +384,7 @@ export interface ArtworkFile {
    * Proof pipeline:
    * - pending: drafting / not yet with art (legacy open proofs also use this)
    * - with_art: submitted to the artwork department
-   * - art_ready: art complete — ready for the team to send to the client
+   * - art_ready: art complete — sent back to the team for review before customer send
    * - approved / revision_requested: customer sign-off states
    */
   status:
@@ -392,6 +411,8 @@ export interface ArtworkFile {
   artAssigneeName?: string;
   artSubmittedAt?: string;
   artCompletedAt?: string;
+  /** When art should be finished (ISO date `YYYY-MM-DD` or full ISO). */
+  artDueAt?: string;
 }
 
 export interface ArtworkVersion {
@@ -416,6 +437,7 @@ export type OrderFileKind =
   | "packing_list"
   | "customer_supplied"
   | "internal"
+  | "tech_pack"
   | "other";
 
 export type GarmentReceiveStatus = "waiting" | "partial" | "received";
@@ -509,6 +531,8 @@ export interface OrderInvoiceMeta {
    * to the order in-hands date for statement-style "due by" queries.
    */
   dueDate?: string;
+  /** Staff notes printed on the customer invoice PDF */
+  customerNotes?: string | null;
   /** Totals captured when the invoice was last sent */
   subtotal?: number;
   tax?: number;
@@ -922,6 +946,21 @@ export interface Order {
   /** Assigned sales rep — receives order notifications */
   salesRepId?: string;
   salesRepName?: string;
+  /**
+   * Shop design / job code for this order's artwork package
+   * (shown in Designs and art summary).
+   */
+  designCode?: string | null;
+  /** Invoice / estimate bill-to address selection */
+  billTo?: OrderAddressSelection | null;
+  /** Default ship-to address for this order (fulfillment can still split) */
+  shipTo?: OrderAddressSelection | null;
+  /**
+   * Snapshot of customer payment terms at order create (or later override).
+   * Used for invoice due dates and QuickBooks DueDate.
+   */
+  paymentTermsDays?: number | null;
+  paymentTermsLabel?: string | null;
   /** Orders produced together; combined qty selects the shared pricing tier. */
   productionRun?: OrderProductionRun;
   /** In-app invoice (PDF) metadata — QuickBooks remains optional separately */
@@ -939,6 +978,9 @@ export interface OrderQuickBooksSync {
   estimateDocNumber?: string;
   invoiceId?: string;
   invoiceDocNumber?: string;
+  /** Online payment URL from QuickBooks InvoiceLink */
+  invoicePaymentUrl?: string | null;
+  invoicePaymentUrlAt?: string | null;
   lastSyncedAt?: string;
   lastDocType?: "estimate" | "invoice";
   lastError?: string | null;
@@ -948,6 +990,8 @@ export interface OrderQuickBooksSync {
 export interface SavedDesign {
   id: string;
   name: string;
+  /** Shop-facing design / job code (e.g. DC-1063) for lookup in Designs. */
+  designCode?: string | null;
   customerId?: string;
   customerName?: string;
   company?: string;

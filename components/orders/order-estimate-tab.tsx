@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { PdfPreviewDialog } from "@/components/orders/pdf-preview-dialog";
+import { SendProofsEstimateDialog } from "@/components/orders/send-proofs-estimate-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import {
@@ -76,7 +77,6 @@ export function OrderEstimateTab({ order }: { order: Order }) {
   const { settings } = useShopSettings();
   const {
     previewOrderDocument,
-    sendProofsAndEstimate,
     getCustomerById,
     updateOrderEstimatePricing,
   } =
@@ -212,7 +212,7 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     (!hasDtf && pricingLookup.highlights.length > 0);
 
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
 
   const taxDirty =
@@ -230,24 +230,6 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     () => previewOrderDocument(order.id, "all"),
     [previewOrderDocument, order.id]
   );
-
-  const handleSend = useCallback(async () => {
-    setSending(true);
-    showToast("Sending proofs & estimate…", "loading");
-    try {
-      const email = await sendProofsAndEstimate(order.id);
-      showToast(`Proofs & estimate emailed to ${email.to}.`, "success");
-    } catch (err) {
-      showToast(
-        err instanceof Error
-          ? err.message
-          : "Could not send the email. Please try again.",
-        "error"
-      );
-    } finally {
-      setSending(false);
-    }
-  }, [sendProofsAndEstimate, order.id, showToast]);
 
   const discardTaxChanges = useCallback(() => {
     setTaxEnabledDraft(savedTaxEnabled);
@@ -397,18 +379,13 @@ export function OrderEstimateTab({ order }: { order: Order }) {
             </button>
             <button
               type="button"
-              onClick={handleSend}
-              disabled={sending}
+              onClick={() => setSendOpen(true)}
               className={cn(
                 dashboardPrimaryButtonClass,
-                "inline-flex h-9 items-center gap-1.5 px-3 text-[13px] disabled:cursor-not-allowed disabled:opacity-70"
+                "inline-flex h-9 items-center gap-1.5 px-3 text-[13px]"
               )}
             >
-              {sending ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Send className="size-3.5" />
-              )}
+              <Send className="size-3.5" />
               Send proofs + estimate
             </button>
           </div>
@@ -538,6 +515,13 @@ export function OrderEstimateTab({ order }: { order: Order }) {
         title={`Proofs & estimate · Order ${formatOrderDisplayLine(order)}`}
         subtitle="Same PDF attached when you send proofs + estimate to the customer."
         load={loadEstimatePdf}
+      />
+
+      <SendProofsEstimateDialog
+        order={order}
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+        onSent={(message) => showToast(message, "success")}
       />
     </div>
   );

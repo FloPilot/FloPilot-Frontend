@@ -24,6 +24,8 @@ export type DashboardViewRecord = {
   id: string;
   name: string;
   layout: DashboardWidgetId[];
+  /** Optional master workspace filters applied when this layout is selected. */
+  scope?: import("@/lib/workspace-scope").WorkspaceScope | null;
   shared: boolean;
   ownerUserId: string;
   ownerName: string;

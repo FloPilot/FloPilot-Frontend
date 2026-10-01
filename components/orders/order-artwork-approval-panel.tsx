@@ -10,6 +10,7 @@ import {
   Send,
 } from "lucide-react";
 import { PdfPreviewDialog } from "@/components/orders/pdf-preview-dialog";
+import { SendProofsEstimateDialog } from "@/components/orders/send-proofs-estimate-dialog";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { MockupPreview } from "@/components/orders/artwork/mockup-preview";
 import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
@@ -37,7 +38,6 @@ export function OrderArtworkApprovalPanel({
   const {
     setArtworkStatus,
     sendProofToCustomer,
-    sendProofsAndEstimate,
     previewOrderDocument,
   } = useSchedule();
   const [toast, setToast] = useState<{
@@ -45,6 +45,7 @@ export function OrderArtworkApprovalPanel({
     type: "success" | "error";
   } | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
 
   const loadProofsPdf = useCallback(
     () => previewOrderDocument(order.id, "all"),
@@ -92,20 +93,9 @@ export function OrderArtworkApprovalPanel({
     }
   };
 
-  // Emails the customer the combined proofs + estimate PDF with approve links.
-  const handleSendProofsAndEstimate = async () => {
-    try {
-      const email = await sendProofsAndEstimate(order.id);
-      showToast(`Proofs & estimate emailed to ${email.to}.`);
-    } catch (err) {
-      showToast(
-        err instanceof Error
-          ? err.message
-          : "Could not send the email. Please try again.",
-        "error"
-      );
-      throw err;
-    }
+  // Opens the compose dialog for selecting proofs/estimate before emailing.
+  const openSendDialog = () => {
+    setSendOpen(true);
   };
 
   if (summary.total === 0) {
@@ -196,17 +186,16 @@ export function OrderArtworkApprovalPanel({
           </button>
 
           {!expanded && pendingCount > 0 ? (
-            <ProofActionButton
-              variant="primary"
-              className="mt-0.5 shrink-0"
-              successLabel="Sent"
-              onClick={handleSendProofsAndEstimate}
+            <button
+              type="button"
+              className={cn(
+                "mt-0.5 inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-brand-primary bg-brand-primary px-3 text-[13px] font-medium text-white transition-colors hover:bg-brand-primary/90"
+              )}
+              onClick={openSendDialog}
             >
-              <span className="inline-flex items-center gap-1.5">
-                <Send className="size-3.5" />
-                Send to customer
-              </span>
-            </ProofActionButton>
+              <Send className="size-3.5" />
+              Send to customer
+            </button>
           ) : null}
         </div>
 
@@ -248,16 +237,14 @@ export function OrderArtworkApprovalPanel({
 
             <div className="flex flex-wrap items-center gap-2">
               {pendingCount > 0 ? (
-                <ProofActionButton
-                  variant="primary"
-                  successLabel="Emailed"
-                  onClick={handleSendProofsAndEstimate}
+                <button
+                  type="button"
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-brand-primary bg-brand-primary px-3 text-[13px] font-medium text-white transition-colors hover:bg-brand-primary/90"
+                  onClick={openSendDialog}
                 >
-                  <span className="inline-flex items-center gap-1.5">
-                    <Send className="size-3.5" />
-                    Send proofs + estimate
-                  </span>
-                </ProofActionButton>
+                  <Send className="size-3.5" />
+                  Send proofs + estimate
+                </button>
               ) : null}
               <button
                 type="button"
@@ -382,6 +369,13 @@ export function OrderArtworkApprovalPanel({
         title={`Proofs & estimate · Order ${formatOrderDisplayLine(order)}`}
         subtitle="Same PDF attached when you send proofs + estimate to the customer."
         load={loadProofsPdf}
+      />
+
+      <SendProofsEstimateDialog
+        order={order}
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+        onSent={(message) => showToast(message)}
       />
     </section>
   );

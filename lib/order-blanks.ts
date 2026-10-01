@@ -20,5 +20,5 @@ export function orderBlanksEditHint(order: Order): string {
   if (LOCKED_BLANK_EDIT_STATUSES.includes(order.status)) {
     return "Blanks are locked — this order is finished or ready to ship.";
   }
-  return "Adjust styles, colors, and quantities before production runs.";
+  return "Adjust styles, colors, and quantities before production runs. Received qty edits save from the top bar.";
 }

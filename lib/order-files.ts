@@ -1,5 +1,6 @@
 import type { ArtworkFile, Order, OrderFileKind } from "@/types";
 import { getOrderProductionSteps } from "@/lib/order-production";
+import { resolveArtworkDisplayName } from "@/lib/proof-slides";
 
 export const ORDER_FILE_KIND_LABELS: Record<OrderFileKind, string> = {
   mockup: "Mockup / proof",
@@ -12,6 +13,7 @@ export const ORDER_FILE_KIND_LABELS: Record<OrderFileKind, string> = {
   packing_list: "Packing list",
   customer_supplied: "Customer supplied",
   internal: "Internal",
+  tech_pack: "Tech pack / summary proof",
   other: "Other",
 };
 
@@ -72,6 +74,11 @@ export const ORDER_FILE_CATEGORY_OPTIONS: {
     description: "Shop-only notes and docs",
   },
   {
+    kind: "tech_pack",
+    label: "Tech pack / summary proof",
+    description: "Order-level summary art pack for the customer",
+  },
+  {
     kind: "other",
     label: "Other",
     description: "Anything that doesn’t fit above",
@@ -115,6 +122,7 @@ const KIND_TO_CATEGORY: Record<OrderFileKind, FileCategoryFilter> = {
   packing_list: "packing_list",
   customer_supplied: "customer_supplied",
   internal: "internal",
+  tech_pack: "artwork",
   other: "internal",
 };
 
@@ -222,7 +230,7 @@ export function buildOrderFileList(order: Order): OrderFileItem[] {
     const art = imprint.artwork;
     pushImprintFile(items, {
       id: art.id,
-      name: art.name,
+      name: resolveArtworkDisplayName(art),
       kind: imprintFileKind(art),
       uploadedAt: art.uploadedAt,
       uploadedBy: art.uploadedBy,
@@ -238,7 +246,13 @@ export function buildOrderFileList(order: Order): OrderFileItem[] {
     for (const v of art.history ?? []) {
       pushImprintFile(items, {
         id: v.id,
-        name: v.name,
+        name: resolveArtworkDisplayName({
+          id: v.id,
+          name: v.name,
+          previewUrl: v.previewUrl,
+          mockupLabel: v.mockupLabel,
+          proofSlides: v.proofSlides,
+        }),
         kind: imprintFileKind(art),
         uploadedAt: v.uploadedAt,
         uploadedBy: v.uploadedBy,
@@ -366,3 +380,11 @@ export function categoryFromFocus(
 ): FileCategoryFilter {
   return focus ? "mockups" : "all";
 }
+
+export function getOrderTechPackFiles(order: Order) {
+  return (order.files || []).filter((file) => {
+    if (file.kind === "tech_pack") return true;
+    return (file.kinds || []).includes("tech_pack");
+  });
+}
+

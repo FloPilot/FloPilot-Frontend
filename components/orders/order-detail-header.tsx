@@ -4,8 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Info } from "lucide-react";
 import { CustomerWarningDialog } from "@/components/customers/customer-warning-dialog";
+import { OrderAddressEditors } from "@/components/orders/order-address-editors";
 import { OrderCustomLabelEditor } from "@/components/orders/order-custom-label-field";
 import { OrderEndBusinessEditor } from "@/components/orders/order-end-business-editor";
+import { OrderHeaderField } from "@/components/orders/order-header-field";
 import { OrderSalesRepEditor } from "@/components/orders/order-sales-rep-editor";
 import { OrderProductionRunEditor } from "@/components/orders/order-production-run-editor";
 import { RushBadge, ClientStoreBadge } from "@/components/status-badges";
@@ -14,6 +16,7 @@ import {
   dashboardSectionTitleClass,
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
+import { orderHeaderComboShellClass } from "@/lib/order-addresses";
 import { getCustomerWarningNotes } from "@/lib/customer-notes";
 import { formatDate } from "@/lib/format";
 import { isArchivedOrder } from "@/lib/order-archive";
@@ -22,7 +25,17 @@ import {
   type OrderDetailTab,
 } from "@/lib/order-detail-tabs";
 import type { OrderListSummary } from "@/lib/order-list-summary";
-import type { Customer, Order, SubCustomer } from "@/types";
+import {
+  formatPaymentTermsLabel,
+  resolvePaymentTerms,
+} from "@/lib/payment-terms";
+import type {
+  Customer,
+  CustomerShippingLocation,
+  Order,
+  OrderAddressSelection,
+  SubCustomer,
+} from "@/types";
 import { cn } from "@/lib/utils";
 
 export type { OrderDetailTab } from "@/lib/order-detail-tabs";
@@ -43,6 +56,12 @@ export function OrderDetailHeader({
   onEndBusinessDraftChange,
   onSalesRepSave,
   onSalesRepDraftChange,
+  billTo,
+  shipTo,
+  onBillToDraftChange,
+  onShipToDraftChange,
+  onCustomerLocationsSave,
+  onPersistAddresses,
   orders,
   onProductionRunSave,
 }: {
@@ -58,6 +77,17 @@ export function OrderDetailHeader({
   onEndBusinessDraftChange?: (subCustomerId: string | null) => void;
   onSalesRepSave?: (salesRepId: string | null) => Promise<void | Order>;
   onSalesRepDraftChange?: (salesRepId: string | null) => void;
+  billTo?: OrderAddressSelection | null;
+  shipTo?: OrderAddressSelection | null;
+  onBillToDraftChange?: (next: OrderAddressSelection | null) => void;
+  onShipToDraftChange?: (next: OrderAddressSelection | null) => void;
+  onCustomerLocationsSave?: (
+    locations: CustomerShippingLocation[]
+  ) => Promise<Customer | void>;
+  onPersistAddresses?: (next: {
+    billTo?: OrderAddressSelection | null;
+    shipTo?: OrderAddressSelection | null;
+  }) => Promise<void>;
   orders?: Order[];
   onProductionRunSave?: (linkedOrderIds: string[]) => Promise<void | Order>;
 }) {
@@ -67,6 +97,11 @@ export function OrderDetailHeader({
   const showEndBusiness =
     Boolean(onEndBusinessSave || onEndBusinessDraftChange) &&
     Boolean(subCustomers?.length || order.subCustomerId);
+  const paymentTerms =
+    resolvePaymentTerms(order) || resolvePaymentTerms(customer);
+  const paymentTermsLabel =
+    paymentTerms?.label ||
+    formatPaymentTermsLabel(paymentTerms?.days ?? null);
 
   const dueLabel =
     summary.dueDays === null
@@ -141,8 +176,32 @@ export function OrderDetailHeader({
 
         <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1">
           <p className={dashboardTaskDetailClass}>
-            {order.company} · {order.customerName} · In-hands {dueLabel}
+            {order.customerId ? (
+              <Link
+                href={`/app/customers/${order.customerId}`}
+                className="font-medium text-[#2c6ecb] hover:underline"
+              >
+                {order.company}
+              </Link>
+            ) : (
+              order.company
+            )}{" "}
+            · {order.customerName} · In-hands {dueLabel}
           </p>
+          {paymentTermsLabel ? (
+            <span
+              className="inline-flex h-7 items-center rounded-md border border-[#d7e3f4] bg-[#f4f7fd] px-2.5 text-[12px] font-semibold text-[#2c6ecb]"
+              title={
+                paymentTerms?.days == null
+                  ? "Account payment terms"
+                  : paymentTerms.days === 0
+                    ? "Invoices are due when sent"
+                    : `Invoices due ${paymentTerms.days} days after send`
+              }
+            >
+              Payment terms · {paymentTermsLabel}
+            </span>
+          ) : null}
           {order.source === "client_store" && order.clientStoreName ? (
             <p className={dashboardTaskDetailClass}>
               Storefront: {order.clientStoreName}
@@ -151,11 +210,13 @@ export function OrderDetailHeader({
                 : ""}
             </p>
           ) : null}
+        </div>
+
+        <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2">
           {showEndBusiness ? (
             <OrderEndBusinessEditor
               order={order}
               subCustomers={subCustomers ?? []}
-              customerId={order.customerId}
               onSave={onEndBusinessSave}
               onDraftChange={onEndBusinessDraftChange}
             />
@@ -174,6 +235,47 @@ export function OrderDetailHeader({
               onSave={onProductionRunSave}
             />
           ) : null}
+          {onBillToDraftChange &&
+          onShipToDraftChange &&
+          onCustomerLocationsSave ? (
+            <OrderAddressEditors
+              order={order}
+              customer={customer}
+              billTo={billTo}
+              shipTo={shipTo}
+              onBillToChange={onBillToDraftChange}
+              onShipToChange={onShipToDraftChange}
+              onCustomerLocationsSave={onCustomerLocationsSave}
+              onPersistAddresses={onPersistAddresses}
+            />
+          ) : null}
+          <OrderHeaderField label="Design code">
+            <div
+              className={cn(
+                orderHeaderComboShellClass,
+                "min-w-0 items-center px-2.5",
+                order.designCode?.trim()
+                  ? "border-[#d7e3f4] bg-[#f4f7fd]"
+                  : null
+              )}
+              title={
+                order.designCode?.trim()
+                  ? "From the design code on proofs"
+                  : "Set a design code on the Proofs tab"
+              }
+            >
+              <span
+                className={cn(
+                  "truncate text-[13px] font-medium",
+                  order.designCode?.trim()
+                    ? "font-semibold tracking-wide text-[#2c6ecb]"
+                    : "text-[#8a8a8a]"
+                )}
+              >
+                {order.designCode?.trim() || "Not set"}
+              </span>
+            </div>
+          </OrderHeaderField>
         </div>
       </div>
 

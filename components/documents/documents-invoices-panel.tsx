@@ -11,6 +11,7 @@ import {
 import { DocumentsTable } from "@/components/documents/documents-table";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { useWorkspaceScope } from "@/components/providers/workspace-scope-provider";
 import {
   applyDocumentAdvancedFilters,
   documentMatchesSearch,
@@ -31,6 +32,7 @@ import {
   dashboardValueClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency } from "@/lib/format";
+import { applyWorkspaceScopeToOrders } from "@/lib/workspace-scope";
 import { cn } from "@/lib/utils";
 
 const FILTERS: { value: DocumentInvoiceFilter; label: string }[] = [
@@ -60,6 +62,7 @@ export function DocumentsInvoicesPanel() {
   const searchParams = useSearchParams();
   const { orders, customers, getCustomerById } = useSchedule();
   const { settings } = useShopSettings();
+  const { scope: workspaceScope, currentUserId } = useWorkspaceScope();
   const [filter, setFilter] = useState<DocumentInvoiceFilter>(
     parseFilter(searchParams.get("filter"))
   );
@@ -67,6 +70,11 @@ export function DocumentsInvoicesPanel() {
   const [advancedFilters, setAdvancedFilters] = useState<
     DocumentAdvancedFilter[]
   >([]);
+
+  const scopedOrders = useMemo(
+    () => applyWorkspaceScopeToOrders(orders, workspaceScope, currentUserId),
+    [orders, workspaceScope, currentUserId]
+  );
 
   const financialContext = useMemo(
     () => ({
@@ -79,10 +87,12 @@ export function DocumentsInvoicesPanel() {
   );
 
   const filtered = useMemo(() => {
-    let list = sortInvoiceDocuments(filterInvoiceDocuments(orders, filter));
+    let list = sortInvoiceDocuments(
+      filterInvoiceDocuments(scopedOrders, filter)
+    );
     list = applyDocumentAdvancedFilters(list, advancedFilters);
     return list.filter((order) => documentMatchesSearch(order, query));
-  }, [orders, filter, query, advancedFilters]);
+  }, [scopedOrders, filter, query, advancedFilters]);
 
   const financials = useMemo(
     () => buildOrderFinancialsMap(filtered, financialContext),
@@ -90,8 +100,8 @@ export function DocumentsInvoicesPanel() {
   );
 
   const summary = useMemo(() => {
-    const unpaid = filterInvoiceDocuments(orders, "unpaid");
-    const partial = filterInvoiceDocuments(orders, "partial");
+    const unpaid = filterInvoiceDocuments(scopedOrders, "unpaid");
+    const partial = filterInvoiceDocuments(scopedOrders, "partial");
     const open = [...unpaid, ...partial];
     const money = buildOrderFinancialsMap(open, financialContext);
     let unpaidBalance = 0;
@@ -101,16 +111,16 @@ export function DocumentsInvoicesPanel() {
 
     return {
       counts: {
-        all: filterInvoiceDocuments(orders, "all").length,
-        ready: filterInvoiceDocuments(orders, "ready").length,
-        sent: filterInvoiceDocuments(orders, "sent").length,
+        all: filterInvoiceDocuments(scopedOrders, "all").length,
+        ready: filterInvoiceDocuments(scopedOrders, "ready").length,
+        sent: filterInvoiceDocuments(scopedOrders, "sent").length,
         unpaid: unpaid.length,
         partial: partial.length,
-        paid: filterInvoiceDocuments(orders, "paid").length,
+        paid: filterInvoiceDocuments(scopedOrders, "paid").length,
       },
       unpaidBalance,
     };
-  }, [orders, financialContext]);
+  }, [scopedOrders, financialContext]);
 
   const statement = useMemo(() => {
     let openCount = 0;

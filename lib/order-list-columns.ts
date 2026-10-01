@@ -297,6 +297,8 @@ export type OrderListViewRecord = {
   columns: OrdersListColumnId[];
   /** Optional per-column display names for this view only */
   columnLabels?: Partial<Record<OrdersListColumnId, string>>;
+  /** Optional workspace filters applied when this view is selected. */
+  scope?: import("@/lib/workspace-scope").WorkspaceScope | null;
   shared: boolean;
   ownerUserId: string;
   ownerName: string;

@@ -21,17 +21,18 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   in_production: "In production",
   ready_to_ship: "Ready to ship",
   shipped: "Shipped",
-  ready_to_invoice: "Ready to invoice",
-  invoice_sent: "Invoice sent",
-  completed: "Completed",
+  ready_to_invoice: "Completed · Ready to invoice",
+  invoice_sent: "Completed · Invoice sent",
+  completed: "Completed · Paid",
 };
 
 /** Will-call orders use pickup language for fulfillment statuses */
 export const WILL_CALL_STATUS_LABELS: Partial<Record<OrderStatus, string>> = {
-  ready_to_ship: "Waiting for customer pickup",
+  ready_to_ship: "Ready for pickup",
   shipped: "Picked up",
-  ready_to_invoice: "Picked up",
-  invoice_sent: "Invoice sent",
+  ready_to_invoice: "Completed · Ready to invoice",
+  invoice_sent: "Completed · Invoice sent",
+  completed: "Completed · Paid",
 };
 
 /** Plain-language explanation shown on the order screen */
@@ -46,26 +47,28 @@ export const ORDER_STATUS_DESCRIPTIONS: Record<OrderStatus, string> = {
     "Estimate and proofs approved — schedule production events on the calendar.",
   in_production:
     "On the floor — finish receiving, run scheduled events, and complete production.",
-  ready_to_ship: "Production is complete — pack and ship or schedule pickup, then send the invoice.",
+  ready_to_ship:
+    "Production is complete — pack and ship (or prepare for pickup), then close out fulfillment.",
   shipped:
     "Order has left the shop — mark delivered when the customer receives it.",
   ready_to_invoice:
-    "Goods are picked up or delivered — confirm produced counts, send the invoice, then record payment.",
+    "Fulfillment is done — confirm produced counts, send the invoice, then collect payment.",
   invoice_sent:
-    "Invoice sent to the customer — record payment when it is received.",
-  completed: "Order is paid and closed out.",
+    "Invoice is out — record payment when it arrives to close the order as Completed · Paid.",
+  completed: "Paid in full and closed out.",
 };
 
 export const WILL_CALL_STATUS_DESCRIPTIONS: Partial<
   Record<OrderStatus, string>
 > = {
   ready_to_ship:
-    "Production is complete — waiting for the customer to pick up at the shop. Send the invoice when ready.",
+    "Production is complete — ready for the customer to pick up at the shop.",
   shipped: "Customer has picked up this order from the shop.",
   ready_to_invoice:
-    "Customer has picked up — confirm produced counts, send the invoice, then record payment.",
+    "Pickup is done — confirm produced counts, send the invoice, then collect payment.",
   invoice_sent:
-    "Customer has picked up and the invoice was sent — record payment when it is received.",
+    "Invoice is out — record payment when it arrives to close as Completed · Paid.",
+  completed: "Paid in full and closed out.",
 };
 
 export type OrderStatusLabelOptions = {
@@ -127,11 +130,11 @@ export function getStatusTransitionLabel(
 ): string {
   if (options?.willCall) {
     const willCallActions: Partial<Record<OrderStatus, string>> = {
-      ready_to_ship: "Mark waiting for customer pickup",
+      ready_to_ship: "Mark ready for pickup",
       shipped: "Mark picked up",
-      ready_to_invoice: "Mark picked up",
+      ready_to_invoice: "Mark ready to invoice",
       invoice_sent: "Mark invoice sent",
-      completed: "Mark completed",
+      completed: "Mark completed · paid",
       in_production: "Start production",
       draft: "Move back to draft",
     };
@@ -147,7 +150,7 @@ export function getStatusTransitionLabel(
     shipped: "Mark shipped",
     ready_to_invoice: "Mark ready to invoice",
     invoice_sent: "Mark invoice sent",
-    completed: "Mark completed",
+    completed: "Mark completed · paid",
     draft: "Move back to draft",
   };
   return labels[to] ?? `Set to ${orderStatusLabel(to, options)}`;

@@ -4,6 +4,12 @@ const MAX_PROOF_SLIDES = 12;
 
 export { MAX_PROOF_SLIDES };
 
+const PLACEHOLDER_ARTWORK_NAMES = new Set([
+  "artwork-pending.ai",
+  "no mockup attached",
+  "n/a",
+]);
+
 type ProofArtworkSource = Pick<
   ArtworkFile,
   "id" | "name" | "previewUrl" | "mockupLabel" | "proofSlides"
@@ -11,6 +17,46 @@ type ProofArtworkSource = Pick<
   uploadedAt?: string;
   uploadedBy?: string;
 };
+
+/** Placeholder names used before a real file/proof image is attached. */
+export function isArtworkPlaceholderName(name?: string | null): boolean {
+  const raw = (name || "").trim().toLowerCase();
+  return !raw || PLACEHOLDER_ARTWORK_NAMES.has(raw);
+}
+
+/**
+ * Display name for artwork: real file name when set, otherwise the primary
+ * proof image label (covers older proofs stuck on artwork-pending.ai).
+ */
+export function resolveArtworkDisplayName(
+  artwork: ProofArtworkSource | null | undefined
+): string {
+  if (!artwork) return "Artwork";
+  if (!isArtworkPlaceholderName(artwork.name)) {
+    return artwork.name.trim();
+  }
+  const primary = getProofSlides(artwork)[0];
+  const fromSlide = primary?.label?.trim();
+  if (fromSlide) return fromSlide;
+  const fromMockup = artwork.mockupLabel?.trim();
+  if (fromMockup) return fromMockup;
+  return artwork.name?.trim() || "Artwork";
+}
+
+/** Prefer an uploaded file name over a placeholder when attaching proof images. */
+export function nextArtworkNameFromUpload(
+  currentName: string | null | undefined,
+  fileName: string | null | undefined,
+  options?: { forceWhenEmptySlides?: boolean; slideCount?: number }
+): string {
+  const next = (fileName || "").trim();
+  if (!next) return (currentName || "").trim() || "artwork-pending.ai";
+  if (isArtworkPlaceholderName(currentName)) return next;
+  if (options?.forceWhenEmptySlides && (options.slideCount ?? 0) === 0) {
+    return next;
+  }
+  return (currentName || "").trim() || next;
+}
 
 /** Ordered slides for the current proof version (backward compatible with single previewUrl). */
 export function getProofSlides(

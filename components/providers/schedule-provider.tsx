@@ -77,7 +77,10 @@ import {
   sendProofsAndEstimate as apiSendProofsAndEstimate,
   sendInvoice as apiSendInvoice,
   previewOrderDocument as apiPreviewOrderDocument,
+  previewOrderEmail as apiPreviewOrderEmail,
   type OrderDocumentScope,
+  type OrderEmailPreview,
+  type OrderEmailPreviewVariant,
   updateOrderProducedGoods as apiUpdateOrderProducedGoods,
   setArtworkStatus as apiSetArtworkStatus,
   addArtworkProofNote as apiAddArtworkProofNote,
@@ -90,6 +93,7 @@ import {
   updateJobRunStatus as apiUpdateJobRunStatus,
   updateMachine as apiUpdateMachine,
   updateOrder as apiUpdateOrder,
+  recordInvoicePayments as apiRecordInvoicePayments,
   updateOrderProductionRun as apiUpdateOrderProductionRun,
   updateOrderGarments as apiUpdateOrderGarments,
   updateOrderMaterials as apiUpdateOrderMaterials,
@@ -279,6 +283,8 @@ type ScheduleContextValue = {
       notifyOrderMessage?: boolean;
       assigneeId?: string | null;
       clearAssignee?: boolean;
+      dueAt?: string | null;
+      clearDueAt?: boolean;
     }
   ) => void | Promise<void>;
   addArtworkProofNote: (
@@ -387,21 +393,86 @@ type ScheduleContextValue = {
     imprintId: string
   ) => Promise<{ sent: boolean; to: string }>;
   sendProofsAndEstimate: (
-    orderId: string
-  ) => Promise<{ sent: boolean; to: string }>;
-  sendInvoice: (orderId: string) => Promise<{ sent: boolean; to: string }>;
+    orderId: string,
+    options?: {
+      includeEstimate?: boolean;
+      proofs?: Array<{ jobId: string; imprintId: string }>;
+      techPacks?: Array<{ fileId: string }>;
+      estimateNotes?: string | null;
+      to?: string[];
+      cc?: string[];
+      subject?: string;
+      message?: string;
+      recipientName?: string;
+    }
+  ) => Promise<{ sent: boolean; to: string; cc?: string[] }>;
+  sendInvoice: (
+    orderId: string,
+    options?: {
+      to?: string[];
+      cc?: string[];
+      subject?: string;
+      message?: string;
+      recipientName?: string;
+      invoiceNotes?: string | null;
+      proofs?: Array<{ jobId: string; imprintId: string }>;
+      techPacks?: Array<{ fileId: string }>;
+      paymentSelection?: {
+        includeStripe?: boolean;
+        includeQuickBooks?: boolean;
+        methodIds?: string[];
+      };
+    }
+  ) => Promise<{ sent: boolean; to: string; cc?: string[] }>;
   previewOrderDocument: (
     orderId: string,
-    scope?: OrderDocumentScope
+    scope?: OrderDocumentScope,
+    selection?: {
+      includeEstimate?: boolean;
+      proofs?: Array<{ jobId: string; imprintId: string }>;
+      techPacks?: Array<{ fileId: string }>;
+      invoiceNotes?: string | null;
+      estimateNotes?: string | null;
+      paymentSelection?: {
+        includeStripe?: boolean;
+        includeQuickBooks?: boolean;
+        methodIds?: string[];
+      };
+    }
   ) => Promise<{ pdfBase64: string; filename: string }>;
+  previewOrderEmail: (
+    orderId: string,
+    options: {
+      variant: OrderEmailPreviewVariant;
+      includeEstimate?: boolean;
+      proofs?: Array<{ jobId: string; imprintId: string }>;
+      techPacks?: Array<{ fileId: string }>;
+      estimateNotes?: string | null;
+      invoiceNotes?: string | null;
+      subject?: string;
+      message?: string;
+      recipientName?: string;
+    }
+  ) => Promise<OrderEmailPreview>;
   updateOrderStatus: (
     orderId: string,
     status: import("@/types").OrderStatus
   ) => Promise<void>;
   updateOrderPayment: (
     orderId: string,
-    payment: { paid: number; balance: number }
+    payment: {
+      paid: number;
+      balance: number;
+      method?: string;
+      note?: string;
+    }
   ) => Promise<Order>;
+  recordInvoicePayments: (input: {
+    payments: Array<{ orderId: string; amount?: number }>;
+    method: string;
+    note?: string;
+    syncQuickBooks?: boolean;
+  }) => Promise<Order[]>;
   setOrderRush: (orderId: string, rush: boolean) => Promise<void>;
   updateOrderCustomLabel: (
     orderId: string,
@@ -411,6 +482,10 @@ type ScheduleContextValue = {
     orderId: string,
     customerPoNumber: string
   ) => Promise<Order>;
+  updateOrderDesignCode: (
+    orderId: string,
+    designCode: string
+  ) => Promise<Order>;
   updateOrderEndBusiness: (
     orderId: string,
     subCustomerId: string | null
@@ -418,6 +493,13 @@ type ScheduleContextValue = {
   updateOrderSalesRep: (
     orderId: string,
     salesRepId: string | null
+  ) => Promise<Order>;
+  updateOrderAddresses: (
+    orderId: string,
+    addresses: {
+      billTo?: import("@/types").OrderAddressSelection | null;
+      shipTo?: import("@/types").OrderAddressSelection | null;
+    }
   ) => Promise<Order>;
   updateOrderProductionRun: (
     orderId: string,
@@ -1414,6 +1496,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         notifyOrderMessage?: boolean;
         assigneeId?: string | null;
         clearAssignee?: boolean;
+        dueAt?: string | null;
+        clearDueAt?: boolean;
       }
     ) => {
       const token = await getIdToken();
@@ -1817,11 +1901,28 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   );
 
   const sendProofsAndEstimate = useCallback(
-    async (orderId: string) => {
+    async (
+      orderId: string,
+      options?: {
+        includeEstimate?: boolean;
+        proofs?: Array<{ jobId: string; imprintId: string }>;
+        techPacks?: Array<{ fileId: string }>;
+        estimateNotes?: string | null;
+        to?: string[];
+        cc?: string[];
+        subject?: string;
+        message?: string;
+        recipientName?: string;
+      }
+    ) => {
       const token = await getIdToken();
       if (!token) throw new Error("You need to be signed in to send proofs.");
 
-      const { order, email } = await apiSendProofsAndEstimate(token, orderId);
+      const { order, email } = await apiSendProofsAndEstimate(
+        token,
+        orderId,
+        options
+      );
       applyOrderUpdate(order);
       return email;
     },
@@ -1829,21 +1930,76 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   );
 
   const previewOrderDocument = useCallback(
-    async (orderId: string, scope: OrderDocumentScope = "all") => {
+    async (
+      orderId: string,
+      scope: OrderDocumentScope = "all",
+      selection?: {
+        includeEstimate?: boolean;
+        proofs?: Array<{ jobId: string; imprintId: string }>;
+        techPacks?: Array<{ fileId: string }>;
+        invoiceNotes?: string | null;
+        estimateNotes?: string | null;
+        paymentSelection?: {
+          includeStripe?: boolean;
+          includeQuickBooks?: boolean;
+          methodIds?: string[];
+        };
+      }
+    ) => {
       const token = await getIdToken();
       if (!token) throw new Error("You need to be signed in to preview documents.");
 
-      return apiPreviewOrderDocument(token, orderId, scope);
+      return apiPreviewOrderDocument(token, orderId, scope, selection);
+    },
+    [getIdToken]
+  );
+
+  const previewOrderEmail = useCallback(
+    async (
+      orderId: string,
+      options: {
+        variant: OrderEmailPreviewVariant;
+        includeEstimate?: boolean;
+        proofs?: Array<{ jobId: string; imprintId: string }>;
+        techPacks?: Array<{ fileId: string }>;
+        estimateNotes?: string | null;
+        invoiceNotes?: string | null;
+        subject?: string;
+        message?: string;
+        recipientName?: string;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("You need to be signed in to preview emails.");
+
+      return apiPreviewOrderEmail(token, orderId, options);
     },
     [getIdToken]
   );
 
   const sendInvoice = useCallback(
-    async (orderId: string) => {
+    async (
+      orderId: string,
+      options?: {
+        to?: string[];
+        cc?: string[];
+        subject?: string;
+        message?: string;
+        recipientName?: string;
+        invoiceNotes?: string | null;
+        proofs?: Array<{ jobId: string; imprintId: string }>;
+        techPacks?: Array<{ fileId: string }>;
+        paymentSelection?: {
+          includeStripe?: boolean;
+          includeQuickBooks?: boolean;
+          methodIds?: string[];
+        };
+      }
+    ) => {
       const token = await getIdToken();
       if (!token) throw new Error("You need to be signed in to send invoices.");
 
-      const { order, email } = await apiSendInvoice(token, orderId);
+      const { order, email } = await apiSendInvoice(token, orderId, options);
       applyOrderUpdate(order);
       return email;
     },
@@ -1862,7 +2018,15 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   );
 
   const updateOrderPayment = useCallback(
-    async (orderId: string, payment: { paid: number; balance: number }) => {
+    async (
+      orderId: string,
+      payment: {
+        paid: number;
+        balance: number;
+        method?: string;
+        note?: string;
+      }
+    ) => {
       const token = await getIdToken();
       if (!token) {
         throw new Error("You must be signed in to record a payment.");
@@ -1871,11 +2035,31 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const { order } = await apiUpdateOrder(token, orderId, {
         paid: payment.paid,
         balance: payment.balance,
+        ...(payment.method ? { paymentMethod: payment.method } : {}),
+        ...(payment.note ? { paymentNote: payment.note } : {}),
       });
       applyOrderUpdate(order);
       return order;
     },
     [getIdToken, applyOrderUpdate]
+  );
+
+  const recordInvoicePayments = useCallback(
+    async (input: {
+      payments: Array<{ orderId: string; amount?: number }>;
+      method: string;
+      note?: string;
+      syncQuickBooks?: boolean;
+    }) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to record a payment.");
+      }
+      const result = await apiRecordInvoicePayments(token, input);
+      applyOrderUpdates(result.orders || []);
+      return result.orders || [];
+    },
+    [getIdToken, applyOrderUpdates]
   );
 
   const setOrderRush = useCallback(
@@ -1923,6 +2107,22 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateOrderDesignCode = useCallback(
+    async (orderId: string, designCode: string) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update the design code.");
+      }
+
+      const { order } = await apiUpdateOrder(token, orderId, {
+        designCode: designCode.trim() || null,
+      });
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const updateOrderEndBusiness = useCallback(
     async (orderId: string, subCustomerId: string | null) => {
       const token = await getIdToken();
@@ -1948,6 +2148,29 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
       const { order } = await apiUpdateOrder(token, orderId, {
         salesRepId: salesRepId ?? "",
+      });
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderAddresses = useCallback(
+    async (
+      orderId: string,
+      addresses: {
+        billTo?: import("@/types").OrderAddressSelection | null;
+        shipTo?: import("@/types").OrderAddressSelection | null;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update order addresses.");
+      }
+
+      const { order } = await apiUpdateOrder(token, orderId, {
+        billTo: addresses.billTo ?? null,
+        shipTo: addresses.shipTo ?? null,
       });
       applyOrderUpdate(order);
       return order;
@@ -2404,13 +2627,17 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       sendProofsAndEstimate,
       sendInvoice,
       previewOrderDocument,
+      previewOrderEmail,
       updateOrderStatus,
       updateOrderPayment,
+      recordInvoicePayments,
       setOrderRush,
       updateOrderCustomLabel,
       updateOrderCustomerPoNumber,
+      updateOrderDesignCode,
       updateOrderEndBusiness,
       updateOrderSalesRep,
+      updateOrderAddresses,
       updateOrderProductionRun,
       updateOrderEstimatePricing,
       updateOrderShipments,
@@ -2501,13 +2728,17 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       sendProofsAndEstimate,
       sendInvoice,
       previewOrderDocument,
+      previewOrderEmail,
       updateOrderStatus,
       updateOrderPayment,
+      recordInvoicePayments,
       setOrderRush,
       updateOrderCustomLabel,
       updateOrderCustomerPoNumber,
+      updateOrderDesignCode,
       updateOrderEndBusiness,
       updateOrderSalesRep,
+      updateOrderAddresses,
       updateOrderProductionRun,
       updateOrderEstimatePricing,
       updateOrderShipments,

@@ -9,7 +9,12 @@ import {
   Trash2,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useWorkspaceScope } from "@/components/providers/workspace-scope-provider";
 import { Button } from "@/components/ui/button";
+import {
+  describeWorkspaceScope,
+  workspaceScopeIsActive,
+} from "@/lib/workspace-scope";
 import {
   Dialog,
   DialogContent,
@@ -73,6 +78,8 @@ export function DashboardLayoutControls({
   onDraftLayoutChange,
 }: DashboardLayoutControlsProps) {
   const { getIdToken } = useAuth();
+  const { scope: workspaceScope, applyScope, isActive: workspaceActive } =
+    useWorkspaceScope();
   const [views, setViews] = useState<DashboardViewRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [switchingView, setSwitchingView] = useState(false);
@@ -81,6 +88,7 @@ export function DashboardLayoutControls({
   const [saveOpen, setSaveOpen] = useState(false);
   const [viewName, setViewName] = useState("");
   const [shareWithTeam, setShareWithTeam] = useState(false);
+  const [includeWorkspaceFilters, setIncludeWorkspaceFilters] = useState(true);
   const [editingViewId, setEditingViewId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -97,6 +105,10 @@ export function DashboardLayoutControls({
         setViews(state.views);
         onActiveViewIdChange(state.activeViewId);
         onLayoutChange(normalizeDashboardLayout(state.activeLayout));
+        const active = state.activeViewId
+          ? state.views.find((view) => view.id === state.activeViewId)
+          : null;
+        if (active?.scope) applyScope(active.scope);
       } catch (err) {
         if (cancelled) return;
         setError(
@@ -196,6 +208,7 @@ export function DashboardLayoutControls({
 
     onActiveViewIdChange(view.id);
     onLayoutChange(normalizeDashboardLayout(view.layout));
+    if (view.scope) applyScope(view.scope);
     setSwitchingView(true);
     try {
       const token = await getIdToken();
@@ -203,6 +216,7 @@ export function DashboardLayoutControls({
       const result = await setActiveDashboardView(token, view.id);
       onActiveViewIdChange(result.activeViewId);
       onLayoutChange(normalizeDashboardLayout(result.activeLayout));
+      if (view.scope) applyScope(view.scope);
     } catch (err) {
       onActiveViewIdChange(previousViewId);
       onLayoutChange(previousLayout);
@@ -226,6 +240,7 @@ export function DashboardLayoutControls({
           name: activeView.name,
           layout: nextLayout,
           shared: activeView.shared,
+          scope: activeView.scope ?? null,
         });
         setViews((current) => {
           const others = current.filter((entry) => entry.id !== view.id);
@@ -255,6 +270,11 @@ export function DashboardLayoutControls({
     setEditingViewId(base?.id ?? null);
     setViewName(base?.name ?? "");
     setShareWithTeam(base?.shared ?? false);
+    setIncludeWorkspaceFilters(
+      base?.scope
+        ? workspaceScopeIsActive(base.scope)
+        : workspaceActive
+    );
     setSaveOpen(true);
   };
 
@@ -271,6 +291,7 @@ export function DashboardLayoutControls({
         name: viewName.trim() || "My dashboard",
         layout: nextLayout,
         shared: shareWithTeam,
+        scope: includeWorkspaceFilters ? workspaceScope : null,
       });
 
       setViews((current) => {
@@ -552,6 +573,27 @@ export function DashboardLayoutControls({
                 </span>
                 <span className="mt-1 block text-[12px] leading-relaxed text-[#616161]">
                   Teammates can pick this layout from their dashboard dropdown.
+                </span>
+              </span>
+            </label>
+
+            <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#ebebeb] bg-[#fafafa] p-3">
+              <input
+                type="checkbox"
+                checked={includeWorkspaceFilters}
+                onChange={(event) =>
+                  setIncludeWorkspaceFilters(event.target.checked)
+                }
+                className="mt-0.5 size-4 rounded border-[#c9cccf]"
+              />
+              <span>
+                <span className="text-[13px] font-medium text-[#303030]">
+                  Include workspace filters
+                </span>
+                <span className="mt-1 block text-[12px] leading-relaxed text-[#616161]">
+                  {includeWorkspaceFilters && workspaceActive
+                    ? `Applies ${describeWorkspaceScope(workspaceScope).summary.replace(/^Viewing · /, "")} when this layout is selected.`
+                    : "When opened, also restore your sales rep / customer workspace view."}
                 </span>
               </span>
             </label>

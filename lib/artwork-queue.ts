@@ -2,11 +2,13 @@ import type { ArtworkFile, DecorationType, Order } from "@/types";
 import { buildOrderFileList } from "@/lib/order-files";
 import { isArchivedOrder } from "@/lib/order-archive";
 import { isArtworkDepartmentStatus } from "@/lib/artwork-status";
+import { matchesDesignCodeSearch } from "@/lib/design-code";
 
 export type ArtworkQueueEntry = {
   orderId: string;
   orderNumber: string;
   orderCustomLabel?: string;
+  designCode?: string | null;
   customerId: string;
   customerName: string;
   company: string;
@@ -38,7 +40,7 @@ export const ARTWORK_QUEUE_FILTERS: {
   { value: "with_art", label: "With art" },
   { value: "pending", label: "Drafting" },
   { value: "revision_requested", label: "Revision" },
-  { value: "art_ready", label: "Ready" },
+  { value: "art_ready", label: "Ready for team" },
   { value: "approved", label: "Approved" },
 ];
 
@@ -60,6 +62,7 @@ export function collectArtworkQueue(orders: Order[]): ArtworkQueueEntry[] {
           orderId: order.id,
           orderNumber: order.number,
           orderCustomLabel: order.customLabel,
+          designCode: order.designCode || null,
           customerId: order.customerId,
           customerName: order.customerName,
           company: order.company,
@@ -127,8 +130,11 @@ export function searchArtworkQueue(
   if (!q) return entries;
 
   return entries.filter((entry) => {
+    if (matchesDesignCodeSearch(entry.designCode, query)) return true;
     const haystack = [
       entry.orderNumber,
+      entry.orderCustomLabel || "",
+      entry.designCode || "",
       entry.customerName,
       entry.company,
       entry.jobName,

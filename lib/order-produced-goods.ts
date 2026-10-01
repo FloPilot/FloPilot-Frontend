@@ -276,3 +276,49 @@ export function collectInvoiceCommentsFromProducedGoods(
 
   return comments;
 }
+
+/** Suggested customer-facing invoice notes from produced goods variance. */
+export function suggestInvoiceNotes(order: Order): string[] {
+  const produced = mergeOrderProducedGoods(order);
+  const suggestions: string[] = [];
+  const shortLines = produced.lines.filter(
+    (line) => line.producedQty < line.orderedQty
+  );
+  const overLines = produced.lines.filter(
+    (line) => line.producedQty > line.orderedQty
+  );
+  const shortPcs = shortLines.reduce(
+    (sum, line) => sum + (line.orderedQty - line.producedQty),
+    0
+  );
+  const overPcs = overLines.reduce(
+    (sum, line) => sum + (line.producedQty - line.orderedQty),
+    0
+  );
+
+  if (shortPcs > 0) {
+    suggestions.push(
+      `Produced ${shortPcs} pc${shortPcs === 1 ? "" : "s"} short of ordered. Invoice reflects quantities produced (damaged or missing goods).`
+    );
+  }
+  if (overPcs > 0) {
+    suggestions.push(
+      `Produced ${overPcs} extra pc${overPcs === 1 ? "" : "s"} beyond ordered. Invoice reflects quantities produced.`
+    );
+  }
+
+  for (const line of produced.lines) {
+    const note = typeof line.notes === "string" ? line.notes.trim() : "";
+    if (!note) continue;
+    const label = [line.productName, line.size].filter(Boolean).join(" · ");
+    suggestions.push(label ? `${label}: ${note}` : note);
+  }
+
+  const topNotes =
+    typeof produced.notes === "string" ? produced.notes.trim() : "";
+  if (topNotes && !suggestions.includes(topNotes)) {
+    suggestions.unshift(topNotes);
+  }
+
+  return suggestions.slice(0, 6);
+}

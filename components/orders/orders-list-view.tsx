@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { useWorkspaceScope } from "@/components/providers/workspace-scope-provider";
 import { useStaffAccess } from "@/hooks/use-staff-access";
 import { NewOrderButton } from "@/components/providers/new-order-provider";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,7 @@ import {
   type OrderJobTypeFilter,
   type OrderListScope,
 } from "@/lib/order-list-filters";
+import { applyWorkspaceScopeToOrders } from "@/lib/workspace-scope";
 import { buildOrderFinancialsMap } from "@/lib/order-financial-context";
 import {
   buildOrderListSummaries,
@@ -148,6 +150,7 @@ export function OrdersListView() {
   const searchParams = useSearchParams();
   const { settings } = useShopSettings();
   const { isAdmin } = useStaffAccess();
+  const { scope: workspaceScope, currentUserId } = useWorkspaceScope();
   const {
     orders,
     customers,
@@ -207,12 +210,24 @@ export function OrdersListView() {
   }, [initialScope]);
 
   const scopedOrders = useMemo(() => {
-    const scoped = filterOrdersList(orders, { scope, jobType });
+    const workspaceScoped = applyWorkspaceScopeToOrders(
+      orders,
+      workspaceScope,
+      currentUserId
+    );
+    const scoped = filterOrdersList(workspaceScoped, { scope, jobType });
     return sortOrdersList(
       filterOrdersWithAdvanced(scoped, advancedFilters),
       scope
     );
-  }, [orders, scope, jobType, advancedFilters]);
+  }, [
+    orders,
+    workspaceScope,
+    currentUserId,
+    scope,
+    jobType,
+    advancedFilters,
+  ]);
 
   const summaries = useMemo(
     () => buildOrderListSummaries(scopedOrders, scheduleBlocks, jobRuns),

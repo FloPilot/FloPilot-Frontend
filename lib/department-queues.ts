@@ -3,6 +3,7 @@ import {
   collectArtworkQueue,
   type ArtworkQueueEntry,
 } from "@/lib/artwork-queue";
+import { artDueDateKey } from "@/lib/artwork-status";
 import { PREP_LEAD_DAYS_BEFORE_SCHEDULE } from "@/lib/departments";
 import {
   computeInkPrepProgress,
@@ -142,10 +143,84 @@ export function collectArtworkDepartmentQueue(
     (entry) =>
       !entry.archived &&
       (entry.artwork.status === "with_art" ||
-        entry.artwork.status === "revision_requested" ||
-        // Legacy open proofs that were never submitted to art.
-        entry.artwork.status === "pending")
+        entry.artwork.status === "revision_requested")
   );
+}
+
+/** Proofs art already finished and handed back (or customer-approved). */
+export function collectArtworkDepartmentCompleted(
+  orders: Order[]
+): ArtworkQueueEntry[] {
+  return collectArtworkQueue(orders)
+    .filter(
+      (entry) =>
+        !entry.archived &&
+        (entry.artwork.status === "art_ready" ||
+          entry.artwork.status === "approved")
+    )
+    .sort((a, b) => {
+      const aAt = a.artwork.artCompletedAt || a.artwork.uploadedAt || "";
+      const bAt = b.artwork.artCompletedAt || b.artwork.uploadedAt || "";
+      return bAt.localeCompare(aAt);
+    });
+}
+
+export type ArtworkDepartmentOrderGroup = {
+  orderId: string;
+  orderNumber: string;
+  orderCustomLabel?: string;
+  designCode?: string | null;
+  customerId: string;
+  customerName: string;
+  company: string;
+  inHandsDate: string;
+  proofs: ArtworkQueueEntry[];
+};
+
+/** Bundle filtered proofs into one card per order (queue workflow). */
+export function groupArtworkDepartmentByOrder(
+  entries: ArtworkQueueEntry[]
+): ArtworkDepartmentOrderGroup[] {
+  const groups = new Map<string, ArtworkDepartmentOrderGroup>();
+
+  for (const entry of entries) {
+    const existing = groups.get(entry.orderId);
+    if (existing) {
+      existing.proofs.push(entry);
+      if (!existing.designCode && entry.designCode) {
+        existing.designCode = entry.designCode;
+      }
+      continue;
+    }
+    groups.set(entry.orderId, {
+      orderId: entry.orderId,
+      orderNumber: entry.orderNumber,
+      orderCustomLabel: entry.orderCustomLabel,
+      designCode: entry.designCode,
+      customerId: entry.customerId,
+      customerName: entry.customerName,
+      company: entry.company,
+      inHandsDate: entry.inHandsDate,
+      proofs: [entry],
+    });
+  }
+
+  return Array.from(groups.values()).sort((a, b) => {
+    const aDue =
+      a.proofs
+        .map((proof) => artDueDateKey(proof.artwork.artDueAt))
+        .filter(Boolean)
+        .sort()[0] || "";
+    const bDue =
+      b.proofs
+        .map((proof) => artDueDateKey(proof.artwork.artDueAt))
+        .filter(Boolean)
+        .sort()[0] || "";
+    if (aDue && bDue && aDue !== bDue) return aDue.localeCompare(bDue);
+    if (aDue && !bDue) return -1;
+    if (!aDue && bDue) return 1;
+    return a.inHandsDate.localeCompare(b.inHandsDate);
+  });
 }
 
 export type ScreenQueueEntry = {

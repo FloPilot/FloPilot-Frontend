@@ -38,6 +38,7 @@ import { DashboardToolbar } from "@/components/dashboard/dashboard-toolbar";
 import { DashboardWidgetFrame } from "@/components/dashboard/dashboard-widget-frame";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import { useWorkspaceScope } from "@/components/providers/workspace-scope-provider";
 import { OrderStatusBadge, RushBadge } from "@/components/status-badges";
 import { Button } from "@/components/ui/button";
 import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
@@ -113,6 +114,8 @@ export function ShopDashboard() {
     getCustomerById,
   } = useSchedule();
   const { settings, isModuleEnabled } = useShopSettings();
+  const { scope: workspaceScope, currentUserId, setCustomer } =
+    useWorkspaceScope();
   const [filters, setFilters] = useState<DashboardFilters>(
     DEFAULT_DASHBOARD_FILTERS
   );
@@ -140,15 +143,47 @@ export function ShopDashboard() {
 
   const dateRange = getDashboardDateRange(filters.dateRangeKey);
 
+  // Keep dashboard customer chip in sync with the master workspace filter.
+  const effectiveFilters = useMemo<DashboardFilters>(() => {
+    if (!workspaceScope.customerId) return filters;
+    return {
+      ...filters,
+      customerId: workspaceScope.customerId,
+      activeOptionalFilters: filters.activeOptionalFilters.includes("customer")
+        ? filters.activeOptionalFilters
+        : [...filters.activeOptionalFilters, "customer"],
+    };
+  }, [filters, workspaceScope.customerId]);
+
+  const handleFiltersChange = useCallback(
+    (next: DashboardFilters) => {
+      setFilters(next);
+      if (next.customerId !== workspaceScope.customerId) {
+        const match = customers.find((c) => c.id === next.customerId);
+        setCustomer(next.customerId, match?.company ?? null);
+      }
+    },
+    [customers, setCustomer, workspaceScope.customerId]
+  );
+
   const filteredData = useMemo(
     () =>
       applyDashboardFilters({
         orders: activeOrders,
         scheduleBlocks: activeScheduleBlocks,
         jobRuns,
-        filters,
+        filters: effectiveFilters,
+        workspaceScope,
+        currentUserId,
       }),
-    [activeOrders, activeScheduleBlocks, jobRuns, filters]
+    [
+      activeOrders,
+      activeScheduleBlocks,
+      jobRuns,
+      effectiveFilters,
+      workspaceScope,
+      currentUserId,
+    ]
   );
 
   const machineOptions = useMemo(
@@ -578,10 +613,10 @@ export function ShopDashboard() {
               <div className="min-w-0 flex-1">
                 <DashboardToolbar
                   stats={stats}
-                  filters={filters}
+                  filters={effectiveFilters}
                   machineOptions={machineOptions}
                   customerOptions={customerOptions}
-                  onFiltersChange={setFilters}
+                  onFiltersChange={handleFiltersChange}
                 />
               </div>
               <div className={cn(editing && "w-full")}>

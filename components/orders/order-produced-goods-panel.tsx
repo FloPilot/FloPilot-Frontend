@@ -64,21 +64,25 @@ function QtyProducedInput({
   const vsReceived = line.producedQty - receivedQty;
 
   return (
-    <Input
-      type="number"
-      min={0}
-      value={value}
-      disabled={saving}
-      onChange={(event) => setValue(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-      }}
-      className={cn(
-        "ml-auto h-8 w-[80px] rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums",
-        (vsOrdered !== 0 || vsReceived < 0) && "border-amber-300 bg-[#fffbeb]"
-      )}
-    />
+    <div className="flex w-full justify-end">
+      <Input
+        type="number"
+        min={0}
+        inputMode="numeric"
+        value={value}
+        disabled={saving}
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+        }}
+        className={cn(
+          "h-8 w-[80px] shrink-0 rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums",
+          (vsOrdered !== 0 || vsReceived < 0) && "border-amber-300 bg-[#fffbeb]"
+        )}
+        aria-label={`Produced quantity for size ${line.size}`}
+      />
+    </div>
   );
 }
 
@@ -172,7 +176,7 @@ export function OrderProducedGoodsPanel({
           dirty: true,
           saving,
           label: "Unsaved produced goods",
-          persistAcrossTabs: true,
+          persistAcrossTabs: false,
           onSave: () => saveDraft(),
           onDiscard: discardDraft,
         }
@@ -336,7 +340,15 @@ export function OrderProducedGoodsPanel({
 
         <div className={cn(dashboardInsetSurfaceClass, "m-4 overflow-hidden sm:m-5")}>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-[13px]">
+            <table className="w-full min-w-[780px] table-fixed text-[13px]">
+              <colgroup>
+                <col />
+                <col className="w-[4.5rem]" />
+                <col className="w-[5.5rem]" />
+                <col className="w-[5.5rem]" />
+                <col className="w-[6.5rem]" />
+                <col className="w-[6.5rem]" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-[#ebebeb] bg-[#fafafa]">
                   <th className="px-4 py-2.5 text-left font-medium text-[#616161]">
@@ -375,8 +387,9 @@ export function OrderProducedGoodsPanel({
                     >
                       <td className="px-4 py-3">
                         <p className="font-medium text-[#303030]">
-                          {[line.brand, line.productName].filter(Boolean).join(" · ") ||
-                            "Item"}
+                          {[line.brand, line.productName]
+                            .filter(Boolean)
+                            .join(" · ") || "Item"}
                         </p>
                         {line.color ? (
                           <p className="mt-0.5 text-[12px] text-[#8a8a8a]">
@@ -404,7 +417,7 @@ export function OrderProducedGoodsPanel({
                           {receivedQty}
                         </span>
                       </td>
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 align-middle">
                         <QtyProducedInput
                           line={line}
                           receivedQty={receivedQty}
@@ -412,7 +425,7 @@ export function OrderProducedGoodsPanel({
                           onChange={(qty) => handleQty(line.id, qty)}
                         />
                       </td>
-                      <td className="px-3 py-3 text-right">
+                      <td className="px-3 py-3 text-right align-middle">
                         <span
                           className={cn(
                             "inline-flex rounded-md border px-2 py-0.5 text-[11px] font-medium",

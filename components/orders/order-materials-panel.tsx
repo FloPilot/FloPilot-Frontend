@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
-  Download,
   Eye,
   FileText,
   Loader2,
@@ -14,7 +13,9 @@ import {
   Upload,
 } from "lucide-react";
 import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
+import { FilePreviewDialog } from "@/components/files/file-preview-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import { useNameBeforeUpload } from "@/hooks/use-name-before-upload";
 import { readUploadContent } from "@/lib/artwork-preview";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -24,15 +25,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import {
   dashboardCardClass,
   dashboardControlClass,
   dashboardInsetSurfaceClass,
-  dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
+import { filePreviewSource } from "@/lib/file-preview";
 import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
 import { AddBlankItemDialog } from "@/components/orders/add-blank-item-dialog";
 import { EditBlankItemDialog } from "@/components/orders/edit-blank-item-dialog";
@@ -51,6 +51,7 @@ import {
   materialReceiveOverage,
   mergeOrderMaterials,
   materialStatusLabel,
+  receiveAllGarmentLines,
 } from "@/lib/order-materials";
 import {
   inkPrepLineFromColorToggle,
@@ -249,12 +250,6 @@ function CustomerUnitPriceInput({
   );
 }
 
-function splitFileName(name: string): { base: string; ext: string } {
-  const dot = name.lastIndexOf(".");
-  if (dot <= 0) return { base: name, ext: "" };
-  return { base: name.slice(0, dot), ext: name.slice(dot) };
-}
-
 function rebuildLineItemQuantity(
   order: Order,
   lineItemId: string,
@@ -311,7 +306,7 @@ function ReceivingStatusPill({
       ? "bg-[#e8f5ee] text-[#0d5c2e]"
       : line.status === "partial"
         ? "bg-[#fde2e2] text-[#8f1f1f]"
-        : "bg-[#fde2e2] text-[#8f1f1f]";
+        : "bg-[#fff8eb] text-[#8a6116]";
 
   return (
     <span
@@ -328,11 +323,14 @@ function ReceivingStatusPill({
 function QtyReceivedInput({
   line,
   saving,
-  onSave,
+  onCommit,
+  commitOnChange = false,
 }: {
   line: OrderMaterialLine;
   saving: boolean;
-  onSave: (receivedQty: number) => void;
+  onCommit: (receivedQty: number) => void;
+  /** When true, commits on each keystroke so status can update without saving. */
+  commitOnChange?: boolean;
 }) {
   const [value, setValue] = useState(String(line.receivedQty || ""));
 
@@ -340,27 +338,42 @@ function QtyReceivedInput({
     setValue(String(line.receivedQty || ""));
   }, [line.receivedQty]);
 
-  const commit = () => {
-    const parsed = Number(value);
-    const receivedQty =
-      Number.isFinite(parsed) && parsed >= 0 ? Math.max(0, Math.floor(parsed)) : 0;
-    setValue(String(receivedQty));
+  const normalize = (raw: string) => {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed >= 0
+      ? Math.max(0, Math.floor(parsed))
+      : 0;
+  };
+
+  const commit = (raw: string, { normalizeValue = true } = {}) => {
+    const receivedQty = normalize(raw);
+    if (normalizeValue) setValue(String(receivedQty));
     if (receivedQty !== line.receivedQty) {
-      onSave(receivedQty);
+      onCommit(receivedQty);
     }
   };
 
   const overage = materialReceiveOverage(line);
 
   return (
-    <div className="flex items-center justify-end gap-1.5">
+    <div className="flex justify-end">
       <Input
         type="number"
         min={0}
+        inputMode="numeric"
         value={value}
         disabled={saving}
-        onChange={(event) => setValue(event.target.value)}
-        onBlur={commit}
+        onChange={(event) => {
+          const next = event.target.value;
+          setValue(next);
+          if (commitOnChange && next.trim() !== "") {
+            const parsed = Number(next);
+            if (Number.isFinite(parsed) && parsed >= 0) {
+              onCommit(Math.max(0, Math.floor(parsed)));
+            }
+          }
+        }}
+        onBlur={() => commit(value)}
         onKeyDown={(event) => {
           if (event.key === "Enter") {
             event.currentTarget.blur();
@@ -370,19 +383,8 @@ function QtyReceivedInput({
           "h-8 w-[72px] rounded-lg border-[#e3e3e3] text-right text-sm tabular-nums",
           overage > 0 && "border-amber-300 bg-[#fffbeb]"
         )}
+        aria-label={`Received quantity for ${line.size ?? "size"}`}
       />
-      <Button
-        type="button"
-        variant="outline"
-        disabled={saving || line.receivedQty === line.expectedQty}
-        className={cn(dashboardControlClass, "h-8 px-2 text-[11px]")}
-        onClick={() => {
-          setValue(String(line.expectedQty));
-          onSave(line.expectedQty);
-        }}
-      >
-        All
-      </Button>
     </div>
   );
 }
@@ -394,6 +396,18 @@ function findImprint(
 ): JobImprint | undefined {
   const job = order.jobs.find((entry) => entry.id === jobId);
   return job?.imprints.find((entry) => entry.id === imprintId);
+}
+
+type PendingScreenUpload = {
+  localId: string;
+  name: string;
+  contentBase64: string;
+  contentType: string;
+  previewUrl: string | null;
+};
+
+function createPendingScreenId() {
+  return `pending-screen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function ScreenSetupRow({
@@ -465,21 +479,31 @@ function ScreenSetupRow({
 
 function ScreenFilesSection({
   files,
+  pendingUploads,
   uploading,
   error,
   onUploadClick,
   onPreview,
   onDelete,
+  onRemovePending,
   deletingFileId,
 }: {
   files: import("@/types").OrderFile[];
+  pendingUploads: PendingScreenUpload[];
   uploading: boolean;
   error: string | null;
   onUploadClick: () => void;
-  onPreview: (file: import("@/types").OrderFile) => void;
+  onPreview: (file: {
+    name: string;
+    url: string | null;
+    subtitle?: string;
+  }) => void;
   onDelete: (file: import("@/types").OrderFile) => void;
+  onRemovePending: (localId: string) => void;
   deletingFileId: string | null;
 }) {
+  const hasFiles = files.length > 0 || pendingUploads.length > 0;
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -503,7 +527,7 @@ function ScreenFilesSection({
           ) : (
             <Upload className="size-3.5" />
           )}
-          {uploading ? "Uploading…" : "Upload screen file"}
+          {uploading ? "Adding…" : "Upload screen file"}
         </Button>
       </div>
 
@@ -513,7 +537,7 @@ function ScreenFilesSection({
         </p>
       ) : null}
 
-      {files.length === 0 ? (
+      {!hasFiles ? (
         <div
           className={cn(
             dashboardInsetSurfaceClass,
@@ -532,6 +556,7 @@ function ScreenFilesSection({
         <div className={cn(dashboardInsetSurfaceClass, "divide-y divide-[#ebebeb]")}>
           {files.map((file) => {
             const isDeleting = deletingFileId === file.id;
+            const previewUrl = filePreviewSource(file);
             return (
               <div
                 key={file.id}
@@ -552,11 +577,17 @@ function ScreenFilesSection({
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
-                  {file.previewUrl ? (
+                  {previewUrl ? (
                     <button
                       type="button"
                       aria-label={`Preview ${file.name}`}
-                      onClick={() => onPreview(file)}
+                      onClick={() =>
+                        onPreview({
+                          name: file.name,
+                          url: previewUrl,
+                          subtitle: `${file.uploadedBy} · ${formatDateTime(file.uploadedAt)}`,
+                        })
+                      }
                       className={cn(
                         dashboardControlClass,
                         "inline-flex h-8 items-center gap-1.5 px-2.5 text-[12px] font-medium text-[#303030] hover:bg-[#fafafa]"
@@ -565,21 +596,6 @@ function ScreenFilesSection({
                       <Eye className="size-3.5" />
                       Preview
                     </button>
-                  ) : null}
-                  {file.downloadUrl || file.previewUrl ? (
-                    <a
-                      href={file.downloadUrl || file.previewUrl}
-                      download={file.name}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={cn(
-                        dashboardControlClass,
-                        "inline-flex h-8 items-center gap-1.5 px-2.5 text-[12px] font-medium text-[#303030] hover:bg-[#fafafa]"
-                      )}
-                    >
-                      <Download className="size-3.5" />
-                      Download
-                    </a>
                   ) : (
                     <span className="text-[11px] text-[#8a8a8a]">
                       Filename only
@@ -602,205 +618,63 @@ function ScreenFilesSection({
               </div>
             );
           })}
-        </div>
-      )}
-    </div>
-  );
-}
 
-function ScreenFileNameDialog({
-  open,
-  onOpenChange,
-  orderNumber,
-  files,
-  uploading,
-  onConfirm,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  orderNumber: string;
-  files: File[];
-  uploading: boolean;
-  onConfirm: (fullNames: string[]) => void;
-}) {
-  const prefix = compactOrderNumberForLabel(orderNumber);
-  const fileParts = useMemo(
-    () => files.map((file) => splitFileName(file.name)),
-    [files]
-  );
-  const [names, setNames] = useState<string[]>(() =>
-    fileParts.map(({ base }) => base)
-  );
-
-  useEffect(() => {
-    setNames(fileParts.map(({ base }) => base));
-  }, [fileParts]);
-
-  const fullNames = fileParts.map(
-    ({ ext }, index) => `${prefix} - ${(names[index] || "").trim()}${ext}`
-  );
-  const canSave =
-    files.length > 0 &&
-    names.every((name) => name.trim().length > 0) &&
-    !uploading;
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (!uploading) onOpenChange(next);
-      }}
-    >
-      <DialogContent
-        showCloseButton
-        className="gap-0 overflow-hidden p-0 sm:max-w-lg"
-      >
-        <DialogHeader className="border-b border-[#ebebeb] px-5 py-4">
-          <DialogTitle className={dashboardTaskTitleClass}>
-            {files.length > 1 ? `Review ${files.length} screen files` : "Name screen file"}
-          </DialogTitle>
-          <p className={dashboardTaskDetailClass}>
-            Files are prefixed with the order number so the floor can match them
-            to this job fast.
-          </p>
-        </DialogHeader>
-
-        <div className="scrollbar-none max-h-[55vh] space-y-3 overflow-y-auto px-5 py-4">
-          {fileParts.map(({ ext }, index) => (
-            <div key={`${files[index]?.name}-${index}`} className="space-y-1.5">
-              <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                {files.length > 1 ? `File ${index + 1}` : "File name"}
-              </Label>
-              <div className="flex items-center gap-1 rounded-lg border border-[#e3e3e3] bg-white px-2 transition-colors focus-within:border-[#2c6ecb]">
-                <span className="shrink-0 py-2 pl-1 text-[13px] font-semibold tabular-nums text-[#616161]">
-                  {prefix} -
-                </span>
-                <input
-                  autoFocus={index === 0}
-                  value={names[index] || ""}
-                  onChange={(event) =>
-                    setNames((current) =>
-                      current.map((name, nameIndex) =>
-                        nameIndex === index ? event.target.value : name
-                      )
-                    )
-                  }
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && canSave) onConfirm(fullNames);
-                  }}
-                  placeholder="front-left-chest"
-                  className="h-9 min-w-0 flex-1 border-0 bg-transparent text-[13px] text-[#303030] outline-none placeholder:text-[#b0b0b0]"
-                />
-                {ext ? (
-                  <span className="shrink-0 py-2 pr-1 text-[13px] text-[#8a8a8a]">
-                    {ext}
+          {pendingUploads.map((entry) => (
+            <div
+              key={entry.localId}
+              className="flex items-center gap-3 bg-[#f8faff] px-4 py-3"
+            >
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#e8f0fb] text-[#2c6ecb]">
+                <FileText className="size-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="truncate text-[13px] font-medium text-[#303030]">
+                    {entry.name}
+                  </p>
+                  <span className="rounded-md bg-[#e8f0fb] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#2c6ecb]">
+                    Pending save
                   </span>
-                ) : null}
+                </div>
+                <p className="text-[12px] text-[#8a8a8a]">
+                  Uploads when you save from the top bar
+                </p>
               </div>
-              <p className="truncate text-[12px] text-[#8a8a8a]">
-                Saves as{" "}
-                <span className="font-medium text-[#303030]">
-                  {fullNames[index]}
-                </span>
-              </p>
+              <div className="flex shrink-0 items-center gap-1.5">
+                {entry.previewUrl ? (
+                  <button
+                    type="button"
+                    aria-label={`Preview ${entry.name}`}
+                    onClick={() =>
+                      onPreview({
+                        name: entry.name,
+                        url: entry.previewUrl,
+                        subtitle: "Screen file (pending)",
+                      })
+                    }
+                    className={cn(
+                      dashboardControlClass,
+                      "inline-flex h-8 items-center gap-1.5 px-2.5 text-[12px] font-medium text-[#303030] hover:bg-[#fafafa]"
+                    )}
+                  >
+                    <Eye className="size-3.5" />
+                    Preview
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label={`Remove ${entry.name}`}
+                  onClick={() => onRemovePending(entry.localId)}
+                  className="inline-flex size-8 items-center justify-center rounded-lg border border-transparent text-[#8a8a8a] transition-colors hover:border-[#f5b5b5] hover:bg-[#fff1f1] hover:text-[#c0392b]"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
             </div>
           ))}
         </div>
-
-        <div className="flex justify-end gap-2 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-4">
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={uploading}
-            className="h-9 rounded-lg"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={!canSave}
-            className={cn(dashboardPrimaryButtonClass, "h-9 px-4 text-[13px]")}
-            onClick={() => onConfirm(fullNames)}
-          >
-            {uploading ? (
-              <>
-                <Loader2 className="size-3.5 animate-spin" />
-                Uploading {files.length > 1 ? `${files.length} files…` : "…"}
-              </>
-            ) : (
-              files.length > 1 ? `Upload ${files.length} files` : "Upload"
-            )}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function FilePreviewDialog({
-  open,
-  onOpenChange,
-  file,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  file: OrderFile | null;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton
-        className="gap-0 overflow-hidden p-0 sm:max-w-3xl"
-      >
-        <DialogHeader className="border-b border-[#ebebeb] px-5 py-4 pr-12">
-          <DialogTitle className={cn(dashboardTaskTitleClass, "truncate")}>
-            {file?.name ?? "Preview"}
-          </DialogTitle>
-          <p className={dashboardTaskDetailClass}>
-            {file
-              ? `${file.uploadedBy} · ${formatDateTime(file.uploadedAt)}`
-              : ""}
-          </p>
-        </DialogHeader>
-
-        <div className="flex max-h-[70vh] items-center justify-center overflow-auto bg-[#f6f6f7] p-4">
-          {file?.previewUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={file.previewUrl}
-              alt={file.name}
-              className="max-h-[62vh] w-auto rounded-md bg-white shadow-sm"
-            />
-          ) : (
-            <div className="flex flex-col items-center gap-2 py-12 text-center">
-              <FileText className="size-6 text-[#8a8a8a]" />
-              <p className="text-[13px] text-[#8a8a8a]">
-                No preview available for this file.
-              </p>
-            </div>
-          )}
-        </div>
-
-        {file?.downloadUrl || file?.previewUrl ? (
-          <div className="flex justify-end gap-2 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-4">
-            <a
-              href={file.downloadUrl || file.previewUrl}
-              download={file.name}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={cn(
-                dashboardControlClass,
-                "inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-[13px] font-medium text-[#303030] hover:bg-[#fafafa]"
-              )}
-            >
-              <Download className="size-3.5" />
-              Download original
-            </a>
-          </div>
-        ) : null}
-      </DialogContent>
-    </Dialog>
+      )}
+    </div>
   );
 }
 
@@ -830,11 +704,11 @@ function DeleteFileDialog({
       >
         <DialogHeader className="border-b border-[#ebebeb] px-5 py-4">
           <DialogTitle className={dashboardTaskTitleClass}>
-            Delete file
+            Remove file
           </DialogTitle>
           <p className={dashboardTaskDetailClass}>
-            This permanently removes the file from this order and from storage.
-            This can&apos;t be undone.
+            This marks the file for removal. It is deleted when you save from
+            the top bar — Discard keeps it.
           </p>
         </DialogHeader>
 
@@ -873,10 +747,10 @@ function DeleteFileDialog({
             {deleting ? (
               <>
                 <Loader2 className="size-3.5 animate-spin" />
-                Deleting…
+                Removing…
               </>
             ) : (
-              "Delete file"
+              "Remove file"
             )}
           </Button>
         </div>
@@ -885,7 +759,12 @@ function DeleteFileDialog({
   );
 }
 
-export type OrderMaterialsSection = "blanks" | "dtf" | "screens" | "inks";
+export type OrderMaterialsSection =
+  | "blanks"
+  | "received_goods"
+  | "dtf"
+  | "screens"
+  | "inks";
 
 export function OrderMaterialsPanel({
   order,
@@ -911,14 +790,27 @@ export function OrderMaterialsPanel({
   const [removeTarget, setRemoveTarget] = useState<OrderMaterialLine | null>(null);
   const [removingRowId, setRemovingRowId] = useState<string | null>(null);
   const screenFileInputRef = useRef<HTMLInputElement>(null);
-  const [uploadingScreenFile, setUploadingScreenFile] = useState(false);
+  const [stagingScreenFile, setStagingScreenFile] = useState(false);
   const [screenFileError, setScreenFileError] = useState<string | null>(null);
-  const [pendingScreenFiles, setPendingScreenFiles] = useState<File[]>([]);
+  const { promptRename, nameFilesDialog } = useNameBeforeUpload();
   const [deleteFileTarget, setDeleteFileTarget] = useState<OrderFile | null>(
     null
   );
-  const [deletingFileId, setDeletingFileId] = useState<string | null>(null);
-  const [previewFile, setPreviewFile] = useState<OrderFile | null>(null);
+  const [previewFile, setPreviewFile] = useState<{
+    name: string;
+    url: string | null;
+    subtitle?: string;
+  } | null>(null);
+  /** Local screen burned toggle — persist via the top save bar. */
+  const [screenBurnedDraft, setScreenBurnedDraft] = useState<boolean | null>(
+    null
+  );
+  const [pendingScreenUploads, setPendingScreenUploads] = useState<
+    PendingScreenUpload[]
+  >([]);
+  const [pendingScreenDeleteIds, setPendingScreenDeleteIds] = useState<
+    string[]
+  >([]);
   const canEditBlanks = canEditOrderBlanks(order);
   const [draftLineItems, setDraftLineItems] = useState<LineItem[]>(
     () => order.lineItems
@@ -926,6 +818,14 @@ export function OrderMaterialsPanel({
   const [draftBlankSource, setDraftBlankSource] = useState<
     BlankSource | undefined
   >(() => order.materials?.blankSource);
+  /** Local receive qty edits — status updates live; persist via the top save bar. */
+  const [receiveDraftLines, setReceiveDraftLines] = useState<
+    OrderMaterialLine[] | null
+  >(null);
+  /** Local ink prep toggles — status updates live; persist via the top save bar. */
+  const [inkDraftLines, setInkDraftLines] = useState<OrderMaterialLine[] | null>(
+    null
+  );
 
   useEffect(() => {
     setDraftLineItems(order.lineItems);
@@ -950,10 +850,57 @@ export function OrderMaterialsPanel({
     () => mergeOrderMaterials(workingOrder),
     [workingOrder]
   );
+
+  useEffect(() => {
+    setReceiveDraftLines(null);
+    setInkDraftLines(null);
+    setScreenBurnedDraft(null);
+    setPendingScreenUploads((current) => {
+      for (const entry of current) {
+        if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+      }
+      return [];
+    });
+    setPendingScreenDeleteIds([]);
+    setScreenFileError(null);
+  }, [order.id]);
+
+  const pendingScreenUploadsRef = useRef(pendingScreenUploads);
+  pendingScreenUploadsRef.current = pendingScreenUploads;
+  useEffect(() => {
+    return () => {
+      for (const entry of pendingScreenUploadsRef.current) {
+        if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+      }
+    };
+  }, []);
+
+  const receiveMaterials = useMemo(() => {
+    if (!receiveDraftLines) return materials;
+    return { ...materials, lines: receiveDraftLines };
+  }, [materials, receiveDraftLines]);
+
+  const inkMaterials = useMemo(() => {
+    if (!inkDraftLines) return materials;
+    return { ...materials, lines: inkDraftLines };
+  }, [materials, inkDraftLines]);
+
   const garmentLines = getGarmentReceivingLines(materials);
+  const receiveGarmentLines = getGarmentReceivingLines(receiveMaterials);
   const dtfLines = getDtfReceivingLines(materials);
-  const screenLine = getScreenSetupLine(materials);
-  const inkLines = getInkPrepLines(materials);
+  const savedScreenLine = getScreenSetupLine(materials);
+  const screenLine = useMemo(() => {
+    if (!savedScreenLine || screenBurnedDraft === null) return savedScreenLine;
+    return {
+      ...savedScreenLine,
+      expectedQty: 1,
+      receivedQty: screenBurnedDraft ? 1 : 0,
+      status: screenBurnedDraft
+        ? ("received" as const)
+        : ("waiting" as const),
+    };
+  }, [savedScreenLine, screenBurnedDraft]);
+  const inkLines = getInkPrepLines(inkMaterials);
   const pieceCount = countExpectedGarmentPieces(workingOrder);
   const garmentSubtotal = useMemo(
     () =>
@@ -962,23 +909,34 @@ export function OrderMaterialsPanel({
         : 0,
     [workingOrder, shopDefaultMarkup, showBlankPricing]
   );
-  const screenFiles = useMemo(
+  const savedScreenFiles = useMemo(
     () => (order.files ?? []).filter((file) => file.kind === "separation"),
     [order.files]
+  );
+  const screenFiles = useMemo(
+    () =>
+      savedScreenFiles.filter(
+        (file) => !pendingScreenDeleteIds.includes(file.id)
+      ),
+    [savedScreenFiles, pendingScreenDeleteIds]
   );
 
   const garmentRowGroups = useMemo(() => {
     const rowSpanByLineId = new Map<string, number>();
     const isFirstRow = new Map<string, boolean>();
     const counts = new Map<string, number>();
+    const linesForGroups =
+      section === "blanks" || section === "received_goods"
+        ? receiveGarmentLines
+        : garmentLines;
 
-    for (const line of garmentLines) {
+    for (const line of linesForGroups) {
       const key = line.lineItemId ?? line.id;
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
 
     const seen = new Set<string>();
-    for (const line of garmentLines) {
+    for (const line of linesForGroups) {
       const key = line.lineItemId ?? line.id;
       if (!seen.has(key)) {
         seen.add(key);
@@ -990,7 +948,7 @@ export function OrderMaterialsPanel({
     }
 
     return { rowSpanByLineId, isFirstRow };
-  }, [garmentLines]);
+  }, [garmentLines, receiveGarmentLines, section]);
 
   const allReceived = materials.lines.every((line) => line.status === "received");
 
@@ -1060,7 +1018,9 @@ export function OrderMaterialsPanel({
         (draftBlankSource ?? null) !== (order.materials?.blankSource ?? null)
       ) {
         await updateOrderMaterials(order.id, {
-          lines: order.materials?.lines ?? materials.lines,
+          // Prefer receive draft so a concurrent blanks+received save
+          // does not write stale received quantities.
+          lines: receiveDraftLines ?? order.materials?.lines ?? materials.lines,
           blankSource: draftBlankSource,
         });
       }
@@ -1071,6 +1031,7 @@ export function OrderMaterialsPanel({
     blanksDirty,
     draftLineItems,
     draftBlankSource,
+    receiveDraftLines,
     order.id,
     order.lineItems,
     order.materials,
@@ -1080,17 +1041,272 @@ export function OrderMaterialsPanel({
   ]);
 
   useRegisterUnsavedChanges(
-    canEditBlanks && (blanksDirty || saving)
+    canEditBlanks &&
+      blanksDirty &&
+      (section === "blanks" || section === "received_goods" || !section)
       ? {
           dirty: true,
           saving,
           label: "Unsaved blanks",
-          persistAcrossTabs: true,
+          persistAcrossTabs: false,
           onSave: () => saveBlanksDraft(),
           onDiscard: discardBlanksDraft,
         }
       : null,
     `order-blanks-${order.id}`
+  );
+
+  const receiveDirty = useMemo(() => {
+    if (!receiveDraftLines) return false;
+    const savedById = new Map(
+      materials.lines.map((line) => [line.id, line.receivedQty ?? 0])
+    );
+    return receiveDraftLines.some((line) => {
+      if (line.kind !== "garments") return false;
+      return (savedById.get(line.id) ?? 0) !== (line.receivedQty ?? 0);
+    });
+  }, [receiveDraftLines, materials.lines]);
+
+  const patchReceiveQty = useCallback(
+    (lineId: string, receivedQty: number) => {
+      const base = receiveDraftLines ?? materials.lines;
+      const nextQty = Math.max(0, Math.floor(receivedQty));
+      setReceiveDraftLines(
+        base.map((line) => {
+          if (line.id !== lineId) return line;
+          const extras = Math.max(0, nextQty - line.expectedQty);
+          const overageNote =
+            line.kind === "garments"
+              ? `Received ${extras} extra piece${extras === 1 ? "" : "s"}`
+              : undefined;
+          return {
+            ...line,
+            receivedQty: nextQty,
+            status: computeMaterialLineStatus(line.expectedQty, nextQty),
+            notes:
+              extras > 0 && overageNote
+                ? overageNote
+                : line.notes?.startsWith("Received ")
+                  ? undefined
+                  : line.notes,
+          };
+        })
+      );
+    },
+    [receiveDraftLines, materials.lines]
+  );
+
+  const markAllReceivedDraft = useCallback(() => {
+    const next = receiveAllGarmentLines(
+      { ...receiveMaterials, lines: receiveDraftLines ?? materials.lines },
+      "Shop"
+    );
+    setReceiveDraftLines(next.lines);
+  }, [receiveMaterials, receiveDraftLines, materials.lines]);
+
+  const saveReceiveDraft = useCallback(async () => {
+    if (!receiveDraftLines || !receiveDirty) return;
+    setSaving(true);
+    try {
+      await updateOrderMaterials(order.id, {
+        lines: receiveDraftLines,
+        blankSource: draftBlankSource ?? order.materials?.blankSource,
+      });
+      setReceiveDraftLines(null);
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    receiveDraftLines,
+    receiveDirty,
+    updateOrderMaterials,
+    order.id,
+    order.materials?.blankSource,
+    draftBlankSource,
+  ]);
+
+  const discardReceiveDraft = useCallback(() => {
+    setReceiveDraftLines(null);
+  }, []);
+
+  useRegisterUnsavedChanges(
+    (section === "received_goods" || section === "blanks") && receiveDirty
+      ? {
+          dirty: true,
+          saving,
+          label: "Unsaved received quantities",
+          persistAcrossTabs: false,
+          onSave: () => saveReceiveDraft(),
+          onDiscard: discardReceiveDraft,
+        }
+      : null,
+    `order-received-goods-${order.id}`
+  );
+
+  const inkDirty = useMemo(() => {
+    if (!inkDraftLines) return false;
+    const savedById = new Map(
+      materials.lines
+        .filter((line) => line.kind === "ink_prep")
+        .map((line) => [
+          line.id,
+          {
+            status: line.status,
+            ids: [...(line.preppedInkColorIds ?? [])].sort().join(","),
+          },
+        ] as const)
+    );
+    return inkDraftLines.some((line) => {
+      if (line.kind !== "ink_prep") return false;
+      const saved = savedById.get(line.id);
+      if (!saved) return true;
+      const nextIds = [...(line.preppedInkColorIds ?? [])].sort().join(",");
+      return saved.status !== line.status || saved.ids !== nextIds;
+    });
+  }, [inkDraftLines, materials.lines]);
+
+  const saveInkDraft = useCallback(async () => {
+    if (!inkDraftLines || !inkDirty) return;
+    setSaving(true);
+    try {
+      await updateOrderMaterials(order.id, {
+        lines: inkDraftLines,
+        blankSource: draftBlankSource ?? order.materials?.blankSource,
+      });
+      setInkDraftLines(null);
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    inkDraftLines,
+    inkDirty,
+    updateOrderMaterials,
+    order.id,
+    order.materials?.blankSource,
+    draftBlankSource,
+  ]);
+
+  const discardInkDraft = useCallback(() => {
+    setInkDraftLines(null);
+  }, []);
+
+  useRegisterUnsavedChanges(
+    section === "inks" && inkDirty
+      ? {
+          dirty: true,
+          saving,
+          label: "Unsaved ink prep",
+          persistAcrossTabs: false,
+          onSave: () => saveInkDraft(),
+          onDiscard: discardInkDraft,
+        }
+      : null,
+    `order-inks-${order.id}`
+  );
+
+  const screenBurnDirty = useMemo(() => {
+    if (screenBurnedDraft === null || !savedScreenLine) return false;
+    return (savedScreenLine.status === "received") !== screenBurnedDraft;
+  }, [screenBurnedDraft, savedScreenLine]);
+
+  const screenFilesDirty =
+    pendingScreenUploads.length > 0 || pendingScreenDeleteIds.length > 0;
+  const screensDirty = screenBurnDirty || screenFilesDirty;
+
+  const discardScreensDraft = useCallback(() => {
+    setScreenBurnedDraft(null);
+    setPendingScreenUploads((current) => {
+      for (const entry of current) {
+        if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+      }
+      return [];
+    });
+    setPendingScreenDeleteIds([]);
+    setScreenFileError(null);
+  }, []);
+
+  const saveScreensDraft = useCallback(async () => {
+    if (!screensDirty) return;
+    setSaving(true);
+    setScreenFileError(null);
+    try {
+      if (screenBurnDirty && savedScreenLine) {
+        const burned = screenBurnedDraft === true;
+        const lines = materials.lines.map((line) =>
+          line.id === savedScreenLine.id
+            ? {
+                ...line,
+                expectedQty: 1,
+                receivedQty: burned ? 1 : 0,
+                status: burned
+                  ? ("received" as const)
+                  : ("waiting" as const),
+              }
+            : line
+        );
+        await updateOrderMaterials(order.id, {
+          lines,
+          blankSource: draftBlankSource ?? order.materials?.blankSource,
+        });
+        setScreenBurnedDraft(null);
+      }
+      for (const fileId of pendingScreenDeleteIds) {
+        await deleteOrderFile(order.id, fileId);
+      }
+      for (const entry of pendingScreenUploads) {
+        await uploadOrderFile(order.id, {
+          name: entry.name,
+          kind: "separation",
+          uploadedBy: "Shop",
+          contentBase64: entry.contentBase64,
+          contentType: entry.contentType,
+        });
+      }
+      setPendingScreenUploads((current) => {
+        for (const entry of current) {
+          if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl);
+        }
+        return [];
+      });
+      setPendingScreenDeleteIds([]);
+    } catch (err) {
+      setScreenFileError(
+        err instanceof Error
+          ? err.message
+          : "Could not save screen changes. Try again."
+      );
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    screensDirty,
+    screenBurnDirty,
+    savedScreenLine,
+    screenBurnedDraft,
+    materials.lines,
+    pendingScreenDeleteIds,
+    pendingScreenUploads,
+    updateOrderMaterials,
+    deleteOrderFile,
+    uploadOrderFile,
+    order.id,
+    order.materials?.blankSource,
+    draftBlankSource,
+  ]);
+
+  useRegisterUnsavedChanges(
+    section === "screens" && screensDirty
+      ? {
+          dirty: true,
+          saving,
+          label: "Unsaved screens",
+          persistAcrossTabs: false,
+          onSave: () => saveScreensDraft(),
+          onDiscard: discardScreensDraft,
+        }
+      : null,
+    `order-screens-${order.id}`
   );
 
   const setBlankSource = (next: BlankSource) => {
@@ -1268,7 +1484,7 @@ export function OrderMaterialsPanel({
               <th className="w-28 px-3 py-2.5 text-right font-medium text-[#616161]">
                 Ordered
               </th>
-              <th className="w-40 px-3 py-2.5 text-right font-medium text-[#616161]">
+              <th className="w-28 px-3 py-2.5 text-right font-medium text-[#616161]">
                 Received
               </th>
               {showBlankPricing ? (
@@ -1295,7 +1511,7 @@ export function OrderMaterialsPanel({
             </tr>
           </thead>
           <tbody>
-            {garmentLines.length === 0 ? (
+            {receiveGarmentLines.length === 0 ? (
               <tr>
                 <td
                   colSpan={
@@ -1309,7 +1525,7 @@ export function OrderMaterialsPanel({
                 </td>
               </tr>
             ) : (
-              garmentLines.map((line) => {
+              receiveGarmentLines.map((line) => {
                 const lineItem = draftLineItems.find(
                   (entry) => entry.id === line.lineItemId
                 );
@@ -1414,7 +1630,8 @@ export function OrderMaterialsPanel({
                       <QtyReceivedInput
                         line={line}
                         saving={saving || isRemoving}
-                        onSave={(qty) => updateLine(line.id, qty)}
+                        commitOnChange
+                        onCommit={(qty) => patchReceiveQty(line.id, qty)}
                       />
                     </td>
                     {showBlankPricing ? (
@@ -1536,43 +1753,195 @@ export function OrderMaterialsPanel({
     </div>
   );
 
+  const receivedGoodsTable = (
+    <div className={cn(dashboardInsetSurfaceClass, "overflow-hidden")}>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[720px] text-[13px]">
+          <thead>
+            <tr className="border-b border-[#ebebeb] bg-[#fafafa]">
+              <th className="min-w-[180px] px-4 py-2.5 text-left font-medium text-[#616161]">
+                Product
+              </th>
+              <th className="min-w-[100px] px-3 py-2.5 text-left font-medium text-[#616161]">
+                Color
+              </th>
+              <th className="w-16 px-3 py-2.5 text-left font-medium text-[#616161]">
+                Size
+              </th>
+              <th className="w-28 px-3 py-2.5 text-right font-medium text-[#616161]">
+                Ordered
+              </th>
+              <th className="w-28 px-3 py-2.5 text-right font-medium text-[#616161]">
+                Received
+              </th>
+              <th className="w-28 px-3 py-2.5 text-right font-medium text-[#616161]">
+                Status
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {receiveGarmentLines.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={6}
+                  className="px-4 py-8 text-center text-[13px] text-[#616161]"
+                >
+                  No blanks on this order yet — add them on the{" "}
+                  {blanksTabLabel(order)} tab first.
+                </td>
+              </tr>
+            ) : (
+              receiveGarmentLines.map((line) => {
+                const isFirstInGroup =
+                  garmentRowGroups.isFirstRow.get(line.id) ?? true;
+                const rowSpan = garmentRowGroups.rowSpanByLineId.get(line.id);
+                const rowStyles =
+                  line.status === "received"
+                    ? undefined
+                    : GARMENT_RECEIVE_STATUS_STYLES[line.status];
+                const productTitle = formatBrandProductName(
+                  line.brand,
+                  line.productName ?? line.label
+                );
+
+                return (
+                  <tr
+                    key={line.id}
+                    className={cn(
+                      "border-b border-[#ebebeb] last:border-0",
+                      rowStyles?.row
+                    )}
+                  >
+                    {isFirstInGroup ? (
+                      <>
+                        <td
+                          rowSpan={rowSpan}
+                          className="border-r border-[#f0f0f0] px-4 py-3 align-top"
+                        >
+                          <p className="font-medium text-[#303030]">
+                            {productTitle || "Item"}
+                          </p>
+                        </td>
+                        <td
+                          rowSpan={rowSpan}
+                          className="border-r border-[#f0f0f0] px-3 py-3 align-top text-[#616161]"
+                        >
+                          {line.color ?? "—"}
+                        </td>
+                      </>
+                    ) : null}
+                    <td className="px-3 py-3 font-semibold text-[#303030]">
+                      {line.size ?? "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-[#303030]">
+                      {line.expectedQty}
+                    </td>
+                    <td className="px-3 py-3">
+                      <QtyReceivedInput
+                        line={line}
+                        saving={saving}
+                        commitOnChange
+                        onCommit={(qty) => patchReceiveQty(line.id, qty)}
+                      />
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <ReceivingStatusPill line={line} />
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const blankSourceBlock =
+    garmentLines.length > 0 ? (
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-[13px] font-semibold text-[#303030]">
+            Who orders the goods?
+          </h3>
+          <span
+            className={cn(
+              "inline-flex rounded-md border px-2 py-0.5 text-[11px] font-semibold",
+              blankSource
+                ? "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]"
+                : "border-[#f0d9a8] bg-[#ffef9d] text-[#4a3800]"
+            )}
+          >
+            {blankSource ? blankSourceLabel(blankSource) : "Not set"}
+          </span>
+        </div>
+        <p className={dashboardTaskDetailClass}>
+          Shop PO vs customer-supplied garments — shown on the orders list.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {(Object.entries(BLANK_SOURCE_LABELS) as [BlankSource, string][]).map(
+            ([value, label]) => (
+              <ProofActionButton
+                key={value}
+                variant="secondary"
+                selected={blankSource === value}
+                disabled={saving || !canEditBlanks}
+                successLabel="Saved"
+                className="h-9 flex-1 text-[13px] sm:flex-none"
+                onClick={() => setBlankSource(value)}
+              >
+                {label}
+              </ProofActionButton>
+            )
+          )}
+        </div>
+      </div>
+    ) : null;
+
+  const overReceivedNotice = receiveGarmentLines.some((line) =>
+    isGarmentOverReceived(line)
+  ) ? (
+    <div className="rounded-lg border border-amber-300 bg-[#fffbeb] px-3 py-2.5 text-[13px] text-amber-950">
+      <p className="font-semibold">Received more than ordered</p>
+      <p className="mt-0.5 text-[12px] text-amber-900/90">
+        Extra blanks are OK — enter the full qty received so inventory and the
+        floor stay accurate. Produced goods (after print) are tracked separately
+        on the Produced goods tab.
+      </p>
+    </div>
+  ) : null;
+
   const toggleScreen = (done: boolean) => {
-    if (!screenLine) return Promise.resolve();
-    const lines = materials.lines.map((line) =>
-      line.id === screenLine.id
-        ? {
-            ...line,
-            expectedQty: 1,
-            receivedQty: done ? 1 : 0,
-            status: done ? ("received" as const) : ("waiting" as const),
-          }
-        : line
-    );
-    return saveLines(lines);
+    if (!savedScreenLine) return;
+    setScreenBurnedDraft(done);
   };
 
-  const toggleInkColorPrep = async (
+  const toggleInkColorPrep = (
     lineId: string,
     colorId: string,
     prepped: boolean
   ) => {
-    const lines = materials.lines.map((line) => {
-      if (line.id !== lineId || !line.jobId || !line.imprintId) return line;
-      const imprint = findImprint(order, line.jobId, line.imprintId);
-      if (!imprint) return line;
-      return inkPrepLineFromColorToggle(line, imprint, colorId, prepped);
-    });
-    await saveLines(lines);
+    const base = inkDraftLines ?? materials.lines;
+    setInkDraftLines(
+      base.map((line) => {
+        if (line.id !== lineId || !line.jobId || !line.imprintId) return line;
+        const imprint = findImprint(order, line.jobId, line.imprintId);
+        if (!imprint) return line;
+        return inkPrepLineFromColorToggle(line, imprint, colorId, prepped);
+      })
+    );
   };
 
-  const markInkLocationPrep = async (lineId: string, prepped: boolean) => {
-    const lines = materials.lines.map((line) => {
-      if (line.id !== lineId || !line.jobId || !line.imprintId) return line;
-      const imprint = findImprint(order, line.jobId, line.imprintId);
-      if (!imprint) return line;
-      return inkPrepLineMarkAll(line, imprint, prepped);
-    });
-    await saveLines(lines);
+  const markInkLocationPrep = (lineId: string, prepped: boolean) => {
+    const base = inkDraftLines ?? materials.lines;
+    setInkDraftLines(
+      base.map((line) => {
+        if (line.id !== lineId || !line.jobId || !line.imprintId) return line;
+        const imprint = findImprint(order, line.jobId, line.imprintId);
+        if (!imprint) return line;
+        return inkPrepLineMarkAll(line, imprint, prepped);
+      })
+    );
   };
 
   const persistImprintInkColors = (
@@ -1581,7 +1950,7 @@ export function OrderMaterialsPanel({
     inkColors: ImprintInkColor[]
   ) => updateImprintInkColors(order.id, jobId, imprintId, inkColors);
 
-  const handleScreenFileChange = (
+  const handleScreenFileChange = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const files = Array.from(event.target.files ?? []);
@@ -1589,49 +1958,62 @@ export function OrderMaterialsPanel({
     if (files.length === 0) return;
 
     setScreenFileError(null);
-    setPendingScreenFiles(files);
-  };
+    const named = await promptRename(files, {
+      title:
+        files.length > 1
+          ? `Review ${files.length} screen files`
+          : "Name screen file",
+      description:
+        "Files are prefixed with the order number so the floor can match them to this job fast.",
+      namePrefix: compactOrderNumberForLabel(order.number),
+    });
+    if (!named?.length) return;
 
-  const confirmScreenFileUpload = async (fullNames: string[]) => {
-    if (pendingScreenFiles.length === 0) return;
-
-    setScreenFileError(null);
-    setUploadingScreenFile(true);
+    setStagingScreenFile(true);
     try {
-      for (let index = 0; index < pendingScreenFiles.length; index += 1) {
-        const file = pendingScreenFiles[index];
+      const staged: PendingScreenUpload[] = [];
+      for (const { file, name } of named) {
         const { base64, contentType, error } = await readUploadContent(file);
         if (error) throw new Error(error);
-        await uploadOrderFile(order.id, {
-          name: fullNames[index] || file.name,
-          kind: "separation",
-          uploadedBy: "Shop",
+        const previewUrl = file.type.startsWith("image/")
+          ? URL.createObjectURL(file)
+          : null;
+        staged.push({
+          localId: createPendingScreenId(),
+          name,
           contentBase64: base64,
           contentType,
+          previewUrl,
         });
       }
-      setPendingScreenFiles([]);
+      setPendingScreenUploads((current) => [...current, ...staged]);
     } catch (err) {
       setScreenFileError(
-        err instanceof Error ? err.message : "Could not upload these files. Try again."
+        err instanceof Error
+          ? err.message
+          : "Could not stage these files. Try again."
       );
     } finally {
-      setUploadingScreenFile(false);
+      setStagingScreenFile(false);
     }
   };
 
-  const confirmDeleteFile = async () => {
-    if (!deleteFileTarget) return;
+  const removePendingScreenUpload = (localId: string) => {
+    setPendingScreenUploads((current) => {
+      const target = current.find((entry) => entry.localId === localId);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return current.filter((entry) => entry.localId !== localId);
+    });
+  };
 
-    setDeletingFileId(deleteFileTarget.id);
-    try {
-      await deleteOrderFile(order.id, deleteFileTarget.id);
-      setDeleteFileTarget(null);
-    } catch {
-      setScreenFileError("Could not delete this file. Try again.");
-    } finally {
-      setDeletingFileId(null);
-    }
+  const confirmDeleteFile = () => {
+    if (!deleteFileTarget) return;
+    setPendingScreenDeleteIds((current) =>
+      current.includes(deleteFileTarget.id)
+        ? current
+        : [...current, deleteFileTarget.id]
+    );
+    setDeleteFileTarget(null);
   };
 
   const sectionTitle =
@@ -1641,9 +2023,11 @@ export function OrderMaterialsPanel({
         ? "Screens"
         : section === "inks"
           ? "Inks"
-        : section === "blanks"
-          ? blanksTabLabel(order)
-          : "Receiving";
+          : section === "received_goods"
+            ? "Received goods"
+            : section === "blanks"
+              ? blanksTabLabel(order)
+              : "Receiving";
 
   const sectionDescription =
     section === "dtf"
@@ -1652,7 +2036,9 @@ export function OrderMaterialsPanel({
         ? "Burn and prep screens for every screen print location on this order."
         : section === "inks"
           ? "Mix and prep ink for each screen print location before production."
-        : "Confirm blank garments by size and who is ordering the goods.";
+          : section === "received_goods"
+            ? "Mark blank garments received by size when the shipment arrives. Save from the top bar when you’re done."
+            : "Confirm blank garments by size and who is ordering the goods. Received qty edits save from the top bar.";
 
   const sectionEmpty =
     section === "dtf"
@@ -1661,11 +2047,60 @@ export function OrderMaterialsPanel({
         ? !screenLine
         : section === "inks"
           ? inkLines.length === 0
-        : false;
+          : false;
 
   const showBlanks = !section || section === "blanks";
   const showDtf = !section || section === "dtf";
   const showScreens = !section || section === "screens";
+
+  if (section === "received_goods") {
+    const allDraftReceived =
+      receiveGarmentLines.length > 0 &&
+      receiveGarmentLines.every((line) => line.status === "received");
+
+    return (
+      <section className={dashboardCardClass}>
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className={dashboardTaskTitleClass}>Received goods</h2>
+              {receiveGarmentLines.length > 0 ? (
+                <span className="rounded-md bg-[#f1f1f1] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#616161]">
+                  {
+                    receiveGarmentLines.filter(
+                      (line) => line.status === "received"
+                    ).length
+                  }
+                  /{receiveGarmentLines.length} sizes in
+                </span>
+              ) : null}
+            </div>
+            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+              Type qty received when blanks arrive — status updates as you type.
+              Manage styles on the {blanksTabLabel(order)} tab.
+            </p>
+          </div>
+          {receiveGarmentLines.length > 0 ? (
+            <Button
+              type="button"
+              disabled={saving || allDraftReceived}
+              className={cn(dashboardControlClass, "h-8 shrink-0 text-[12px]")}
+              onClick={markAllReceivedDraft}
+              title="Fill every size to the ordered quantity"
+            >
+              <Check className="size-3.5" />
+              Receive all
+            </Button>
+          ) : null}
+        </div>
+        <div className="space-y-5 p-4 sm:p-5">
+          {blankSourceBlock}
+          {overReceivedNotice}
+          {receivedGoodsTable}
+        </div>
+      </section>
+    );
+  }
 
   if (section === "blanks") {
     return (
@@ -1673,57 +2108,8 @@ export function OrderMaterialsPanel({
         <section className={dashboardCardClass}>
           {blanksHeader}
           <div className="space-y-5 p-4 sm:p-5">
-            {garmentLines.length > 0 ? (
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-[13px] font-semibold text-[#303030]">
-                    Who orders the goods?
-                  </h3>
-                  <span
-                    className={cn(
-                      "inline-flex rounded-md border px-2 py-0.5 text-[11px] font-semibold",
-                      blankSource
-                        ? "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]"
-                        : "border-[#f0d9a8] bg-[#ffef9d] text-[#4a3800]"
-                    )}
-                  >
-                    {blankSource ? blankSourceLabel(blankSource) : "Not set"}
-                  </span>
-                </div>
-                <p className={dashboardTaskDetailClass}>
-                  Shop PO vs customer-supplied garments — shown on the orders list.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {(Object.entries(BLANK_SOURCE_LABELS) as [BlankSource, string][]).map(
-                    ([value, label]) => (
-                      <ProofActionButton
-                        key={value}
-                        variant="secondary"
-                        selected={blankSource === value}
-                        disabled={saving || !canEditBlanks}
-                        successLabel="Saved"
-                        className="h-9 flex-1 text-[13px] sm:flex-none"
-                        onClick={() => setBlankSource(value)}
-                      >
-                        {label}
-                      </ProofActionButton>
-                    )
-                  )}
-                </div>
-              </div>
-            ) : null}
-
-            {garmentLines.some((line) => isGarmentOverReceived(line)) ? (
-              <div className="rounded-lg border border-amber-300 bg-[#fffbeb] px-3 py-2.5 text-[13px] text-amber-950">
-                <p className="font-semibold">Received more than ordered</p>
-                <p className="mt-0.5 text-[12px] text-amber-900/90">
-                  Extra blanks are OK — enter the full qty received so inventory
-                  and the floor stay accurate. Produced goods (after print) are
-                  tracked separately on the Produced goods tab.
-                </p>
-              </div>
-            ) : null}
-
+            {blankSourceBlock}
+            {overReceivedNotice}
             {blanksTable}
           </div>
         </section>
@@ -1764,8 +2150,9 @@ export function OrderMaterialsPanel({
         <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
           <h2 className={dashboardTaskTitleClass}>Inks</h2>
           <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-            Mix and prep each Pantone for every screen print location. PMS
-            edits here update proofs and artwork on the order.
+            Mix and prep each Pantone for every screen print location. Prep
+            status saves from the top bar. PMS edits here update proofs and
+            artwork on the order.
           </p>
         </div>
         <div className="space-y-5 p-4 sm:p-5">
@@ -1964,7 +2351,7 @@ export function OrderMaterialsPanel({
                           <QtyReceivedInput
                             line={line}
                             saving={saving}
-                            onSave={(qty) => updateLine(line.id, qty)}
+                            onCommit={(qty) => updateLine(line.id, qty)}
                           />
                         </td>
                         <td className="px-4 py-3 text-right">
@@ -1992,12 +2379,14 @@ export function OrderMaterialsPanel({
 
             <ScreenFilesSection
               files={screenFiles}
-              uploading={uploadingScreenFile}
+              pendingUploads={pendingScreenUploads}
+              uploading={stagingScreenFile || saving}
               error={screenFileError}
               onUploadClick={() => screenFileInputRef.current?.click()}
               onPreview={(file) => setPreviewFile(file)}
               onDelete={(file) => setDeleteFileTarget(file)}
-              deletingFileId={deletingFileId}
+              onRemovePending={removePendingScreenUpload}
+              deletingFileId={null}
             />
 
             <div className="space-y-2">
@@ -2017,31 +2406,25 @@ export function OrderMaterialsPanel({
         ) : null}
       </div>
     </section>
-    <ScreenFileNameDialog
-      open={pendingScreenFiles.length > 0}
-      onOpenChange={(open) => {
-        if (!open) setPendingScreenFiles([]);
-      }}
-      orderNumber={order.number}
-      files={pendingScreenFiles}
-      uploading={uploadingScreenFile}
-      onConfirm={(fullNames) => void confirmScreenFileUpload(fullNames)}
-    />
+    {nameFilesDialog}
     <DeleteFileDialog
       open={deleteFileTarget !== null}
       onOpenChange={(open) => {
         if (!open) setDeleteFileTarget(null);
       }}
       file={deleteFileTarget}
-      deleting={deletingFileId !== null}
-      onConfirm={() => void confirmDeleteFile()}
+      deleting={false}
+      onConfirm={confirmDeleteFile}
     />
     <FilePreviewDialog
-      open={previewFile !== null}
+      open={Boolean(previewFile?.url)}
       onOpenChange={(open) => {
         if (!open) setPreviewFile(null);
       }}
-      file={previewFile}
+      title={previewFile?.name || "File"}
+      subtitle={previewFile?.subtitle}
+      url={previewFile?.url ?? null}
+      filename={previewFile?.name}
     />
     </>
   );

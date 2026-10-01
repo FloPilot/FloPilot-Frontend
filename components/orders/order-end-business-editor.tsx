@@ -3,27 +3,35 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
+  OrderHeaderCombo,
+  OrderHeaderField,
+} from "@/components/orders/order-header-field";
+import {
   Select,
   SelectContent,
   SelectItem,
   LabeledSelectValue,
   SelectTrigger,
 } from "@/components/ui/select";
+import { dashboardSelectItemClass } from "@/lib/dashboard-styles";
+import {
+  orderHeaderComboTriggerClass,
+  orderHeaderSelectContentClass,
+} from "@/lib/order-addresses";
 import { sortSubCustomers } from "@/lib/sub-customers";
 import type { Order, SubCustomer } from "@/types";
-import { cn } from "@/lib/utils";
 
 export function OrderEndBusinessEditor({
   order,
   subCustomers,
-  customerId,
   onSave,
   onDraftChange,
   className,
 }: {
   order: Pick<Order, "id" | "subCustomerId" | "subCustomerName">;
   subCustomers: SubCustomer[];
-  customerId: string;
+  /** @deprecated Prefer linking the customer name in the order header. */
+  customerId?: string;
   onSave?: (subCustomerId: string | null) => Promise<void | unknown>;
   /** When set, edits stay local until the parent Save/Discard bar commits. */
   onDraftChange?: (subCustomerId: string | null) => void;
@@ -58,7 +66,6 @@ export function OrderEndBusinessEditor({
 
   const currentValue = order.subCustomerId || "none";
   const [saving, setSaving] = useState(false);
-  const hasSelection = Boolean(order.subCustomerId);
 
   const handleChange = async (value: string | null) => {
     const nextId = !value || value === "none" ? null : value;
@@ -80,52 +87,40 @@ export function OrderEndBusinessEditor({
   };
 
   return (
-    <div
-      className={cn(
-        "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[13px]",
-        className
-      )}
-    >
-      <span className="shrink-0 font-semibold text-[#303030]">End business</span>
-      <Select
-        value={currentValue}
-        onValueChange={(value) => void handleChange(value)}
-        disabled={saving}
-      >
-        <SelectTrigger
-          id={`order-end-business-${order.id}`}
-          className={cn(
-            "h-7 w-auto max-w-[min(100%,18rem)] gap-1 rounded-md border bg-transparent px-2 text-[13px] shadow-none",
-            hasSelection
-              ? "border-[#d8d8d8] font-medium text-[#303030]"
-              : "border-[#ebebeb] font-normal text-[#8a8a8a] hover:border-[#d8d8d8]",
-            "focus-visible:border-[#c4d7f2] focus-visible:ring-2 focus-visible:ring-[#2c6ecb]/10"
-          )}
+    <OrderHeaderField label="End business" className={className}>
+      <OrderHeaderCombo>
+        <Select
+          value={currentValue}
+          onValueChange={(value) => void handleChange(value)}
+          disabled={saving}
         >
-          <LabeledSelectValue
-            value={currentValue}
-            options={selectItems}
-            placeholder="None"
-          />
-        </SelectTrigger>
-        <SelectContent>
-          {selectItems.map((item) => (
-            <SelectItem key={item.value} value={item.value}>
-              {item.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      {saving ? (
-        <span className="text-[12px] text-[#8a8a8a]">Saving…</span>
-      ) : (
-        <Link
-          href={`/app/customers/${customerId}`}
-          className="text-[12px] text-[#8a8a8a] transition-colors hover:text-[#2c6ecb]"
-        >
-          Manage
-        </Link>
-      )}
-    </div>
+          <SelectTrigger
+            id={`order-end-business-${order.id}`}
+            className={orderHeaderComboTriggerClass}
+          >
+            <LabeledSelectValue
+              value={currentValue}
+              options={selectItems}
+              placeholder="None"
+            />
+          </SelectTrigger>
+          <SelectContent
+            align="start"
+            alignItemWithTrigger={false}
+            className={orderHeaderSelectContentClass}
+          >
+            {selectItems.map((item) => (
+              <SelectItem
+                key={item.value}
+                value={item.value}
+                className={dashboardSelectItemClass}
+              >
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </OrderHeaderCombo>
+    </OrderHeaderField>
   );
 }

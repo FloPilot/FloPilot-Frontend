@@ -26,6 +26,7 @@ export function ProofActionButton({
   variant = "secondary",
   className,
   successLabel,
+  loadingLabel = "Working…",
   selected = false,
 }: {
   children: React.ReactNode;
@@ -34,6 +35,7 @@ export function ProofActionButton({
   variant?: ProofActionVariant;
   className?: string;
   successLabel?: string;
+  loadingLabel?: string;
   selected?: boolean;
 }) {
   const [state, setState] = useState<ActionState>("idle");
@@ -70,16 +72,22 @@ export function ProofActionButton({
             : VARIANT_STYLES[variant],
         selected && !showSuccess && !showLoading && "ring-2 ring-[#2c6ecb]/25",
         showSuccess && "ring-2 ring-[#86d4a8]/40",
+        showLoading && "opacity-90",
         className
       )}
+      aria-busy={showLoading || undefined}
     >
       {showLoading ? (
-        <Loader2 className="size-3.5 shrink-0 animate-spin" />
+        <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
       ) : showSuccess ? (
         <Check className="size-3.5 shrink-0 animate-in zoom-in-50 duration-200" />
       ) : null}
       <span className="truncate">
-        {showLoading ? "Working…" : showSuccess ? successLabel ?? "Done" : children}
+        {showLoading
+          ? loadingLabel
+          : showSuccess
+            ? successLabel ?? "Done"
+            : children}
       </span>
     </button>
   );

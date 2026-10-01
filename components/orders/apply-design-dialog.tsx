@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { listDesigns } from "@/lib/api";
+import { matchesDesignCodeSearch } from "@/lib/design-code";
 import { decorationLabel } from "@/lib/format";
 import { formatImprintOptionLabel } from "@/lib/imprint-display";
 import { formatOrderDisplayLine } from "@/lib/order-display";
@@ -236,8 +237,10 @@ export function ApplyDesignDialog({
         return false;
       }
       if (!needle) return true;
+      if (matchesDesignCodeSearch(design.designCode, query)) return true;
       const haystack = [
         design.name,
+        design.designCode,
         design.locationLabel,
         design.imprintCustomLabel,
         design.sourceOrderCustomLabel,
@@ -380,7 +383,7 @@ export function ApplyDesignDialog({
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search by name, location, or order…"
+                placeholder="Search by design code, name, location, or order…"
                 className="h-9 w-full rounded-lg border border-[#e3e3e3] bg-white pl-9 pr-3 text-xs text-[#303030] outline-none placeholder:text-[#8a8a8a] focus:border-[#2c6ecb]/50 focus:ring-2 focus:ring-[#2c6ecb]/15"
               />
             </div>

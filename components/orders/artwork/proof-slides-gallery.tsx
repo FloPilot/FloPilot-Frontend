@@ -27,12 +27,12 @@ import {
   Loader2,
   Shirt,
   Trash2,
-  Wand2,
+  // Wand2, // Design Studio button on proofs — temporarily hidden
 } from "lucide-react";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import { useNameBeforeUpload } from "@/hooks/use-name-before-upload";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { readImagePreviewDataUrl } from "@/lib/artwork-preview";
 import {
   dashboardControlClass,
@@ -339,6 +339,7 @@ export function ProofSlidesEditor({
   };
 }) {
   const { addProofSlide, updateProofSlides } = useSchedule();
+  const { promptRename, nameFilesDialog } = useNameBeforeUpload();
   const addSlideFn = adapters?.addProofSlide ?? addProofSlide;
   const updateSlidesFn = adapters?.updateProofSlides ?? updateProofSlides;
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -346,7 +347,6 @@ export function ProofSlidesEditor({
   const [saving, setSaving] = useState(false);
   const [uploadHint, setUploadHint] = useState<string | null>(null);
   const [activeId, setActiveId] = useState("");
-  const [labelDraft, setLabelDraft] = useState("");
 
   const artwork = imprint.artwork;
   const artworkStatus = forceArtworkStatus ?? artwork.status;
@@ -357,7 +357,6 @@ export function ProofSlidesEditor({
     const active =
       slides.find((slide) => slide.id === activeId) ?? slides[0] ?? null;
     if (active && active.id !== activeId) setActiveId(active.id);
-    setLabelDraft(active?.label ?? "");
   }, [slides, activeId]);
 
   const activeSlide =
@@ -406,21 +405,32 @@ export function ProofSlidesEditor({
 
   const handleAddImages = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
     if (!files.length) return;
+
+    const named = await promptRename(files, {
+      title:
+        files.length > 1
+          ? `Name ${files.length} proof images`
+          : "Name this proof image",
+      description:
+        "Choose a clear name before adding images to this proof.",
+    });
+    if (!named?.length) return;
 
     setUploading(true);
     setUploadHint(null);
     try {
       let added = 0;
       let lastHint: string | null = null;
-      for (const file of files) {
+      for (const { file, name, baseName } of named) {
         if (slides.length + added >= MAX_PROOF_SLIDES) break;
         const { previewUrl, error, compressed } =
           await readImagePreviewDataUrl(file);
         await addSlideFn(orderId, job.id, imprint.id, {
-          fileName: file.name,
+          fileName: name,
           previewUrl: previewUrl || undefined,
-          label: file.name.replace(/\.[^.]+$/, ""),
+          label: baseName,
         });
         added += 1;
         if (error) lastHint = error;
@@ -434,9 +444,14 @@ export function ProofSlidesEditor({
               : `${added} images added to proof.`)
         );
       }
+    } catch (err) {
+      setUploadHint(
+        err instanceof Error
+          ? err.message
+          : "Could not add that image. Try a smaller file."
+      );
     } finally {
       setUploading(false);
-      event.target.value = "";
     }
   };
 
@@ -446,20 +461,6 @@ export function ProofSlidesEditor({
     try {
       await updateSlidesFn(orderId, job.id, imprint.id, {
         removeIds: [slideId],
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveLabel = async () => {
-    if (!activeSlide) return;
-    const trimmed = labelDraft.trim();
-    if ((activeSlide.label ?? "") === trimmed) return;
-    setSaving(true);
-    try {
-      await updateSlidesFn(orderId, job.id, imprint.id, {
-        slides: [{ id: activeSlide.id, label: trimmed }],
       });
     } finally {
       setSaving(false);
@@ -496,6 +497,7 @@ export function ProofSlidesEditor({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Design Studio on order proofs — temporarily hidden
           {onOpenDesignStudio ? (
             <Button
               type="button"
@@ -508,6 +510,7 @@ export function ProofSlidesEditor({
               Design studio
             </Button>
           ) : null}
+          */}
           <input
             ref={fileInputRef}
             type="file"
@@ -581,26 +584,6 @@ export function ProofSlidesEditor({
             ) : null}
           </div>
 
-          <div className="space-y-1.5 border-t border-[#ebebeb] px-3 py-3">
-            <label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-              Image label
-            </label>
-            <Input
-              value={labelDraft}
-              onChange={(event) => setLabelDraft(event.target.value)}
-              onBlur={() => void saveLabel()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void saveLabel();
-                }
-              }}
-              placeholder='e.g. "Front mockup", "Logo file"'
-              className={cn(dashboardControlClass, "h-9 text-[13px]")}
-              disabled={saving || !activeSlide}
-            />
-          </div>
-
           <div className="border-t border-[#ebebeb]">
             <div className="flex items-center justify-between gap-2 px-3 py-2">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
@@ -663,6 +646,7 @@ export function ProofSlidesEditor({
           Maximum of {MAX_PROOF_SLIDES} images per proof.
         </p>
       ) : null}
+      {nameFilesDialog}
     </div>
   );
 }

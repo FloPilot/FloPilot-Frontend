@@ -1,5 +1,10 @@
 import type { Customer, Machine, Order, ScheduleBlock, StationJobRun } from "@/types";
 import { excludeArchivedOrders } from "@/lib/order-archive";
+import {
+  applyWorkspaceScopeToOrders,
+  applyWorkspaceScopeToScheduleBlocks,
+  type WorkspaceScope,
+} from "@/lib/workspace-scope";
 
 export type DashboardDateRangeKey =
   | "7d"
@@ -59,18 +64,37 @@ export function applyDashboardFilters({
   scheduleBlocks,
   jobRuns,
   filters,
+  workspaceScope,
+  currentUserId,
 }: {
   orders: Order[];
   scheduleBlocks: ScheduleBlock[];
   jobRuns: StationJobRun[];
   filters: DashboardFilters;
+  workspaceScope?: WorkspaceScope | null;
+  currentUserId?: string | null;
 }) {
   let filteredOrders = orders;
   let filteredBlocks = scheduleBlocks;
 
-  if (filters.customerId) {
+  if (workspaceScope) {
+    filteredOrders = applyWorkspaceScopeToOrders(
+      filteredOrders,
+      workspaceScope,
+      currentUserId
+    );
+    filteredBlocks = applyWorkspaceScopeToScheduleBlocks(
+      filteredBlocks,
+      orders,
+      workspaceScope,
+      currentUserId
+    );
+  }
+
+  const customerId = filters.customerId || workspaceScope?.customerId || null;
+  if (customerId) {
     filteredOrders = filteredOrders.filter(
-      (order) => order.customerId === filters.customerId
+      (order) => order.customerId === customerId
     );
     const orderIds = new Set(filteredOrders.map((order) => order.id));
     filteredBlocks = filteredBlocks.filter((block) =>

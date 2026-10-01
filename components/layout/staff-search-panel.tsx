@@ -9,15 +9,16 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
 import { History, ListFilter, Search, UserRound, X } from "lucide-react";
 import { getVisibleNavItems } from "@/components/layout/nav-config";
 import { useStaffSearch } from "@/components/layout/staff-search-provider";
+import { useStaffUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useNewOrder } from "@/components/providers/new-order-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { useStaffAccess } from "@/hooks/use-staff-access";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import {
   peekDesignStudioCache,
   useDesignStudioDesigns,
@@ -96,7 +97,8 @@ export function StaffSearchPanel({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const router = useRouter();
+  const router = useGuardedRouter();
+  const { requestLeave } = useStaffUnsavedChanges();
   const { openNewOrder } = useNewOrder();
   const { getIdToken } = useAuth();
   const { searchAnchorRef, headerRef } = useStaffSearch();
@@ -276,23 +278,24 @@ export function StaffSearchPanel({
       if (trimmed) pushRecentSearch(trimmed);
 
       if (result.action === "new-order") {
+        if (!requestLeave()) return;
         close();
         openNewOrder();
         return;
       }
 
       if (result.action === "new-customer") {
+        if (!router.push("/app/customers?add=1")) return;
         close();
-        router.push("/app/customers?add=1");
         return;
       }
 
       if (result.href) {
+        if (!router.push(result.href)) return;
         close();
-        router.push(result.href);
       }
     },
-    [close, openNewOrder, query, router]
+    [close, openNewOrder, query, requestLeave, router]
   );
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -403,7 +406,7 @@ export function StaffSearchPanel({
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Search orders, designs, files, PMS…"
+              placeholder="Search orders, design codes, files, PMS…"
               aria-label="Search workspace"
               className="min-w-[80px] flex-1 bg-transparent text-[14px] text-[#303030] outline-none placeholder:text-[#8c9196]"
             />

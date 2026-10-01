@@ -6,6 +6,7 @@ export type QuickBooksItemMappingKey =
   | "garment"
   | "decoration"
   | "fee"
+  | "finishing"
   | "default";
 
 export type QuickBooksItemMapping = {
@@ -17,6 +18,13 @@ export type QuickBooksItemMappings = Record<
   QuickBooksItemMappingKey,
   QuickBooksItemMapping
 >;
+
+export type QuickBooksAdditionalItemMapping = {
+  id: string;
+  /** FloPilot offering label — matched to estimate fee rows on push. */
+  label: string;
+  item: QuickBooksItemMapping;
+};
 
 export type QuickBooksCatalogItem = {
   id: string;
@@ -31,6 +39,7 @@ export type QuickBooksSettings = {
   autoPushOnEstimateApprove: boolean;
   autoPushOnInvoice: boolean;
   itemMappings?: QuickBooksItemMappings;
+  additionalItemMappings?: QuickBooksAdditionalItemMapping[];
 };
 
 export type AccountingIntegration = {
@@ -74,6 +83,12 @@ export const QUICKBOOKS_ITEM_MAPPING_OPTIONS: Array<{
     defaultLabel: "FloPilot Fees",
   },
   {
+    key: "finishing",
+    label: "Finishing",
+    description: "Bag, tag, fold, and other finishing services.",
+    defaultLabel: "FloPilot Finishing",
+  },
+  {
     key: "default",
     label: "Everything else",
     description: "Fallback Product/Service when a line doesn’t match above.",
@@ -85,8 +100,16 @@ export const EMPTY_ITEM_MAPPINGS: QuickBooksItemMappings = {
   garment: { id: null, name: null },
   decoration: { id: null, name: null },
   fee: { id: null, name: null },
+  finishing: { id: null, name: null },
   default: { id: null, name: null },
 };
+
+export function createAdditionalItemMappingId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `addl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export function isQuickBooksConnected(integration?: AccountingIntegration | null) {
   return Boolean(

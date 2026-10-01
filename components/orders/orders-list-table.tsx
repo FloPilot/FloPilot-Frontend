@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Layers3 } from "lucide-react";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import {
   CheckpointStatusBadge,
   findCheckpoint,
@@ -303,7 +303,7 @@ export function OrdersListTable({
   onToggleOrder?: (orderId: string) => void;
   onToggleAll?: () => void;
 }) {
-  const router = useRouter();
+  const router = useGuardedRouter();
 
   if (items.length === 0) {
     return (

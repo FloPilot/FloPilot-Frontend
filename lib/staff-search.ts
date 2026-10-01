@@ -33,6 +33,8 @@ import {
   formatOrderRef,
   formatScheduleBlockDisplayLine,
 } from "@/lib/order-display";
+import { artworkOrderWorkspaceHref } from "@/lib/artwork-routes";
+import { matchesDesignCodeSearch } from "@/lib/design-code";
 
 export type SearchCategory =
   | "all"
@@ -186,14 +188,15 @@ const QUICK_ACTIONS: StaffSearchResult[] = [
     href: "/app/customers",
     icon: Users,
   },
-  {
-    id: "action-design-studio",
-    category: "actions",
-    title: "Open design studio",
-    subtitle: "Designs, mockups, and artwork library",
-    href: "/app/design-studio",
-    icon: FileImage,
-  },
+  // Design Studio temporarily hidden from command palette — routes/code kept.
+  // {
+  //   id: "action-design-studio",
+  //   category: "actions",
+  //   title: "Open design studio",
+  //   subtitle: "Designs, mockups, and artwork library",
+  //   href: "/app/design-studio",
+  //   icon: FileImage,
+  // },
   {
     id: "action-files",
     category: "actions",
@@ -260,6 +263,7 @@ function searchOrders(orders: Order[], query: string, limit = 20): StaffSearchRe
         order.number,
         order.customLabel ?? "",
         order.customerPoNumber ?? "",
+        order.designCode ?? "",
         formatOrderDisplayLine(order),
         order.customerName,
         order.company,
@@ -270,7 +274,10 @@ function searchOrders(orders: Order[], query: string, limit = 20): StaffSearchRe
         order.clientStoreName ?? "",
         orderDecorationHaystack(order),
       ].join(" ");
-      return matchesQuery(haystack, query);
+      return (
+        matchesDesignCodeSearch(order.designCode, query) ||
+        matchesQuery(haystack, query)
+      );
     })
     .slice(0, limit)
     .map((order) => ({
@@ -412,6 +419,7 @@ function searchScheduleBlocks(
 function designHaystack(design: SavedDesign): string {
   const parts: string[] = [
     design.name,
+    design.designCode ?? "",
     design.customerName ?? "",
     design.company ?? "",
     design.locationLabel,
@@ -449,45 +457,120 @@ function designHaystack(design: SavedDesign): string {
 function searchDesigns(
   designs: SavedDesign[],
   query: string,
-  limit = 20
+  limit = 20,
+  orders: Order[] = []
 ): StaffSearchResult[] {
-  return [...designs]
+  const trimmed = query.trim();
+  const orderById = new Map(orders.map((order) => [order.id, order]));
+  const ordersMatchingCode = excludeArchivedOrders(orders).filter((order) =>
+    matchesDesignCodeSearch(order.designCode, trimmed)
+  );
+  const orderIdsMatchingCode = new Set(
+    ordersMatchingCode.map((order) => order.id)
+  );
+
+  const matchedDesigns = [...designs]
     .sort((a, b) =>
       (b.updatedAt || b.createdAt || "").localeCompare(
         a.updatedAt || a.createdAt || ""
       )
     )
-    .filter((design) => matchesQuery(designHaystack(design), query))
-    .slice(0, limit)
-    .map((design) => {
-      const pms =
-        (design.pmsCodes ?? [])
-          .concat(
-            (design.inkColors ?? [])
-              .map((ink) => ink.pmsCode)
-              .filter((code): code is string => Boolean(code))
-          )
-          .filter(Boolean)
-          .slice(0, 3)
-          .join(", ") || null;
-      const meta = [
-        design.company || design.customerName,
-        design.locationLabel,
-        pms ? `PMS ${pms}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-
-      return {
-        id: `design-${design.id}`,
-        category: "designs" as const,
-        title: design.name,
-        subtitle: meta || "Design library",
-        badge: design.decoration?.replace(/_/g, " "),
-        href: `/app/designs/${design.id}`,
-        icon: FileImage,
-      };
+    .filter((design) => {
+      if (!trimmed) return true;
+      if (matchesDesignCodeSearch(design.designCode, trimmed)) return true;
+      if (
+        design.sourceOrderId &&
+        orderIdsMatchingCode.has(design.sourceOrderId)
+      ) {
+        return true;
+      }
+      const linkedOrder = design.sourceOrderId
+        ? orderById.get(design.sourceOrderId)
+        : undefined;
+      if (matchesDesignCodeSearch(linkedOrder?.designCode, trimmed)) {
+        return true;
+      }
+      return matchesQuery(designHaystack(design), trimmed);
     });
+
+  const results: StaffSearchResult[] = [];
+  const seen = new Set<string>();
+
+  // Prefer a Design package hit when searching by design code so shops land
+  // on the Designs artwork summary for that job.
+  for (const order of ordersMatchingCode) {
+    const code = order.designCode?.trim();
+    if (!code) continue;
+    const id = `design-package-${order.id}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    results.push({
+      id,
+      category: "designs",
+      title: code,
+      subtitle: `${formatOrderDisplayLine(order)} · ${
+        order.company || order.customerName
+      }`,
+      badge: "Design package",
+      href: artworkOrderWorkspaceHref(order.id),
+      icon: FileImage,
+    });
+  }
+
+  // Keep design-code searches clean: package only (no per-location/file rows).
+  if (ordersMatchingCode.length > 0) {
+    return results.slice(0, limit);
+  }
+
+  for (const design of matchedDesigns) {
+    const id = `design-${design.id}`;
+    if (seen.has(id)) continue;
+    seen.add(id);
+
+    const linkedOrder = design.sourceOrderId
+      ? orderById.get(design.sourceOrderId)
+      : undefined;
+    const code =
+      design.designCode?.trim() || linkedOrder?.designCode?.trim() || null;
+    const pms =
+      (design.pmsCodes ?? [])
+        .concat(
+          (design.inkColors ?? [])
+            .map((ink) => ink.pmsCode)
+            .filter((codeValue): codeValue is string => Boolean(codeValue))
+        )
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(", ") || null;
+    const meta = [
+      code,
+      design.company || design.customerName,
+      design.locationLabel,
+      pms ? `PMS ${pms}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    // Open the Designs artwork summary when this design is tied to an order
+    // package; otherwise fall back to the standalone design detail page.
+    const href = design.sourceOrderId
+      ? artworkOrderWorkspaceHref(design.sourceOrderId)
+      : `/app/designs/${design.id}`;
+
+    results.push({
+      id,
+      category: "designs",
+      title: code ? `${code} · ${design.name}` : design.name,
+      subtitle: meta || "Design library",
+      badge: code || design.decoration?.replace(/_/g, " "),
+      href,
+      icon: FileImage,
+    });
+
+    if (results.length >= limit) break;
+  }
+
+  return results.slice(0, limit);
 }
 
 function searchOrderProofsAndFiles(
@@ -763,7 +846,7 @@ export function buildStaffSearchResults({
     if (category === "orders") return searchOrders(orders, "", 20);
     if (category === "customers") return searchCustomers(customers, "", 20);
     if (category === "tasks") return searchTasks(productionTasks, "", 20);
-    if (category === "designs") return searchDesigns(designs, "", 20);
+    if (category === "designs") return searchDesigns(designs, "", 20, orders);
     if (category === "files") {
       return [
         ...searchOrderProofsAndFiles(orders, "", 12),
@@ -799,7 +882,7 @@ export function buildStaffSearchResults({
     machines,
     trimmed
   );
-  const designResults = searchDesigns(designs, trimmed);
+  const designResults = searchDesigns(designs, trimmed, 20, orders);
   const fileResults = [
     ...searchOrderProofsAndFiles(orders, trimmed),
     ...searchDesignFiles(designs, trimmed),
@@ -826,6 +909,25 @@ export function buildStaffSearchResults({
   if (category === "pages") return pageResults;
   if (category === "machines") return machineResults;
   if (category === "actions") return actionResults;
+
+  // Design-code lookups stay minimal: design package + related order only.
+  const designPackageResults = designResults.filter((item) =>
+    item.id.startsWith("design-package-")
+  );
+  if (designPackageResults.length > 0 && category === "all") {
+    const packageOrderIds = new Set(
+      designPackageResults.map((item) => item.id.replace("design-package-", ""))
+    );
+    const relatedOrders = orderResults.filter((item) =>
+      packageOrderIds.has(item.id.replace("order-", ""))
+    );
+    const seen = new Set<string>();
+    return [...designPackageResults, ...relatedOrders].filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }
 
   const combined = [
     ...orderResults.slice(0, 4),

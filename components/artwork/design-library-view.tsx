@@ -7,17 +7,19 @@ import {
   ArchiveRestore,
   BookMarked,
   Layers,
-  Search,
   Shirt,
 } from "lucide-react";
 import { BulkArchiveDesignsDialog } from "@/components/artwork/bulk-archive-designs-dialog";
+import {
+  DesignsFilterBar,
+  type DesignsAddFilterField,
+  type DesignsActiveFilter,
+} from "@/components/artwork/designs-filter-bar";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   dashboardCardClass,
   dashboardControlClass,
-  dashboardElevatedShadow,
   dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
 import {
@@ -33,11 +35,14 @@ import {
   restoreDesign as apiRestoreDesign,
 } from "@/lib/api";
 import { decorationLabel } from "@/lib/format";
+import { previewForDesign } from "@/lib/design-studio-library";
 import { formatOrderNumberWithLabel } from "@/lib/order-display";
 import type { SavedDesign } from "@/types";
 import { cn } from "@/lib/utils";
 
 type LibraryScope = "active" | "archived";
+
+const ALL_VALUE = "all";
 
 function DesignThumb({
   design,
@@ -46,7 +51,7 @@ function DesignThumb({
   design: SavedDesign;
   className?: string;
 }) {
-  const previewUrl = design.artwork.previewUrl;
+  const previewUrl = previewForDesign(design);
 
   if (previewUrl) {
     return (
@@ -91,7 +96,8 @@ function DesignCard({
   archiveBusy: boolean;
 }) {
   const pms = design.pmsCodes ?? [];
-  const bgColor = useImageBackgroundColor(design.artwork.previewUrl);
+  const previewUrl = previewForDesign(design);
+  const bgColor = useImageBackgroundColor(previewUrl);
 
   return (
     <div
@@ -150,6 +156,13 @@ function DesignCard({
             </div>
           </div>
           <div className="flex flex-1 flex-col gap-1 p-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {design.designCode?.trim() ? (
+                <span className="inline-flex items-center rounded-md border border-[#c4d7f2] bg-[#f4f7fd] px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-[#2c6ecb]">
+                  {design.designCode.trim()}
+                </span>
+              ) : null}
+            </div>
             <p className="truncate text-[14px] font-semibold text-[#303030] group-hover:text-[#2c6ecb]">
               {design.name}
             </p>
@@ -243,6 +256,9 @@ export function DesignLibraryView() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState<LibraryScope>("active");
+  const [customerFilter, setCustomerFilter] = useState(ALL_VALUE);
+  const [designCodeFilter, setDesignCodeFilter] = useState(ALL_VALUE);
+  const [decorationFilter, setDecorationFilter] = useState(ALL_VALUE);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -293,6 +309,115 @@ export function DesignLibraryView() {
     [designs, scope, isDesignArchived]
   );
 
+  const customerOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const design of scopedDesigns) {
+      const id = design.customerId?.trim();
+      if (!id) continue;
+      map.set(id, design.company || design.customerName || "Customer");
+    }
+    return Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [scopedDesigns]);
+
+  const designCodeOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const design of scopedDesigns) {
+      const code = design.designCode?.trim();
+      if (!code) continue;
+      map.set(code.toUpperCase(), code.toUpperCase());
+    }
+    return Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [scopedDesigns]);
+
+  const decorationOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const design of scopedDesigns) {
+      map.set(design.decoration, decorationLabel(design.decoration));
+    }
+    return Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [scopedDesigns]);
+
+  const visibleDesigns = useMemo(() => {
+    return scopedDesigns.filter((design) => {
+      if (
+        customerFilter !== ALL_VALUE &&
+        design.customerId !== customerFilter
+      ) {
+        return false;
+      }
+      if (
+        designCodeFilter !== ALL_VALUE &&
+        design.designCode?.trim().toUpperCase() !== designCodeFilter
+      ) {
+        return false;
+      }
+      if (
+        decorationFilter !== ALL_VALUE &&
+        design.decoration !== decorationFilter
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [scopedDesigns, customerFilter, designCodeFilter, decorationFilter]);
+
+  const activeFilters = useMemo((): DesignsActiveFilter[] => {
+    const chips: DesignsActiveFilter[] = [];
+    if (customerFilter !== ALL_VALUE) {
+      chips.push({
+        id: "customer",
+        label: "Customer",
+        value:
+          customerOptions.find((item) => item.value === customerFilter)
+            ?.label || "Customer",
+        onRemove: () => setCustomerFilter(ALL_VALUE),
+      });
+    }
+    if (designCodeFilter !== ALL_VALUE) {
+      chips.push({
+        id: "design_code",
+        label: "Design code",
+        value: designCodeFilter,
+        onRemove: () => setDesignCodeFilter(ALL_VALUE),
+      });
+    }
+    if (decorationFilter !== ALL_VALUE) {
+      chips.push({
+        id: "decoration",
+        label: "Decoration",
+        value: decorationLabel(decorationFilter),
+        onRemove: () => setDecorationFilter(ALL_VALUE),
+      });
+    }
+    return chips;
+  }, [
+    customerFilter,
+    designCodeFilter,
+    decorationFilter,
+    customerOptions,
+  ]);
+
+  const clearExtraFilters = () => {
+    setCustomerFilter(ALL_VALUE);
+    setDesignCodeFilter(ALL_VALUE);
+    setDecorationFilter(ALL_VALUE);
+  };
+
+  const handleSelectFilterOption = (
+    field: DesignsAddFilterField,
+    value: string
+  ) => {
+    if (field === "customer") setCustomerFilter(value);
+    else if (field === "design_code") setDesignCodeFilter(value);
+    else if (field === "decoration") setDecorationFilter(value);
+  };
+
   const orderGroupCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const design of designs) {
@@ -308,10 +433,10 @@ export function DesignLibraryView() {
   useEffect(() => {
     setSelectedIds(new Set());
     setStatusMessage(null);
-  }, [scope, search]);
+  }, [scope, search, customerFilter, designCodeFilter, decorationFilter]);
 
   useEffect(() => {
-    const visibleIds = new Set(scopedDesigns.map((design) => design.id));
+    const visibleIds = new Set(visibleDesigns.map((design) => design.id));
     setSelectedIds((current) => {
       let changed = false;
       const next = new Set<string>();
@@ -321,12 +446,12 @@ export function DesignLibraryView() {
       }
       return changed ? next : current;
     });
-  }, [scopedDesigns]);
+  }, [visibleDesigns]);
 
   const selectedCount = selectedIds.size;
   const allVisibleSelected =
-    scopedDesigns.length > 0 &&
-    scopedDesigns.every((design) => selectedIds.has(design.id));
+    visibleDesigns.length > 0 &&
+    visibleDesigns.every((design) => selectedIds.has(design.id));
 
   const toggleSelected = (designId: string) => {
     setSelectedIds((current) => {
@@ -339,7 +464,7 @@ export function DesignLibraryView() {
 
   const toggleAllVisible = () => {
     setSelectedIds((current) => {
-      const visibleIds = scopedDesigns.map((design) => design.id);
+      const visibleIds = visibleDesigns.map((design) => design.id);
       const everySelected =
         visibleIds.length > 0 && visibleIds.every((id) => current.has(id));
       if (everySelected) return new Set();
@@ -421,58 +546,32 @@ export function DesignLibraryView() {
   };
 
   const showLoading = loading && designs.length === 0 && !search.trim();
-  const hasSearch = Boolean(search.trim());
+  const hasSearch = Boolean(search.trim()) || activeFilters.length > 0;
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div
-          className={cn(
-            "flex w-fit gap-1.5 rounded-lg border border-[#e3e3e3] bg-white p-1",
-            dashboardElevatedShadow
-          )}
-        >
-          {(
-            [
-              { value: "active" as const, label: "Active", count: activeCount },
-              {
-                value: "archived" as const,
-                label: "Archived",
-                count: archivedCount,
-              },
-            ]
-          ).map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => setScope(option.value)}
-              className={cn(
-                "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors",
-                scope === option.value
-                  ? "bg-[#f4f7fd] text-[#2c6ecb]"
-                  : "text-[#616161] hover:text-[#303030]"
-              )}
-            >
-              {option.label}
-              <span className="ml-1.5 tabular-nums text-[10px] opacity-70">
-                {option.count}
-              </span>
-            </button>
-          ))}
-        </div>
+      <DesignsFilterBar
+        statusTabs={[
+          { value: "active", label: "Active", count: activeCount },
+          { value: "archived", label: "Archived", count: archivedCount },
+        ]}
+        activeStatus={scope}
+        onStatusChange={(value) => setScope(value as LibraryScope)}
+        activeFilters={activeFilters}
+        onClearFilters={clearExtraFilters}
+        availableFields={["customer", "design_code", "decoration"]}
+        fieldOptions={{
+          customer: customerOptions,
+          design_code: designCodeOptions,
+          decoration: decorationOptions,
+        }}
+        onSelectOption={handleSelectFilterOption}
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search design codes, names, customers…"
+      />
 
-        <div className="relative w-full sm:max-w-xs">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8a8a8a]" />
-          <Input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search name, customer, PMS…"
-            className={cn(dashboardControlClass, "h-9 w-full pl-9")}
-          />
-        </div>
-      </div>
-
-      {scopedDesigns.length > 0 ? (
+      {visibleDesigns.length > 0 ? (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-[#616161]">
             <input
@@ -553,7 +652,7 @@ export function DesignLibraryView() {
             </div>
           ))}
         </div>
-      ) : scopedDesigns.length === 0 ? (
+      ) : visibleDesigns.length === 0 ? (
         <section className={cn(dashboardCardClass, "px-6 py-14 text-center")}>
           <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-[#f4f7fd] text-[#2c6ecb]">
             {scope === "archived" ? (
@@ -588,7 +687,7 @@ export function DesignLibraryView() {
         </section>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {scopedDesigns.map((design) => (
+          {visibleDesigns.map((design) => (
             <DesignCard
               key={design.id}
               design={design}

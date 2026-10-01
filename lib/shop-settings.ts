@@ -13,6 +13,11 @@ import {
   normalizeInvoiceDocument,
   type InvoiceDocumentSettings,
 } from "@/lib/invoice-document";
+import {
+  DEFAULT_PAYMENT_OPTIONS,
+  normalizePaymentOptions,
+  type ShopPaymentOptions,
+} from "@/lib/shop-payment-options";
 import type { DecorationType } from "@/types";
 import type { LucideIcon } from "lucide-react";
 
@@ -284,6 +289,11 @@ export type ShopSettings = {
   estimateDocument: EstimateDocumentSettings;
   /** Shop-wide invoice PDF layout, line-item groups, and terms. */
   invoiceDocument: InvoiceDocumentSettings;
+  /**
+   * Invoice payment options — Venmo / Zelle / custom methods plus defaults
+   * for Stripe and QuickBooks when those integrations are connected.
+   */
+  paymentOptions: ShopPaymentOptions;
   /** Legacy/default view of shop pricing — kept in sync with the default rate sheet. */
   pricingMatrix: PricingMatrix;
   /** Named shop pricing sheets staff can choose on an order. */
@@ -431,6 +441,7 @@ export const DEFAULT_SHOP_SETTINGS: ShopSettings = {
   },
   estimateDocument: { ...DEFAULT_ESTIMATE_DOCUMENT },
   invoiceDocument: { ...DEFAULT_INVOICE_DOCUMENT },
+  paymentOptions: { ...DEFAULT_PAYMENT_OPTIONS, methods: [] },
   pricingMatrix: { enabled: false, methods: [], blankMarkupPercent: 0 },
   pricingRateSheets: [
     {
@@ -1941,6 +1952,7 @@ export function normalizeShopSettings(raw?: Partial<ShopSettings> | null): ShopS
     companyProfile: normalizeCompanyProfile(input.companyProfile),
     estimateDocument: normalizeEstimateDocument(input.estimateDocument),
     invoiceDocument: normalizeInvoiceDocument(input.invoiceDocument),
+    paymentOptions: normalizePaymentOptions(input.paymentOptions),
     pricingMatrix: syncedMatrix,
     pricingRateSheets,
     decorationMethods: normalizeDecorationMethods(input.decorationMethods),

@@ -231,13 +231,8 @@ export function computeEstimateTotals(
   );
 
   let subtotal = round2(garmentSubtotal + decorationSubtotal + feesSubtotal);
-  if (subtotal <= 0) {
-    subtotal = round2(order.subtotal || 0);
-    garmentSubtotal = subtotal;
-    decorationSubtotal = 0;
-    feesSubtotal = 0;
-  }
-
+  // Do not fall back to stored order.subtotal — that leaves a stale total on
+  // empty orders after blanks/events/fees are cleared.
   const tax = round2(subtotal * rate);
   const total = round2(subtotal + tax);
   const paid = round2(order.paid || 0);

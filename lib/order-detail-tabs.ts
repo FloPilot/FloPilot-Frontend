@@ -19,6 +19,7 @@ export type OrderDetailTab =
   | "proof"
   | "estimate"
   | "purchase_order"
+  | "received_goods"
   | "files"
   | "notes"
   | "customer"
@@ -56,12 +57,13 @@ export function buildOrderDetailTabs(order: Order): OrderDetailTabConfig[] {
 
   tabs.push(
     { id: "purchase_order", label: "Purchase order" },
+    { id: "received_goods", label: "Received goods" },
     { id: "shipping", label: "Shipping / Handling" },
+    { id: "produced_goods", label: "Produced goods" },
+    { id: "invoice", label: "Invoice" },
     { id: "files", label: "Files" },
     { id: "notes", label: "Notes" },
     { id: "customer", label: "Customer" },
-    { id: "produced_goods", label: "Produced goods" },
-    { id: "invoice", label: "Invoice" },
     { id: "activity", label: "Activity" }
   );
 
@@ -112,6 +114,16 @@ export function parseOrderDetailTab(tab: string | null): OrderDetailTab {
   ) {
     return "purchase_order";
   }
+  if (
+    tab === "received_goods" ||
+    tab === "received" ||
+    tab === "receiving" ||
+    tab === "receive" ||
+    tab === "receive_goods" ||
+    tab === "received-goods"
+  ) {
+    return "received_goods";
+  }
   if (tab === "files") return "files";
   if (tab === "notes" || tab === "note" || tab === "internal_notes") {
     return "notes";
@@ -146,7 +158,7 @@ export function defaultReceivingTab(order: Order): OrderDetailTab {
     garmentLines.some((line) => line.status !== "received") ||
     (garmentLines.length > 0 && !materials.blankSource)
   ) {
-    return "blanks";
+    return "received_goods";
   }
 
   if (
@@ -171,5 +183,5 @@ export function defaultReceivingTab(order: Order): OrderDetailTab {
     return "inks";
   }
 
-  return "blanks";
+  return "received_goods";
 }

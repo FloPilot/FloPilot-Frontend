@@ -13,6 +13,7 @@ import {
   RefreshCw,
   Unplug,
 } from "lucide-react";
+import { InvoicePaymentOptionsSection } from "@/components/settings/sections/invoice-payment-options-section";
 import {
   SettingsHeader,
   SettingsMain,
@@ -253,8 +254,12 @@ export function PaymentIntegrationsSection() {
     <SettingsMain>
       <SettingsHeader
         title="Payments"
-        description="Connect Stripe when you’re ready so customers can pay invoices by card. Payouts go to your Stripe account — nothing is charged until Connect is complete."
+        description="Set default invoice payment options, add Venmo or Zelle, and connect Stripe for card checkout."
       />
+
+      <div className="mb-5">
+        <InvoicePaymentOptionsSection />
+      </div>
 
       {appConfigured && !connected && !loading ? (
         <div className="mb-4 rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-4 py-3 text-[13px] text-[#616161]">
@@ -295,7 +300,7 @@ export function PaymentIntegrationsSection() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-[15px] font-semibold text-[#303030]">
-                  Stripe
+                  Stripe Connect
                 </h2>
                 <span
                   className={cn(

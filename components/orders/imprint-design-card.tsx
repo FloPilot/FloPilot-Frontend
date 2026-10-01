@@ -54,6 +54,7 @@ import {
   getDtfImprintAreaOptions,
   getInkTypeOptions,
 } from "@/lib/shop-settings";
+import { resolveArtworkDisplayName } from "@/lib/proof-slides";
 import type {
   ArtworkFile,
   DecorationType,
@@ -244,7 +245,7 @@ function MockupFilePicker({
     return (
       <div className={cn(dashboardInsetSurfaceClass, "px-3 py-2.5")}>
         <p className="truncate text-sm font-medium text-[#303030]">
-          {imprint.artwork.name}
+          {resolveArtworkDisplayName(imprint.artwork)}
         </p>
         <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
           v{imprint.artwork.version}
@@ -266,7 +267,7 @@ function MockupFilePicker({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="current">
-          Current · {imprint.artwork.name}
+          Current · {resolveArtworkDisplayName(imprint.artwork)}
         </SelectItem>
         {attachableFiles.map((file) => (
           <SelectItem key={file.id} value={file.id}>

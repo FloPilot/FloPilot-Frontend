@@ -2,18 +2,20 @@
 
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import {
   useRegisterUnsavedChanges,
   useStaffUnsavedChanges,
 } from "@/components/layout/staff-unsaved-changes-provider";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import { OrderMaterialsPanel } from "@/components/orders/order-materials-panel";
 import { OrderDesignTab } from "@/components/orders/order-design-tab";
 import { OrderArtworkApprovalPanel } from "@/components/orders/order-artwork-approval-panel";
 import { OrderFilesTab } from "@/components/orders/order-files-tab";
 import { OrderPurchaseOrderTab } from "@/components/orders/order-purchase-order-tab";
 import { OrderEstimateTab } from "@/components/orders/order-estimate-tab";
+import { SendProofsEstimateDialog } from "@/components/orders/send-proofs-estimate-dialog";
 import { OrderInvoiceTab } from "@/components/orders/order-invoice-tab";
 import {
   OrderProducedGoodsCallout,
@@ -41,6 +43,9 @@ import { useSchedule } from "@/components/providers/schedule-provider";
 import { useStaffAccess } from "@/hooks/use-staff-access";
 import { OrderArchivePanel } from "@/components/orders/order-archive-panel";
 import { isArchivedOrder } from "@/lib/order-archive";
+import {
+  defaultBillToSelection,
+} from "@/lib/order-addresses";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -157,7 +162,7 @@ function CustomerSubNav({
 }
 
 export function OrderDetailView({ orderId }: { orderId: string }) {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const { isAdmin } = useStaffAccess();
   const searchParams = useSearchParams();
   const parsedTab = parseOrderDetailTab(searchParams.get("tab"));
@@ -175,15 +180,19 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     updateOrderCustomLabel,
     updateOrderEndBusiness,
     updateOrderSalesRep,
+    updateOrderAddresses,
     updateOrderProductionRun,
-    sendProofsAndEstimate,
+    updateCustomer,
     shopDataLoading,
   } = useSchedule();
 
   const order = getOrderById(orderId);
   const customer = order ? getCustomerById(order.customerId) : undefined;
   const [addStepOpen, setAddStepOpen] = useState(false);
+  const [pendingEventJobs, setPendingEventJobs] = useState<Job[]>([]);
+  const [eventsSaving, setEventsSaving] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [sendProofsOpen, setSendProofsOpen] = useState(false);
   const [prefillJobKey, setPrefillJobKey] = useState<string>();
   const [editingBlock, setEditingBlock] = useState<ScheduleBlock>();
   const [activeTab, setActiveTab] = useState<OrderDetailTab>(parsedTab);
@@ -201,20 +210,28 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     customLabel: "",
     salesRepId: null as string | null,
     subCustomerId: null as string | null,
+    billTo: null as import("@/types").OrderAddressSelection | null,
+    shipTo: null as import("@/types").OrderAddressSelection | null,
   });
   const [headerSaving, setHeaderSaving] = useState(false);
   const headerBaselineRef = useRef({
     customLabel: "",
     salesRepId: null as string | null,
     subCustomerId: null as string | null,
+    billTo: null as import("@/types").OrderAddressSelection | null,
+    shipTo: null as import("@/types").OrderAddressSelection | null,
   });
 
   useEffect(() => {
     if (!order) return;
+    const scope = { subCustomerId: order.subCustomerId };
     const next = {
       customLabel: order.customLabel ?? "",
       salesRepId: order.salesRepId ?? null,
       subCustomerId: order.subCustomerId ?? null,
+      billTo:
+        order.billTo ?? defaultBillToSelection(customer, scope),
+      shipTo: order.shipTo ?? null,
     };
     headerBaselineRef.current = next;
     setHeaderDraft(next);
@@ -223,7 +240,17 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     order?.customLabel,
     order?.salesRepId,
     order?.subCustomerId,
+    order?.billTo,
+    order?.shipTo,
+    customer?.id,
   ]);
+
+  const addressSelectionEqual = (
+    a: import("@/types").OrderAddressSelection | null | undefined,
+    b: import("@/types").OrderAddressSelection | null | undefined
+  ) =>
+    (a?.locationId ?? null) === (b?.locationId ?? null) &&
+    JSON.stringify(a?.address ?? null) === JSON.stringify(b?.address ?? null);
 
   const headerDirty =
     Boolean(order) &&
@@ -232,7 +259,15 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       (headerDraft.salesRepId ?? null) !==
         (headerBaselineRef.current.salesRepId ?? null) ||
       (headerDraft.subCustomerId ?? null) !==
-        (headerBaselineRef.current.subCustomerId ?? null));
+        (headerBaselineRef.current.subCustomerId ?? null) ||
+      !addressSelectionEqual(
+        headerDraft.billTo,
+        headerBaselineRef.current.billTo
+      ) ||
+      !addressSelectionEqual(
+        headerDraft.shipTo,
+        headerBaselineRef.current.shipTo
+      ));
 
   const saveHeaderDraft = useCallback(async () => {
     if (!order || !headerDirty) return;
@@ -250,6 +285,15 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       ) {
         await updateOrderEndBusiness(order.id, headerDraft.subCustomerId);
       }
+      if (
+        !addressSelectionEqual(headerDraft.billTo, baseline.billTo) ||
+        !addressSelectionEqual(headerDraft.shipTo, baseline.shipTo)
+      ) {
+        await updateOrderAddresses(order.id, {
+          billTo: headerDraft.billTo,
+          shipTo: headerDraft.shipTo,
+        });
+      }
     } finally {
       setHeaderSaving(false);
     }
@@ -260,6 +304,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     updateOrderCustomLabel,
     updateOrderSalesRep,
     updateOrderEndBusiness,
+    updateOrderAddresses,
   ]);
 
   const discardHeaderDraft = useCallback(() => {
@@ -296,6 +341,8 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       salesRepId: headerDraft.salesRepId ?? undefined,
       subCustomerId: headerDraft.subCustomerId ?? undefined,
       subCustomerName: subName,
+      billTo: headerDraft.billTo,
+      shipTo: headerDraft.shipTo,
     };
   }, [order, headerDraft, customer?.subCustomers]);
 
@@ -306,6 +353,71 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       setActiveTab(tab);
     },
     [activeTab, requestLeave]
+  );
+
+  useEffect(() => {
+    setPendingEventJobs([]);
+    setEventsSaving(false);
+  }, [orderId]);
+
+  const pendingEventIds = useMemo(
+    () => new Set(pendingEventJobs.map((job) => job.id)),
+    [pendingEventJobs]
+  );
+
+  const eventsOrder = useMemo(() => {
+    if (!order || pendingEventJobs.length === 0) return order;
+    const existingIds = new Set(order.jobs.map((job) => job.id));
+    const extras = pendingEventJobs.filter((job) => !existingIds.has(job.id));
+    if (extras.length === 0) return order;
+    return { ...order, jobs: [...order.jobs, ...extras] };
+  }, [order, pendingEventJobs]);
+
+  const eventsDirty = pendingEventJobs.some(
+    (job) => !order?.jobs.some((entry) => entry.id === job.id)
+  );
+
+  const savePendingEvents = useCallback(async () => {
+    if (!eventsDirty) return;
+    setEventsSaving(true);
+    try {
+      const queue = pendingEventJobs.filter(
+        (job) => !order?.jobs.some((entry) => entry.id === job.id)
+      );
+      for (const job of queue) {
+        await addProductionJob(orderId, job);
+        setPendingEventJobs((current) =>
+          current.filter((entry) => entry.id !== job.id)
+        );
+      }
+      setPendingEventJobs([]);
+    } finally {
+      setEventsSaving(false);
+    }
+  }, [
+    eventsDirty,
+    pendingEventJobs,
+    order?.jobs,
+    addProductionJob,
+    orderId,
+  ]);
+
+  const discardPendingEvents = useCallback(() => {
+    setPendingEventJobs([]);
+  }, []);
+
+  useRegisterUnsavedChanges(
+    eventsDirty
+      ? {
+          dirty: true,
+          saving: eventsSaving,
+          label: "Unsaved events",
+          persistAcrossTabs: false,
+          onSave: () => savePendingEvents(),
+          onDiscard: discardPendingEvents,
+        }
+      : null,
+    `order-events-${orderId}`
   );
 
   const showActionToast = (
@@ -374,17 +486,23 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     setActiveTab("files");
   };
 
-  const handleAddProductionJob = async (job: Job) => {
-    try {
-      await addProductionJob(orderId, job);
-      changeTab("events");
-    } catch (err) {
-      showActionToast(
-        err instanceof Error ? err.message : "Could not add event. Please try again.",
-        "error"
-      );
+  const handleAddProductionJob = (job: Job) => {
+    if (activeTab !== "events") {
+      // Leave gate first so other dirty tabs still shake; stage after switch.
+      if (!requestLeave(undefined, { inPage: true })) return;
+      setActiveTab("events");
     }
+    setPendingEventJobs((current) => {
+      if (current.some((entry) => entry.id === job.id)) return current;
+      return [...current, job];
+    });
   };
+
+  const removePendingEventJob = useCallback((jobId: string) => {
+    setPendingEventJobs((current) =>
+      current.filter((entry) => entry.id !== jobId)
+    );
+  }, []);
 
   const handlePanelAction = async (actionId: OrderActionId) => {
     if (!order) return;
@@ -393,18 +511,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       case "send_estimate":
       case "send_proofs": {
         changeTab("proof");
-        showActionToast("Sending proofs & estimate…", "loading", false);
-        try {
-          const email = await sendProofsAndEstimate(order.id);
-          showActionToast(`Proofs & estimate emailed to ${email.to}.`, "success");
-        } catch (err) {
-          showActionToast(
-            err instanceof Error
-              ? err.message
-              : "Could not send the email. Please try again.",
-            "error"
-          );
-        }
+        setSendProofsOpen(true);
         break;
       }
       case "mark_ready_to_ship":
@@ -469,6 +576,35 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
           onSalesRepDraftChange={(salesRepId) =>
             setHeaderDraft((current) => ({ ...current, salesRepId }))
           }
+          billTo={headerDraft.billTo}
+          shipTo={headerDraft.shipTo}
+          onBillToDraftChange={(billTo) =>
+            setHeaderDraft((current) => ({ ...current, billTo }))
+          }
+          onShipToDraftChange={(shipTo) =>
+            setHeaderDraft((current) => ({ ...current, shipTo }))
+          }
+          onCustomerLocationsSave={async (locations) => {
+            if (!customer) return;
+            return updateCustomer(customer.id, { shippingLocations: locations });
+          }}
+          onPersistAddresses={async (addresses) => {
+            const next = {
+              billTo: addresses.billTo ?? headerDraft.billTo,
+              shipTo: addresses.shipTo ?? headerDraft.shipTo,
+            };
+            setHeaderDraft((current) => ({
+              ...current,
+              billTo: next.billTo,
+              shipTo: next.shipTo,
+            }));
+            headerBaselineRef.current = {
+              ...headerBaselineRef.current,
+              billTo: next.billTo,
+              shipTo: next.shipTo,
+            };
+            await updateOrderAddresses(order.id, next);
+          }}
           orders={orders}
           onProductionRunSave={(linkedOrderIds) =>
             updateOrderProductionRun(order.id, linkedOrderIds)
@@ -512,9 +648,11 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
           {activeTab === "events" ? (
             <>
               <OrderEventsTab
-                order={order}
+                order={eventsOrder ?? order}
                 scheduleBlocks={scheduleBlocks}
                 jobRuns={jobRuns}
+                pendingJobIds={pendingEventIds}
+                onRemovePendingJob={removePendingEventJob}
                 onAddEvent={() => setAddStepOpen(true)}
                 onScheduleStep={openScheduleStep}
                 onOpenDesign={openFiles}
@@ -605,6 +743,26 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
             <OrderPurchaseOrderTab order={order} />
           ) : null}
 
+          {activeTab === "received_goods" ? (
+            <div className="space-y-4">
+              <OrderMaterialsPanel order={order} section="received_goods" />
+              <OrderInternalNotes
+                orderId={orderId}
+                title="Receiving notes"
+                description="Saved as an order note — also available on the Notes tab. Use this for carton counts, shortages, vendor issues, or anything the team should know about this shipment."
+                placeholder="e.g. Short 2 Mediums — vendor reshipping Thursday…"
+              />
+            </div>
+          ) : null}
+
+          {activeTab === "shipping" ? <OrderShippingTab order={order} /> : null}
+
+          {activeTab === "produced_goods" ? (
+            <OrderProducedGoodsPanel order={order} />
+          ) : null}
+
+          {activeTab === "invoice" ? <OrderInvoiceTab order={order} /> : null}
+
           {activeTab === "files" ? (
             <section className={dashboardCardClass}>
               <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
@@ -622,6 +780,10 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
                 />
               </div>
             </section>
+          ) : null}
+
+          {activeTab === "notes" ? (
+            <OrderInternalNotes orderId={orderId} />
           ) : null}
 
           {activeTab === "customer" ? (
@@ -665,18 +827,6 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
             </div>
           ) : null}
 
-          {activeTab === "notes" ? (
-            <OrderInternalNotes orderId={orderId} />
-          ) : null}
-
-          {activeTab === "produced_goods" ? (
-            <OrderProducedGoodsPanel order={order} />
-          ) : null}
-
-          {activeTab === "shipping" ? <OrderShippingTab order={order} /> : null}
-
-          {activeTab === "invoice" ? <OrderInvoiceTab order={order} /> : null}
-
           {activeTab === "activity" ? (
             <section className={dashboardCardClass}>
               <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
@@ -718,6 +868,13 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
         filterOrderId={orderId}
         prefillJobKey={prefillJobKey}
         editingBlock={editingBlock}
+      />
+
+      <SendProofsEstimateDialog
+        order={order}
+        open={sendProofsOpen}
+        onOpenChange={setSendProofsOpen}
+        onSent={(message) => showActionToast(message, "success")}
       />
     </main>
   );

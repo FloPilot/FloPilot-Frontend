@@ -27,6 +27,8 @@ export type CustomerPendingUpload = {
 
 export type CustomerPageDraft = {
   salesRepId: string | null;
+  paymentTermsLabel: string | null;
+  paymentTermsDays: number | null;
   taxExempt: boolean;
   taxExemptNumber: string;
   /** Existing + staged tax docs (pending uploads use localId as id) */
@@ -51,6 +53,11 @@ export function createPendingUploadId() {
 export function customerToPageDraft(customer: Customer): CustomerPageDraft {
   return {
     salesRepId: customer.salesRepId ?? null,
+    paymentTermsLabel: customer.paymentTermsLabel ?? null,
+    paymentTermsDays:
+      typeof customer.paymentTermsDays === "number"
+        ? customer.paymentTermsDays
+        : null,
     taxExempt: Boolean(customer.taxExempt),
     taxExemptNumber: customer.taxExemptNumber ?? "",
     taxDocuments: [...(customer.taxDocuments ?? [])],
@@ -74,6 +81,8 @@ export function customerToPageDraft(customer: Customer): CustomerPageDraft {
 export function serializeCustomerPageDraft(draft: CustomerPageDraft): string {
   return JSON.stringify({
     salesRepId: draft.salesRepId,
+    paymentTermsLabel: (draft.paymentTermsLabel || "").trim(),
+    paymentTermsDays: draft.paymentTermsDays,
     taxExempt: draft.taxExempt,
     taxExemptNumber: draft.taxExemptNumber.trim(),
     taxDocuments: draft.taxDocuments.map((doc) =>

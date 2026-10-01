@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Download, Loader2 } from "lucide-react";
+import { AlertCircle, Download, Loader2, Printer } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   dashboardControlClass,
+  dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
@@ -50,6 +51,7 @@ export function PdfPreviewDialog({
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [filename, setFilename] = useState("document.pdf");
   const urlRef = useRef<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -108,6 +110,7 @@ export function PdfPreviewDialog({
         <div className="relative flex-1 overflow-hidden bg-[#f6f6f7]">
           {status === "ready" && blobUrl ? (
             <iframe
+              ref={iframeRef}
               src={blobUrl}
               title={title}
               className="h-full w-full border-0"
@@ -131,17 +134,37 @@ export function PdfPreviewDialog({
         <div className="flex items-center justify-between gap-2 border-t border-[#ebebeb] bg-[#fafafa] px-5 py-3">
           <p className="truncate text-[12px] text-[#8a8a8a]">{filename}</p>
           {status === "ready" && blobUrl ? (
-            <a
-              href={blobUrl}
-              download={filename}
-              className={cn(
-                dashboardControlClass,
-                "inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-[13px] font-medium text-[#303030] hover:bg-white"
-              )}
-            >
-              <Download className="size-3.5" />
-              Download PDF
-            </a>
+            <div className="flex items-center gap-2">
+              <a
+                href={blobUrl}
+                download={filename}
+                className={cn(
+                  dashboardControlClass,
+                  "inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-[13px] font-medium text-[#303030] hover:bg-white"
+                )}
+              >
+                <Download className="size-3.5" />
+                Download PDF
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    iframeRef.current?.contentWindow?.focus();
+                    iframeRef.current?.contentWindow?.print();
+                  } catch {
+                    window.open(blobUrl, "_blank", "noopener,noreferrer");
+                  }
+                }}
+                className={cn(
+                  dashboardPrimaryButtonClass,
+                  "inline-flex h-9 items-center gap-1.5 rounded-lg px-4 text-[13px]"
+                )}
+              >
+                <Printer className="size-3.5" />
+                Print
+              </button>
+            </div>
           ) : null}
         </div>
       </DialogContent>

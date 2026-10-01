@@ -1,5 +1,8 @@
 import { cn } from "@/lib/utils";
-import { ARTWORK_STATUS_LABELS } from "@/lib/artwork-status";
+import {
+  ARTWORK_STATUS_LABELS,
+  ARTWORK_STATUS_SHORT_LABELS,
+} from "@/lib/artwork-status";
 import type { ArtworkFile } from "@/types";
 
 const STATUS_STYLES: Record<
@@ -36,30 +39,42 @@ const STATUS_STYLES: Record<
 export function ArtworkStatusBadge({
   status,
   className,
+  size = "default",
 }: {
   status: ArtworkFile["status"];
   className?: string;
+  /** Tighter badge + short label for narrow sidebars / dense lists. */
+  size?: "default" | "sm";
 }) {
   const config = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
-  const label = ARTWORK_STATUS_LABELS[status] ?? status;
+  const compact = size === "sm";
+  const fullLabel = ARTWORK_STATUS_LABELS[status] ?? status;
+  const label = compact
+    ? (ARTWORK_STATUS_SHORT_LABELS[status] ?? fullLabel)
+    : fullLabel;
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[12px] font-medium leading-none",
+        "inline-flex max-w-full items-center rounded-md font-medium leading-none",
+        compact
+          ? "gap-1 px-1.5 py-0.5 text-[10px]"
+          : "gap-1.5 px-2 py-0.5 text-[12px]",
         config.wrap,
         className
       )}
+      title={fullLabel}
     >
       <span
         aria-hidden
         className={cn(
-          "size-1.5 shrink-0 rounded-full",
+          "shrink-0 rounded-full",
+          compact ? "size-1" : "size-1.5",
           config.hollow ? "border-2 bg-transparent" : "",
           config.dot
         )}
       />
-      {label}
+      <span className="min-w-0 truncate">{label}</span>
     </span>
   );
 }

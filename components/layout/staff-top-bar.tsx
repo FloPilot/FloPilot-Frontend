@@ -1,14 +1,16 @@
 "use client";
 
-import { Menu, Search } from "lucide-react";
+import { Filter, Menu, Search } from "lucide-react";
 import { FloPilotTopBarMark } from "@/components/branding/flopilot-top-bar-mark";
 import { ShopTopBarIdentity } from "@/components/branding/shop-top-bar-identity";
+import { StaffHelpDocsButton } from "@/components/help/staff-help-docs-button";
 import { StaffMobileNav } from "@/components/layout/staff-mobile-nav";
 import { StaffNotificationsMenu } from "@/components/layout/staff-notifications-menu";
 import { useStaffSearch } from "@/components/layout/staff-search-provider";
 import { StaffTopBarSearch } from "@/components/layout/staff-top-bar-search";
 import { StaffUnsavedChangesBar } from "@/components/layout/staff-unsaved-changes-bar";
 import { useStaffUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
+import { useWorkspaceScope } from "@/components/providers/workspace-scope-provider";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -40,6 +42,7 @@ function TopBarIconButton({
 export function StaffTopBar() {
   const { openSearch, searchAnchorRef, headerRef } = useStaffSearch();
   const { dirty } = useStaffUnsavedChanges();
+  const { isActive, panelOpen, togglePanel } = useWorkspaceScope();
 
   return (
     <>
@@ -106,6 +109,30 @@ export function StaffTopBar() {
             </TopBarIconButton>
           ) : null}
 
+          <TopBarIconButton
+            aria-label={
+              panelOpen ? "Hide workspace filters" : "Show workspace filters"
+            }
+            aria-pressed={panelOpen}
+            title={
+              isActive
+                ? "Workspace filters active — click to edit"
+                : "Workspace filters"
+            }
+            onClick={togglePanel}
+            className={cn("relative", panelOpen && "bg-[#303030] text-white")}
+          >
+            <Filter className="size-[18px]" strokeWidth={1.75} />
+            {isActive ? (
+              <span
+                className="absolute right-1 top-1 size-1.5 rounded-full bg-[#2c6ecb] ring-2 ring-black"
+                aria-hidden
+              />
+            ) : null}
+          </TopBarIconButton>
+
+          <StaffHelpDocsButton />
+
           <StaffNotificationsMenu />
 
           <span
@@ -118,7 +145,12 @@ export function StaffTopBar() {
       </header>
 
       {dirty ? (
-        <div className={cn("border-b border-black px-3 py-2 md:hidden", staffNav.topBar)}>
+        <div
+          className={cn(
+            "border-b border-black px-3 py-2 md:hidden",
+            staffNav.topBar
+          )}
+        >
           <StaffUnsavedChangesBar />
         </div>
       ) : null}

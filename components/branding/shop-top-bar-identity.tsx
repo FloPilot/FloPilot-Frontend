@@ -1,7 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/providers/auth-provider";
+import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { useOptionalStaffUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
@@ -10,8 +13,7 @@ import {
   PlusCircle,
   Settings,
 } from "lucide-react";
-import { useAuth } from "@/components/providers/auth-provider";
-import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { useRouter } from "next/navigation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -148,7 +150,10 @@ function WorkspaceSwitcherRow({
 }
 
 export function ShopTopBarIdentity({ className }: { className?: string }) {
-  const router = useRouter();
+  const router = useGuardedRouter();
+  const unguardedRouter = useRouter();
+  const unsaved = useOptionalStaffUnsavedChanges();
+  const requestLeave = unsaved?.requestLeave ?? (() => true);
   const {
     user,
     profile,
@@ -319,11 +324,12 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
   async function handleSelect(shop: WorkspaceRow) {
     if (shop.kind === "staff") {
       if (isStaff && shop.tenantId === activeTenantId) return;
+      if (!requestLeave()) return;
       setPendingKey(`staff:${shop.tenantId}`);
       try {
         await switchShop(shop.tenantId);
         setOpen(false);
-        router.push("/app/dashboard");
+        unguardedRouter.push("/app/dashboard");
       } finally {
         setPendingKey(null);
       }
@@ -337,11 +343,12 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
     ) {
       return;
     }
+    if (!requestLeave()) return;
     setPendingKey(`portal:${shop.tenantId}:${shop.customerId}`);
     try {
       await switchPortalShop(shop.tenantId, shop.customerId);
       setOpen(false);
-      router.push("/portal/app");
+      unguardedRouter.push("/portal/app");
     } finally {
       setPendingKey(null);
     }
@@ -411,10 +418,8 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
                 <button
                   type="button"
                   onClick={() => {
+                    if (!router.push("/new-shop")) return;
                     setOpen(false);
-                    // Separate route from first-time /register-shop so existing
-                    // members can always add another workspace.
-                    router.push("/new-shop");
                   }}
                   className="mt-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left text-[13px] font-medium text-[#303030] transition-colors hover:bg-[#f6f6f7]"
                 >
@@ -461,8 +466,8 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
             <DropdownMenuItem
               className="rounded-lg px-2 py-2 text-[13px] text-[#303030]"
               onClick={() => {
+                if (!router.push("/app/settings")) return;
                 setOpen(false);
-                router.push("/app/settings");
               }}
             >
               <Settings className="size-4 text-[#616161]" />
@@ -472,8 +477,8 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
             <DropdownMenuItem
               className="rounded-lg px-2 py-2 text-[13px] text-[#303030]"
               onClick={() => {
+                if (!router.push("/portal/app/business")) return;
                 setOpen(false);
-                router.push("/portal/app/business");
               }}
             >
               <Settings className="size-4 text-[#616161]" />
@@ -486,9 +491,10 @@ export function ShopTopBarIdentity({ className }: { className?: string }) {
           <DropdownMenuItem
             className="rounded-lg px-2 py-2 text-[13px] text-[#303030]"
             onClick={async () => {
+              if (!requestLeave()) return;
               setOpen(false);
               await signOut();
-              router.push(isPortal ? "/portal" : "/login");
+              unguardedRouter.push(isPortal ? "/portal" : "/login");
             }}
           >
             <LogOut className="size-4 text-[#616161]" />

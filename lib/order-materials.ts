@@ -459,7 +459,7 @@ export function materialStatusLabel(status: MaterialReceiveStatus): string {
     case "partial":
       return "Partial";
     default:
-      return "Waiting";
+      return "Pending";
   }
 }
 
@@ -580,9 +580,9 @@ export const GARMENT_RECEIVE_STATUS_STYLES: Record<
   { label: string; badge: string; row: string }
 > = {
   waiting: {
-    label: "Missing",
-    badge: "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f]",
-    row: "bg-[#fff8f8]",
+    label: "Pending",
+    badge: "border-[#f0d9a8] bg-[#fff8eb] text-[#8a6116]",
+    row: "bg-[#fffdf8]",
   },
   partial: {
     label: "Partial",
