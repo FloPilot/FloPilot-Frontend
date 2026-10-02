@@ -167,6 +167,8 @@ export type OrderRequestDetail = OrderRequestSummary & {
   excludedContractFeeIds?: string[];
   /** Rate sheet used for matrix pricing on this request */
   selectedRateSheetId?: string | null;
+  /** Order-request-scoped one-time pricing override */
+  estimateOneTimeRateSheet?: import("@/types").OrderOneTimeRateSheet | null;
   /** Staff ↔ customer thread (copied onto the order on convert). */
   messages?: {
     id: string;
@@ -340,8 +342,8 @@ export type OrderRequestDraft = {
     source: "manual";
     contractFeeId?: string;
   }[];
-  /** Contract fees from the rate sheet the customer chose to skip */
-  excludedContractFeeIds: string[];
+  /** Contract fees from the rate sheet the shop chose to skip (opt-in when unset) */
+  excludedContractFeeIds?: string[];
   /** Existing open requests to run with this one for combined-quantity pricing */
   linkedRequestIds: string[];
 };
@@ -401,7 +403,6 @@ export function createEmptyOrderRequestDraft(
     customLabel: "",
     notes: "",
     estimateAdjustments: [],
-    excludedContractFeeIds: [],
     linkedRequestIds: [],
   };
 }

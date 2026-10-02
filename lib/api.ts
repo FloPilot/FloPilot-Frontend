@@ -2107,6 +2107,7 @@ export async function updateOrderRequest(
     }[];
     excludedContractFeeIds?: string[];
     selectedRateSheetId?: string | null;
+    estimateOneTimeRateSheet?: import("@/types").OrderOneTimeRateSheet | null;
   }
 ) {
   return callApi<{ request: import("@/lib/order-requests").OrderRequestDetail }>(

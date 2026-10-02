@@ -509,6 +509,8 @@ type ScheduleContextValue = {
     orderId: string,
     updates: {
       selectedRateSheetId?: string | null;
+      estimateOneTimeRateSheet?: import("@/types").OrderOneTimeRateSheet | null;
+      estimateStaffNote?: string | null;
       estimateAdjustments?: OrderEstimateAdjustment[];
       excludedContractFeeIds?: string[];
       taxEnabled?: boolean;
@@ -2200,6 +2202,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       orderId: string,
       updates: {
         selectedRateSheetId?: string | null;
+        estimateOneTimeRateSheet?: import("@/types").OrderOneTimeRateSheet | null;
+        estimateStaffNote?: string | null;
         estimateAdjustments?: OrderEstimateAdjustment[];
         excludedContractFeeIds?: string[];
         taxEnabled?: boolean;

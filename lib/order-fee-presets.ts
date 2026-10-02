@@ -14,6 +14,7 @@ import {
   listShopRateSheets,
   type ShopPricingSource,
 } from "@/lib/shop-pricing";
+import { isOneTimeRateSheetId } from "@/lib/order-one-time-rate-sheet";
 import {
   countOrderPieces,
   resolveTierAmount,
@@ -190,6 +191,7 @@ export function buildOrderFeePresets({
   const activeSheet = resolveRateSheetForOrder(customer, order, source);
   const prioritizedSheetIds = [
     selectedRateSheetId &&
+    !isOneTimeRateSheetId(selectedRateSheetId) &&
     !isShopRateSheetId(source, selectedRateSheetId) &&
     selectedRateSheetId,
     activeSheet?.id,

@@ -7,6 +7,10 @@ import {
   SHOP_PRICING_SHEET_ID,
   type ShopPricingSource,
 } from "@/lib/shop-pricing";
+import {
+  isOneTimeRateSheetId,
+  resolveOneTimePricingMatrix,
+} from "@/lib/order-one-time-rate-sheet";
 
 export { SHOP_PRICING_SHEET_ID };
 
@@ -62,6 +66,9 @@ export function resolveRateSheetForOrder(
   if (sheets.length === 0) return null;
 
   const selectedId = order?.selectedRateSheetId;
+  if (isOneTimeRateSheetId(selectedId)) {
+    return null;
+  }
   if (selectedId && isShopRateSheetId(asShopPricingSource(shop), selectedId)) {
     return null;
   }
@@ -110,6 +117,9 @@ export function resolveEffectivePricingMatrix(
   rateSheetName?: string;
   usingShopPricing?: boolean;
 } {
+  const oneTime = resolveOneTimePricingMatrix(order);
+  if (oneTime) return oneTime;
+
   const source = asShopPricingSource(shop);
   const selectedId = order?.selectedRateSheetId;
 

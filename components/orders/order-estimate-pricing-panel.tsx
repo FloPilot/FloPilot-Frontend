@@ -6,7 +6,6 @@ import {
   Plus,
   Sparkles,
   Tag,
-  ToggleLeft,
   Trash2,
   X,
 } from "lucide-react";
@@ -14,6 +13,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { ShopPresetSelect } from "@/components/orders/shop-preset-select";
+import { PricingMatrixEditor } from "@/components/pricing/pricing-matrix-editor";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import {
@@ -34,9 +35,18 @@ import {
   isShopRateSheetId,
 } from "@/lib/shop-pricing";
 import {
+  applyOneTimeRateSheetEdits,
+  buildOneTimeRateSheet,
+  isOneTimeRateSheetId,
+  ONE_TIME_RATE_SHEET_ID,
+  oneTimeRateSheetSummary,
+  oneTimeSheetAsEditableMatrix,
+} from "@/lib/order-one-time-rate-sheet";
+import {
   buildFeeEstimateRows,
   createEstimateAdjustmentId,
   emptyManualAdjustment,
+  isContractFeeDeselected,
   listAutoContractFeeCandidates,
 } from "@/lib/order-contract-fees";
 import {
@@ -62,13 +72,16 @@ import type {
   Order,
   OrderEstimateAdjustment,
   OrderEstimateFeeCategory,
+  OrderOneTimeRateSheet,
 } from "@/types";
 import { cn } from "@/lib/utils";
 
 export type OrderEstimatePricingDraft = {
   selectedRateSheetId: string | null;
+  estimateOneTimeRateSheet: OrderOneTimeRateSheet | null;
   estimateAdjustments: OrderEstimateAdjustment[];
-  excludedContractFeeIds: string[];
+  /** Explicit skip list. `null` = never configured → all fees deselected. */
+  excludedContractFeeIds: string[] | null;
 };
 
 export function OrderEstimatePricingPanel({
@@ -83,6 +96,7 @@ export function OrderEstimatePricingPanel({
   /** When set, used instead of updateOrderEstimatePricing (order-request mode). */
   onPersist?: (updates: {
     selectedRateSheetId?: string | null;
+    estimateOneTimeRateSheet?: OrderOneTimeRateSheet | null;
     estimateAdjustments?: OrderEstimateAdjustment[];
     excludedContractFeeIds?: string[];
   }) => Promise<void>;
@@ -101,19 +115,26 @@ export function OrderEstimatePricingPanel({
   );
   const [draft, setDraft] = useState<OrderEstimatePricingDraft>({
     selectedRateSheetId: order.selectedRateSheetId ?? null,
+    estimateOneTimeRateSheet: order.estimateOneTimeRateSheet ?? null,
     estimateAdjustments: order.estimateAdjustments ?? [],
-    excludedContractFeeIds: order.excludedContractFeeIds ?? [],
+    excludedContractFeeIds: Array.isArray(order.excludedContractFeeIds)
+      ? order.excludedContractFeeIds
+      : null,
   });
 
   useEffect(() => {
     setDraft({
       selectedRateSheetId: order.selectedRateSheetId ?? null,
+      estimateOneTimeRateSheet: order.estimateOneTimeRateSheet ?? null,
       estimateAdjustments: order.estimateAdjustments ?? [],
-      excludedContractFeeIds: order.excludedContractFeeIds ?? [],
+      excludedContractFeeIds: Array.isArray(order.excludedContractFeeIds)
+        ? order.excludedContractFeeIds
+        : null,
     });
   }, [
     order.id,
     order.selectedRateSheetId,
+    order.estimateOneTimeRateSheet,
     order.estimateAdjustments,
     order.excludedContractFeeIds,
   ]);
@@ -126,8 +147,9 @@ export function OrderEstimatePricingPanel({
     () => ({
       ...order,
       selectedRateSheetId: draft.selectedRateSheetId,
+      estimateOneTimeRateSheet: draft.estimateOneTimeRateSheet,
       estimateAdjustments: draft.estimateAdjustments,
-      excludedContractFeeIds: draft.excludedContractFeeIds,
+      excludedContractFeeIds: draft.excludedContractFeeIds ?? undefined,
     }),
     [order, draft]
   );
@@ -149,6 +171,9 @@ export function OrderEstimatePricingPanel({
 
   const selectedRateSheetId = useMemo(() => {
     const current = workingOrder.selectedRateSheetId;
+    if (isOneTimeRateSheetId(current) && workingOrder.estimateOneTimeRateSheet) {
+      return ONE_TIME_RATE_SHEET_ID;
+    }
     if (current && isShopRateSheetId(settings, current)) {
       if (current === SHOP_PRICING_SHEET_ID) {
         return (
@@ -176,13 +201,20 @@ export function OrderEstimatePricingPanel({
     );
   }, [
     workingOrder.selectedRateSheetId,
+    workingOrder.estimateOneTimeRateSheet,
     settings,
     shopRateSheets,
     customerRateSheets,
     activeRateSheet?.id,
   ]);
 
+  const oneTimeActive = isOneTimeRateSheetId(selectedRateSheetId);
+  const oneTimeSheet = draft.estimateOneTimeRateSheet;
+
   const selectedRateSheetLabel = useMemo(() => {
+    if (oneTimeActive && oneTimeSheet) {
+      return oneTimeSheet.name || "One-time override";
+    }
     const shopSheet = shopRateSheets.find(
       (entry) => entry.id === selectedRateSheetId
     );
@@ -199,11 +231,23 @@ export function OrderEstimatePricingPanel({
     }
     return activeRateSheet?.name ?? "Select pricing";
   }, [
+    oneTimeActive,
+    oneTimeSheet,
     selectedRateSheetId,
     shopRateSheets,
     customerRateSheets,
     activeRateSheet?.name,
   ]);
+
+  const defaultFallbackSheetId = useMemo(() => {
+    return (
+      shopRateSheets.find((sheet) => sheet.isDefault)?.id ??
+      shopRateSheets[0]?.id ??
+      customerRateSheets.find((sheet) => sheet.isDefault)?.id ??
+      customerRateSheets[0]?.id ??
+      SHOP_PRICING_SHEET_ID
+    );
+  }, [shopRateSheets, customerRateSheets]);
 
   const feePresets = useMemo(
     () =>
@@ -237,35 +281,66 @@ export function OrderEstimatePricingPanel({
     [workingOrder, customer, settings]
   );
 
+  const autoFeeCandidateIds = useMemo(
+    () =>
+      autoFeeCandidates
+        .map((fee) => fee.contractFeeId)
+        .filter((id): id is string => Boolean(id)),
+    [autoFeeCandidates]
+  );
+
   const manualFees = feeRows.filter((row) => row.source === "manual");
-  const excluded = new Set(draft.excludedContractFeeIds);
 
   const isDirty = useMemo(() => {
+    const normalizeExcluded = (ids: string[] | null | undefined) => {
+      if (!Array.isArray(ids)) {
+        // Unset and "all deselected" are the same effective default.
+        return [...autoFeeCandidateIds].sort();
+      }
+      return [...ids].sort();
+    };
     return (
       JSON.stringify({
         selectedRateSheetId: draft.selectedRateSheetId,
+        estimateOneTimeRateSheet: draft.estimateOneTimeRateSheet,
         estimateAdjustments: draft.estimateAdjustments,
-        excludedContractFeeIds: draft.excludedContractFeeIds,
+        excludedContractFeeIds: normalizeExcluded(draft.excludedContractFeeIds),
       }) !==
       JSON.stringify({
         selectedRateSheetId: order.selectedRateSheetId ?? null,
+        estimateOneTimeRateSheet: order.estimateOneTimeRateSheet ?? null,
         estimateAdjustments: order.estimateAdjustments ?? [],
-        excludedContractFeeIds: order.excludedContractFeeIds ?? [],
+        excludedContractFeeIds: normalizeExcluded(order.excludedContractFeeIds),
       })
     );
-  }, [draft, order.selectedRateSheetId, order.estimateAdjustments, order.excludedContractFeeIds]);
+  }, [
+    draft,
+    order.selectedRateSheetId,
+    order.estimateOneTimeRateSheet,
+    order.estimateAdjustments,
+    order.excludedContractFeeIds,
+    autoFeeCandidateIds,
+  ]);
 
   const discardChanges = useCallback(() => {
     setDraft({
       selectedRateSheetId: order.selectedRateSheetId ?? null,
+      estimateOneTimeRateSheet: order.estimateOneTimeRateSheet ?? null,
       estimateAdjustments: order.estimateAdjustments ?? [],
-      excludedContractFeeIds: order.excludedContractFeeIds ?? [],
+      excludedContractFeeIds: Array.isArray(order.excludedContractFeeIds)
+        ? order.excludedContractFeeIds
+        : null,
     });
     setAddingFee(false);
     setSelectedPresetValue("");
     setShowCustomFeeForm(false);
     setDraftManual(null);
-  }, [order.selectedRateSheetId, order.estimateAdjustments, order.excludedContractFeeIds]);
+  }, [
+    order.selectedRateSheetId,
+    order.estimateOneTimeRateSheet,
+    order.estimateAdjustments,
+    order.excludedContractFeeIds,
+  ]);
 
   const saveChanges = useCallback(async () => {
     if (readOnly || !isDirty) return;
@@ -273,8 +348,9 @@ export function OrderEstimatePricingPanel({
     try {
       const updates = {
         selectedRateSheetId: draft.selectedRateSheetId,
+        estimateOneTimeRateSheet: draft.estimateOneTimeRateSheet,
         estimateAdjustments: draft.estimateAdjustments,
-        excludedContractFeeIds: draft.excludedContractFeeIds,
+        excludedContractFeeIds: draft.excludedContractFeeIds ?? undefined,
       };
       if (onPersist) {
         await onPersist(updates);
@@ -307,14 +383,97 @@ export function OrderEstimatePricingPanel({
     `order-estimate-pricing-${order.id}`
   );
 
+  const activateOneTimeOverride = useCallback(
+    (
+      baseSheetId?: string | null,
+      options?: { preserveEdits?: boolean }
+    ) => {
+      const preserve = options?.preserveEdits !== false;
+      const baseId =
+        baseSheetId ??
+        (isOneTimeRateSheetId(draft.selectedRateSheetId)
+          ? draft.estimateOneTimeRateSheet?.baseSheetId
+          : draft.selectedRateSheetId) ??
+        defaultFallbackSheetId;
+      const next = buildOneTimeRateSheet({
+        baseSheetId: baseId,
+        settings,
+        customer,
+        existing: preserve ? draft.estimateOneTimeRateSheet : null,
+        name: draft.estimateOneTimeRateSheet?.name,
+        blankMarkupPercent: preserve
+          ? draft.estimateOneTimeRateSheet?.blankMarkupPercent
+          : undefined,
+        decorationRateAdjustPercent: preserve
+          ? draft.estimateOneTimeRateSheet?.decorationRateAdjustPercent
+          : 0,
+      });
+      setDraft((current) => ({
+        ...current,
+        selectedRateSheetId: ONE_TIME_RATE_SHEET_ID,
+        estimateOneTimeRateSheet: next,
+      }));
+    },
+    [
+      draft.selectedRateSheetId,
+      draft.estimateOneTimeRateSheet,
+      defaultFallbackSheetId,
+      settings,
+      customer,
+    ]
+  );
+
   const handleRateSheetChange = (value: string | null) => {
     if (!value) return;
+    if (isOneTimeRateSheetId(value)) {
+      if (draft.estimateOneTimeRateSheet) {
+        setDraft((current) => ({
+          ...current,
+          selectedRateSheetId: ONE_TIME_RATE_SHEET_ID,
+        }));
+        return;
+      }
+      activateOneTimeOverride(undefined, { preserveEdits: false });
+      return;
+    }
     setDraft((current) => ({ ...current, selectedRateSheetId: value }));
+  };
+
+  const clearOneTimeOverride = () => {
+    const fallback =
+      draft.estimateOneTimeRateSheet?.baseSheetId ?? defaultFallbackSheetId;
+    setDraft((current) => ({
+      ...current,
+      selectedRateSheetId: fallback,
+      estimateOneTimeRateSheet: null,
+    }));
+  };
+
+  const updateOneTimeField = (
+    edits: Parameters<typeof applyOneTimeRateSheetEdits>[1]
+  ) => {
+    setDraft((current) => {
+      if (!current.estimateOneTimeRateSheet) return current;
+      return {
+        ...current,
+        estimateOneTimeRateSheet: applyOneTimeRateSheetEdits(
+          current.estimateOneTimeRateSheet,
+          edits
+        ),
+      };
+    });
+  };
+
+  const resetOneTimeFromBase = (baseSheetId: string) => {
+    activateOneTimeOverride(baseSheetId, { preserveEdits: false });
   };
 
   const toggleAutoFee = (contractFeeId: string) => {
     setDraft((current) => {
-      const next = new Set(current.excludedContractFeeIds);
+      const baseline = Array.isArray(current.excludedContractFeeIds)
+        ? current.excludedContractFeeIds
+        : autoFeeCandidateIds;
+      const next = new Set(baseline);
       if (next.has(contractFeeId)) {
         next.delete(contractFeeId);
       } else {
@@ -388,13 +547,19 @@ export function OrderEstimatePricingPanel({
     });
   };
 
-  const showRateSheetPicker =
-    shopRateSheets.length > 1 || customerRateSheets.length > 0;
   const canSaveFee =
     draftManual &&
     draftManual.label.trim() &&
     draftManual.unitPrice >= 0 &&
     draftManual.qty >= 1;
+
+  const oneTimeBlankDraft = String(oneTimeSheet?.blankMarkupPercent ?? 0);
+  const oneTimeMatrix = useMemo(
+    () =>
+      oneTimeSheet ? oneTimeSheetAsEditableMatrix(oneTimeSheet) : null,
+    [oneTimeSheet]
+  );
+  const currency = settings.companyProfile?.currency || "USD";
 
   return (
     <div className={cn(dashboardInsetSurfaceClass, "space-y-5 p-4")}>
@@ -406,16 +571,15 @@ export function OrderEstimatePricingPanel({
             {saving ? <Loader2 className="size-3.5 animate-spin text-[#8a8a8a]" /> : null}
           </div>
           <p className={cn("mt-1", dashboardTaskDetailClass)}>
-            Choose which rate sheet sets fees and blank markup. Decoration
-            rates also pull matching methods from your other shop sheets (so
-            Screen Print + Neck Label can live on separate sheets). Skip or add
-            fees below as needed.
+            Choose which rate sheet sets fees and blank markup. Need different
+            numbers for this order only? Use a one-time override — shop and
+            customer sheets stay unchanged.
           </p>
         </div>
       </div>
 
-      {showRateSheetPicker ? (
-        <div className="max-w-md space-y-2">
+      <div className="space-y-3">
+        <div className="max-w-xl space-y-2">
           <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
             Rate sheet
           </Label>
@@ -442,21 +606,171 @@ export function OrderEstimatePricingPanel({
                   {sheet.isDefault ? " (customer default)" : ""}
                 </SelectItem>
               ))}
+              <SelectSeparator />
+              <SelectItem value={ONE_TIME_RATE_SHEET_ID}>
+                {oneTimeSheet
+                  ? "One-time override (this order)"
+                  : "One-time override…"}
+              </SelectItem>
             </SelectContent>
           </Select>
         </div>
-      ) : null}
+
+        {oneTimeActive && oneTimeSheet && oneTimeMatrix ? (
+          <div className="w-full rounded-xl border border-[#d7e3fb] bg-[#f7f9fd] p-4 sm:p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-3.5 text-[#2c6ecb]" />
+                  <p className="text-[13px] font-semibold text-[#1a1a1a]">
+                    One-time pricing
+                  </p>
+                </div>
+                <p className={cn("mt-1", dashboardTaskDetailClass)}>
+                  Build unit costs for this order only — same as a rate sheet,
+                  without changing shop or customer pricing.{" "}
+                  {oneTimeRateSheetSummary(oneTimeSheet)}.
+                </p>
+              </div>
+              {!readOnly ? (
+                <button
+                  type="button"
+                  onClick={clearOneTimeOverride}
+                  disabled={saving}
+                  className={cn(
+                    dashboardControlClass,
+                    "inline-flex h-8 items-center gap-1.5 px-2.5 text-[12px] text-[#616161]"
+                  )}
+                >
+                  <X className="size-3.5" />
+                  Clear override
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="space-y-1.5 sm:col-span-2 lg:col-span-1">
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                  Override name
+                </Label>
+                <Input
+                  value={oneTimeSheet.name}
+                  disabled={readOnly || saving}
+                  onChange={(event) =>
+                    updateOneTimeField({ name: event.target.value })
+                  }
+                  placeholder="e.g. Single shirt rush"
+                  className="h-9 bg-white"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                  Blank markup
+                </Label>
+                <div className="relative">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={500}
+                    step={0.1}
+                    value={oneTimeBlankDraft}
+                    disabled={readOnly || saving}
+                    onChange={(event) =>
+                      updateOneTimeField({
+                        blankMarkupPercent: Number(event.target.value),
+                      })
+                    }
+                    className="h-9 bg-white pr-7 text-right tabular-nums"
+                  />
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-[#8a8a8a]">
+                    %
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                  Copy from sheet
+                </Label>
+                <Select
+                  value={oneTimeSheet.baseSheetId ?? defaultFallbackSheetId}
+                  onValueChange={(value) => {
+                    if (value) resetOneTimeFromBase(value);
+                  }}
+                  disabled={readOnly || saving}
+                >
+                  <SelectTrigger
+                    className={cn(dashboardControlClass, "h-9 w-full bg-white")}
+                  >
+                    <SelectValue placeholder="Optional seed">
+                      {oneTimeSheet.baseSheetName || "Shop standard"}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent align="start" alignItemWithTrigger={false}>
+                    {shopRateSheets.map((sheet) => (
+                      <SelectItem key={sheet.id} value={sheet.id}>
+                        {sheet.name}
+                        {sheet.isDefault ? " (shop default)" : ""}
+                      </SelectItem>
+                    ))}
+                    {customerRateSheets.map((sheet) => (
+                      <SelectItem key={sheet.id} value={sheet.id}>
+                        {sheet.name}
+                        {sheet.isDefault ? " (customer default)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-[#8a8a8a]">
+                  Optional — recopies rates into this override so you can edit
+                  them.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-xl border border-[#e3e3e3] bg-white p-3 sm:p-4">
+              <div className="mb-3">
+                <p className="text-[13px] font-semibold text-[#1a1a1a]">
+                  Decoration rates
+                </p>
+                <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+                  Enter cost / unit by quantity tier — same editor as your rate
+                  sheets.
+                </p>
+              </div>
+              <PricingMatrixEditor
+                value={oneTimeMatrix}
+                disabled={readOnly || saving}
+                currency={currency}
+                productionDefaults={settings.productionDefaults}
+                onChange={(matrix) =>
+                  updateOneTimeField({
+                    methods: matrix.methods,
+                    decorationRateAdjustPercent: 0,
+                  })
+                }
+              />
+            </div>
+          </div>
+        ) : null}
+      </div>
 
       {autoFeeCandidates.length > 0 ? (
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-            Additional fees
-          </p>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+              Additional fees
+            </p>
+            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+              Off by default — add only the fees that apply to this order.
+            </p>
+          </div>
           <div className="space-y-2">
             {autoFeeCandidates.map((fee) => {
               const excludedFee = fee.contractFeeId
-                ? excluded.has(fee.contractFeeId)
-                : false;
+                ? isContractFeeDeselected(workingOrder, fee.contractFeeId)
+                : true;
               const lineTotal = fee.qty * fee.unitPrice;
               return (
                 <div
@@ -478,7 +792,7 @@ export function OrderEstimatePricingPanel({
                         {fee.label}
                       </span>
                       <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161] ring-1 ring-[#e3e3e3]">
-                        {excludedFee ? "Skipped" : "Auto"}
+                        {excludedFee ? "Available" : "Added"}
                       </span>
                     </div>
                     {fee.detail ? (
@@ -500,16 +814,17 @@ export function OrderEstimatePricingPanel({
                         size="sm"
                         className="relative z-20 h-8 px-2 text-[12px]"
                         onClick={() => toggleAutoFee(fee.contractFeeId!)}
+                        disabled={readOnly || saving}
                       >
                         {excludedFee ? (
                           <>
-                            <ToggleLeft className="size-3.5" />
-                            Include
+                            <Plus className="size-3.5" />
+                            Add
                           </>
                         ) : (
                           <>
                             <X className="size-3.5" />
-                            Skip
+                            Remove
                           </>
                         )}
                       </Button>

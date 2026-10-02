@@ -239,6 +239,25 @@ export type CustomerNegotiatedRateSheet = {
   updatedAt?: string;
 };
 
+/**
+ * Order-scoped rate sheet override — does not change shop or customer sheets.
+ * Decoration methods are stored at base rates; `decorationRateAdjustPercent`
+ * is applied when resolving pricing.
+ */
+export type OrderOneTimeRateSheet = {
+  id: "one-time";
+  name: string;
+  baseSheetId?: string | null;
+  baseSheetName?: string | null;
+  blankMarkupPercent: number;
+  /** Percent adjustment vs base decoration unit prices (e.g. 10 = +10%). */
+  decorationRateAdjustPercent?: number;
+  methods: import("@/lib/shop-settings").PricingMethod[];
+  contractFees?: CustomerContractFee[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 /** Categorized fee line on an order estimate */
 export type OrderEstimateFeeCategory =
   | "setup"
@@ -927,11 +946,15 @@ export interface Order {
   archived?: boolean;
   archivedAt?: string;
   archivedBy?: string;
-  /** Rate sheet for this order — `"shop"` uses shop matrix; omit = customer default */
+  /** Rate sheet for this order — `"shop"` uses shop matrix; `"one-time"` uses estimateOneTimeRateSheet; omit = customer default */
   selectedRateSheetId?: string | null;
+  /** Order-only pricing override when selectedRateSheetId is `"one-time"` */
+  estimateOneTimeRateSheet?: OrderOneTimeRateSheet | null;
+  /** Staff note explaining estimate/pricing decisions — not shown to customers */
+  estimateStaffNote?: string | null;
   /** One-off or auto contract fee lines on the estimate */
   estimateAdjustments?: OrderEstimateAdjustment[];
-  /** Contract fee ids excluded from auto-apply on this order */
+  /** Contract fee ids excluded from this order. Unset = all fees deselected (opt-in). */
   excludedContractFeeIds?: string[];
   /** Optional shop label shown after order number, e.g. "CUSTOM NAME" */
   customLabel?: string;
