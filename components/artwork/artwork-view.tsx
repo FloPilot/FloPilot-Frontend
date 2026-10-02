@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import { useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -12,13 +13,17 @@ import {
   ClipboardList,
   Clock,
   FileImage,
-  LayoutPanelLeft,
   Loader2,
+  Palette,
   RotateCcw,
   Search,
 } from "lucide-react";
-import { ArtworkDetailDialog } from "@/components/artwork/artwork-detail-dialog";
 import { DesignLibraryView } from "@/components/artwork/design-library-view";
+import {
+  DesignsFilterBar,
+  type DesignsAddFilterField,
+  type DesignsActiveFilter,
+} from "@/components/artwork/designs-filter-bar";
 import {
   BulkArchiveOrdersDialog,
   type BulkArchiveMode,
@@ -35,15 +40,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   ARTWORK_QUEUE_FILTERS,
   artworkQueueEntryKey,
@@ -53,7 +49,6 @@ import {
   filterArtworkQueue,
   filterArtworkQueueByScope,
   searchArtworkQueue,
-  type ArtworkQueueEntry,
   type ArtworkQueueFilter,
   type ArtworkQueueScope,
 } from "@/lib/artwork-queue";
@@ -68,10 +63,20 @@ import {
   dashboardTaskDetailClass,
   dashboardValueClass,
 } from "@/lib/dashboard-styles";
-import { decorationLabel, formatDate, formatDateTime } from "@/lib/format";
+import { groupArtworkDepartmentByOrder } from "@/lib/department-queues";
+import { decorationLabel, formatDate } from "@/lib/format";
 import { formatOrderRef } from "@/lib/order-display";
 import { artworkOrderWorkspaceHref } from "@/lib/artwork-routes";
+import {
+  artDueDateKey,
+  formatArtDueLabel,
+  rollupArtworkStatus,
+  sharedArtAssigneeId,
+} from "@/lib/artwork-status";
+import { getProofSlides } from "@/lib/proof-slides";
 import { cn } from "@/lib/utils";
+
+const ALL_VALUE = "all";
 
 const KPI_CONFIG: {
   key: ArtworkQueueFilter;
@@ -136,30 +141,6 @@ const SCOPE_OPTIONS: { value: ArtworkQueueScope; label: string }[] = [
   { value: "all", label: "All" },
 ];
 
-function FilterChip({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        dashboardControlClass,
-        "h-8 px-2.5 text-[12px]",
-        active && "border-[#2c6ecb] bg-[#f4f7fd] text-[#2c6ecb]"
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
 function EmptyState({
   filter,
   scope,
@@ -175,7 +156,7 @@ function EmptyState({
         <Search className="mx-auto mb-3 size-8 text-[#c9cccf]" />
         <p className="text-sm font-medium text-[#303030]">No matches</p>
         <p className="mt-1 text-sm text-[#616161]">
-          Try a different order number, customer, or file name.
+          Try a different order number, customer, design code, or clear filters.
         </p>
       </div>
     );
@@ -230,16 +211,18 @@ function EmptyState({
 }
 
 export function ArtworkView() {
-  const { orders, bulkArchiveOrders, restoreOrder } = useSchedule();
+  const router = useGuardedRouter();
+  const { orders, bulkArchiveOrders, restoreOrder, getCustomerById } =
+    useSchedule();
   const { isAdmin } = useStaffAccess();
   const [tab, setTab] = useState<"queue" | "library">("queue");
   const [filter, setFilter] = useState<ArtworkQueueFilter>("all");
   const [scope, setScope] = useState<ArtworkQueueScope>("active");
   const [search, setSearch] = useState("");
-  const [selectedEntry, setSelectedEntry] = useState<ArtworkQueueEntry | null>(
-    null
-  );
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const [customerFilter, setCustomerFilter] = useState(ALL_VALUE);
+  const [artistFilter, setArtistFilter] = useState(ALL_VALUE);
+  const [designCodeFilter, setDesignCodeFilter] = useState(ALL_VALUE);
+  const [decorationFilter, setDecorationFilter] = useState(ALL_VALUE);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
@@ -258,10 +241,180 @@ export function ArtworkView() {
     () => countArtworkQueue(scopedEntries),
     [scopedEntries]
   );
+
+  const customerOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const entry of scopedEntries) {
+      const customer = getCustomerById(entry.customerId);
+      map.set(
+        entry.customerId,
+        customer?.company || entry.company || entry.customerName
+      );
+    }
+    return Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [scopedEntries, getCustomerById]);
+
+  const artistOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const entry of scopedEntries) {
+      const id = entry.artwork.artAssigneeId?.trim();
+      if (!id) continue;
+      map.set(id, entry.artwork.artAssigneeName?.trim() || "Artist");
+    }
+    return [
+      { value: "unassigned", label: "Unassigned" },
+      ...Array.from(map.entries())
+        .map(([value, label]) => ({ value, label }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+    ];
+  }, [scopedEntries]);
+
+  const designCodeOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const entry of scopedEntries) {
+      const code = entry.designCode?.trim();
+      if (!code) continue;
+      map.set(code.toUpperCase(), code.toUpperCase());
+    }
+    return Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [scopedEntries]);
+
+  const decorationOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const entry of scopedEntries) {
+      map.set(entry.decoration, decorationLabel(entry.decoration));
+    }
+    return Array.from(map.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [scopedEntries]);
+
   const filtered = useMemo(() => {
     const byStatus = filterArtworkQueue(scopedEntries, filter);
-    return searchArtworkQueue(byStatus, search);
-  }, [scopedEntries, filter, search]);
+    const byMeta = byStatus.filter((entry) => {
+      if (
+        customerFilter !== ALL_VALUE &&
+        entry.customerId !== customerFilter
+      ) {
+        return false;
+      }
+      if (artistFilter !== ALL_VALUE) {
+        if (artistFilter === "unassigned") {
+          if (entry.artwork.artAssigneeId) return false;
+        } else if (entry.artwork.artAssigneeId !== artistFilter) {
+          return false;
+        }
+      }
+      if (
+        designCodeFilter !== ALL_VALUE &&
+        entry.designCode?.trim().toUpperCase() !== designCodeFilter
+      ) {
+        return false;
+      }
+      if (
+        decorationFilter !== ALL_VALUE &&
+        entry.decoration !== decorationFilter
+      ) {
+        return false;
+      }
+      return true;
+    });
+    return searchArtworkQueue(byMeta, search);
+  }, [
+    scopedEntries,
+    filter,
+    search,
+    customerFilter,
+    artistFilter,
+    designCodeFilter,
+    decorationFilter,
+  ]);
+
+  const orderGroups = useMemo(
+    () => groupArtworkDepartmentByOrder(filtered),
+    [filtered]
+  );
+
+  const statusTabs = useMemo(
+    () => [
+      { value: "all", label: "All", count: counts.all },
+      ...ARTWORK_QUEUE_FILTERS.slice(1).map((option) => ({
+        value: option.value,
+        label: option.label,
+        count: counts[option.value],
+      })),
+    ],
+    [counts]
+  );
+
+  const activeFilters = useMemo((): DesignsActiveFilter[] => {
+    const chips: DesignsActiveFilter[] = [];
+    if (customerFilter !== ALL_VALUE) {
+      chips.push({
+        id: "customer",
+        label: "Customer",
+        value:
+          customerOptions.find((item) => item.value === customerFilter)
+            ?.label || "Customer",
+        onRemove: () => setCustomerFilter(ALL_VALUE),
+      });
+    }
+    if (artistFilter !== ALL_VALUE) {
+      chips.push({
+        id: "artist",
+        label: "Artist",
+        value:
+          artistOptions.find((item) => item.value === artistFilter)?.label ||
+          "Artist",
+        onRemove: () => setArtistFilter(ALL_VALUE),
+      });
+    }
+    if (designCodeFilter !== ALL_VALUE) {
+      chips.push({
+        id: "design_code",
+        label: "Design code",
+        value: designCodeFilter,
+        onRemove: () => setDesignCodeFilter(ALL_VALUE),
+      });
+    }
+    if (decorationFilter !== ALL_VALUE) {
+      chips.push({
+        id: "decoration",
+        label: "Decoration",
+        value: decorationLabel(decorationFilter),
+        onRemove: () => setDecorationFilter(ALL_VALUE),
+      });
+    }
+    return chips;
+  }, [
+    customerFilter,
+    artistFilter,
+    designCodeFilter,
+    decorationFilter,
+    customerOptions,
+    artistOptions,
+  ]);
+
+  const clearExtraFilters = () => {
+    setCustomerFilter(ALL_VALUE);
+    setArtistFilter(ALL_VALUE);
+    setDesignCodeFilter(ALL_VALUE);
+    setDecorationFilter(ALL_VALUE);
+  };
+
+  const handleSelectFilterOption = (
+    field: DesignsAddFilterField,
+    value: string
+  ) => {
+    if (field === "customer") setCustomerFilter(value);
+    else if (field === "artist") setArtistFilter(value);
+    else if (field === "design_code") setDesignCodeFilter(value);
+    else if (field === "decoration") setDecorationFilter(value);
+  };
 
   const needsAttention = counts.pending + counts.revision_requested;
   const canBulkSelect = isAdmin && scope !== "all";
@@ -285,10 +438,21 @@ export function ArtworkView() {
   useEffect(() => {
     setSelectedKeys(new Set());
     setStatusMessage(null);
-  }, [scope, filter, search, tab]);
+  }, [
+    scope,
+    filter,
+    search,
+    tab,
+    customerFilter,
+    artistFilter,
+    designCodeFilter,
+    decorationFilter,
+  ]);
 
   useEffect(() => {
-    const visibleKeys = new Set(filtered.map((entry) => artworkQueueEntryKey(entry)));
+    const visibleKeys = new Set(
+      filtered.map((entry) => artworkQueueEntryKey(entry))
+    );
     setSelectedKeys((current) => {
       let changed = false;
       const next = new Set<string>();
@@ -300,16 +464,19 @@ export function ArtworkView() {
     });
   }, [filtered]);
 
-  const openEntry = (entry: ArtworkQueueEntry) => {
-    setSelectedEntry(entry);
-    setDialogOpen(true);
-  };
-
-  const toggleEntry = (key: string) => {
+  const toggleOrderGroup = (orderId: string) => {
+    const keys = filtered
+      .filter((entry) => entry.orderId === orderId)
+      .map((entry) => artworkQueueEntryKey(entry));
     setSelectedKeys((current) => {
+      const everySelected =
+        keys.length > 0 && keys.every((key) => current.has(key));
       const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (everySelected) {
+        for (const key of keys) next.delete(key);
+      } else {
+        for (const key of keys) next.add(key);
+      }
       return next;
     });
   };
@@ -381,11 +548,11 @@ export function ArtworkView() {
       <main className="flex w-full flex-1 flex-col gap-4 p-4 sm:gap-5 sm:p-6 lg:p-8">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className={dashboardSectionTitleClass}>Artwork</h1>
+            <h1 className={dashboardSectionTitleClass}>Designs</h1>
             <p className={cn("mt-1 max-w-2xl", dashboardTaskDetailClass)}>
               {scope === "active" && needsAttention > 0
                 ? `${needsAttention} location${needsAttention !== 1 ? "s" : ""} need attention — pending review or revision requested`
-                : "Proof queue and saved design library for repeat decoration"}
+                : "Artwork queue and saved design library for repeat decoration"}
             </p>
           </div>
           <div
@@ -396,7 +563,7 @@ export function ArtworkView() {
           >
             {(
               [
-                { id: "queue", label: "Proof queue" },
+                { id: "queue", label: "Artwork" },
                 { id: "library", label: "Design library" },
               ] as const
             ).map((option) => (
@@ -492,10 +659,14 @@ export function ArtworkView() {
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ebebeb] px-4 py-3 sm:px-5">
                 <div>
                   <h2 className="text-[15px] font-semibold text-[#303030]">
-                    Artwork queue
+                    Artwork by order
                   </h2>
                   <p className="mt-0.5 text-[13px] text-[#616161]">
-                    {filtered.length} location{filtered.length !== 1 ? "s" : ""}
+                    {orderGroups.length} order
+                    {orderGroups.length !== 1 ? "s" : ""}
+                    {" · "}
+                    {filtered.length} location
+                    {filtered.length !== 1 ? "s" : ""}
                     {filter !== "all"
                       ? ` · ${ARTWORK_QUEUE_FILTERS.find((item) => item.value === filter)?.label}`
                       : ""}
@@ -533,42 +704,35 @@ export function ArtworkView() {
               </div>
 
               <div className="space-y-0 p-4 sm:p-5">
-                <div className={cn(dashboardInsetSurfaceClass, "overflow-visible")}>
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ebebeb] px-3 py-2.5">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {ARTWORK_QUEUE_FILTERS.slice(1).map((option) => (
-                        <FilterChip
-                          key={option.value}
-                          active={filter === option.value}
-                          onClick={() =>
-                            setFilter((current) =>
-                              current === option.value ? "all" : option.value
-                            )
-                          }
-                        >
-                          {option.label}
-                          <span className="ml-1.5 tabular-nums text-[10px] opacity-70">
-                            {counts[option.value]}
-                          </span>
-                        </FilterChip>
-                      ))}
-                    </div>
-                  </div>
+                <DesignsFilterBar
+                  statusTabs={statusTabs}
+                  activeStatus={filter}
+                  onStatusChange={(value) =>
+                    setFilter(value as ArtworkQueueFilter)
+                  }
+                  activeFilters={activeFilters}
+                  onClearFilters={clearExtraFilters}
+                  availableFields={[
+                    "customer",
+                    "artist",
+                    "design_code",
+                    "decoration",
+                  ]}
+                  fieldOptions={{
+                    customer: customerOptions,
+                    artist: artistOptions,
+                    design_code: designCodeOptions,
+                    decoration: decorationOptions,
+                  }}
+                  onSelectOption={handleSelectFilterOption}
+                  searchValue={search}
+                  onSearchChange={setSearch}
+                  searchPlaceholder="Search orders, design codes, customers…"
+                />
 
-                  <div className="flex flex-wrap items-center gap-2 px-3 py-2.5">
-                    <div className="relative min-w-[220px] flex-1 sm:max-w-sm">
-                      <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8a8a8a]" />
-                      <Input
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        placeholder="Search orders, customers, files…"
-                        className={cn(dashboardControlClass, "h-9 w-full pl-9")}
-                      />
-                    </div>
-                  </div>
-
+                <div className="mt-4 space-y-2.5">
                   {canBulkSelect && selectedCount > 0 ? (
-                    <div className="mx-3 mb-2.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#dbe6f5] bg-[#f4f7fd] px-3 py-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#dbe6f5] bg-[#f4f7fd] px-3 py-2.5">
                       <p className="text-[13px] font-medium text-[#303030]">
                         {selectedCount} location
                         {selectedCount === 1 ? "" : "s"} selected
@@ -614,10 +778,24 @@ export function ArtworkView() {
                     </div>
                   ) : null}
 
+                  {canBulkSelect && filtered.length > 0 ? (
+                    <div className="flex items-center gap-2">
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-[12px] text-[#616161]">
+                        <input
+                          type="checkbox"
+                          checked={allVisibleSelected}
+                          onChange={toggleAllVisible}
+                          className="size-3.5 accent-[#2c6ecb]"
+                        />
+                        Select all visible orders
+                      </label>
+                    </div>
+                  ) : null}
+
                   {statusMessage ? (
                     <p
                       className={cn(
-                        "mx-3 mb-2.5 rounded-lg border px-3 py-2 text-[13px]",
+                        "rounded-lg border px-3 py-2 text-[13px]",
                         statusMessage.toLowerCase().includes("could not")
                           ? "border-[#f5b5b5] bg-[#fff1f1] text-[#8f1f1f]"
                           : "border-[#cfe8d8] bg-[#e8f5ee] text-[#0d5c2e]"
@@ -628,184 +806,210 @@ export function ArtworkView() {
                   ) : null}
                 </div>
 
-                {filtered.length === 0 ? (
+                {orderGroups.length === 0 ? (
                   <div className="mt-4 rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa]">
                     <EmptyState
                       filter={filter}
                       scope={scope}
-                      hasSearch={Boolean(search.trim())}
+                      hasSearch={
+                        Boolean(search.trim()) || activeFilters.length > 0
+                      }
                     />
                   </div>
                 ) : (
-                  <div className="mt-4 -mx-4 overflow-x-auto border-t border-[#ebebeb] sm:-mx-5">
-                    <Table>
-                      <TableHeader>
-                        <TableRow className="border-[#ebebeb] hover:bg-transparent">
+                  <div className="mt-4 space-y-2.5">
+                    {orderGroups.map((group) => {
+                      const order = orders.find(
+                        (item) => item.id === group.orderId
+                      );
+                      const statuses = group.proofs.map(
+                        (proof) => proof.artwork.status
+                      );
+                      const rollup = rollupArtworkStatus(statuses);
+                      const revisionCount = group.proofs.filter(
+                        (proof) =>
+                          proof.artwork.status === "revision_requested"
+                      ).length;
+                      const sharedArtistId = sharedArtAssigneeId(
+                        group.proofs.map((proof) => proof.artwork)
+                      );
+                      const assignee = sharedArtistId
+                        ? group.proofs.find(
+                            (proof) =>
+                              proof.artwork.artAssigneeId === sharedArtistId
+                          )?.artwork.artAssigneeName?.trim() || null
+                        : null;
+                      const dueKeys = group.proofs
+                        .map((proof) => artDueDateKey(proof.artwork.artDueAt))
+                        .filter((value): value is string => Boolean(value))
+                        .sort();
+                      const earliestDue = dueKeys[0]
+                        ? formatArtDueLabel(dueKeys[0])
+                        : null;
+                      const locationLabels = group.proofs
+                        .map((proof) => proof.imprintLabel)
+                        .filter(Boolean);
+                      const locationSummary =
+                        locationLabels.length <= 2
+                          ? locationLabels.join(" · ")
+                          : `${locationLabels.slice(0, 2).join(" · ")} +${
+                              locationLabels.length - 2
+                            } more`;
+                      const thumbs = group.proofs
+                        .map((proof) => {
+                          const slides = getProofSlides(proof.artwork);
+                          return (
+                            slides[0]?.previewUrl ||
+                            proof.artwork.previewUrl ||
+                            null
+                          );
+                        })
+                        .filter((url): url is string => Boolean(url))
+                        .slice(0, 3);
+                      const groupKeys = group.proofs.map((proof) =>
+                        artworkQueueEntryKey(proof)
+                      );
+                      const groupSelected =
+                        canBulkSelect &&
+                        groupKeys.length > 0 &&
+                        groupKeys.every((key) => selectedKeys.has(key));
+                      const designCode =
+                        order?.designCode?.trim() ||
+                        group.proofs[0]?.designCode?.trim() ||
+                        null;
+                      const archived =
+                        group.proofs.some((proof) => proof.archived) ||
+                        Boolean(order?.archived);
+
+                      return (
+                        <div
+                          key={group.orderId}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() =>
+                            router.push(
+                              artworkOrderWorkspaceHref(group.orderId)
+                            )
+                          }
+                          onKeyDown={(event) => {
+                            if (
+                              event.key === "Enter" ||
+                              event.key === " "
+                            ) {
+                              event.preventDefault();
+                              router.push(
+                                artworkOrderWorkspaceHref(group.orderId)
+                              );
+                            }
+                          }}
+                          className={cn(
+                            dashboardInsetSurfaceClass,
+                            "flex cursor-pointer items-stretch gap-3 px-3 py-3 transition-colors hover:border-[#c9cccf] hover:bg-[#f6f6f7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#2c6ecb]/25",
+                            groupSelected && "border-[#2c6ecb] bg-[#f4f7fd]",
+                            archived && "opacity-75"
+                          )}
+                        >
                           {canBulkSelect ? (
-                            <TableHead className="h-9 w-10 bg-[#fafafa] pl-4 sm:pl-5">
+                            <label
+                              className="flex items-start pt-1"
+                              onClick={(event) => event.stopPropagation()}
+                            >
                               <input
                                 type="checkbox"
-                                checked={allVisibleSelected}
-                                onChange={toggleAllVisible}
-                                className="size-3.5 accent-[#2c6ecb]"
-                                aria-label="Select all visible artwork"
-                              />
-                            </TableHead>
-                          ) : null}
-                          <TableHead
-                            className={cn(
-                              "h-9 bg-[#fafafa] text-[12px] font-medium text-[#616161]",
-                              !canBulkSelect && "pl-4 sm:pl-5"
-                            )}
-                          >
-                            Location
-                          </TableHead>
-                          <TableHead className="h-9 bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-                            Order
-                          </TableHead>
-                          <TableHead className="hidden h-9 bg-[#fafafa] text-[12px] font-medium text-[#616161] md:table-cell">
-                            Customer
-                          </TableHead>
-                          <TableHead className="hidden h-9 bg-[#fafafa] text-[12px] font-medium text-[#616161] lg:table-cell">
-                            Decoration
-                          </TableHead>
-                          <TableHead className="hidden h-9 bg-[#fafafa] text-[12px] font-medium text-[#616161] sm:table-cell">
-                            File
-                          </TableHead>
-                          <TableHead className="h-9 bg-[#fafafa] text-[12px] font-medium text-[#616161]">
-                            Status
-                          </TableHead>
-                          <TableHead className="hidden h-9 bg-[#fafafa] text-[12px] font-medium text-[#616161] xl:table-cell">
-                            In-hands
-                          </TableHead>
-                          <TableHead className="h-9 w-10 bg-[#fafafa] pr-4 sm:pr-5" />
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filtered.map((entry) => {
-                          const entryKey = artworkQueueEntryKey(entry);
-                          const isSelected = selectedKeys.has(entryKey);
-                          return (
-                            <TableRow
-                              key={entryKey}
-                              tabIndex={0}
-                              role="button"
-                              aria-label={`Review ${entry.imprintLabel} on ${formatOrderRef(entry)}`}
-                              className={cn(
-                                "group cursor-pointer border-[#ebebeb] transition-colors hover:bg-[#f6f6f7] focus-visible:bg-[#f6f6f7] focus-visible:outline-none",
-                                entry.archived && "opacity-70",
-                                isSelected && "bg-[#f4f7fd]"
-                              )}
-                              onClick={() => openEntry(entry)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  openEntry(entry);
+                                checked={groupSelected}
+                                onChange={() =>
+                                  toggleOrderGroup(group.orderId)
                                 }
-                              }}
-                            >
-                              {canBulkSelect ? (
-                                <TableCell
-                                  className="py-2.5 pl-4 sm:pl-5"
-                                  onClick={(event) => event.stopPropagation()}
+                                className="size-3.5 accent-[#2c6ecb]"
+                                aria-label={`Select ${formatOrderRef(group)}`}
+                              />
+                            </label>
+                          ) : null}
+
+                          <div className="flex shrink-0 gap-1.5">
+                            {thumbs.length > 0 ? (
+                              thumbs.map((url, index) => (
+                                <span
+                                  key={`${group.orderId}-thumb-${index}`}
+                                  className="flex size-12 items-center justify-center overflow-hidden rounded-md border border-[#ebebeb] bg-[#f6f6f7]"
                                 >
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => toggleEntry(entryKey)}
-                                    className="size-3.5 accent-[#2c6ecb]"
-                                    aria-label={`Select ${entry.imprintLabel}`}
+                                  <img
+                                    src={url}
+                                    alt=""
+                                    className="max-h-full max-w-full object-contain"
                                   />
-                                </TableCell>
+                                </span>
+                              ))
+                            ) : (
+                              <span className="flex size-12 items-center justify-center rounded-md border border-[#ebebeb] bg-[#f6f6f7] text-[#8a8a8a]">
+                                <FileImage className="size-4" />
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-[14px] font-semibold text-[#303030]">
+                                {formatOrderRef(group)}
+                              </p>
+                              {designCode ? (
+                                <span className="inline-flex items-center rounded-md border border-[#c4d7f2] bg-[#f4f7fd] px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-[#2c6ecb]">
+                                  {designCode}
+                                </span>
                               ) : null}
-                              <TableCell
-                                className={cn(
-                                  "py-2.5",
-                                  !canBulkSelect && "pl-4 sm:pl-5"
-                                )}
-                              >
-                                <p className="text-[13px] font-medium text-[#303030] transition-colors group-hover:text-[#2c6ecb]">
-                                  {entry.imprintLabel}
-                                </p>
-                                <p className="mt-0.5 text-[12px] text-[#616161]">
-                                  {entry.jobName}
-                                </p>
-                              </TableCell>
-                              <TableCell className="py-2.5">
-                                <Link
-                                  href={`/app/orders/${entry.orderId}`}
-                                  className="text-[13px] font-semibold text-[#303030] hover:text-[#2c6ecb] hover:underline"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  {formatOrderRef(entry)}
-                                </Link>
-                                <p className="mt-0.5 text-[12px] text-[#616161] md:hidden">
-                                  {entry.company || entry.customerName}
-                                </p>
-                              </TableCell>
-                              <TableCell className="hidden py-2.5 md:table-cell">
-                                <div className="min-w-0 max-w-[220px]">
-                                  <p className="truncate text-[13px] font-medium text-[#303030]">
-                                    {entry.company || entry.customerName}
-                                  </p>
-                                  <p className="truncate text-[12px] text-[#616161]">
-                                    {entry.customerName}
-                                  </p>
-                                </div>
-                              </TableCell>
-                              <TableCell className="hidden py-2.5 text-[13px] text-[#616161] lg:table-cell">
-                                {decorationLabel(entry.decoration)}
-                              </TableCell>
-                              <TableCell className="hidden py-2.5 sm:table-cell">
-                                <p className="max-w-[200px] truncate text-[13px] text-[#303030]">
-                                  {entry.artwork.name}
-                                </p>
-                                <p className="text-[12px] text-[#616161]">
-                                  v{entry.artwork.version} ·{" "}
-                                  {formatDateTime(entry.artwork.uploadedAt)}
-                                </p>
-                              </TableCell>
-                              <TableCell className="py-2.5">
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <ArtworkStatusBadge
-                                    status={entry.artwork.status}
-                                  />
-                                  {entry.archived ? (
-                                    <span className="inline-flex items-center gap-1 rounded-md border border-[#e3e3e3] bg-[#f1f1f1] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161]">
-                                      <Archive className="size-2.5" />
-                                      Archived
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </TableCell>
-                              <TableCell className="hidden py-2.5 text-[13px] tabular-nums text-[#616161] xl:table-cell">
-                                {formatDate(entry.inHandsDate)}
-                              </TableCell>
-                              <TableCell className="py-2.5 pr-4 text-right sm:pr-5">
-                                <div className="flex items-center justify-end gap-1">
-                                  <Link
-                                    href={artworkOrderWorkspaceHref(
-                                      entry.orderId,
-                                      entry.jobId,
-                                      entry.imprintId
-                                    )}
-                                    className={cn(
-                                      dashboardControlClass,
-                                      "h-7 w-7 justify-center p-0 opacity-0 transition-opacity group-hover:opacity-100"
-                                    )}
-                                    title="Open artwork workspace"
-                                    onClick={(event) => event.stopPropagation()}
-                                  >
-                                    <LayoutPanelLeft className="size-3.5" />
-                                  </Link>
-                                  <ChevronRight className="size-4 -translate-x-1 text-brand-primary opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100" />
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                              {rollup ? (
+                                <ArtworkStatusBadge status={rollup} size="sm" />
+                              ) : null}
+                              {archived ? (
+                                <span className="inline-flex items-center gap-1 rounded-md border border-[#e3e3e3] bg-[#f1f1f1] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161]">
+                                  <Archive className="size-2.5" />
+                                  Archived
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-0.5 truncate text-[12px] text-[#616161]">
+                              {group.company || group.customerName}
+                              {" · "}
+                              {group.proofs.length} proof
+                              {group.proofs.length !== 1 ? "s" : ""}
+                              {locationSummary
+                                ? ` · ${locationSummary}`
+                                : ""}
+                              {assignee ? (
+                                <>
+                                  {" · "}
+                                  <span className="inline-flex items-center gap-1">
+                                    <Palette className="size-3" />
+                                    {assignee}
+                                  </span>
+                                </>
+                              ) : null}
+                            </p>
+                            <p className="mt-1 text-[12px] text-[#8a8a8a]">
+                              {revisionCount > 0 ? (
+                                <span className="font-medium text-[#8a6116]">
+                                  {revisionCount} revision
+                                  {revisionCount !== 1 ? "s" : ""} requested
+                                  {" · "}
+                                </span>
+                              ) : null}
+                              {earliestDue ? (
+                                <span className="font-medium text-[#303030]">
+                                  Due {earliestDue}
+                                  {dueKeys.length > 1 ? "+" : ""}
+                                  {" · "}
+                                </span>
+                              ) : null}
+                              In hands {formatDate(group.inHandsDate)}
+                            </p>
+                          </div>
+
+                          <div className="flex shrink-0 items-center self-center text-[#8a8a8a]">
+                            <ChevronRight className="size-4" />
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -813,12 +1017,6 @@ export function ArtworkView() {
           </>
         )}
       </main>
-
-      <ArtworkDetailDialog
-        entry={selectedEntry}
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-      />
 
       <BulkArchiveOrdersDialog
         open={archiveOpen}

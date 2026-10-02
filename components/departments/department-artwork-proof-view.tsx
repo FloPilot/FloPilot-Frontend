@@ -12,8 +12,8 @@ export function DepartmentArtworkProofView({ orderId }: { orderId: string }) {
   return (
     <DepartmentsShell
       activeSlug="artwork"
-      title="Artwork proof"
-      description="Review this location, read customer notes, and approve or request changes — all without leaving Departments."
+      title="Order artwork"
+      description="Review every location on this order, assign artists, and send completed proofs back to the team."
     >
       <Suspense fallback={null}>
         <ArtworkProofWorkspaceContent

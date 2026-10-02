@@ -4,9 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Download,
+  Eye,
   FileUp,
   FolderOpen,
   Loader2,
+  Plus,
   RotateCcw,
   Send,
   Upload,
@@ -15,7 +17,9 @@ import { MockupCompare } from "@/components/orders/artwork/mockup-compare";
 import { MockupPreview } from "@/components/orders/artwork/mockup-preview";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { OrderFileCategoryDialog } from "@/components/orders/order-file-category-dialog";
+import { FilePreviewDialog } from "@/components/files/file-preview-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import { useNameBeforeUpload } from "@/hooks/use-name-before-upload";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -28,7 +32,9 @@ import { readImagePreviewDataUrl, readUploadContent } from "@/lib/artwork-previe
 import {
   dashboardControlClass,
   dashboardPrimaryButtonClass,
+  dashboardTaskDetailClass,
 } from "@/lib/dashboard-styles";
+import { filePreviewSource } from "@/lib/file-preview";
 import { decorationLabel, formatDateTime } from "@/lib/format";
 import { formatOrderDisplayLine } from "@/lib/order-display";
 import { collectOrderMockups, type MockupEntry } from "@/lib/job-imprints";
@@ -71,6 +77,7 @@ export function OrderFilesTab({
     deleteOrderFile,
     sendProofToCustomer,
   } = useSchedule();
+  const { promptRename, nameFilesDialog } = useNameBeforeUpload();
 
   const allFileItems = useMemo(() => buildOrderFileList(order), [order]);
   const categoryCounts = useMemo(
@@ -124,6 +131,7 @@ export function OrderFilesTab({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const orderFileInputRef = useRef<HTMLInputElement>(null);
   const replaceFileInputRef = useRef<HTMLInputElement>(null);
+  const pendingOrderUploadKindRef = useRef<OrderFileKind | null>(null);
   const [pendingImprintUpload, setPendingImprintUpload] = useState<{
     jobId: string;
     imprintId: string;
@@ -140,6 +148,7 @@ export function OrderFilesTab({
   const [categoryFile, setCategoryFile] = useState<OrderFileItem | null>(null);
   const [savingCategory, setSavingCategory] = useState(false);
   const [categoryError, setCategoryError] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<OrderFileItem | null>(null);
 
   useEffect(() => {
     if (focusImprint) {
@@ -181,37 +190,52 @@ export function OrderFilesTab({
     e.target.value = "";
     if (files.length === 0 || !target) return;
 
+    const named = await promptRename(files, {
+      title:
+        files.length > 1
+          ? `Name ${files.length} files`
+          : target.kind === "mockup"
+            ? "Name this proof image"
+            : "Name this artwork file",
+      description:
+        "Choose a clear name before uploading so the team can find it later.",
+    });
+    if (!named?.length) {
+      setPendingImprintUpload(null);
+      return;
+    }
+
     setUploadingFiles(true);
     setUploadFeedback(null);
     try {
-      if (target.kind === "mockup" && files.length > 1) {
-        for (const file of files) {
+      if (target.kind === "mockup" && named.length > 1) {
+        for (const { file, name, baseName } of named) {
           const { previewUrl, error } = await readImagePreviewDataUrl(file);
-          if (!previewUrl) throw new Error(error || `${file.name} is not an image.`);
+          if (!previewUrl) throw new Error(error || `${name} is not an image.`);
           await addProofSlide(order.id, target.jobId, target.imprintId, {
-            fileName: file.name,
+            fileName: name,
             previewUrl,
-            label: file.name.replace(/\.[^./\\]+$/, ""),
+            label: baseName,
           });
         }
       } else if (target.kind === "mockup") {
-        const file = files[0];
+        const { file, name } = named[0];
         const { previewUrl } = await readImagePreviewDataUrl(file);
         await uploadArtworkVersion(
           order.id,
           target.jobId,
           target.imprintId,
-          file.name,
+          name,
           undefined,
           target.kind,
           previewUrl || undefined
         );
       } else {
-        for (const file of files) {
+        for (const { file, name } of named) {
           const { base64, contentType, error } = await readUploadContent(file);
           if (error) throw new Error(error);
           await uploadOrderFile(order.id, {
-            name: file.name,
+            name,
             kind: target.kind,
             uploadedBy: "Shop",
             contentBase64: base64,
@@ -222,7 +246,7 @@ export function OrderFilesTab({
         }
       }
       setUploadFeedback(
-        `${files.length} file${files.length === 1 ? "" : "s"} uploaded.`
+        `${named.length} file${named.length === 1 ? "" : "s"} uploaded.`
       );
     } catch (err) {
       setUploadFeedback(
@@ -234,6 +258,11 @@ export function OrderFilesTab({
     }
   };
 
+  const triggerOrderFileUpload = (kind?: OrderFileKind) => {
+    pendingOrderUploadKindRef.current = kind ?? null;
+    orderFileInputRef.current?.click();
+  };
+
   const handleOrderFileChange = async (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -241,22 +270,32 @@ export function OrderFilesTab({
     e.target.value = "";
     if (files.length === 0) return;
 
+    const forcedKind = pendingOrderUploadKindRef.current;
+    pendingOrderUploadKindRef.current = null;
+
+    const named = await promptRename(files, {
+      title: files.length > 1 ? `Name ${files.length} files` : "Name this file",
+      description:
+        "Choose a clear name before uploading so this file is easy to find on the order.",
+    });
+    if (!named?.length) return;
+
     setUploadingFiles(true);
     setUploadFeedback(null);
     try {
-      for (const file of files) {
+      for (const { file, name } of named) {
         const { base64, contentType, error } = await readUploadContent(file);
         if (error) throw new Error(error);
         await uploadOrderFile(order.id, {
-          name: file.name,
-          kind: defaultUploadKindForCategory(category),
+          name,
+          kind: forcedKind ?? defaultUploadKindForCategory(category),
           uploadedBy: "Shop",
           contentBase64: base64,
           contentType,
         });
       }
       setUploadFeedback(
-        `${files.length} file${files.length === 1 ? "" : "s"} uploaded.`
+        `${named.length} file${named.length === 1 ? "" : "s"} uploaded.`
       );
     } catch (err) {
       setUploadFeedback(
@@ -313,26 +352,27 @@ export function OrderFilesTab({
       return;
     }
 
-    setReplacingId(target.id);
     setReplaceError(null);
+    const named = await promptRename([file], {
+      title: "Name replacement file",
+      description: `This replaces ${target.name}. Confirm or edit the name before uploading.`,
+    });
+    if (!named?.length) {
+      setReplaceTarget(null);
+      return;
+    }
+
+    setReplacingId(target.id);
     try {
-      const { base64, contentType, error } = await readUploadContent(file);
+      const { file: namedFile, name } = named[0];
+      const { base64, contentType, error } = await readUploadContent(namedFile);
       if (error) {
         setReplaceError(error);
         return;
       }
 
-      // Keep the original logical name (e.g. "SO1048 - FRONT LEFT CHEST") but
-      // adopt the new file's extension so the listing stays accurate.
-      const base = target.name.replace(/\.[^./\\]+$/, "");
-      const newExt =
-        file.name.match(/\.[^./\\]+$/)?.[0] ??
-        target.name.match(/\.[^./\\]+$/)?.[0] ??
-        "";
-      const newName = `${base}${newExt}`;
-
       await uploadOrderFile(order.id, {
-        name: newName,
+        name,
         kind: target.kind,
         uploadedBy: "Shop",
         contentBase64: base64,
@@ -351,7 +391,9 @@ export function OrderFilesTab({
   const uploadLabel =
     category === "mockups" || category === "artwork"
       ? "Upload artwork"
-      : `Upload ${FILE_CATEGORY_TABS.find((t) => t.id === category)?.label.toLowerCase() ?? "file"}`;
+      : category === "purchase_order"
+        ? "Upload PO"
+        : `Upload ${FILE_CATEGORY_TABS.find((t) => t.id === category)?.label.toLowerCase() ?? "file"}`;
 
   const openFileDetails = (file: OrderFileItem) => {
     setCategoryError(null);
@@ -474,10 +516,10 @@ export function OrderFilesTab({
                     category === "mockups" ? "mockup" : "production_art"
                   );
                 } else {
-                  orderFileInputRef.current?.click();
+                  triggerOrderFileUpload();
                 }
               } else {
-                orderFileInputRef.current?.click();
+                triggerOrderFileUpload();
               }
             }}
           >
@@ -659,19 +701,38 @@ export function OrderFilesTab({
                         New version
                       </Button>
                       {selectedEntry.imprint.artwork.previewUrl ? (
-                        <a
-                          href={selectedEntry.imprint.artwork.previewUrl}
-                          download={selectedEntry.imprint.artwork.name}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setPreviewFile({
+                              id: selectedEntry.imprint.artwork.id,
+                              name: selectedEntry.imprint.artwork.name,
+                              kind: "mockup",
+                              kinds: ["mockup"],
+                              category: "mockups",
+                              uploadedAt:
+                                selectedEntry.imprint.artwork.uploadedAt,
+                              uploadedBy:
+                                selectedEntry.imprint.artwork.uploadedBy,
+                              version: selectedEntry.imprint.artwork.version,
+                              status: selectedEntry.imprint.artwork.status,
+                              source: "imprint",
+                              jobId: selectedEntry.job.id,
+                              imprintId: selectedEntry.imprint.id,
+                              imprintLabel: selectedEntry.imprint.label,
+                              jobName: selectedEntry.job.name,
+                              previewUrl:
+                                selectedEntry.imprint.artwork.previewUrl,
+                            })
+                          }
                           className={cn(
                             dashboardControlClass,
                             "inline-flex h-8 items-center gap-1.5 px-2.5 text-[12px] font-medium text-[#303030] hover:bg-[#fafafa]"
                           )}
                         >
-                          <Download className="size-3.5" />
-                          Download
-                        </a>
+                          <Eye className="size-3.5" />
+                          Preview
+                        </button>
                       ) : null}
                     </div>
 
@@ -717,15 +778,50 @@ export function OrderFilesTab({
           </CardHeader>
           <CardContent>
             {filteredList.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">
-                No files in this category yet. Use Upload to add one.
-              </p>
+              <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-12 text-center">
+                <FolderOpen className="mx-auto mb-3 size-8 text-[#c9c9c9]" />
+                <p className="text-[13px] font-medium text-[#303030]">
+                  {category === "purchase_order"
+                    ? "No purchase orders yet"
+                    : "No files in this category yet"}
+                </p>
+                <p
+                  className={cn(
+                    "mx-auto mt-1 max-w-sm",
+                    dashboardTaskDetailClass
+                  )}
+                >
+                  {category === "purchase_order"
+                    ? "Upload the customer PO so it’s saved with this order."
+                    : "Upload a document to keep it with this order."}
+                </p>
+                <Button
+                  type="button"
+                  disabled={uploadingFiles}
+                  className={cn(dashboardPrimaryButtonClass, "mt-4 h-9")}
+                  onClick={() =>
+                    triggerOrderFileUpload(
+                      category === "purchase_order"
+                        ? "purchase_order"
+                        : defaultUploadKindForCategory(category)
+                    )
+                  }
+                >
+                  {uploadingFiles ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Plus className="size-3.5" />
+                  )}
+                  {uploadingFiles ? "Uploading…" : uploadLabel}
+                </Button>
+              </div>
             ) : category === "all" ? (
               <AllFilesGrouped
                 items={filteredList}
                 onUploadImprint={triggerImprintUpload}
                 onReplaceOrderFile={triggerOrderFileReplace}
                 onOpenFile={openFileDetails}
+                onPreviewFile={setPreviewFile}
                 replacingId={replacingId}
                 selectedDownloads={selectedDownloads}
                 onToggleDownload={toggleDownload}
@@ -735,6 +831,7 @@ export function OrderFilesTab({
                 items={filteredList}
                 onUpload={triggerImprintUpload}
                 onOpenFile={openFileDetails}
+                onPreviewFile={setPreviewFile}
                 onReplaceOrderFile={triggerOrderFileReplace}
                 replacingId={replacingId}
                 selectedDownloads={selectedDownloads}
@@ -745,6 +842,7 @@ export function OrderFilesTab({
                 items={filteredList}
                 onReplaceOrderFile={triggerOrderFileReplace}
                 onOpenFile={openFileDetails}
+                onPreviewFile={setPreviewFile}
                 replacingId={replacingId}
                 selectedDownloads={selectedDownloads}
                 onToggleDownload={toggleDownload}
@@ -767,6 +865,27 @@ export function OrderFilesTab({
         }}
         onSave={handleSaveFileCategory}
       />
+
+      <FilePreviewDialog
+        open={Boolean(previewFile && filePreviewSource(previewFile))}
+        onOpenChange={(open) => {
+          if (!open) setPreviewFile(null);
+        }}
+        title={previewFile?.name || "File preview"}
+        subtitle={
+          previewFile
+            ? (previewFile.kinds?.length
+                ? previewFile.kinds
+                : [previewFile.kind]
+              )
+                .map((kind) => ORDER_FILE_KIND_LABELS[kind])
+                .join(" · ")
+            : undefined
+        }
+        url={previewFile ? filePreviewSource(previewFile) : null}
+        filename={previewFile?.name}
+      />
+      {nameFilesDialog}
     </div>
   );
 }
@@ -775,6 +894,7 @@ function FileList({
   items,
   onReplaceOrderFile,
   onOpenFile,
+  onPreviewFile,
   replacingId,
   selectedDownloads,
   onToggleDownload,
@@ -782,6 +902,7 @@ function FileList({
   items: OrderFileItem[];
   onReplaceOrderFile?: (file: OrderFileItem) => void;
   onOpenFile?: (file: OrderFileItem) => void;
+  onPreviewFile?: (file: OrderFileItem) => void;
   replacingId?: string | null;
   selectedDownloads: DownloadSelection;
   onToggleDownload: (
@@ -796,6 +917,11 @@ function FileList({
           key={file.id}
           file={file}
           onOpen={onOpenFile ? () => onOpenFile(file) : undefined}
+          onPreview={
+            onPreviewFile && filePreviewSource(file)
+              ? () => onPreviewFile(file)
+              : undefined
+          }
           onReplace={
             onReplaceOrderFile && file.source === "order"
               ? () => onReplaceOrderFile(file)
@@ -823,6 +949,7 @@ function AllFilesGrouped({
   onUploadImprint,
   onReplaceOrderFile,
   onOpenFile,
+  onPreviewFile,
   replacingId,
   selectedDownloads,
   onToggleDownload,
@@ -831,6 +958,7 @@ function AllFilesGrouped({
   onUploadImprint: (jobId: string, imprintId: string, kind: OrderFileKind) => void;
   onReplaceOrderFile?: (file: OrderFileItem) => void;
   onOpenFile?: (file: OrderFileItem) => void;
+  onPreviewFile?: (file: OrderFileItem) => void;
   replacingId?: string | null;
   selectedDownloads: DownloadSelection;
   onToggleDownload: (
@@ -862,6 +990,11 @@ function AllFilesGrouped({
                 key={file.id}
                 file={file}
                 onOpen={onOpenFile ? () => onOpenFile(file) : undefined}
+                onPreview={
+                  onPreviewFile && filePreviewSource(file)
+                    ? () => onPreviewFile(file)
+                    : undefined
+                }
                 onUpload={
                   file.source === "imprint" &&
                   file.jobId &&
@@ -906,6 +1039,7 @@ function ArtworkByLocation({
   items,
   onUpload,
   onOpenFile,
+  onPreviewFile,
   onReplaceOrderFile,
   replacingId,
   selectedDownloads,
@@ -914,6 +1048,7 @@ function ArtworkByLocation({
   items: OrderFileItem[];
   onUpload: (jobId: string, imprintId: string, kind: OrderFileKind) => void;
   onOpenFile?: (file: OrderFileItem) => void;
+  onPreviewFile?: (file: OrderFileItem) => void;
   onReplaceOrderFile?: (file: OrderFileItem) => void;
   replacingId?: string | null;
   selectedDownloads: DownloadSelection;
@@ -968,6 +1103,11 @@ function ArtworkByLocation({
                 key={`${file.source}:${file.id}`}
                 file={file}
                 onOpen={onOpenFile ? () => onOpenFile(file) : undefined}
+                onPreview={
+                  onPreviewFile && filePreviewSource(file)
+                    ? () => onPreviewFile(file)
+                    : undefined
+                }
                 onReplace={
                   onReplaceOrderFile && file.source === "order"
                     ? () => onReplaceOrderFile(file)
@@ -1019,6 +1159,11 @@ function ArtworkByLocation({
                   key={`${file.source}:${file.id}`}
                   file={file}
                   onOpen={onOpenFile ? () => onOpenFile(file) : undefined}
+                  onPreview={
+                    onPreviewFile && filePreviewSource(file)
+                      ? () => onPreviewFile(file)
+                      : undefined
+                  }
                   selected={Boolean(
                     selectedDownloads[`file:${file.source}:${file.id}`]
                   )}
@@ -1044,6 +1189,7 @@ function ArtworkByLocation({
 function FileRow({
   file,
   onOpen,
+  onPreview,
   onUpload,
   onReplace,
   replacing,
@@ -1052,6 +1198,7 @@ function FileRow({
 }: {
   file: OrderFileItem;
   onOpen?: () => void;
+  onPreview?: () => void;
   onUpload?: () => void;
   onReplace?: () => void;
   replacing?: boolean;
@@ -1122,20 +1269,18 @@ function FileRow({
         onClick={(event) => event.stopPropagation()}
       >
         {file.status && <ArtworkStatusBadge status={file.status} />}
-        {file.downloadUrl || file.previewUrl ? (
-          <a
-            href={file.downloadUrl || file.previewUrl}
-            download={file.name}
-            target="_blank"
-            rel="noopener noreferrer"
+        {onPreview ? (
+          <button
+            type="button"
+            onClick={onPreview}
             className={cn(
               dashboardControlClass,
               "inline-flex h-7 items-center gap-1.5 px-2.5 text-[12px] font-medium text-[#303030] hover:bg-[#fafafa]"
             )}
           >
-            <Download className="size-3" />
-            Download
-          </a>
+            <Eye className="size-3" />
+            Preview
+          </button>
         ) : null}
         {onUpload && (
           <Button

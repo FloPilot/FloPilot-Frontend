@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ChevronRight, Loader2, MapPin, Plus, Star, Trash2 } from "lucide-react";
+import { AddressAutocompleteInput } from "@/components/address/address-autocomplete-input";
 import { CustomerShippingLocationDeleteDialog } from "@/components/customers/customer-shipping-location-delete-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { US_STATES } from "@/lib/customers";
+import { formatCustomerBillingAddress, US_STATES } from "@/lib/customers";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -239,8 +240,10 @@ export function CustomerShippingLocationsSection({
           <p className="mt-1 text-[12px] text-[#616161]">
             Until you add locations, orders can ship to{" "}
             {customer.company || customer.name}
-            {customer.city ? ` · ${customer.city}` : ""}
-            {customer.state ? `, ${customer.state}` : ""}.
+            {formatCustomerBillingAddress(customer)
+              ? ` · ${formatCustomerBillingAddress(customer)}`
+              : ""}
+            .
           </p>
         </div>
       ) : null}
@@ -351,15 +354,27 @@ export function CustomerShippingLocationsSection({
               <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
                 Address line 1
               </Label>
-              <Input
+              <AddressAutocompleteInput
                 value={locationDraft.line1}
-                onChange={(event) =>
+                onChange={(next) =>
                   setLocationDraft((current) => ({
                     ...current,
-                    line1: event.target.value,
+                    line1: next,
                   }))
                 }
+                onAddressSelect={(address) => {
+                  setLocationDraft((current) => ({
+                    ...current,
+                    line1: address.line1,
+                    line2: address.line2 || current.line2 || "",
+                    city: address.city,
+                    state: address.state,
+                    postalCode: address.postalCode,
+                  }));
+                  setDraftError(null);
+                }}
                 className="h-9 rounded-lg border-[#e3e3e3]"
+                tone="dashboard"
               />
             </div>
             <div className="space-y-1.5">

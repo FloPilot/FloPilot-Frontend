@@ -21,6 +21,7 @@ import {
   Receipt,
   ScanLine,
   Shirt,
+  Sparkles,
   SlidersHorizontal,
   Users,
   type LucideIcon,
@@ -134,8 +135,13 @@ const GROUPS: SettingsNavGroup[] = [
         icon: ScanLine,
       },
       {
+        href: "/app/settings/shop/finishing",
+        label: "Finishing",
+        icon: Sparkles,
+      },
+      {
         href: "/app/settings/shop/warehouse",
-        label: "Warehouse & finishing",
+        label: "Warehouse",
         icon: Package,
       },
     ],

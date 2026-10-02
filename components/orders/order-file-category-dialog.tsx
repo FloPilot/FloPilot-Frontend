@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Download, Loader2 } from "lucide-react";
+import { Check, Eye, Loader2 } from "lucide-react";
+import { FilePreviewDialog } from "@/components/files/file-preview-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,6 +17,7 @@ import {
   dashboardControlClass,
   dashboardPrimaryButtonClass,
 } from "@/lib/dashboard-styles";
+import { filePreviewSource } from "@/lib/file-preview";
 import { formatDateTime } from "@/lib/format";
 import {
   ORDER_FILE_CATEGORY_OPTIONS,
@@ -52,11 +54,17 @@ export function OrderFileCategoryDialog({
 }) {
   const [kinds, setKinds] = useState<OrderFileKind[]>(["internal"]);
   const [notes, setNotes] = useState("");
+  const [preview, setPreview] = useState<{
+    url: string;
+    name: string;
+    subtitle?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!file || !open) return;
     setKinds(normalizeOrderFileKinds(file));
     setNotes(file.notes || "");
+    setPreview(null);
   }, [file, open]);
 
   const canEdit = file?.source === "order";
@@ -82,6 +90,7 @@ export function OrderFileCategoryDialog({
   const kindSummary = kinds.map((kind) => ORDER_FILE_KIND_LABELS[kind]).join(", ");
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="flex max-h-[min(90vh,640px)] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-xl"
@@ -124,17 +133,21 @@ export function OrderFileCategoryDialog({
                     {formatDateTime(file.uploadedAt)}
                     {file.uploadedBy ? ` · ${file.uploadedBy}` : ""}
                   </p>
-                  {file.downloadUrl || file.previewUrl ? (
-                    <a
-                      href={file.downloadUrl || file.previewUrl}
-                      download={file.name}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  {filePreviewSource(file) ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPreview({
+                          url: filePreviewSource(file)!,
+                          name: file.name,
+                          subtitle: kindSummary || ORDER_FILE_KIND_LABELS[file.kind],
+                        })
+                      }
                       className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-semibold text-[#2c6ecb] hover:underline"
                     >
-                      <Download className="size-3.5" />
-                      Download
-                    </a>
+                      <Eye className="size-3.5" />
+                      Preview
+                    </button>
                   ) : null}
                 </div>
               </div>
@@ -256,5 +269,17 @@ export function OrderFileCategoryDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+
+      <FilePreviewDialog
+        open={Boolean(preview)}
+        onOpenChange={(open) => {
+          if (!open) setPreview(null);
+        }}
+        title={preview?.name || "File"}
+        subtitle={preview?.subtitle}
+        url={preview?.url ?? null}
+        filename={preview?.name}
+      />
+    </>
   );
 }

@@ -101,6 +101,14 @@ export function AddProductionStepDialog({
   const handleCustom = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customName.trim() || saving) return;
+    const matchedStep =
+      kind === "finishing"
+        ? (settings.productionDefaults.finishingSteps ?? []).find(
+            (step) =>
+              step.enabled !== false &&
+              step.name.trim().toLowerCase() === customName.trim().toLowerCase()
+          )
+        : undefined;
     void submitJob(
       buildCustomProductionJob(
         {
@@ -108,6 +116,7 @@ export function AddProductionStepDialog({
           locationKey,
           decoration: kind === "finishing" ? "finishing" : decoration,
           kind,
+          finishingStepId: matchedStep?.id,
         },
         settings.productionDefaults
       )

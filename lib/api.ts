@@ -188,6 +188,24 @@ export async function fetchMe(token: string) {
   return callApi<MeResponse>("getMe", { token });
 }
 
+/** Public — emails a Firebase Auth password-reset link via Resend. */
+export async function requestPasswordReset(body: {
+  email: string;
+  continuePath?: string;
+  /** Origin of the app UI (e.g. http://localhost:3000) for the email link. */
+  appOrigin?: string;
+}) {
+  return callApi<{
+    ok: boolean;
+    message: string;
+    dev?: boolean;
+    resetUrl?: string;
+  }>("requestPasswordReset", {
+    method: "POST",
+    body,
+  });
+}
+
 export type UserTenantSummary = {
   kind?: "staff";
   tenantId: string;
@@ -491,6 +509,56 @@ export async function createOrderPaymentCheckout(
   });
 }
 
+export async function createOrderPayLink(
+  token: string,
+  input: {
+    orderId: string;
+    orderIds?: string[];
+    provider?: "stripe" | "quickbooks" | "auto";
+    successUrl?: string;
+    cancelUrl?: string;
+  }
+) {
+  return callApi<{
+    provider: "stripe" | "quickbooks";
+    payUrl: string;
+    sessionId?: string | null;
+    invoiceId?: string | null;
+    balance?: number | null;
+    order: import("@/types").Order;
+    orderIds?: string[];
+  }>("createOrderPayLink", {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
+export async function recordInvoicePayments(
+  token: string,
+  input: {
+    payments: Array<{ orderId: string; amount?: number }>;
+    method: string;
+    note?: string;
+    syncQuickBooks?: boolean;
+  }
+) {
+  return callApi<{
+    orders: import("@/types").Order[];
+    quickbooks?: {
+      ok?: boolean;
+      reason?: string;
+      message?: string;
+      paymentId?: string | null;
+      invoiceCount?: number;
+    } | null;
+  }>("recordInvoicePayments", {
+    method: "POST",
+    token,
+    body: input,
+  });
+}
+
 export async function updateQuickBooksSettings(
   token: string,
   settings: Partial<import("@/lib/accounting-integrations").QuickBooksSettings>
@@ -510,6 +578,21 @@ export async function listQuickBooksItems(token: string) {
     companyName?: string | null;
     realmId?: string;
   }>("listQuickBooksItems", { token });
+}
+
+export async function createQuickBooksItem(
+  token: string,
+  input: { name: string }
+) {
+  return callApi<{
+    item: import("@/lib/accounting-integrations").QuickBooksCatalogItem;
+    companyName?: string | null;
+    realmId?: string;
+  }>("createQuickBooksItem", {
+    method: "POST",
+    token,
+    body: input,
+  });
 }
 
 export async function pushOrderToQuickBooks(
@@ -919,10 +1002,18 @@ export type CustomerUpdate = Partial<NewCustomerInput> & {
   logoUrl?: string | null;
   /** Production accent color key; null clears to auto */
   accentColorKey?: string | null;
+  /** Structured billing address object (preferred) */
+  billingAddress?: import("@/types").CustomerBillingAddress | string;
   shippingLocations?: import("@/types").CustomerShippingLocation[];
+  contacts?: import("@/types").CustomerContact[];
+  accountNotes?: import("@/types").CustomerNote[];
   subCustomers?: import("@/types").SubCustomer[];
   negotiatedPricing?: import("@/types").CustomerNegotiatedPricing;
   salesRepId?: string | null;
+  paymentTermsDays?: number | null;
+  paymentTermsLabel?: string | null;
+  taxExempt?: boolean;
+  taxExemptNumber?: string;
 };
 
 export async function updateCustomer(
@@ -938,6 +1029,69 @@ export async function updateCustomer(
       token,
     }
   );
+}
+
+export async function uploadCustomerTaxDocument(
+  token: string,
+  customerId: string,
+  payload: {
+    name: string;
+    kind: import("@/types").CustomerTaxDocument["kind"];
+    contentBase64?: string;
+    contentType?: string;
+    inlineDataUrl?: string;
+    uploadedBy?: string;
+  }
+) {
+  return callApi<{ customer: Customer }>("uploadCustomerTaxDocument", {
+    method: "POST",
+    body: { customerId, ...payload },
+    token,
+  });
+}
+
+export async function deleteCustomerTaxDocument(
+  token: string,
+  customerId: string,
+  documentId: string
+) {
+  return callApi<{ customer: Customer }>("deleteCustomerTaxDocument", {
+    method: "POST",
+    body: { customerId, documentId },
+    token,
+  });
+}
+
+export async function uploadCustomerFile(
+  token: string,
+  customerId: string,
+  payload: {
+    name: string;
+    kind?: import("@/types").CustomerFile["kind"];
+    contentBase64?: string;
+    contentType?: string;
+    inlineDataUrl?: string;
+    size?: number;
+    uploadedBy?: string;
+  }
+) {
+  return callApi<{ customer: Customer }>("uploadCustomerFile", {
+    method: "POST",
+    body: { customerId, ...payload },
+    token,
+  });
+}
+
+export async function deleteCustomerFile(
+  token: string,
+  customerId: string,
+  fileId: string
+) {
+  return callApi<{ customer: Customer }>("deleteCustomerFile", {
+    method: "POST",
+    body: { customerId, fileId },
+    token,
+  });
 }
 
 export async function archiveCustomer(token: string, customerId: string) {
@@ -981,6 +1135,7 @@ export async function saveOrderListView(
       Record<import("@/lib/order-list-columns").OrdersListColumnId, string>
     >;
     shared?: boolean;
+    scope?: import("@/lib/workspace-scope").WorkspaceScope | null;
   }
 ) {
   return callApi<{ view: import("@/lib/order-list-columns").OrderListViewRecord }>(
@@ -1030,6 +1185,7 @@ export async function saveDashboardView(
     name: string;
     layout: import("@/lib/dashboard-layout").DashboardWidgetId[];
     shared?: boolean;
+    scope?: import("@/lib/workspace-scope").WorkspaceScope | null;
   }
 ) {
   return callApi<{ view: import("@/lib/dashboard-layout").DashboardViewRecord }>(
@@ -1096,7 +1252,10 @@ export async function createOrderFromForm(token: string, form: NewOrderFormInput
 export async function updateOrder(
   token: string,
   orderId: string,
-  updates: Partial<Order>
+  updates: Partial<Order> & {
+    paymentMethod?: string;
+    paymentNote?: string;
+  }
 ) {
   return callApi<{ order: Order }>("updateOrder", {
     method: "PATCH",
@@ -1192,6 +1351,19 @@ export async function removeProductionJob(
   return callApi<{ order: Order }>("removeProductionJob", {
     method: "POST",
     body: { orderId, jobId },
+    token,
+  });
+}
+
+export async function updateProductionJobLineItems(
+  token: string,
+  orderId: string,
+  jobId: string,
+  lineItemIds: string[]
+) {
+  return callApi<{ order: Order }>("updateProductionJobLineItems", {
+    method: "PATCH",
+    body: { orderId, jobId, lineItemIds },
     token,
   });
 }
@@ -1409,6 +1581,10 @@ export async function setArtworkStatus(
     message?: string;
     messageRole?: "staff" | "customer";
     notifyOrderMessage?: boolean;
+    assigneeId?: string | null;
+    clearAssignee?: boolean;
+    dueAt?: string | null;
+    clearDueAt?: boolean;
   }
 ) {
   return callApi<{ order: Order }>("setArtworkStatus", {
@@ -1421,6 +1597,10 @@ export async function setArtworkStatus(
       message: options?.message,
       messageRole: options?.messageRole,
       notifyOrderMessage: options?.notifyOrderMessage,
+      assigneeId: options?.assigneeId,
+      clearAssignee: options?.clearAssignee,
+      dueAt: options?.dueAt,
+      clearDueAt: options?.clearDueAt,
     },
     token,
   });
@@ -1562,14 +1742,32 @@ export async function updateOrderProducedGoods(
   });
 }
 
-export async function sendInvoice(token: string, orderId: string) {
+export async function sendInvoice(
+  token: string,
+  orderId: string,
+  options?: {
+    to?: string[];
+    cc?: string[];
+    subject?: string;
+    message?: string;
+    recipientName?: string;
+    invoiceNotes?: string | null;
+    proofs?: Array<{ jobId: string; imprintId: string }>;
+    techPacks?: Array<{ fileId: string }>;
+    paymentSelection?: {
+      includeStripe?: boolean;
+      includeQuickBooks?: boolean;
+      methodIds?: string[];
+    };
+  }
+) {
   return callApi<{
     order: Order;
-    email: { sent: boolean; to: string };
+    email: { sent: boolean; to: string; cc?: string[] };
   }>("sendInvoice", {
     method: "POST",
     token,
-    body: { orderId },
+    body: { orderId, ...options },
   });
 }
 
@@ -1707,6 +1905,7 @@ export async function updateDesign(
       Pick<
         import("@/types").SavedDesign,
         | "name"
+        | "designCode"
         | "tags"
         | "notes"
         | "inkColors"
@@ -1797,15 +1996,29 @@ export async function sendProofToCustomer(
   );
 }
 
-export async function sendProofsAndEstimate(token: string, orderId: string) {
-  return callApi<{ order: Order; email: { sent: boolean; to: string } }>(
-    "sendProofsAndEstimate",
-    {
-      method: "POST",
-      body: { orderId },
-      token,
-    }
-  );
+export async function sendProofsAndEstimate(
+  token: string,
+  orderId: string,
+  options?: {
+    includeEstimate?: boolean;
+    proofs?: Array<{ jobId: string; imprintId: string }>;
+    techPacks?: Array<{ fileId: string }>;
+    estimateNotes?: string | null;
+    to?: string[];
+    cc?: string[];
+    subject?: string;
+    message?: string;
+    recipientName?: string;
+  }
+) {
+  return callApi<{
+    order: Order;
+    email: { sent: boolean; to: string; cc?: string[] };
+  }>("sendProofsAndEstimate", {
+    method: "POST",
+    body: { orderId, ...options },
+    token,
+  });
 }
 
 export async function getOrderCustomerPortalLink(
@@ -1894,6 +2107,7 @@ export async function updateOrderRequest(
     }[];
     excludedContractFeeIds?: string[];
     selectedRateSheetId?: string | null;
+    estimateOneTimeRateSheet?: import("@/types").OrderOneTimeRateSheet | null;
   }
 ) {
   return callApi<{ request: import("@/lib/order-requests").OrderRequestDetail }>(
@@ -1949,19 +2163,66 @@ export async function addOrderRequestInternalNote(
 
 export type OrderDocumentScope = "all" | "estimate" | "proofs" | "invoice";
 
+export type ProofsEstimateSelection = {
+  includeEstimate?: boolean;
+  proofs?: Array<{ jobId: string; imprintId: string }>;
+  techPacks?: Array<{ fileId: string }>;
+  invoiceNotes?: string | null;
+  estimateNotes?: string | null;
+  paymentSelection?: {
+    includeStripe?: boolean;
+    includeQuickBooks?: boolean;
+    methodIds?: string[];
+  };
+};
+
 export async function previewOrderDocument(
   token: string,
   orderId: string,
-  scope: OrderDocumentScope = "all"
+  scope: OrderDocumentScope = "all",
+  selection?: ProofsEstimateSelection
 ) {
   return callApi<{ pdfBase64: string; filename: string }>(
     "previewOrderDocument",
     {
       method: "POST",
-      body: { orderId, scope },
+      body: { orderId, scope, ...selection },
       token,
     }
   );
+}
+
+export type OrderEmailPreviewVariant = "estimate" | "invoice";
+
+export type OrderEmailPreview = {
+  subject: string;
+  message: string;
+  html: string;
+  text: string;
+  defaultSubject: string;
+  defaultMessage: string;
+};
+
+export async function previewOrderEmail(
+  token: string,
+  orderId: string,
+  options: {
+    variant: OrderEmailPreviewVariant;
+    includeEstimate?: boolean;
+    proofs?: Array<{ jobId: string; imprintId: string }>;
+    techPacks?: Array<{ fileId: string }>;
+    estimateNotes?: string | null;
+    invoiceNotes?: string | null;
+    subject?: string;
+    message?: string;
+    recipientName?: string;
+  }
+) {
+  return callApi<OrderEmailPreview>("previewOrderEmail", {
+    method: "POST",
+    body: { orderId, ...options },
+    token,
+  });
 }
 
 // ─── Machines ───────────────────────────────────────────────────────────────

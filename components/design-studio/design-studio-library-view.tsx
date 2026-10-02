@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Archive,
@@ -408,7 +408,7 @@ function DesignLineRow({
 }
 
 export function DesignStudioLibraryView() {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const { getIdToken } = useAuth();
   const { orders } = useSchedule();
   const { designs, loading, refreshing, refresh } = useDesignStudioDesigns(getIdToken);

@@ -330,7 +330,10 @@ export function getArtworkApprovalSummary(order: Order) {
     (item) => item.artwork.status === "approved"
   ).length;
   const pending = items.filter(
-    (item) => item.artwork.status === "pending"
+    (item) =>
+      item.artwork.status === "pending" ||
+      item.artwork.status === "with_art" ||
+      item.artwork.status === "art_ready"
   ).length;
   const revisionRequested = items.filter(
     (item) => item.artwork.status === "revision_requested"
@@ -343,6 +346,8 @@ export function getArtworkApprovalSummary(order: Order) {
     revisionRequested,
     total: items.length,
     allApproved: items.length > 0 && approved === items.length,
-    needsCustomerReview: pending > 0 || revisionRequested > 0,
+    needsCustomerReview:
+      items.some((item) => item.artwork.status === "pending") ||
+      revisionRequested > 0,
   };
 }

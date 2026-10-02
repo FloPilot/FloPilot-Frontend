@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo } from "react";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { formatOrderDisplayLine } from "@/lib/order-display";
 import { documentTypeLabel } from "@/lib/reports/format";
@@ -9,6 +10,9 @@ import {
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
+import { resolveOrderFinancials } from "@/lib/order-estimate";
+import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { useSchedule } from "@/components/providers/schedule-provider";
 import type { OrderListSummary } from "@/lib/order-list-summary";
 import type { Order } from "@/types";
 import { cn } from "@/lib/utils";
@@ -44,6 +48,23 @@ export function OrderInfoGrid({
   order: Order;
   summary: OrderListSummary;
 }) {
+  const { settings } = useShopSettings();
+  const { customers } = useSchedule();
+  const customer = customers.find((entry) => entry.id === order.customerId);
+  const financials = useMemo(
+    () =>
+      resolveOrderFinancials(
+        order,
+        settings.taxRate,
+        {
+          pricingMatrix: settings.pricingMatrix,
+          pricingRateSheets: settings.pricingRateSheets,
+          productionDefaults: settings.productionDefaults,
+        },
+        customer
+      ),
+    [order, settings, customer]
+  );
   const totalPieces = order.lineItems.reduce(
     (sum, item) =>
       sum + item.sizes.reduce((sizeSum, size) => sizeSum + size.quantity, 0),
@@ -75,7 +96,7 @@ export function OrderInfoGrid({
           <InfoRow label="Document" value={documentTypeLabel(order.type)} />
           <InfoRow
             label="Total amount"
-            value={formatCurrency(order.total)}
+            value={formatCurrency(financials.total)}
             emphasis
           />
         </div>
@@ -118,15 +139,6 @@ export function OrderInfoGrid({
           <InfoRow
             label="Blocked"
             value={summary.blockedCount > 0 ? String(summary.blockedCount) : "—"}
-          />
-          <InfoRow
-            label="Balance due"
-            value={
-              order.balance > 0
-                ? formatCurrency(order.balance)
-                : "Paid in full"
-            }
-            emphasis={order.balance > 0}
           />
         </div>
       </section>

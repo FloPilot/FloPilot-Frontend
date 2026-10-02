@@ -11,6 +11,7 @@ import {
 import { DocumentsTable } from "@/components/documents/documents-table";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { useWorkspaceScope } from "@/components/providers/workspace-scope-provider";
 import {
   applyDocumentAdvancedFilters,
   documentMatchesSearch,
@@ -30,6 +31,7 @@ import {
   dashboardValueClass,
 } from "@/lib/dashboard-styles";
 import { formatCurrency } from "@/lib/format";
+import { applyWorkspaceScopeToOrders } from "@/lib/workspace-scope";
 import { cn } from "@/lib/utils";
 
 const FILTERS: { value: DocumentEstimateFilter; label: string }[] = [
@@ -57,6 +59,7 @@ export function DocumentsEstimatesPanel() {
   const searchParams = useSearchParams();
   const { orders, customers, getCustomerById } = useSchedule();
   const { settings } = useShopSettings();
+  const { scope: workspaceScope, currentUserId } = useWorkspaceScope();
   const [filter, setFilter] = useState<DocumentEstimateFilter>(
     parseFilter(searchParams.get("filter"))
   );
@@ -64,6 +67,11 @@ export function DocumentsEstimatesPanel() {
   const [advancedFilters, setAdvancedFilters] = useState<
     DocumentAdvancedFilter[]
   >([]);
+
+  const scopedOrders = useMemo(
+    () => applyWorkspaceScopeToOrders(orders, workspaceScope, currentUserId),
+    [orders, workspaceScope, currentUserId]
+  );
 
   const financialContext = useMemo(
     () => ({
@@ -76,10 +84,12 @@ export function DocumentsEstimatesPanel() {
   );
 
   const filtered = useMemo(() => {
-    let list = sortEstimateDocuments(filterEstimateDocuments(orders, filter));
+    let list = sortEstimateDocuments(
+      filterEstimateDocuments(scopedOrders, filter)
+    );
     list = applyDocumentAdvancedFilters(list, advancedFilters);
     return list.filter((order) => documentMatchesSearch(order, query));
-  }, [orders, filter, query, advancedFilters]);
+  }, [scopedOrders, filter, query, advancedFilters]);
 
   const financials = useMemo(
     () => buildOrderFinancialsMap(filtered, financialContext),
@@ -87,11 +97,11 @@ export function DocumentsEstimatesPanel() {
   );
 
   const summary = useMemo(() => {
-    const all = filterEstimateDocuments(orders, "all");
-    const pending = filterEstimateDocuments(orders, "pending");
-    const sent = filterEstimateDocuments(orders, "sent");
-    const revision = filterEstimateDocuments(orders, "revision");
-    const approved = filterEstimateDocuments(orders, "approved");
+    const all = filterEstimateDocuments(scopedOrders, "all");
+    const pending = filterEstimateDocuments(scopedOrders, "pending");
+    const sent = filterEstimateDocuments(scopedOrders, "sent");
+    const revision = filterEstimateDocuments(scopedOrders, "revision");
+    const approved = filterEstimateDocuments(scopedOrders, "approved");
     const inFlight = [...pending, ...sent, ...revision];
     const money = buildOrderFinancialsMap(inFlight, financialContext);
     let openValue = 0;
@@ -108,7 +118,7 @@ export function DocumentsEstimatesPanel() {
       },
       openValue,
     };
-  }, [orders, financialContext]);
+  }, [scopedOrders, financialContext]);
 
   const filteredValue = useMemo(() => {
     let total = 0;

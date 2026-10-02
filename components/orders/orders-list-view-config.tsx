@@ -31,6 +31,7 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useWorkspaceScope } from "@/components/providers/workspace-scope-provider";
 import { CheckpointStatusBadge } from "@/components/orders/order-checkpoint-pills";
 import { EstimateStatusBadge, OrderStatusBadge, RushBadge } from "@/components/status-badges";
 import { Button } from "@/components/ui/button";
@@ -79,6 +80,10 @@ import {
   type OrdersListColumnId,
 } from "@/lib/order-list-columns";
 import type { OrderCheckpoint } from "@/lib/order-list-summary";
+import {
+  describeWorkspaceScope,
+  workspaceScopeIsActive,
+} from "@/lib/workspace-scope";
 import { cn } from "@/lib/utils";
 
 const GROUP_ORDER: OrdersListColumnGroup[] = [
@@ -501,6 +506,8 @@ export function OrdersListViewConfig({
   onActiveViewChange,
 }: OrdersListViewConfigProps) {
   const { getIdToken } = useAuth();
+  const { scope: workspaceScope, applyScope, isActive: workspaceActive } =
+    useWorkspaceScope();
   const [views, setViews] = useState<OrderListViewRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -510,6 +517,7 @@ export function OrdersListViewConfig({
   >({});
   const [viewName, setViewName] = useState("");
   const [shareWithTeam, setShareWithTeam] = useState(false);
+  const [includeWorkspaceFilters, setIncludeWorkspaceFilters] = useState(true);
   const [editingViewId, setEditingViewId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [switchingView, setSwitchingView] = useState(false);
@@ -546,6 +554,10 @@ export function OrdersListViewConfig({
             )
           : {}
       );
+      const active = data.activeViewId
+        ? data.views.find((view) => view.id === data.activeViewId)
+        : null;
+      if (active?.scope) applyScope(active.scope);
     } catch {
       onColumnsChange(normalizeOrdersListColumns(DEFAULT_ORDERS_LIST_COLUMNS));
       onColumnLabelsChange({});
@@ -589,6 +601,11 @@ export function OrdersListViewConfig({
       );
       setViewName(view.name);
       setShareWithTeam(view.shared);
+      setIncludeWorkspaceFilters(
+        view.scope
+          ? workspaceScopeIsActive(view.scope)
+          : workspaceActive
+      );
       setEditingViewId(view.id);
     } else {
       const nextColumns = normalizeOrdersListColumns(columns);
@@ -598,6 +615,7 @@ export function OrdersListViewConfig({
       );
       setViewName(view ? `${view.name} copy` : "");
       setShareWithTeam(false);
+      setIncludeWorkspaceFilters(workspaceActive);
       setEditingViewId(null);
     }
     setEditorOpen(true);
@@ -677,6 +695,7 @@ export function OrdersListViewConfig({
       onColumnLabelsChange(
         normalizeOrdersListColumnLabels(view.columnLabels, nextColumns)
       );
+      if (view.scope) applyScope(view.scope);
     };
 
     setError(null);
@@ -759,6 +778,7 @@ export function OrdersListViewConfig({
         columns: nextColumns,
         columnLabels: nextLabels,
         shared: shareWithTeam,
+        scope: includeWorkspaceFilters ? workspaceScope : null,
       });
 
       setViews((current) => {
@@ -1058,6 +1078,27 @@ export function OrdersListViewConfig({
                       <span className="mt-1 block text-[12px] leading-relaxed text-[#616161]">
                         Other users in your shop can select this layout from
                         their view dropdown.
+                      </span>
+                    </span>
+                  </label>
+
+                  <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-[#ebebeb] bg-[#fafafa] p-3">
+                    <input
+                      type="checkbox"
+                      checked={includeWorkspaceFilters}
+                      onChange={(event) =>
+                        setIncludeWorkspaceFilters(event.target.checked)
+                      }
+                      className="mt-0.5 size-4 rounded border-[#c9cccf]"
+                    />
+                    <span>
+                      <span className="text-[13px] font-medium text-[#303030]">
+                        Include workspace filters
+                      </span>
+                      <span className="mt-1 block text-[12px] leading-relaxed text-[#616161]">
+                        {includeWorkspaceFilters && workspaceActive
+                          ? `Applies ${describeWorkspaceScope(workspaceScope).summary.replace(/^Viewing · /, "")} when this view is selected.`
+                          : "When opened, also restore your sales rep / customer workspace view."}
                       </span>
                     </span>
                   </label>

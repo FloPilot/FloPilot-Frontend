@@ -28,17 +28,35 @@ export type DecorationType = BuiltInDecorationType | (string & {});
 
 export type DocumentType = "quote" | "sales_order" | "invoice";
 
+/** Billing address on a customer account (street / suite / city / state / ZIP). */
+export type CustomerBillingAddress = {
+  line1: string;
+  line2?: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country?: string;
+};
+
 export interface Customer {
   id: string;
   company: string;
   email: string;
   phone: string;
+  /**
+   * Structured billing address. May be a legacy free-form string from an
+   * earlier iteration — prefer object shape going forward.
+   */
+  billingAddress?: CustomerBillingAddress | string;
   city: string;
   state: string;
+  postalCode?: string;
   totalOrders: number;
   lifetimeValue: number;
-  /** Staff-only notes about this account */
+  /** Staff-only notes about this account (legacy freeform) */
   notes?: string;
+  /** Structured internal notes — use priority "warning" for order alerts */
+  accountNotes?: CustomerNote[];
   /** Contact first name */
   firstName?: string;
   /** Contact last name */
@@ -59,6 +77,8 @@ export interface Customer {
   archivedBy?: string;
   /** Saved ship-to addresses for split shipments */
   shippingLocations?: CustomerShippingLocation[];
+  /** Additional people at this company (estimators, POs, A/P, etc.) */
+  contacts?: CustomerContact[];
   /** End businesses / accounts under a broker or contractor parent */
   subCustomers?: SubCustomer[];
   /** Account-specific pricing shared with the customer in their portal */
@@ -68,7 +88,67 @@ export interface Customer {
   /** Default sales rep for new orders on this account */
   salesRepId?: string;
   salesRepName?: string;
+  /**
+   * Payment terms for invoices (e.g. Net 30).
+   * `paymentTermsDays` drives due dates; label is what staff see.
+   */
+  paymentTermsDays?: number | null;
+  paymentTermsLabel?: string | null;
+  /** When true, tax is not applied to this account's orders */
+  taxExempt?: boolean;
+  /** Resale / exemption certificate number on file */
+  taxExemptNumber?: string;
+  /** Uploaded exemption certificates and related tax documents */
+  taxDocuments?: CustomerTaxDocument[];
+  /** General supporting documents on the account (contracts, art briefs, etc.) */
+  files?: CustomerFile[];
 }
+
+/** Internal staff note on a customer account. */
+export type CustomerNotePriority = "normal" | "high" | "warning";
+
+export type CustomerNote = {
+  id: string;
+  content: string;
+  priority: CustomerNotePriority;
+  createdAt: string;
+  updatedAt: string;
+  author?: string;
+};
+
+/** Certificate or supporting tax document stored on a customer account. */
+export type CustomerTaxDocument = {
+  id: string;
+  name: string;
+  kind: "sales_certificate" | "supporting";
+  uploadedBy: string;
+  uploadedAt: string;
+  downloadUrl?: string;
+  storagePath?: string;
+  storageBucket?: string;
+  previewUrl?: string;
+  previewPath?: string;
+  contentType?: string;
+  /** Small images may be stored inline instead of Cloud Storage */
+  dataUrl?: string;
+};
+
+/** General customer file (supporting docs beyond tax certificates). */
+export type CustomerFile = {
+  id: string;
+  name: string;
+  kind: "supporting" | "other";
+  uploadedBy: string;
+  uploadedAt: string;
+  downloadUrl?: string;
+  storagePath?: string;
+  storageBucket?: string;
+  previewUrl?: string;
+  previewPath?: string;
+  contentType?: string;
+  dataUrl?: string;
+  size?: number;
+};
 
 export type CustomerActivityType =
   | "created"
@@ -81,6 +161,14 @@ export type CustomerActivityType =
   | "shipping_location_added"
   | "shipping_location_updated"
   | "shipping_location_removed"
+  | "contact_added"
+  | "contact_updated"
+  | "contact_removed"
+  | "tax_exemption_updated"
+  | "tax_document_uploaded"
+  | "tax_document_removed"
+  | "file_uploaded"
+  | "file_removed"
   | "pricing_note_updated"
   | "pricing_sheet_added"
   | "pricing_sheet_updated"
@@ -151,6 +239,25 @@ export type CustomerNegotiatedRateSheet = {
   updatedAt?: string;
 };
 
+/**
+ * Order-scoped rate sheet override — does not change shop or customer sheets.
+ * Decoration methods are stored at base rates; `decorationRateAdjustPercent`
+ * is applied when resolving pricing.
+ */
+export type OrderOneTimeRateSheet = {
+  id: "one-time";
+  name: string;
+  baseSheetId?: string | null;
+  baseSheetName?: string | null;
+  blankMarkupPercent: number;
+  /** Percent adjustment vs base decoration unit prices (e.g. 10 = +10%). */
+  decorationRateAdjustPercent?: number;
+  methods: import("@/lib/shop-settings").PricingMethod[];
+  contractFees?: CustomerContractFee[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 /** Categorized fee line on an order estimate */
 export type OrderEstimateFeeCategory =
   | "setup"
@@ -193,6 +300,31 @@ export interface ShippingAddress {
 export interface CustomerShippingLocation extends ShippingAddress {
   id: string;
   isDefault?: boolean;
+}
+
+/** Account billing profile option in order Bill To select. */
+export const ORDER_BILL_TO_ACCOUNT = "account_billing";
+
+/**
+ * Bill-to / ship-to selection on an order.
+ * `locationId` is `account_billing`, a customer shipping location id, or omitted when cleared.
+ * `address` is a snapshot used for documents when the book entry changes later.
+ */
+export type OrderAddressSelection = {
+  locationId?: string | null;
+  address?: ShippingAddress | null;
+};
+
+/** A person at a customer company who can be attached to estimates/invoices. */
+export interface CustomerContact {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  department?: string;
+  position?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 /** An end business or brand managed under a broker/contractor customer account. */
@@ -267,7 +399,19 @@ export interface ArtworkFile {
   id: string;
   name: string;
   version: number;
-  status: "pending" | "approved" | "revision_requested";
+  /**
+   * Proof pipeline:
+   * - pending: drafting / not yet with art (legacy open proofs also use this)
+   * - with_art: submitted to the artwork department
+   * - art_ready: art complete — sent back to the team for review before customer send
+   * - approved / revision_requested: customer sign-off states
+   */
+  status:
+    | "pending"
+    | "with_art"
+    | "art_ready"
+    | "approved"
+    | "revision_requested";
   uploadedAt: string;
   uploadedBy?: string;
   /** Short label for mockup preview, e.g. dimensions and colors */
@@ -281,6 +425,13 @@ export interface ArtworkFile {
   history?: ArtworkVersion[];
   /** Customer or staff notes tied to this proof (revision requests, follow-ups) */
   revisionNotes?: RevisionNote[];
+  /** Assigned artwork artist (staff user id) */
+  artAssigneeId?: string;
+  artAssigneeName?: string;
+  artSubmittedAt?: string;
+  artCompletedAt?: string;
+  /** When art should be finished (ISO date `YYYY-MM-DD` or full ISO). */
+  artDueAt?: string;
 }
 
 export interface ArtworkVersion {
@@ -305,6 +456,7 @@ export type OrderFileKind =
   | "packing_list"
   | "customer_supplied"
   | "internal"
+  | "tech_pack"
   | "other";
 
 export type GarmentReceiveStatus = "waiting" | "partial" | "received";
@@ -398,6 +550,8 @@ export interface OrderInvoiceMeta {
    * to the order in-hands date for statement-style "due by" queries.
    */
   dueDate?: string;
+  /** Staff notes printed on the customer invoice PDF */
+  customerNotes?: string | null;
   /** Totals captured when the invoice was last sent */
   subtotal?: number;
   tax?: number;
@@ -673,6 +827,8 @@ export interface Job {
   tasks: Task[];
   /** Finishing steps like bagging don't need garment decoration specs */
   kind?: "decoration" | "finishing";
+  /** Links to shop finishing step preset for priced bagging/labeling/etc. */
+  finishingStepId?: string;
 }
 
 export interface ShipmentAllocation {
@@ -790,14 +946,20 @@ export interface Order {
   archived?: boolean;
   archivedAt?: string;
   archivedBy?: string;
-  /** Rate sheet for this order — `"shop"` uses shop matrix; omit = customer default */
+  /** Rate sheet for this order — `"shop"` uses shop matrix; `"one-time"` uses estimateOneTimeRateSheet; omit = customer default */
   selectedRateSheetId?: string | null;
+  /** Order-only pricing override when selectedRateSheetId is `"one-time"` */
+  estimateOneTimeRateSheet?: OrderOneTimeRateSheet | null;
+  /** Staff note explaining estimate/pricing decisions — not shown to customers */
+  estimateStaffNote?: string | null;
   /** One-off or auto contract fee lines on the estimate */
   estimateAdjustments?: OrderEstimateAdjustment[];
-  /** Contract fee ids excluded from auto-apply on this order */
+  /** Contract fee ids excluded from this order. Unset = all fees deselected (opt-in). */
   excludedContractFeeIds?: string[];
   /** Optional shop label shown after order number, e.g. "CUSTOM NAME" */
   customLabel?: string;
+  /** Customer purchase order number / reference */
+  customerPoNumber?: string | null;
   /** Origin channel — client storefront checkouts use "client_store" */
   source?: "client_store";
   clientStoreId?: string;
@@ -807,6 +969,21 @@ export interface Order {
   /** Assigned sales rep — receives order notifications */
   salesRepId?: string;
   salesRepName?: string;
+  /**
+   * Shop design / job code for this order's artwork package
+   * (shown in Designs and art summary).
+   */
+  designCode?: string | null;
+  /** Invoice / estimate bill-to address selection */
+  billTo?: OrderAddressSelection | null;
+  /** Default ship-to address for this order (fulfillment can still split) */
+  shipTo?: OrderAddressSelection | null;
+  /**
+   * Snapshot of customer payment terms at order create (or later override).
+   * Used for invoice due dates and QuickBooks DueDate.
+   */
+  paymentTermsDays?: number | null;
+  paymentTermsLabel?: string | null;
   /** Orders produced together; combined qty selects the shared pricing tier. */
   productionRun?: OrderProductionRun;
   /** In-app invoice (PDF) metadata — QuickBooks remains optional separately */
@@ -824,6 +1001,9 @@ export interface OrderQuickBooksSync {
   estimateDocNumber?: string;
   invoiceId?: string;
   invoiceDocNumber?: string;
+  /** Online payment URL from QuickBooks InvoiceLink */
+  invoicePaymentUrl?: string | null;
+  invoicePaymentUrlAt?: string | null;
   lastSyncedAt?: string;
   lastDocType?: "estimate" | "invoice";
   lastError?: string | null;
@@ -833,6 +1013,8 @@ export interface OrderQuickBooksSync {
 export interface SavedDesign {
   id: string;
   name: string;
+  /** Shop-facing design / job code (e.g. DC-1063) for lookup in Designs. */
+  designCode?: string | null;
   customerId?: string;
   customerName?: string;
   company?: string;

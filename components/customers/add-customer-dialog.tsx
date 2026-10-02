@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AddressAutocompleteInput } from "@/components/address/address-autocomplete-input";
 import { Button } from "@/components/ui/button";
 import { CustomerBrandingFields } from "@/components/customers/customer-branding-fields";
 import type { CustomerAccentKey } from "@/lib/production-customer-colors";
@@ -128,6 +129,10 @@ export function AddCustomerDialog({
           </DialogHeader>
 
           <div className="overflow-y-auto flex-1 px-8 py-6 space-y-5">
+            <p className="text-xs text-brand-muted">
+              <span className="font-medium text-brand-ink">*</span> Required
+            </p>
+
             <FormSection title="Brand identity" optional>
               <CustomerBrandingFields
                 company={form.company}
@@ -146,6 +151,7 @@ export function AddCustomerDialog({
                 <Field
                   label="Company"
                   htmlFor="customer-company"
+                  required
                   className="sm:col-span-2"
                 >
                   <Input
@@ -154,30 +160,27 @@ export function AddCustomerDialog({
                     onChange={(event) =>
                       updateField("company", event.target.value)
                     }
-                    placeholder="Northside Construction"
                     className={inputClassName}
                     autoFocus
                   />
                 </Field>
-                <Field label="First name" htmlFor="customer-first-name">
+                <Field label="First name" htmlFor="customer-first-name" required>
                   <Input
                     id="customer-first-name"
                     value={form.firstName}
                     onChange={(event) =>
                       updateField("firstName", event.target.value)
                     }
-                    placeholder="David"
                     className={inputClassName}
                   />
                 </Field>
-                <Field label="Last name" htmlFor="customer-last-name">
+                <Field label="Last name" htmlFor="customer-last-name" required>
                   <Input
                     id="customer-last-name"
                     value={form.lastName}
                     onChange={(event) =>
                       updateField("lastName", event.target.value)
                     }
-                    placeholder="Park"
                     className={inputClassName}
                   />
                 </Field>
@@ -186,7 +189,7 @@ export function AddCustomerDialog({
 
             <FormSection title="Contact">
               <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                <Field label="Email" htmlFor="customer-email">
+                <Field label="Email" htmlFor="customer-email" required>
                   <Input
                     id="customer-email"
                     type="email"
@@ -194,11 +197,10 @@ export function AddCustomerDialog({
                     onChange={(event) =>
                       updateField("email", event.target.value)
                     }
-                    placeholder="name@company.com"
                     className={inputClassName}
                   />
                 </Field>
-                <Field label="Phone" htmlFor="customer-phone">
+                <Field label="Phone" htmlFor="customer-phone" required>
                   <Input
                     id="customer-phone"
                     type="tel"
@@ -206,43 +208,88 @@ export function AddCustomerDialog({
                     onChange={(event) =>
                       updateField("phone", event.target.value)
                     }
-                    placeholder="(555) 123-4567"
                     className={inputClassName}
                   />
                 </Field>
               </div>
             </FormSection>
 
-            <FormSection title="Location">
-              <div className="grid gap-x-5 gap-y-4 sm:grid-cols-[minmax(0,1fr)_180px]">
-                <Field label="City" htmlFor="customer-city">
-                  <Input
-                    id="customer-city"
-                    value={form.city}
-                    onChange={(event) => updateField("city", event.target.value)}
-                    placeholder="Seattle"
+            <FormSection title="Billing address">
+              <div className="grid gap-y-4">
+                <Field label="Address" htmlFor="customer-address-line1" required>
+                  <AddressAutocompleteInput
+                    id="customer-address-line1"
+                    value={form.addressLine1}
+                    onChange={(next) => updateField("addressLine1", next)}
+                    onAddressSelect={(address) => {
+                      setForm((current) => ({
+                        ...current,
+                        addressLine1: address.line1,
+                        addressLine2: address.line2 || current.addressLine2 || "",
+                        city: address.city,
+                        state: address.state,
+                        postalCode: address.postalCode,
+                      }));
+                      if (error) setError(null);
+                    }}
                     className={inputClassName}
                   />
                 </Field>
-                <Field label="State">
-                  <Select
-                    value={form.state || null}
-                    onValueChange={(value) =>
-                      updateField("state", value ?? "")
+                <Field
+                  label="Apartment, suite, etc"
+                  htmlFor="customer-address-line2"
+                  optional
+                >
+                  <Input
+                    id="customer-address-line2"
+                    value={form.addressLine2 ?? ""}
+                    onChange={(event) =>
+                      updateField("addressLine2", event.target.value)
                     }
-                  >
-                    <SelectTrigger className={cn(inputClassName, "w-full")}>
-                      <SelectValue placeholder="Select state" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {US_STATES.map((state) => (
-                        <SelectItem key={state.value} value={state.value}>
-                          {state.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    className={inputClassName}
+                  />
                 </Field>
+                <div className="grid gap-x-4 gap-y-4 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
+                  <Field label="City" htmlFor="customer-city" required>
+                    <Input
+                      id="customer-city"
+                      value={form.city}
+                      onChange={(event) =>
+                        updateField("city", event.target.value)
+                      }
+                      className={inputClassName}
+                    />
+                  </Field>
+                  <Field label="State" required>
+                    <Select
+                      value={form.state || null}
+                      onValueChange={(value) =>
+                        updateField("state", value ?? "")
+                      }
+                    >
+                      <SelectTrigger className={cn(inputClassName, "w-full")}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {US_STATES.map((state) => (
+                          <SelectItem key={state.value} value={state.value}>
+                            {state.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field label="ZIP code" htmlFor="customer-postal" required>
+                    <Input
+                      id="customer-postal"
+                      value={form.postalCode}
+                      onChange={(event) =>
+                        updateField("postalCode", event.target.value)
+                      }
+                      className={inputClassName}
+                    />
+                  </Field>
+                </div>
               </div>
             </FormSection>
 
@@ -251,7 +298,6 @@ export function AddCustomerDialog({
                 id="customer-notes"
                 value={form.notes ?? ""}
                 onChange={(event) => updateField("notes", event.target.value)}
-                placeholder="Terms, shipping preferences, Pantone matches…"
                 rows={3}
                 className="rounded-lg resize-none min-h-[88px]"
               />
@@ -314,12 +360,14 @@ function FormSection({
 function Field({
   label,
   htmlFor,
+  required,
   optional,
   className,
   children,
 }: {
   label: string;
   htmlFor?: string;
+  required?: boolean;
   optional?: boolean;
   className?: string;
   children: React.ReactNode;
@@ -328,6 +376,11 @@ function Field({
     <div className={className}>
       <Label htmlFor={htmlFor} className="text-sm text-brand-ink">
         {label}
+        {required ? (
+          <span className="ml-0.5 text-brand-ink" aria-hidden>
+            *
+          </span>
+        ) : null}
         {optional && (
           <span className="ml-1 font-normal text-brand-muted">(optional)</span>
         )}

@@ -5,6 +5,10 @@ import {
   isActiveOrder,
   isHistoricalOrder,
 } from "@/lib/order-list-filters";
+import {
+  ORDER_STATUS_LABELS,
+  ORDER_STATUS_ORDER,
+} from "@/lib/order-status";
 
 export type OrderHistorySort = "newest" | "oldest" | "due_soon";
 
@@ -110,14 +114,10 @@ export const ORDER_STATUS_FILTER_OPTIONS: {
   label: string;
 }[] = [
   { value: "all", label: "All statuses" },
-  { value: "in_production", label: "In production" },
-  { value: "approved", label: "Ready for scheduling" },
-  { value: "quote_sent", label: "Quote sent" },
-  { value: "awaiting_approval", label: "Awaiting approval" },
-  { value: "ready_to_invoice", label: "Ready to invoice" },
-  { value: "invoice_sent", label: "Invoice sent" },
-  { value: "completed", label: "Completed" },
-  { value: "shipped", label: "Shipped" },
+  ...ORDER_STATUS_ORDER.map((value) => ({
+    value,
+    label: ORDER_STATUS_LABELS[value],
+  })),
 ];
 
 export const CUSTOMER_ORDER_SCOPE_TABS: {

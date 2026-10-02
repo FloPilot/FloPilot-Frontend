@@ -1,5 +1,6 @@
 import { isSameDay, parseISO, startOfDay } from "date-fns";
 import type { Customer, Order } from "@/types";
+import { computeInvoiceDueDate } from "@/lib/payment-terms";
 
 /** Sentinel for orders with no end business / sub-customer */
 export const NO_END_BUSINESS = "__none__";
@@ -100,12 +101,18 @@ export function createDocumentFilterId(): string {
 }
 
 /**
- * Effective invoice due date: explicit due date, else in-hands date.
- * Used for statement-style "due by" filtering.
+ * Effective invoice due date:
+ * explicit invoice.dueDate → payment terms from invoice/send date → in-hands.
  */
 export function getInvoiceDueDate(order: Order): string | null {
   const due = order.invoice?.dueDate?.trim();
   if (due) return due.slice(0, 10);
+  const computed = computeInvoiceDueDate({
+    termsDays: order.paymentTermsDays,
+    invoiceDate: order.invoice?.sentAt || new Date(),
+    inHandsDate: order.inHandsDate,
+  });
+  if (computed) return computed;
   if (order.inHandsDate) return order.inHandsDate.slice(0, 10);
   return null;
 }

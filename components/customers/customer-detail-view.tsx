@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Archive,
@@ -13,17 +13,22 @@ import {
   Pencil,
   Phone,
   Search,
-  StickyNote,
 } from "lucide-react";
 import { CustomerOrderDialog } from "@/components/customers/customer-order-dialog";
 import { CustomerBrandMarkFromRecord } from "@/components/customers/customer-brand-mark";
 import { CustomerShippingLocationsSection } from "@/components/customers/customer-shipping-locations-section";
+import { CustomerTaxExemptionSection } from "@/components/customers/customer-tax-exemption-section";
+import { CustomerContactsSection } from "@/components/customers/customer-contacts-section";
 import { CustomerSubCustomersSection } from "@/components/customers/customer-sub-customers-section";
 import { CustomerSalesRepSection } from "@/components/customers/customer-sales-rep-section";
+import { CustomerPaymentTermsSection } from "@/components/customers/customer-payment-terms-section";
+import { CustomerNotesSection } from "@/components/customers/customer-notes-section";
 import { CustomerNegotiatedPricingSection } from "@/components/customers/customer-negotiated-pricing-section";
+import { CustomerFilesSection } from "@/components/customers/customer-files-section";
 import { EditCustomerDialog } from "@/components/customers/edit-customer-dialog";
 import { CustomerActivityLauncher } from "@/components/customers/customer-activity-launcher";
 import { ReportsLauncher } from "@/components/reports/reports-launcher";
+import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { NewOrderButton } from "@/components/providers/new-order-provider";
@@ -37,7 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatCustomerFullName } from "@/lib/customers";
+import { formatCustomerFullName, formatCustomerBillingAddress } from "@/lib/customers";
 import {
   computeCustomerOrderStats,
   CUSTOMER_ORDER_SCOPE_TABS,
@@ -48,6 +53,12 @@ import {
   type CustomerOrderScope,
   type OrderHistorySort,
 } from "@/lib/customer-orders";
+import {
+  customerToPageDraft,
+  isPendingCustomerUpload,
+  serializeCustomerPageDraft,
+  type CustomerPageDraft,
+} from "@/lib/customer-page-draft";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -63,9 +74,9 @@ import {
 import { isArchivedOrder } from "@/lib/order-archive";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { formatOrderDisplayLine } from "@/lib/order-display";
-import { resolveOrderFinancialsInContext, buildOrderFinancialsMap, type OrderFinancials } from "@/lib/order-financial-context";
+import { buildOrderFinancialsMap, type OrderFinancials } from "@/lib/order-financial-context";
 import { isWillCallOrder } from "@/lib/order-shipping";
-import type { Order, OrderStatus } from "@/types";
+import type { Customer, Order, OrderStatus } from "@/types";
 import { cn } from "@/lib/utils";
 
 export function CustomerDetailView({ customerId }: { customerId: string }) {
@@ -74,6 +85,10 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
     getOrdersByCustomerId,
     createReorderFromOrder,
     updateCustomer,
+    uploadCustomerTaxDocument,
+    deleteCustomerTaxDocument,
+    uploadCustomerFile,
+    deleteCustomerFile,
     archiveCustomer,
     restoreCustomer,
     shopDataLoading,
@@ -90,6 +105,139 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
   const [welcomeVisible, setWelcomeVisible] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [archiveBusy, setArchiveBusy] = useState(false);
+  const [draft, setDraft] = useState<CustomerPageDraft | null>(null);
+  const [draftBaseline, setDraftBaseline] = useState("");
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [draftError, setDraftError] = useState<string | null>(null);
+
+  const resetDraftFromCustomer = useCallback((next: Customer) => {
+    const pageDraft = customerToPageDraft(next);
+    setDraft(pageDraft);
+    setDraftBaseline(serializeCustomerPageDraft(pageDraft));
+    setDraftError(null);
+  }, []);
+
+  useEffect(() => {
+    if (!customer) {
+      setDraft(null);
+      setDraftBaseline("");
+      return;
+    }
+    resetDraftFromCustomer(customer);
+  }, [customer?.id, resetDraftFromCustomer]);
+
+  const draftCustomer = useMemo(() => {
+    if (!customer || !draft) return customer;
+    return {
+      ...customer,
+      salesRepId: draft.salesRepId ?? undefined,
+      taxExempt: draft.taxExempt,
+      taxExemptNumber: draft.taxExemptNumber,
+      contacts: draft.contacts,
+      shippingLocations: draft.shippingLocations,
+      subCustomers: draft.subCustomers,
+      negotiatedPricing: draft.negotiatedPricing,
+    } satisfies Customer;
+  }, [customer, draft]);
+
+  const pageDirty = Boolean(
+    draft && draftBaseline && serializeCustomerPageDraft(draft) !== draftBaseline
+  );
+
+  const discardDraft = useCallback(() => {
+    if (!customer) return;
+    resetDraftFromCustomer(customer);
+  }, [customer, resetDraftFromCustomer]);
+
+  const saveDraft = useCallback(async () => {
+    if (!customer || !draft) return;
+    setSavingDraft(true);
+    setDraftError(null);
+    try {
+      let latest = await updateCustomer(customer.id, {
+        salesRepId: draft.salesRepId,
+        paymentTermsLabel: draft.paymentTermsLabel,
+        paymentTermsDays: draft.paymentTermsDays,
+        taxExempt: draft.taxExempt,
+        taxExemptNumber: draft.taxExemptNumber.trim(),
+        contacts: draft.contacts,
+        accountNotes: draft.accountNotes,
+        shippingLocations: draft.shippingLocations,
+        subCustomers: draft.subCustomers,
+        ...(draft.negotiatedPricing
+          ? { negotiatedPricing: draft.negotiatedPricing }
+          : {}),
+      });
+
+      for (const documentId of draft.removedTaxDocumentIds) {
+        latest = await deleteCustomerTaxDocument(customer.id, documentId);
+      }
+      for (const fileId of draft.removedFileIds) {
+        latest = await deleteCustomerFile(customer.id, fileId);
+      }
+
+      for (const doc of draft.taxDocuments) {
+        if (!isPendingCustomerUpload(doc)) continue;
+        const inlineDataUrl = doc.preferInline
+          ? `data:${doc.contentType};base64,${doc.contentBase64}`
+          : undefined;
+        latest = await uploadCustomerTaxDocument(customer.id, {
+          name: doc.name,
+          kind: doc.kind,
+          contentType: doc.contentType,
+          ...(inlineDataUrl
+            ? { inlineDataUrl }
+            : { contentBase64: doc.contentBase64 }),
+        });
+      }
+
+      for (const file of draft.files) {
+        if (!isPendingCustomerUpload(file)) continue;
+        const inlineDataUrl = file.preferInline
+          ? `data:${file.contentType};base64,${file.contentBase64}`
+          : undefined;
+        latest = await uploadCustomerFile(customer.id, {
+          name: file.name,
+          kind: file.kind,
+          contentType: file.contentType,
+          size: file.size,
+          ...(inlineDataUrl
+            ? { inlineDataUrl }
+            : { contentBase64: file.contentBase64 }),
+        });
+      }
+
+      resetDraftFromCustomer(latest);
+    } catch (err) {
+      setDraftError(
+        err instanceof Error ? err.message : "Could not save customer changes."
+      );
+      throw err;
+    } finally {
+      setSavingDraft(false);
+    }
+  }, [
+    customer,
+    draft,
+    updateCustomer,
+    deleteCustomerTaxDocument,
+    deleteCustomerFile,
+    uploadCustomerTaxDocument,
+    uploadCustomerFile,
+    resetDraftFromCustomer,
+  ]);
+
+  useRegisterUnsavedChanges(
+    customer && draft
+      ? {
+          dirty: pageDirty,
+          saving: savingDraft,
+          label: "Unsaved customer changes",
+          onSave: saveDraft,
+          onDiscard: discardDraft,
+        }
+      : null
+  );
 
   const isArchived = customer?.archived === true;
 
@@ -239,11 +387,21 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                         Archived
                       </span>
                     ) : null}
+                    {customer.taxExempt ? (
+                      <span className="inline-flex items-center rounded-md border border-[#cfe0ff] bg-[#f4f7fd] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#2c6ecb]">
+                        Tax exempt
+                      </span>
+                    ) : null}
+                    {draft?.accountNotes.some((note) => note.priority === "warning") ? (
+                      <span className="inline-flex items-center rounded-md border border-[#f5b5b5] bg-[#fff1f1] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#b42318]">
+                        Warning
+                      </span>
+                    ) : null}
                   </div>
                   <p className={cn("mt-1", dashboardTaskDetailClass)}>
                     {formatCustomerFullName(customer)}
-                    {customer.city && customer.state
-                      ? ` · ${customer.city}, ${customer.state}`
+                    {formatCustomerBillingAddress(customer)
+                      ? ` · ${formatCustomerBillingAddress(customer)}`
                       : ""}
                   </p>
                 </div>
@@ -350,6 +508,12 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
           </div>
         ) : null}
 
+        {draftError ? (
+          <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+            {draftError}
+          </div>
+        ) : null}
+
         {reorderToast ? (
           <div className="rounded-lg border border-[#86d4a8] bg-[#e8f5ee] px-4 py-3 text-sm text-[#0d5c2e]">
             {reorderToast}
@@ -411,7 +575,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
             <section className={dashboardCardClass}>
               <div className="border-b border-[#ebebeb] px-4 py-3 sm:px-5">
                 <h2 className="text-[15px] font-semibold text-[#303030]">
-                  Contact
+                  Business Information
                 </h2>
               </div>
               <div className="space-y-3 p-4 text-sm sm:p-5">
@@ -425,11 +589,13 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                   icon={Phone}
                   label={customer.phone}
                 />
-                <ContactRow
-                  icon={MapPin}
-                  label={`${customer.city}, ${customer.state}`}
-                  muted
-                />
+                {formatCustomerBillingAddress(customer) ? (
+                  <ContactRow
+                    icon={MapPin}
+                    label={formatCustomerBillingAddress(customer)}
+                    muted
+                  />
+                ) : null}
                 {customer.customerSince ? (
                   <ContactRow
                     icon={Calendar}
@@ -458,48 +624,147 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
               </div>
             </section>
 
-            <CustomerSubCustomersSection
-              customer={customer}
-              onSave={async (subCustomers) => {
-                await updateCustomer(customer.id, { subCustomers });
-              }}
-            />
+            {draft ? (
+              <CustomerNotesSection
+                notes={draft.accountNotes}
+                companyName={customer.company}
+                onChange={(accountNotes) => {
+                  setDraft((current) =>
+                    current ? { ...current, accountNotes } : current
+                  );
+                }}
+              />
+            ) : null}
 
             <CustomerSalesRepSection
-              customer={customer}
-              onSave={async (salesRepId) => {
-                await updateCustomer(customer.id, { salesRepId: salesRepId ?? "" });
+              salesRepId={draft?.salesRepId}
+              onChange={(salesRepId) => {
+                setDraft((current) =>
+                  current ? { ...current, salesRepId } : current
+                );
               }}
             />
 
-            <CustomerShippingLocationsSection
-              customer={customer}
-              onSave={async (shippingLocations) => {
-                await updateCustomer(customer.id, { shippingLocations });
-              }}
-            />
+            {draft ? (
+              <CustomerPaymentTermsSection
+                paymentTermsLabel={draft.paymentTermsLabel}
+                paymentTermsDays={draft.paymentTermsDays}
+                onChange={(patch) => {
+                  setDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          paymentTermsLabel: patch.paymentTermsLabel,
+                          paymentTermsDays: patch.paymentTermsDays,
+                        }
+                      : current
+                  );
+                }}
+              />
+            ) : null}
 
-            <CustomerNegotiatedPricingSection
-              customer={customer}
-              onSave={async (negotiatedPricing) => {
-                await updateCustomer(customer.id, { negotiatedPricing });
-              }}
-            />
+            {draft ? (
+              <CustomerTaxExemptionSection
+                taxExempt={draft.taxExempt}
+                taxExemptNumber={draft.taxExemptNumber}
+                taxDocuments={draft.taxDocuments}
+                onChange={(patch) => {
+                  setDraft((current) => {
+                    if (!current) return current;
+                    return {
+                      ...current,
+                      ...(patch.taxExempt !== undefined
+                        ? { taxExempt: patch.taxExempt }
+                        : {}),
+                      ...(patch.taxExemptNumber !== undefined
+                        ? { taxExemptNumber: patch.taxExemptNumber }
+                        : {}),
+                      ...(patch.taxDocuments
+                        ? { taxDocuments: patch.taxDocuments }
+                        : {}),
+                      ...(patch.removedTaxDocumentIds
+                        ? {
+                            removedTaxDocumentIds: [
+                              ...new Set([
+                                ...current.removedTaxDocumentIds,
+                                ...patch.removedTaxDocumentIds,
+                              ]),
+                            ],
+                          }
+                        : {}),
+                    };
+                  });
+                }}
+              />
+            ) : null}
 
-            {customer.notes ? (
-              <section className={dashboardCardClass}>
-                <div className="border-b border-[#ebebeb] px-4 py-3 sm:px-5">
-                  <h2 className="flex items-center gap-2 text-[15px] font-semibold text-[#303030]">
-                    <StickyNote className="size-4 text-[#8a8a8a]" />
-                    Account notes
-                  </h2>
-                </div>
-                <div className="p-4 sm:p-5">
-                  <p className="text-sm leading-relaxed text-[#616161]">
-                    {customer.notes}
-                  </p>
-                </div>
-              </section>
+            {draftCustomer ? (
+              <CustomerContactsSection
+                customer={draftCustomer}
+                onSave={async (contacts) => {
+                  setDraft((current) =>
+                    current ? { ...current, contacts } : current
+                  );
+                }}
+              />
+            ) : null}
+
+            {draftCustomer ? (
+              <CustomerSubCustomersSection
+                customer={draftCustomer}
+                onSave={async (subCustomers) => {
+                  setDraft((current) =>
+                    current ? { ...current, subCustomers } : current
+                  );
+                }}
+              />
+            ) : null}
+
+            {draftCustomer ? (
+              <CustomerShippingLocationsSection
+                customer={draftCustomer}
+                onSave={async (shippingLocations) => {
+                  setDraft((current) =>
+                    current ? { ...current, shippingLocations } : current
+                  );
+                }}
+              />
+            ) : null}
+
+            {draftCustomer ? (
+              <CustomerNegotiatedPricingSection
+                customer={draftCustomer}
+                onSave={async (negotiatedPricing) => {
+                  setDraft((current) =>
+                    current ? { ...current, negotiatedPricing } : current
+                  );
+                }}
+              />
+            ) : null}
+
+            {draft ? (
+              <CustomerFilesSection
+                files={draft.files}
+                onChange={(patch) => {
+                  setDraft((current) => {
+                    if (!current) return current;
+                    return {
+                      ...current,
+                      ...(patch.files ? { files: patch.files } : {}),
+                      ...(patch.removedFileIds
+                        ? {
+                            removedFileIds: [
+                              ...new Set([
+                                ...current.removedFileIds,
+                                ...patch.removedFileIds,
+                              ]),
+                            ],
+                          }
+                        : {}),
+                    };
+                  });
+                }}
+              />
             ) : null}
           </div>
 

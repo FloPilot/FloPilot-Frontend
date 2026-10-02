@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import {
   Copy,
   ExternalLink,
@@ -66,7 +66,7 @@ function statusTone(status: ClientStoreStatus) {
 }
 
 export function StoresListView() {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const { getIdToken } = useAuth();
   const [stores, setStores] = useState<ClientStore[]>([]);
   const [loading, setLoading] = useState(true);

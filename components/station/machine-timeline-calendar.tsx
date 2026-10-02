@@ -21,6 +21,7 @@ import {
   startOfDay,
 } from "date-fns";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import { useOptionalWorkspaceScope } from "@/components/providers/workspace-scope-provider";
 import { ScheduleBlockActionsMenu } from "@/components/calendar/schedule-block-actions-menu";
 import { ScheduleChipContent } from "@/components/calendar/calendar-dnd";
 import type { Machine, ScheduleBlock } from "@/types";
@@ -29,6 +30,7 @@ import {
   resolveScheduleBlockCustomer,
   type ScheduleBlockCustomerPresentation,
 } from "@/lib/schedule-block-customer";
+import { applyWorkspaceScopeToScheduleBlocks } from "@/lib/workspace-scope";
 import {
   resolveScheduleBlockProductionStatus,
   SCHEDULE_CHIP_BOX_PADDING,
@@ -638,13 +640,24 @@ export function MachineTimelineCalendar({
   const handleEditBlock = onEditBlock ?? onSelectBlock;
   const {
     machines,
-    activeScheduleBlocks: scheduleBlocks,
+    activeScheduleBlocks: allScheduleBlocks,
     activeOrders,
     jobRuns,
     getCustomerById,
     updateScheduleBlock,
     removeScheduleBlock,
   } = useSchedule();
+  const { scope: workspaceScope, currentUserId } = useOptionalWorkspaceScope();
+  const scheduleBlocks = useMemo(
+    () =>
+      applyWorkspaceScopeToScheduleBlocks(
+        allScheduleBlocks,
+        activeOrders,
+        workspaceScope,
+        currentUserId
+      ),
+    [allScheduleBlocks, activeOrders, workspaceScope, currentUserId]
+  );
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const dragOriginTopRef = useRef(0);
   const [dragPreview, setDragPreview] = useState<TimelineDragPreview | null>(

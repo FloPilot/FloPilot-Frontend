@@ -25,6 +25,13 @@ export type UnsavedChangesRegistration = {
   onDiscard: () => void;
 };
 
+type LeaveOptions = {
+  /** Soft tab/section switch — only blocks drafts that do not persist across tabs. */
+  inPage?: boolean;
+  /** Use router.replace instead of push when navigation is allowed. */
+  replace?: boolean;
+};
+
 type StaffUnsavedChangesContextValue = {
   dirty: boolean;
   saving: boolean;
@@ -38,11 +45,12 @@ type StaffUnsavedChangesContextValue = {
   ) => void;
   save: () => Promise<void>;
   discard: () => void;
-  /** Flash + shake the save bar. Returns false when leave is blocked. */
-  requestLeave: (
-    href?: string,
-    options?: { inPage?: boolean }
-  ) => boolean;
+  /**
+   * Flash + shake the save bar when leave is blocked.
+   * Pass href to navigate after the check passes.
+   * Returns false when leave is blocked.
+   */
+  requestLeave: (href?: string, options?: LeaveOptions) => boolean;
 };
 
 const StaffUnsavedChangesContext =
@@ -60,6 +68,19 @@ function isInternalNavigationHref(href: string): boolean {
     }
   }
   return href.startsWith("/");
+}
+
+function resolveNextPath(href: string): string {
+  try {
+    const url = new URL(href, window.location.origin);
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    return href;
+  }
+}
+
+function currentPath(): string {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
 function summarizeRegistrations(
@@ -85,6 +106,15 @@ function summarizeRegistrations(
   return { dirty, saving, label, dirtyEntries };
 }
 
+function isInPageHref(href: string): boolean {
+  try {
+    const next = new URL(href, window.location.origin);
+    return next.pathname === window.location.pathname;
+  } catch {
+    return false;
+  }
+}
+
 export function StaffUnsavedChangesProvider({
   children,
 }: {
@@ -104,9 +134,12 @@ export function StaffUnsavedChangesProvider({
   const attentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const allowLeaveRef = useRef(false);
   const pathnameRef = useRef(pathname);
+  const dirtyRef = useRef(false);
+  const lockedPathRef = useRef<string | null>(null);
 
   const syncFromRegistrations = useCallback(() => {
     const summary = summarizeRegistrations(registrationsRef.current);
+    dirtyRef.current = summary.dirty;
     setDirty(summary.dirty);
     setSaving(summary.saving);
     setLabel(summary.label);
@@ -133,25 +166,37 @@ export function StaffUnsavedChangesProvider({
     attentionTimerRef.current = setTimeout(() => setAttention(false), 900);
   }, []);
 
+  const getBlockingEntries = useCallback((inPage?: boolean) => {
+    const { dirtyEntries } = summarizeRegistrations(registrationsRef.current);
+    return inPage
+      ? dirtyEntries.filter((entry) => !entry.persistAcrossTabs)
+      : dirtyEntries;
+  }, []);
+
   const requestLeave = useCallback(
-    (href?: string, options?: { inPage?: boolean }) => {
-      const { dirtyEntries } = summarizeRegistrations(
-        registrationsRef.current
-      );
-      const blockingEntries = options?.inPage
-        ? dirtyEntries.filter((entry) => !entry.persistAcrossTabs)
-        : dirtyEntries;
+    (href?: string, options?: LeaveOptions) => {
+      const inPage =
+        options?.inPage === true ||
+        (Boolean(href) && typeof window !== "undefined" && isInPageHref(href!));
+      const blockingEntries = getBlockingEntries(inPage);
       if (blockingEntries.length === 0 || allowLeaveRef.current) {
         if (href) {
           allowLeaveRef.current = true;
-          router.push(href);
+          if (options?.replace) {
+            router.replace(href);
+          } else {
+            router.push(href);
+          }
+        } else if (!inPage) {
+          // Allow a follow-up history.back() / programmatic leave.
+          allowLeaveRef.current = true;
         }
         return true;
       }
       pulseAttention();
       return false;
     },
-    [pulseAttention, router]
+    [getBlockingEntries, pulseAttention, router]
   );
 
   const saveInFlightRef = useRef(false);
@@ -196,48 +241,73 @@ export function StaffUnsavedChangesProvider({
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
 
+  // Capture-phase click guard for Next.js <Link> and plain anchors.
   useEffect(() => {
-    if (!dirty) return;
     const onClick = (event: MouseEvent) => {
-      if (allowLeaveRef.current) return;
+      if (!dirtyRef.current || allowLeaveRef.current) return;
       if (event.defaultPrevented) return;
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+        return;
       if (event.button !== 0) return;
 
       const target = event.target as HTMLElement | null;
       if (target?.closest?.("[data-unsaved-changes-bar]")) return;
+      if (target?.closest?.("[data-allow-unsaved-leave]")) return;
 
       const anchor = target?.closest?.("a[href]") as HTMLAnchorElement | null;
       if (!anchor) return;
+      if (anchor.target && anchor.target !== "_self") return;
 
       const href = anchor.getAttribute("href");
       if (!href || !isInternalNavigationHref(href)) return;
 
-      let nextPath = href;
-      try {
-        const url = new URL(href, window.location.origin);
-        nextPath = `${url.pathname}${url.search}${url.hash}`;
-      } catch {
-        /* keep href */
-      }
+      const nextPath = resolveNextPath(href);
+      if (nextPath === currentPath()) return;
 
-      const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-      if (nextPath === currentPath) return;
+      const inPage = isInPageHref(href);
+      if (getBlockingEntries(inPage).length === 0) return;
 
       event.preventDefault();
       event.stopPropagation();
+      // Stop Next.js Link from also handling the event.
+      event.stopImmediatePropagation?.();
       pulseAttention();
     };
 
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
-  }, [dirty, pulseAttention]);
+  }, [getBlockingEntries, pulseAttention]);
+
+  // Browser back/forward while dirty — restore the locked URL and shake the bar.
+  useEffect(() => {
+    if (!dirty) {
+      lockedPathRef.current = null;
+      return;
+    }
+
+    if (!lockedPathRef.current) {
+      lockedPathRef.current = currentPath();
+    }
+    const locked = lockedPathRef.current;
+
+    const onPopState = () => {
+      if (allowLeaveRef.current) return;
+      if (getBlockingEntries(false).length === 0) return;
+      window.history.pushState(null, "", locked);
+      pulseAttention();
+    };
+
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [dirty, getBlockingEntries, pulseAttention]);
 
   useEffect(() => {
     if (pathnameRef.current === pathname) return;
     pathnameRef.current = pathname;
     allowLeaveRef.current = false;
-    // Leaving the registering screen clears registration via unmount cleanup.
+    if (!dirtyRef.current) {
+      lockedPathRef.current = null;
+    }
   }, [pathname]);
 
   const value = useMemo(
@@ -282,6 +352,11 @@ export function useStaffUnsavedChanges() {
   return context;
 }
 
+/** Soft access for chrome shared with portal (no unsaved provider there). */
+export function useOptionalStaffUnsavedChanges() {
+  return useContext(StaffUnsavedChangesContext);
+}
+
 /** Register the current screen’s dirty save/discard handlers with the top bar. */
 export function useRegisterUnsavedChanges(
   registration: UnsavedChangesRegistration | null,
@@ -298,6 +373,7 @@ export function useRegisterUnsavedChanges(
   const dirty = registration?.dirty ?? false;
   const saving = registration?.saving ?? false;
   const label = registration?.label;
+  const persistAcrossTabs = registration?.persistAcrossTabs;
 
   useEffect(() => {
     if (!active) {
@@ -308,10 +384,10 @@ export function useRegisterUnsavedChanges(
       dirty,
       saving,
       label,
-      persistAcrossTabs: registration?.persistAcrossTabs,
+      persistAcrossTabs,
       onSave: () => onSaveRef.current?.(),
       onDiscard: () => onDiscardRef.current?.(),
     });
     return () => register(id, null);
-  }, [id, active, dirty, saving, label, registration?.persistAcrossTabs, register]);
+  }, [id, active, dirty, saving, label, persistAcrossTabs, register]);
 }

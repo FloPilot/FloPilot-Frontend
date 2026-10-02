@@ -98,6 +98,7 @@ export function OrderRequestEstimateTab({
   const persistPricing = useCallback(
     async (updates: {
       selectedRateSheetId?: string | null;
+      estimateOneTimeRateSheet?: import("@/types").OrderOneTimeRateSheet | null;
       estimateAdjustments?: OrderEstimateAdjustment[];
       excludedContractFeeIds?: string[];
     }) => {
@@ -124,11 +125,15 @@ export function OrderRequestEstimateTab({
           excludedContractFeeIds:
             updates.excludedContractFeeIds !== undefined
               ? updates.excludedContractFeeIds
-              : request.excludedContractFeeIds || [],
+              : request.excludedContractFeeIds,
           selectedRateSheetId:
             updates.selectedRateSheetId !== undefined
               ? updates.selectedRateSheetId
               : request.selectedRateSheetId ?? null,
+          estimateOneTimeRateSheet:
+            updates.estimateOneTimeRateSheet !== undefined
+              ? updates.estimateOneTimeRateSheet
+              : request.estimateOneTimeRateSheet ?? null,
         });
         onRequestChange(updated);
         clearOrderRequestsListCache();

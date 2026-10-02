@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
+import { AddressAutocompleteInput } from "@/components/address/address-autocomplete-input";
 import { CustomerBrandingFields } from "@/components/customers/customer-branding-fields";
 import { normalizeAccentPickerValue } from "@/components/customers/customer-accent-picker";
 import type { CustomerAccentKey } from "@/lib/production-customer-colors";
@@ -22,7 +23,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { US_STATES, validateNewCustomer } from "@/lib/customers";
+import {
+  billingFieldsFromCustomer,
+  buildBillingAddressFromInput,
+  US_STATES,
+  validateNewCustomer,
+  type NewCustomerInput,
+} from "@/lib/customers";
 import {
   dashboardControlClass,
   dashboardGhostButtonClass,
@@ -37,26 +44,17 @@ const inputClassName = cn(
   "h-10 w-full justify-start px-3 text-[13px] font-normal text-[#303030] shadow-none hover:bg-white"
 );
 
-type EditForm = {
-  company: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  city: string;
-  state: string;
-  notes: string;
-};
+type EditForm = NewCustomerInput;
 
 function toForm(customer: Customer): EditForm {
+  const billing = billingFieldsFromCustomer(customer);
   return {
     company: customer.company ?? "",
     firstName: customer.firstName ?? "",
     lastName: customer.lastName ?? "",
     email: customer.email ?? "",
     phone: customer.phone ?? "",
-    city: customer.city ?? "",
-    state: customer.state ?? "",
+    ...billing,
     notes: customer.notes ?? "",
   };
 }
@@ -108,15 +106,20 @@ export function EditCustomerDialog({
       const accentChanged =
         (accentColorKey ?? null) !==
         (normalizeAccentPickerValue(customer.accentColorKey) ?? null);
+      const billingAddress = buildBillingAddressFromInput(form);
       await onSave({
         company: form.company.trim(),
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         email: form.email.trim(),
         phone: form.phone.trim(),
-        city: form.city.trim(),
-        state: form.state.trim(),
-        notes: form.notes.trim(),
+        addressLine1: form.addressLine1.trim(),
+        addressLine2: form.addressLine2?.trim() || "",
+        city: billingAddress.city,
+        state: billingAddress.state,
+        postalCode: billingAddress.postalCode,
+        billingAddress,
+        notes: form.notes?.trim() || "",
         ...(logoChanged ? { logoUrl: logo ?? null } : {}),
         ...(accentChanged ? { accentColorKey: accentColorKey ?? null } : {}),
       });
@@ -145,6 +148,10 @@ export function EditCustomerDialog({
           </DialogHeader>
 
           <div className="overflow-y-auto flex-1 px-6 py-6 space-y-5">
+            <p className="text-xs text-[#8a8a8a]">
+              <span className="font-medium text-[#303030]">*</span> Required
+            </p>
+
             <FormSection title="Brand identity">
               <CustomerBrandingFields
                 company={form.company}
@@ -162,6 +169,7 @@ export function EditCustomerDialog({
                 <Field
                   label="Company"
                   htmlFor="edit-customer-company"
+                  required
                   className="sm:col-span-2"
                 >
                   <Input
@@ -170,29 +178,34 @@ export function EditCustomerDialog({
                     onChange={(event) =>
                       updateField("company", event.target.value)
                     }
-                    placeholder="Northside Construction"
                     className={inputClassName}
                   />
                 </Field>
-                <Field label="First name" htmlFor="edit-customer-first-name">
+                <Field
+                  label="First name"
+                  htmlFor="edit-customer-first-name"
+                  required
+                >
                   <Input
                     id="edit-customer-first-name"
                     value={form.firstName}
                     onChange={(event) =>
                       updateField("firstName", event.target.value)
                     }
-                    placeholder="David"
                     className={inputClassName}
                   />
                 </Field>
-                <Field label="Last name" htmlFor="edit-customer-last-name">
+                <Field
+                  label="Last name"
+                  htmlFor="edit-customer-last-name"
+                  required
+                >
                   <Input
                     id="edit-customer-last-name"
                     value={form.lastName}
                     onChange={(event) =>
                       updateField("lastName", event.target.value)
                     }
-                    placeholder="Park"
                     className={inputClassName}
                   />
                 </Field>
@@ -201,7 +214,7 @@ export function EditCustomerDialog({
 
             <FormSection title="Contact">
               <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                <Field label="Email" htmlFor="edit-customer-email">
+                <Field label="Email" htmlFor="edit-customer-email" required>
                   <Input
                     id="edit-customer-email"
                     type="email"
@@ -209,11 +222,10 @@ export function EditCustomerDialog({
                     onChange={(event) =>
                       updateField("email", event.target.value)
                     }
-                    placeholder="name@company.com"
                     className={inputClassName}
                   />
                 </Field>
-                <Field label="Phone" htmlFor="edit-customer-phone">
+                <Field label="Phone" htmlFor="edit-customer-phone" required>
                   <Input
                     id="edit-customer-phone"
                     type="tel"
@@ -221,50 +233,105 @@ export function EditCustomerDialog({
                     onChange={(event) =>
                       updateField("phone", event.target.value)
                     }
-                    placeholder="(555) 123-4567"
                     className={inputClassName}
                   />
                 </Field>
               </div>
             </FormSection>
 
-            <FormSection title="Location">
-              <div className="grid gap-x-5 gap-y-4 sm:grid-cols-[minmax(0,1fr)_180px]">
-                <Field label="City" htmlFor="edit-customer-city">
+            <FormSection title="Billing address">
+              <div className="grid gap-y-4">
+                <Field
+                  label="Address"
+                  htmlFor="edit-customer-address-line1"
+                  required
+                >
+                  <AddressAutocompleteInput
+                    id="edit-customer-address-line1"
+                    value={form.addressLine1}
+                    onChange={(next) => updateField("addressLine1", next)}
+                    onAddressSelect={(address) => {
+                      setForm((current) => ({
+                        ...current,
+                        addressLine1: address.line1,
+                        addressLine2: address.line2 || current.addressLine2 || "",
+                        city: address.city,
+                        state: address.state,
+                        postalCode: address.postalCode,
+                      }));
+                      if (error) setError(null);
+                    }}
+                    className={inputClassName}
+                    tone="dashboard"
+                  />
+                </Field>
+                <Field
+                  label="Apartment, suite, etc"
+                  htmlFor="edit-customer-address-line2"
+                  optional
+                >
                   <Input
-                    id="edit-customer-city"
-                    value={form.city}
-                    onChange={(event) => updateField("city", event.target.value)}
-                    placeholder="Seattle"
+                    id="edit-customer-address-line2"
+                    value={form.addressLine2 ?? ""}
+                    onChange={(event) =>
+                      updateField("addressLine2", event.target.value)
+                    }
                     className={inputClassName}
                   />
                 </Field>
-                <Field label="State">
-                  <Select
-                    value={form.state || null}
-                    onValueChange={(value) => updateField("state", value ?? "")}
+                <div className="grid gap-x-4 gap-y-4 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
+                  <Field label="City" htmlFor="edit-customer-city" required>
+                    <Input
+                      id="edit-customer-city"
+                      value={form.city}
+                      onChange={(event) =>
+                        updateField("city", event.target.value)
+                      }
+                      className={inputClassName}
+                    />
+                  </Field>
+                  <Field label="State" required>
+                    <Select
+                      value={form.state || null}
+                      onValueChange={(value) =>
+                        updateField("state", value ?? "")
+                      }
+                    >
+                      <SelectTrigger className={cn(inputClassName, "w-full")}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {US_STATES.map((state) => (
+                          <SelectItem key={state.value} value={state.value}>
+                            {state.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  <Field
+                    label="ZIP code"
+                    htmlFor="edit-customer-postal"
+                    required
                   >
-                    <SelectTrigger className={cn(inputClassName, "w-full")}>
-                      <SelectValue placeholder="Select state" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {US_STATES.map((state) => (
-                        <SelectItem key={state.value} value={state.value}>
-                          {state.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </Field>
+                    <Input
+                      id="edit-customer-postal"
+                      value={form.postalCode}
+                      onChange={(event) =>
+                        updateField("postalCode", event.target.value)
+                      }
+                      className={inputClassName}
+                    />
+                  </Field>
+                </div>
               </div>
             </FormSection>
 
             <FormSection title="Internal notes" optional>
               <Textarea
                 id="edit-customer-notes"
-                value={form.notes}
+                value={form.notes ?? ""}
                 onChange={(event) => updateField("notes", event.target.value)}
-                placeholder="Terms, shipping preferences, Pantone matches…"
                 rows={3}
                 className="rounded-lg resize-none min-h-[88px]"
               />
@@ -336,12 +403,14 @@ function FormSection({
 function Field({
   label,
   htmlFor,
+  required,
   optional,
   className,
   children,
 }: {
   label: string;
   htmlFor?: string;
+  required?: boolean;
   optional?: boolean;
   className?: string;
   children: React.ReactNode;
@@ -350,6 +419,11 @@ function Field({
     <div className={className}>
       <Label htmlFor={htmlFor} className="text-[13px] font-medium text-[#616161]">
         {label}
+        {required ? (
+          <span className="ml-0.5 text-[#303030]" aria-hidden>
+            *
+          </span>
+        ) : null}
         {optional && (
           <span className="ml-1 font-normal text-[#8a8a8a]">(optional)</span>
         )}

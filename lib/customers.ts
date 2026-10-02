@@ -1,4 +1,4 @@
-import type { Customer } from "@/types";
+import type { Customer, CustomerBillingAddress } from "@/types";
 
 export type NewCustomerInput = {
   company: string;
@@ -6,8 +6,11 @@ export type NewCustomerInput = {
   lastName: string;
   email: string;
   phone: string;
+  addressLine1: string;
+  addressLine2?: string;
   city: string;
   state: string;
+  postalCode: string;
   notes?: string;
   logoUrl?: string | null;
   accentColorKey?: string | null;
@@ -73,10 +76,126 @@ export const EMPTY_NEW_CUSTOMER: NewCustomerInput = {
   lastName: "",
   email: "",
   phone: "",
+  addressLine1: "",
+  addressLine2: "",
   city: "",
   state: "",
+  postalCode: "",
   notes: "",
 };
+
+export function normalizeBillingAddress(
+  value: Customer["billingAddress"]
+): CustomerBillingAddress | null {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return {
+      line1: trimmed,
+      city: "",
+      state: "",
+      postalCode: "",
+    };
+  }
+  const line1 = String(value.line1 || "").trim();
+  const line2 = String(value.line2 || "").trim();
+  const city = String(value.city || "").trim();
+  const state = String(value.state || "").trim();
+  const postalCode = String(value.postalCode || "").trim();
+  if (!line1 && !line2 && !city && !state && !postalCode) return null;
+  return {
+    line1,
+    ...(line2 ? { line2 } : {}),
+    city,
+    state,
+    postalCode,
+    ...(value.country ? { country: value.country } : {}),
+  };
+}
+
+export function buildBillingAddressFromInput(
+  input: Pick<
+    NewCustomerInput,
+    "addressLine1" | "addressLine2" | "city" | "state" | "postalCode"
+  >
+): CustomerBillingAddress {
+  const line2 = input.addressLine2?.trim() || "";
+  return {
+    line1: input.addressLine1.trim(),
+    ...(line2 ? { line2 } : {}),
+    city: input.city.trim(),
+    state: input.state.trim(),
+    postalCode: input.postalCode.trim(),
+    country: "US",
+  };
+}
+
+/** Single-line display for lists and summaries. */
+export function formatCustomerBillingAddress(
+  customer: Pick<Customer, "billingAddress" | "city" | "state" | "postalCode">
+): string {
+  const structured = normalizeBillingAddress(customer.billingAddress);
+  if (structured) {
+    if (
+      typeof customer.billingAddress === "string" &&
+      !structured.city &&
+      !structured.state
+    ) {
+      return structured.line1;
+    }
+    const street = [structured.line1, structured.line2]
+      .filter(Boolean)
+      .join(", ");
+    const cityLine = [structured.city, structured.state, structured.postalCode]
+      .filter(Boolean)
+      .join(", ")
+      .replace(/,\s*,/g, ",")
+      .replace(/^,\s*|,\s*$/g, "");
+    // Prefer "City, ST ZIP" spacing for postal
+    const cityStateZip = [
+      structured.city,
+      [structured.state, structured.postalCode].filter(Boolean).join(" "),
+    ]
+      .filter(Boolean)
+      .join(", ");
+    return [street, cityStateZip || cityLine].filter(Boolean).join(", ");
+  }
+
+  return [
+    customer.city,
+    [customer.state, customer.postalCode].filter(Boolean).join(" "),
+  ]
+    .map((part) => (typeof part === "string" ? part.trim() : ""))
+    .filter(Boolean)
+    .join(", ");
+}
+
+/** Form fields for edit dialogs — prefers structured billing, then legacy. */
+export function billingFieldsFromCustomer(
+  customer: Customer
+): Pick<
+  NewCustomerInput,
+  "addressLine1" | "addressLine2" | "city" | "state" | "postalCode"
+> {
+  const structured = normalizeBillingAddress(customer.billingAddress);
+  if (structured) {
+    return {
+      addressLine1: structured.line1,
+      addressLine2: structured.line2 ?? "",
+      city: structured.city || customer.city || "",
+      state: structured.state || customer.state || "",
+      postalCode: structured.postalCode || customer.postalCode || "",
+    };
+  }
+  return {
+    addressLine1: "",
+    addressLine2: "",
+    city: customer.city ?? "",
+    state: customer.state ?? "",
+    postalCode: customer.postalCode ?? "",
+  };
+}
 
 export function createCustomerId(): string {
   return `cust-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -102,8 +221,10 @@ export function validateNewCustomer(input: NewCustomerInput): string | null {
     return "Enter a valid email address.";
   }
   if (!input.phone.trim()) return "Phone number is required.";
+  if (!input.addressLine1.trim()) return "Address is required.";
   if (!input.city.trim()) return "City is required.";
   if (!input.state.trim()) return "State is required.";
+  if (!input.postalCode.trim()) return "ZIP code is required.";
   return null;
 }
 
@@ -112,6 +233,7 @@ export function buildCustomerFromInput(input: NewCustomerInput): Customer {
   const firstName = input.firstName.trim();
   const lastName = input.lastName.trim();
   const name = [firstName, lastName].filter(Boolean).join(" ");
+  const billingAddress = buildBillingAddressFromInput(input);
 
   return {
     id: createCustomerId(),
@@ -121,8 +243,10 @@ export function buildCustomerFromInput(input: NewCustomerInput): Customer {
     name,
     email: input.email.trim(),
     phone: input.phone.trim(),
-    city: input.city.trim(),
-    state: input.state.trim(),
+    billingAddress,
+    city: billingAddress.city,
+    state: billingAddress.state,
+    postalCode: billingAddress.postalCode,
     totalOrders: 0,
     lifetimeValue: 0,
     customerSince: today,

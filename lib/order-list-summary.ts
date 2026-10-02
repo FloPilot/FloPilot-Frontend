@@ -223,15 +223,19 @@ function deriveNextStep({
   }
 
   if (order.status === "ready_to_ship") {
-    return "Production done — ship/pickup and send invoice";
+    return "Production done — ready to ship or pickup";
   }
 
   if (order.status === "ready_to_invoice") {
-    return "Ready to invoice — send bill and collect payment";
+    return "Completed · Ready to invoice — send bill and collect payment";
   }
 
   if (order.status === "invoice_sent") {
-    return "Invoice sent — waiting for payment";
+    return "Completed · Invoice sent — waiting for payment";
+  }
+
+  if (order.status === "completed") {
+    return "Completed · Paid";
   }
 
   if (

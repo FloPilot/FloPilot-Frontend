@@ -23,6 +23,11 @@ import {
 } from "@/components/ui/select";
 import { RushBadge } from "@/components/status-badges";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import { useWorkspaceScope } from "@/components/providers/workspace-scope-provider";
+import {
+  applyWorkspaceScopeToOrders,
+  applyWorkspaceScopeToScheduleBlocks,
+} from "@/lib/workspace-scope";
 import {
   getCustomerAccent,
   getCustomerInitials,
@@ -286,18 +291,35 @@ export function EventBasketPanel({
   onScheduleEvent: (jobKey: string) => void;
 }) {
   const { activeOrders, activeScheduleBlocks } = useSchedule();
+  const { scope: workspaceScope, currentUserId } = useWorkspaceScope();
   const [expanded, setExpanded] = useState(true);
   const [filter, setFilter] = useState<QueueFilter>("ready");
   const [sort, setSort] = useState<EventBasketSort>("urgency");
 
+  const scopedOrders = useMemo(
+    () =>
+      applyWorkspaceScopeToOrders(activeOrders, workspaceScope, currentUserId),
+    [activeOrders, workspaceScope, currentUserId]
+  );
+  const scopedBlocks = useMemo(
+    () =>
+      applyWorkspaceScopeToScheduleBlocks(
+        activeScheduleBlocks,
+        activeOrders,
+        workspaceScope,
+        currentUserId
+      ),
+    [activeScheduleBlocks, activeOrders, workspaceScope, currentUserId]
+  );
+
   const allEvents = useMemo(
-    () => getUnscheduledEvents(activeOrders, activeScheduleBlocks),
-    [activeOrders, activeScheduleBlocks]
+    () => getUnscheduledEvents(scopedOrders, scopedBlocks),
+    [scopedOrders, scopedBlocks]
   );
 
   const queueOrders = useMemo(
-    () => buildSchedulingQueueOrders(activeOrders, activeScheduleBlocks),
-    [activeOrders, activeScheduleBlocks]
+    () => buildSchedulingQueueOrders(scopedOrders, scopedBlocks),
+    [scopedOrders, scopedBlocks]
   );
 
   const visibleOrders = useMemo(() => {
@@ -320,8 +342,8 @@ export function EventBasketPanel({
   const readyCount = queueOrders.filter((item) => item.nextEvent).length;
   const blockedOrders = useMemo(
     () =>
-      getOrdersBlockedFromSchedulingQueue(activeOrders, activeScheduleBlocks),
-    [activeOrders, activeScheduleBlocks]
+      getOrdersBlockedFromSchedulingQueue(scopedOrders, scopedBlocks),
+    [scopedOrders, scopedBlocks]
   );
 
   if (allEvents.length === 0) {

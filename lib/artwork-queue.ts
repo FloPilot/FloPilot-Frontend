@@ -1,11 +1,14 @@
 import type { ArtworkFile, DecorationType, Order } from "@/types";
 import { buildOrderFileList } from "@/lib/order-files";
 import { isArchivedOrder } from "@/lib/order-archive";
+import { isArtworkDepartmentStatus } from "@/lib/artwork-status";
+import { matchesDesignCodeSearch } from "@/lib/design-code";
 
 export type ArtworkQueueEntry = {
   orderId: string;
   orderNumber: string;
   orderCustomLabel?: string;
+  designCode?: string | null;
   customerId: string;
   customerName: string;
   company: string;
@@ -19,7 +22,13 @@ export type ArtworkQueueEntry = {
   archived: boolean;
 };
 
-export type ArtworkQueueFilter = "all" | "pending" | "revision_requested" | "approved";
+export type ArtworkQueueFilter =
+  | "all"
+  | "pending"
+  | "with_art"
+  | "art_ready"
+  | "revision_requested"
+  | "approved";
 
 export type ArtworkQueueScope = "active" | "archived" | "all";
 
@@ -28,8 +37,10 @@ export const ARTWORK_QUEUE_FILTERS: {
   label: string;
 }[] = [
   { value: "all", label: "All" },
-  { value: "pending", label: "Pending" },
+  { value: "with_art", label: "With art" },
+  { value: "pending", label: "Drafting" },
   { value: "revision_requested", label: "Revision" },
+  { value: "art_ready", label: "Ready for team" },
   { value: "approved", label: "Approved" },
 ];
 
@@ -51,6 +62,7 @@ export function collectArtworkQueue(orders: Order[]): ArtworkQueueEntry[] {
           orderId: order.id,
           orderNumber: order.number,
           orderCustomLabel: order.customLabel,
+          designCode: order.designCode || null,
           customerId: order.customerId,
           customerName: order.customerName,
           company: order.company,
@@ -71,8 +83,10 @@ export function collectArtworkQueue(orders: Order[]): ArtworkQueueEntry[] {
     if (a.archived !== b.archived) return a.archived ? 1 : -1;
     const statusRank = (status: ArtworkFile["status"]) => {
       if (status === "revision_requested") return 0;
-      if (status === "pending") return 1;
-      return 2;
+      if (status === "with_art") return 1;
+      if (status === "pending") return 2;
+      if (status === "art_ready") return 3;
+      return 4;
     };
     const rankDiff =
       statusRank(a.artwork.status) - statusRank(b.artwork.status);
@@ -116,13 +130,17 @@ export function searchArtworkQueue(
   if (!q) return entries;
 
   return entries.filter((entry) => {
+    if (matchesDesignCodeSearch(entry.designCode, query)) return true;
     const haystack = [
       entry.orderNumber,
+      entry.orderCustomLabel || "",
+      entry.designCode || "",
       entry.customerName,
       entry.company,
       entry.jobName,
       entry.imprintLabel,
       entry.artwork.name,
+      entry.artwork.artAssigneeName || "",
     ]
       .join(" ")
       .toLowerCase();
@@ -133,7 +151,12 @@ export function searchArtworkQueue(
 export function countArtworkQueue(entries: ArtworkQueueEntry[]) {
   return {
     all: entries.length,
-    pending: entries.filter((entry) => entry.artwork.status === "pending").length,
+    pending: entries.filter((entry) => entry.artwork.status === "pending")
+      .length,
+    with_art: entries.filter((entry) => entry.artwork.status === "with_art")
+      .length,
+    art_ready: entries.filter((entry) => entry.artwork.status === "art_ready")
+      .length,
     revision_requested: entries.filter(
       (entry) => entry.artwork.status === "revision_requested"
     ).length,
@@ -182,3 +205,5 @@ export function getRelatedArtworkFiles(
     return file.jobId === entry.jobId && file.imprintId === entry.imprintId;
   });
 }
+
+export { isArtworkDepartmentStatus };

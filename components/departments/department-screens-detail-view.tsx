@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   ArrowLeft,
-  Download,
   Eye,
   FileText,
   Layers,
@@ -20,6 +19,7 @@ import {
 } from "@/components/departments/department-shared";
 import { DepartmentsShell } from "@/components/departments/departments-shell";
 import { CustomerBrandMark } from "@/components/customers/customer-brand-mark";
+import { FilePreviewDialog } from "@/components/files/file-preview-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import {
   collectScreenQueue,
@@ -34,6 +34,7 @@ import {
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
+import { filePreviewSource } from "@/lib/file-preview";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { formatOrderDisplayLine } from "@/lib/order-display";
 import {
@@ -436,33 +437,18 @@ export function DepartmentScreensDetailView({ orderId }: { orderId: string }) {
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                    {file.previewUrl ? (
+                    {filePreviewSource(file) ? (
                       <button
                         type="button"
                         onClick={() => setPreviewFile(file)}
                         className={cn(
                           dashboardControlClass,
-                          "inline-flex h-8 items-center gap-1.5 px-2.5 text-[12px] font-medium"
+                          "inline-flex h-8 items-center gap-1.5 border-[#2c6ecb] bg-[#f0f5ff] px-2.5 text-[12px] font-semibold text-[#2c6ecb]"
                         )}
                       >
                         <Eye className="size-3.5" />
                         Preview
                       </button>
-                    ) : null}
-                    {file.downloadUrl || file.previewUrl ? (
-                      <a
-                        href={file.downloadUrl || file.previewUrl}
-                        download={file.name}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={cn(
-                          dashboardControlClass,
-                          "inline-flex h-8 items-center gap-1.5 border-[#2c6ecb] bg-[#f0f5ff] px-2.5 text-[12px] font-semibold text-[#2c6ecb]"
-                        )}
-                      >
-                        <Download className="size-3.5" />
-                        Download
-                      </a>
                     ) : (
                       <span className="text-[11px] text-[#8a8a8a]">
                         Filename only
@@ -476,45 +462,20 @@ export function DepartmentScreensDetailView({ orderId }: { orderId: string }) {
         </div>
       </div>
 
-      {previewFile?.previewUrl ? (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label={`Preview ${previewFile.name}`}
-          onClick={() => setPreviewFile(null)}
-        >
-          <div
-            className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-[#ebebeb] px-4 py-3">
-              <p className="truncate text-[13px] font-semibold text-[#303030]">
-                {previewFile.name}
-              </p>
-              <button
-                type="button"
-                onClick={() => setPreviewFile(null)}
-                className={cn(
-                  dashboardGhostButtonClass,
-                  "h-8 px-3 text-xs font-semibold"
-                )}
-              >
-                Close
-              </button>
-            </div>
-            <div className="bg-[#f6f6f7] p-4">
-              {/* Preview URLs are remote storage objects; next/image domains vary by shop. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={previewFile.previewUrl}
-                alt={previewFile.name}
-                className="mx-auto max-h-[70vh] max-w-full object-contain"
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <FilePreviewDialog
+        open={Boolean(previewFile && filePreviewSource(previewFile))}
+        onOpenChange={(open) => {
+          if (!open) setPreviewFile(null);
+        }}
+        title={previewFile?.name || "File"}
+        subtitle={
+          previewFile
+            ? `${previewFile.uploadedBy} · ${formatDateTime(previewFile.uploadedAt)}`
+            : undefined
+        }
+        url={previewFile ? filePreviewSource(previewFile) : null}
+        filename={previewFile?.name}
+      />
     </DepartmentsShell>
   );
 }

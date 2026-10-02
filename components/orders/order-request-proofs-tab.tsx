@@ -19,6 +19,7 @@ import type { OrderRequestDetail } from "@/lib/order-requests";
 import {
   getProofSlides,
   MAX_PROOF_SLIDES,
+  nextArtworkNameFromUpload,
   reorderProofSlides,
   syncArtworkPrimaryPreview,
 } from "@/lib/proof-slides";
@@ -140,10 +141,10 @@ export function OrderRequestProofsTab({
         };
         const artwork = syncArtworkPrimaryPreview({
           ...current,
-          name:
-            current.name === "No mockup attached" && payload.fileName
-              ? payload.fileName
-              : current.name,
+          name: nextArtworkNameFromUpload(current.name, payload.fileName, {
+            forceWhenEmptySlides: true,
+            slideCount: slides.length,
+          }),
           status: "pending",
           proofSlides: [...slides, slide],
         });

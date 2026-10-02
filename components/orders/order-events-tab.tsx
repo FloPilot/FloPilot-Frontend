@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus } from "lucide-react";
+import { CalendarPlus, Plus, Trash2 } from "lucide-react";
 import { ProductionEventSheet } from "@/components/tasks/production-event-sheet";
 import {
   CheckpointStatusBadge,
@@ -19,9 +19,11 @@ import {
 import {
   dashboardCardClass,
   dashboardControlClass,
+  dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
+import { formatJobBlankAssignmentSummary } from "@/lib/job-line-items";
 import {
   computeEventStatusCards,
   findEventStatusCard,
@@ -41,6 +43,8 @@ export function OrderEventsTab({
   order,
   scheduleBlocks,
   jobRuns,
+  pendingJobIds,
+  onRemovePendingJob,
   onAddEvent,
   onScheduleStep,
   onOpenDesign,
@@ -49,6 +53,8 @@ export function OrderEventsTab({
   order: Order;
   scheduleBlocks: ScheduleBlock[];
   jobRuns: StationJobRun[];
+  pendingJobIds?: Set<string>;
+  onRemovePendingJob?: (jobId: string) => void;
   onAddEvent: () => void;
   onScheduleStep: (step: ProductionStep) => void;
   onOpenDesign?: (jobId: string, imprintId: string) => void;
@@ -73,10 +79,11 @@ export function OrderEventsTab({
         job,
         imprint,
         resolved,
+        pending: pendingJobIds?.has(job.id) ?? false,
         statusCards: computeEventStatusCards(order, job, imprint, resolved),
       };
     });
-  }, [order, scheduleBlocks, jobRuns]);
+  }, [order, scheduleBlocks, jobRuns, pendingJobIds]);
 
   const columnHeaders = useMemo(
     () =>
@@ -90,21 +97,39 @@ export function OrderEventsTab({
     [eventRows, order]
   );
 
+  const eventSingular = eventsLabel.endsWith("s")
+    ? eventsLabel.slice(0, -1)
+    : eventsLabel;
+
   if (eventRows.length === 0) {
     return (
-      <section className={cn(dashboardCardClass, "px-4 py-12 text-center sm:px-5")}>
-        <p className={dashboardTaskDetailClass}>
-          No {eventsLabel.toLowerCase()} yet. Add one for each decoration you
-          need to run on the floor.
-        </p>
-        <Button
-          type="button"
-          className={cn(dashboardControlClass, "mt-4 h-9")}
-          onClick={onAddEvent}
-        >
-          <Plus className="size-3.5" />
-          Add {eventsLabel.endsWith("s") ? eventsLabel.slice(0, -1) : eventsLabel}
-        </Button>
+      <section className={dashboardCardClass}>
+        <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
+          <h2 className={dashboardTaskTitleClass}>{eventsLabel}</h2>
+          <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+            Decorations to run on the floor for this order.
+          </p>
+        </div>
+        <div className="p-4 sm:p-5">
+          <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-12 text-center">
+            <CalendarPlus className="mx-auto mb-3 size-8 text-[#c9c9c9]" />
+            <p className="text-[13px] font-medium text-[#303030]">
+              No {eventsLabel.toLowerCase()} yet
+            </p>
+            <p className={cn("mx-auto mt-1 max-w-sm", dashboardTaskDetailClass)}>
+              Add one for each decoration you need to run on the floor — then
+              proofs, materials, and scheduling unlock from there.
+            </p>
+            <Button
+              type="button"
+              className={cn(dashboardPrimaryButtonClass, "mt-4 h-9")}
+              onClick={onAddEvent}
+            >
+              <Plus className="size-3.5" />
+              Add {eventSingular.toLowerCase()}
+            </Button>
+          </div>
+        </div>
       </section>
     );
   }
@@ -117,8 +142,8 @@ export function OrderEventsTab({
             <h2 className={dashboardTaskTitleClass}>{eventsLabel}</h2>
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
               {eventRows.length === 1
-                ? "1 decoration on this order — status cards match the orders list"
-                : `${eventRows.length} decorations on this order — status cards match the orders list`}
+                ? "1 decoration on this order — open an event to assign blanks for matrix pricing"
+                : `${eventRows.length} decorations on this order — assign blanks on each event for matrix pricing`}
             </p>
           </div>
           <Button
@@ -146,33 +171,92 @@ export function OrderEventsTab({
                     {column.label}
                   </TableHead>
                 ))}
+                {onRemovePendingJob ? (
+                  <TableHead className="h-9 w-12 text-[12px] font-medium text-[#616161]">
+                    <span className="sr-only">Remove</span>
+                  </TableHead>
+                ) : null}
               </TableRow>
             </TableHeader>
             <TableBody>
-              {eventRows.map(({ job, imprint, statusCards }) => (
+              {eventRows.map(({ job, imprint, statusCards, pending }) => (
                 <TableRow
                   key={`${job.id}-${imprint.id}`}
-                  className="group cursor-pointer border-[#ebebeb] hover:bg-[#f6f6f7]"
-                  onClick={() =>
-                    setSelectedEvent({ jobId: job.id, imprintId: imprint.id })
-                  }
+                  className={cn(
+                    "group border-[#ebebeb]",
+                    pending
+                      ? "bg-[#f8faff] hover:bg-[#f4f7fd]"
+                      : "cursor-pointer hover:bg-[#f6f6f7]"
+                  )}
+                  onClick={() => {
+                    if (pending) return;
+                    setSelectedEvent({ jobId: job.id, imprintId: imprint.id });
+                  }}
                 >
-                  <TableCell className="sticky left-0 z-10 bg-white py-2.5 pl-4 transition-colors group-hover:bg-[#f6f6f7] sm:pl-5">
+                  <TableCell
+                    className={cn(
+                      "sticky left-0 z-10 py-2.5 pl-4 transition-colors sm:pl-5",
+                      pending
+                        ? "bg-[#f8faff] group-hover:bg-[#f4f7fd]"
+                        : "bg-white group-hover:bg-[#f6f6f7]"
+                    )}
+                  >
                     <div className="min-w-0 space-y-1">
-                      <p className="truncate text-[13px] font-semibold text-[#303030]">
-                        {imprint.label}
-                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-[13px] font-semibold text-[#303030]">
+                          {imprint.label}
+                        </p>
+                        {pending ? (
+                          <span className="rounded-md bg-[#e8f0fb] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#2c6ecb]">
+                            Pending save
+                          </span>
+                        ) : null}
+                      </div>
                       <DecorationTypePill decoration={imprint.decoration} />
+                      {job.kind !== "finishing" &&
+                      imprint.decoration !== "finishing" ? (
+                        <p className="truncate text-[11px] text-[#8a8a8a]">
+                          {formatJobBlankAssignmentSummary(order, job)}
+                        </p>
+                      ) : null}
                     </div>
                   </TableCell>
                   {columnHeaders.map((column) => (
                     <TableCell key={column.key} className="py-2.5">
-                      <CheckpointStatusBadge
-                        checkpoint={findEventStatusCard(statusCards, column.key)}
-                        compact
-                      />
+                      {pending ? (
+                        <span className="text-[12px] text-[#8a8a8a]">—</span>
+                      ) : (
+                        <CheckpointStatusBadge
+                          checkpoint={findEventStatusCard(
+                            statusCards,
+                            column.key
+                          )}
+                          compact
+                        />
+                      )}
                     </TableCell>
                   ))}
+                  {onRemovePendingJob ? (
+                    <TableCell className="py-2.5 pr-4 text-right">
+                      {pending ? (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onRemovePendingJob(job.id);
+                          }}
+                          className={cn(
+                            dashboardControlClass,
+                            "inline-flex h-8 w-8 items-center justify-center px-0 text-[#b42318] hover:bg-[#fdf2f2]"
+                          )}
+                          aria-label={`Remove pending ${imprint.label}`}
+                          title="Remove"
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      ) : null}
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               ))}
             </TableBody>

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { EditSupplierBlankPanel } from "@/components/orders/edit-supplier-blank-panel";
+import { ManualSizeQtyEditor } from "@/components/orders/manual-size-qty-editor";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,16 +16,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  LabeledSelectValue,
-  SelectTrigger,
-} from "@/components/ui/select";
-import {
-  NEW_ORDER_COLORS,
-  NEW_ORDER_PRODUCTS,
-  NEW_ORDER_SIZES,
+  emptyManualSizeRecord,
+  type ManualSizeQtyRecord,
 } from "@/lib/create-order";
 import {
   dashboardControlClass,
@@ -42,9 +35,6 @@ import {
   shouldShowBlankPricing,
 } from "@/lib/blank-pricing";
 import {
-  buildLineItemFromCatalog,
-  guessColorKey,
-  guessProductKey,
   recordToSizes,
   serializeLineItemForApi,
   sizesToRecord,
@@ -52,12 +42,6 @@ import {
 import { isSupplierLineItem } from "@/lib/supplier-line-items";
 import type { LineItem, Order } from "@/types";
 import { cn } from "@/lib/utils";
-
-type SizeRecord = Record<(typeof NEW_ORDER_SIZES)[number], number>;
-
-function emptySizes(): SizeRecord {
-  return { S: 0, M: 0, L: 0, XL: 0 };
-}
 
 export function EditBlankItemDialog({
   open,
@@ -83,11 +67,9 @@ export function EditBlankItemDialog({
       ? ("sanMar" as const)
       : ("ssActivewear" as const);
 
-  const [productKey, setProductKey] =
-    useState<(typeof NEW_ORDER_PRODUCTS)[number]["key"]>("g64000");
-  const [colorKey, setColorKey] =
-    useState<(typeof NEW_ORDER_COLORS)[number]["key"]>("heather");
-  const [sizes, setSizes] = useState<SizeRecord>(emptySizes);
+  const [productName, setProductName] = useState("");
+  const [color, setColor] = useState("");
+  const [sizes, setSizes] = useState<ManualSizeQtyRecord>(emptyManualSizeRecord);
   const [unitCost, setUnitCost] = useState("0");
   const [markupPercent, setMarkupPercent] = useState(String(shopDefaultMarkup));
   const [customerUnitPrice, setCustomerUnitPrice] = useState("");
@@ -98,8 +80,6 @@ export function EditBlankItemDialog({
   useEffect(() => {
     if (!open || !item || isSupplier) return;
 
-    const nextProductKey = guessProductKey(item) as (typeof NEW_ORDER_PRODUCTS)[number]["key"];
-    const nextColorKey = guessColorKey(item) as (typeof NEW_ORDER_COLORS)[number]["key"];
     const nextSizes = sizesToRecord(item.sizes);
     const nextMarkup = resolveLineItemMarkupPercent(item, shopDefaultMarkup);
     const nextCustomer = resolveLineItemCustomerUnitPrice(
@@ -107,28 +87,21 @@ export function EditBlankItemDialog({
       shopDefaultMarkup
     );
 
-    setProductKey(
-      NEW_ORDER_PRODUCTS.some((product) => product.key === nextProductKey)
-        ? nextProductKey
-        : "g64000"
+    setProductName(
+      formatBrandProductName(item.brand, item.productName) ||
+        item.productName ||
+        ""
     );
-    setColorKey(
-      NEW_ORDER_COLORS.some((color) => color.key === nextColorKey)
-        ? nextColorKey
-        : "heather"
+    setColor(item.color || "");
+    setSizes(
+      Object.keys(nextSizes).length > 0 ? nextSizes : emptyManualSizeRecord()
     );
-    setSizes(nextSizes);
     setUnitCost(String(item.unitCost ?? 0));
     setMarkupPercent(String(nextMarkup));
     setCustomerUnitPrice(nextCustomer.toFixed(2));
     setCustomerPriceTouched(item.customerUnitPrice != null);
     setError(null);
   }, [open, item, isSupplier, shopDefaultMarkup]);
-
-  const selectedProduct = useMemo(
-    () => NEW_ORDER_PRODUCTS.find((product) => product.key === productKey),
-    [productKey]
-  );
 
   const parsedUnitCost = Math.max(0, Number(unitCost) || 0);
   const parsedMarkup = Math.max(0, Number(markupPercent) || 0);
@@ -170,6 +143,18 @@ export function EditBlankItemDialog({
 
   const saveManualItem = async () => {
     if (!item) return;
+
+    const trimmedProduct = productName.trim();
+    const trimmedColor = color.trim();
+
+    if (!trimmedProduct) {
+      setError("Enter a product name.");
+      return;
+    }
+    if (!trimmedColor) {
+      setError("Enter a color.");
+      return;
+    }
     if (pieceCount <= 0) {
       setError("Enter a quantity for at least one size.");
       return;
@@ -178,12 +163,6 @@ export function EditBlankItemDialog({
     setSaving(true);
     setError(null);
     try {
-      const rebuilt = buildLineItemFromCatalog(
-        productKey,
-        colorKey,
-        sizes,
-        item.id
-      );
       const pricing: Partial<LineItem> = showBlankPricing
         ? customerPriceTouched
           ? { customerUnitPrice: effectiveCustomerUnitPrice }
@@ -194,7 +173,10 @@ export function EditBlankItemDialog({
         orderId,
         item.id,
         serializeLineItemForApi({
-          ...rebuilt,
+          id: item.id,
+          productName: trimmedProduct,
+          brand: "",
+          color: trimmedColor,
           unitCost: parsedUnitCost,
           ...pricing,
           sizes: recordToSizes(sizes),
@@ -202,6 +184,8 @@ export function EditBlankItemDialog({
           supplier: undefined,
           supplierPartNumber: undefined,
           supplierStyleId: undefined,
+          productKey: undefined,
+          colorKey: undefined,
         })
       );
       handleOpenChange(false);
@@ -256,94 +240,54 @@ export function EditBlankItemDialog({
             </div>
           ) : (
             <div className="space-y-4">
+              {error ? (
+                <div
+                  role="alert"
+                  className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2.5 text-[13px] font-medium text-[#8f1f1f] shadow-sm"
+                >
+                  {error}
+                </div>
+              ) : null}
+
               <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
                 <div className="space-y-1.5">
                   <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
                     Product
                   </Label>
-                  <Select
-                    value={productKey}
-                    onValueChange={(value) => {
-                      if (!value) return;
-                      setProductKey(
-                        value as (typeof NEW_ORDER_PRODUCTS)[number]["key"]
-                      );
-                      const product = NEW_ORDER_PRODUCTS.find(
-                        (entry) => entry.key === value
-                      );
-                      if (product && showBlankPricing) {
-                        setUnitCost(product.unitCost.toFixed(2));
-                        if (!customerPriceTouched) {
-                          setCustomerUnitPrice(
-                            deriveCustomerUnitPriceFromMarkup(
-                              product.unitCost,
-                              parsedMarkup
-                            ).toFixed(2)
-                          );
-                        }
-                      }
+                  <Input
+                    value={productName}
+                    onChange={(event) => {
+                      setProductName(event.target.value);
+                      if (error) setError(null);
                     }}
-                  >
-                    <SelectTrigger
-                      className={cn(
-                        dashboardControlClass,
-                        "h-10 w-full justify-between"
-                      )}
-                    >
-                      <LabeledSelectValue
-                        value={productKey}
-                        options={NEW_ORDER_PRODUCTS.map((product) => ({
-                          value: product.key,
-                          label: `${product.brand} — ${product.name}`,
-                        }))}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {NEW_ORDER_PRODUCTS.map((product) => (
-                        <SelectItem key={product.key} value={product.key}>
-                          {product.brand} — {product.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    placeholder="e.g. Gildan 64000 Softstyle"
+                    className={cn(
+                      dashboardControlClass,
+                      "h-10",
+                      error === "Enter a product name." &&
+                        "border-[#e07a7a] focus-visible:ring-[#e07a7a]/30"
+                    )}
+                  />
                 </div>
 
                 <div className="space-y-1.5">
                   <Label className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
                     Color
                   </Label>
-                  <Select
-                    value={colorKey}
-                    onValueChange={(value) => {
-                      if (value) {
-                        setColorKey(
-                          value as (typeof NEW_ORDER_COLORS)[number]["key"]
-                        );
-                      }
+                  <Input
+                    value={color}
+                    onChange={(event) => {
+                      setColor(event.target.value);
+                      if (error) setError(null);
                     }}
-                  >
-                    <SelectTrigger
-                      className={cn(
-                        dashboardControlClass,
-                        "h-10 w-full justify-between"
-                      )}
-                    >
-                      <LabeledSelectValue
-                        value={colorKey}
-                        options={NEW_ORDER_COLORS.map((color) => ({
-                          value: color.key,
-                          label: color.label,
-                        }))}
-                      />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {NEW_ORDER_COLORS.map((color) => (
-                        <SelectItem key={color.key} value={color.key}>
-                          {color.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    placeholder="e.g. Athletic Heather"
+                    className={cn(
+                      dashboardControlClass,
+                      "h-10",
+                      error === "Enter a color." &&
+                        "border-[#e07a7a] focus-visible:ring-[#e07a7a]/30"
+                    )}
+                  />
                 </div>
               </div>
 
@@ -353,11 +297,10 @@ export function EditBlankItemDialog({
                     Quantity{showBlankPricing ? " & pricing" : ""}
                   </p>
                   <p className="mt-0.5 text-[12px] text-[#616161]">
-                    {selectedProduct
-                      ? formatBrandProductName(
-                          selectedProduct.brand,
-                          selectedProduct.name
-                        )
+                    {productName.trim() || color.trim()
+                      ? [productName.trim(), color.trim()]
+                          .filter(Boolean)
+                          .join(" · ")
                       : "Adjust sizes for this blank."}
                   </p>
                 </div>
@@ -446,29 +389,16 @@ export function EditBlankItemDialog({
                   </div>
                 ) : null}
 
-                <div className="grid grid-cols-2 gap-3 px-4 py-4 sm:grid-cols-4">
-                  {NEW_ORDER_SIZES.map((size) => (
-                    <div key={size} className="space-y-1.5">
-                      <Label className="text-[11px] font-medium text-[#616161]">
-                        {size}
-                      </Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        value={sizes[size] || ""}
-                        placeholder="0"
-                        disabled={saving}
-                        onChange={(event) => {
-                          const next = Math.max(
-                            0,
-                            parseInt(event.target.value, 10) || 0
-                          );
-                          setSizes((current) => ({ ...current, [size]: next }));
-                        }}
-                        className="h-9 rounded-lg border-[#e3e3e3] text-right text-[13px] tabular-nums"
-                      />
-                    </div>
-                  ))}
+                <div className="px-4 py-4">
+                  <ManualSizeQtyEditor
+                    sizes={sizes}
+                    onChange={setSizes}
+                    showPricingColumns={showBlankPricing}
+                    unitCost={parsedUnitCost}
+                    customerUnitPrice={effectiveCustomerUnitPrice}
+                    formatCurrency={formatCurrency}
+                    disabled={saving}
+                  />
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#ebebeb] bg-[#fafafa] px-4 py-3 text-[12px] text-[#616161]">
@@ -483,12 +413,6 @@ export function EditBlankItemDialog({
                   ) : null}
                 </div>
               </div>
-
-              {error ? (
-                <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[13px] text-[#8f1f1f]">
-                  {error}
-                </p>
-              ) : null}
 
               <div className="flex justify-end gap-2 border-t border-[#ebebeb] pt-3">
                 <Button

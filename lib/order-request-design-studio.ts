@@ -153,6 +153,7 @@ export function buildOrderFromRequest(request: OrderRequestDetail): Order {
     paid: 0,
     balance: 0,
     selectedRateSheetId: request.selectedRateSheetId ?? null,
+    estimateOneTimeRateSheet: request.estimateOneTimeRateSheet ?? null,
     estimateAdjustments: (request.estimateAdjustments || []).map((row) => ({
       id: row.id,
       label: row.label,

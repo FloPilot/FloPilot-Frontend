@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { Check, Layers3, Loader2, Search, X } from "lucide-react";
+import { Check, ChevronDown, Layers3, Loader2, Search, X } from "lucide-react";
+import { OrderHeaderField } from "@/components/orders/order-header-field";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,8 +16,11 @@ import { Input } from "@/components/ui/input";
 import {
   countOrderPieces,
   productionRunCompanions,
-  productionRunMemberLabel,
 } from "@/lib/order-production-run";
+import {
+  orderHeaderActionTriggerClass,
+  orderHeaderComboShellClass,
+} from "@/lib/order-addresses";
 import type { Order } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -96,35 +99,32 @@ export function OrderProductionRunEditor({
 
   return (
     <>
-      <div className="flex min-w-0 flex-wrap items-center gap-2 text-[13px]">
-        <span className="shrink-0 font-semibold text-[#303030]">
-          Multi-job run
-        </span>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
+      <OrderHeaderField label="Multi-job run">
+        <div
           className={cn(
-            "inline-flex h-7 max-w-full items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors",
-            companions.length
-              ? "border-[#bfd8c8] bg-[#f2f8f4] font-medium text-[#245c3c]"
-              : "border-[#ebebeb] text-[#8a8a8a] hover:border-[#d8d8d8] hover:text-[#303030]"
+            orderHeaderComboShellClass,
+            "min-w-[10.5rem]",
+            companions.length &&
+              "border-[#bfd8c8] focus-within:border-[#bfd8c8] focus-within:ring-[#245c3c]/15"
           )}
         >
-          <Layers3 className="size-3.5" />
-          {companions.length
-            ? `${order.productionRun?.members.length} orders · ${order.productionRun?.combinedQuantity.toLocaleString()} pcs`
-            : "Add orders"}
-        </button>
-        {companions.slice(0, 3).map((member) => (
-          <Link
-            key={member.orderId}
-            href={`/app/orders/${member.orderId}`}
-            className="truncate text-[12px] font-medium text-[#2c6ecb] hover:underline"
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className={cn(
+              orderHeaderActionTriggerClass,
+              companions.length ? "bg-[#f2f8f4] text-[#245c3c]" : "text-[#616161]"
+            )}
           >
-            {productionRunMemberLabel(member)}
-          </Link>
-        ))}
-      </div>
+            <span className="min-w-0 truncate">
+              {companions.length
+                ? `${order.productionRun?.members.length} orders · ${order.productionRun?.combinedQuantity.toLocaleString()} pcs`
+                : "None"}
+            </span>
+            <ChevronDown className="size-4 shrink-0 opacity-50" />
+          </button>
+        </div>
+      </OrderHeaderField>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-xl">

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -98,7 +98,7 @@ function DesignNameEditor({
 }
 
 export function DesignStudioWorkspace({ entryId }: { entryId: string }) {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const { getIdToken } = useAuth();
   const { orders, updateImprintDesignMockup, createDesignFromImprint } =
     useSchedule();

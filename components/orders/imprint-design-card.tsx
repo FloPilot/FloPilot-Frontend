@@ -10,6 +10,7 @@ import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-cha
 import { ProofSlidesEditor } from "@/components/orders/artwork/proof-slides-gallery";
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
+import { ProofArtWorkflowPanel } from "@/components/orders/artwork/proof-art-workflow-panel";
 import { ImprintInkColorsEditor } from "@/components/orders/imprint-ink-colors-editor";
 import {
   ShopPresetSelect,
@@ -53,6 +54,7 @@ import {
   getDtfImprintAreaOptions,
   getInkTypeOptions,
 } from "@/lib/shop-settings";
+import { resolveArtworkDisplayName } from "@/lib/proof-slides";
 import type {
   ArtworkFile,
   DecorationType,
@@ -243,7 +245,7 @@ function MockupFilePicker({
     return (
       <div className={cn(dashboardInsetSurfaceClass, "px-3 py-2.5")}>
         <p className="truncate text-sm font-medium text-[#303030]">
-          {imprint.artwork.name}
+          {resolveArtworkDisplayName(imprint.artwork)}
         </p>
         <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
           v{imprint.artwork.version}
@@ -265,7 +267,7 @@ function MockupFilePicker({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="current">
-          Current · {imprint.artwork.name}
+          Current · {resolveArtworkDisplayName(imprint.artwork)}
         </SelectItem>
         {attachableFiles.map((file) => (
           <SelectItem key={file.id} value={file.id}>
@@ -688,6 +690,16 @@ export function ImprintDesignCard({
             </div>
           )}
 
+          {!isFinishing ? (
+            <ProofArtWorkflowPanel
+              order={order}
+              job={job}
+              imprint={imprint}
+              artworkStatus={artworkStatus}
+              readOnly={readOnly}
+            />
+          ) : null}
+
           {!isFinishing && !readOnly && !hideApprovalActions ? (
             <div
               className={cn(
@@ -699,7 +711,7 @@ export function ImprintDesignCard({
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                  Proof approval
+                  Client approval
                 </p>
                 <ArtworkStatusBadge status={artworkStatus} />
               </div>

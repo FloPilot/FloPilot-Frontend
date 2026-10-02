@@ -1,5 +1,10 @@
 import { isSameDay, parseISO, startOfDay } from "date-fns";
 import type { Customer, Order, OrderStatus } from "@/types";
+import {
+  ORDER_STATUS_LABELS,
+  ORDER_STATUS_ORDER,
+  orderStatusLabel,
+} from "@/lib/order-status";
 
 export type OrderFilterField =
   | "customer"
@@ -38,7 +43,7 @@ export const FILTER_FIELD_OPTIONS: {
   {
     field: "status",
     label: "Status",
-    hint: "Quote sent, in production, shipped, etc.",
+    hint: "In production, ready to ship, completed · paid, etc.",
   },
   {
     field: "in_hands_date",
@@ -47,18 +52,11 @@ export const FILTER_FIELD_OPTIONS: {
   },
 ];
 
-export const ORDER_STATUS_OPTIONS: { value: OrderStatus; label: string }[] = [
-  { value: "draft", label: "Draft" },
-  { value: "quote_sent", label: "Quote sent" },
-  { value: "awaiting_approval", label: "Awaiting approval" },
-  { value: "approved", label: "Ready for scheduling" },
-  { value: "in_production", label: "In production" },
-  { value: "ready_to_ship", label: "Ready to ship" },
-  { value: "shipped", label: "Shipped" },
-  { value: "ready_to_invoice", label: "Ready to invoice" },
-  { value: "invoice_sent", label: "Invoice sent" },
-  { value: "completed", label: "Completed" },
-];
+export const ORDER_STATUS_OPTIONS: { value: OrderStatus; label: string }[] =
+  ORDER_STATUS_ORDER.map((value) => ({
+    value,
+    label: ORDER_STATUS_LABELS[value],
+  }));
 
 export const IN_HANDS_DATE_MODES: { value: InHandsDateMode; label: string }[] =
   [
@@ -134,10 +132,7 @@ export function getFilterChipParts(
     case "order_number":
       return { label: "Order # contains", value: filter.query.trim() || "—" };
     case "status": {
-      const labels = filter.statuses.map(
-        (s) =>
-          ORDER_STATUS_OPTIONS.find((o) => o.value === s)?.label ?? s
-      );
+      const labels = filter.statuses.map((s) => orderStatusLabel(s));
       return {
         label: "Status is",
         value:

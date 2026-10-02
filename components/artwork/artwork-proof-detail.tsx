@@ -1,11 +1,23 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { CheckCircle2, RotateCcw, Send } from "lucide-react";
-import { ProofSlidesViewer } from "@/components/orders/artwork/proof-slides-gallery";
+import { useMemo, useRef, useState } from "react";
+import {
+  CheckCircle2,
+  FileUp,
+  Loader2,
+  Palette,
+  RotateCcw,
+  Send,
+  Upload,
+} from "lucide-react";
+import { ProofSlidesEditor } from "@/components/orders/artwork/proof-slides-gallery";
+import { ImprintInkColorsEditor } from "@/components/orders/imprint-ink-colors-editor";
 import { ProofNotesThread } from "@/components/orders/proof-notes-thread";
+import { StaffArtistSelect } from "@/components/staff/staff-artist-select";
 import { useSchedule } from "@/components/providers/schedule-provider";
+import { useNameBeforeUpload } from "@/hooks/use-name-before-upload";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -13,6 +25,8 @@ import {
   LabeledSelectValue,
   SelectTrigger,
 } from "@/components/ui/select";
+import { readUploadContent } from "@/lib/artwork-preview";
+import { canCompleteArtworkProof } from "@/lib/artwork-proof-readiness";
 import {
   dashboardControlClass,
   dashboardPrimaryButtonClass,
@@ -24,15 +38,23 @@ import {
   type ArtworkQueueEntry,
 } from "@/lib/artwork-queue";
 import { resolveArtworkRevisionNotes } from "@/lib/artwork-routes";
-import { ORDER_FILE_KIND_LABELS } from "@/lib/order-files";
-import type { ArtworkFile } from "@/types";
+import { EMPTY_INK_COLORS } from "@/lib/imprint-design";
+import { resolveArtworkDisplayName } from "@/lib/proof-slides";
+import {
+  getOrderTechPackFiles,
+  ORDER_FILE_KIND_LABELS,
+} from "@/lib/order-files";
+import { ARTWORK_STATUS_LABELS } from "@/lib/artwork-status";
+import type { ArtworkFile, ImprintInkColor } from "@/types";
 import { cn } from "@/lib/utils";
 
-const STATUS_OPTIONS: { value: ArtworkFile["status"]; label: string }[] = [
-  { value: "pending", label: "Pending" },
-  { value: "revision_requested", label: "Revision requested" },
-  { value: "approved", label: "Approved" },
-];
+const STATUS_OPTIONS: { value: ArtworkFile["status"]; label: string }[] =
+  (
+    Object.entries(ARTWORK_STATUS_LABELS) as [
+      ArtworkFile["status"],
+      string,
+    ][]
+  ).map(([value, label]) => ({ value, label }));
 
 export function ArtworkProofDetail({
   entry,
@@ -41,8 +63,14 @@ export function ArtworkProofDetail({
   entry: ArtworkQueueEntry;
   readOnly?: boolean;
 }) {
-  const { orders, setArtworkStatus, addArtworkProofNote, sendProofToCustomer } =
-    useSchedule();
+  const {
+    orders,
+    setArtworkStatus,
+    addArtworkProofNote,
+    updateImprintInkColors,
+    uploadOrderFile,
+  } = useSchedule();
+  const { promptRename, nameFilesDialog } = useNameBeforeUpload();
 
   const liveEntry = useMemo(() => {
     const { imprint } = getArtworkEntryContext(orders, entry);
@@ -56,17 +84,25 @@ export function ArtworkProofDetail({
     [order, liveEntry]
   );
 
-  const [sendingProof, setSendingProof] = useState(false);
+  const [completingArt, setCompletingArt] = useState(false);
   const [proofFeedback, setProofFeedback] = useState<{
     message: string;
     type: "success" | "error";
   } | null>(null);
   const [showRevisionForm, setShowRevisionForm] = useState(false);
   const [revisionDraft, setRevisionDraft] = useState("");
+  const [uploadingLocationFile, setUploadingLocationFile] = useState(false);
+  const [uploadingTechPack, setUploadingTechPack] = useState(false);
+  const locationFileInputRef = useRef<HTMLInputElement>(null);
+  const techPackInputRef = useRef<HTMLInputElement>(null);
 
   const relatedFiles = getRelatedArtworkFiles(order, liveEntry);
   const additionalFiles = relatedFiles.filter(
     (file) => file.id !== liveEntry.artwork.id
+  );
+  const techPackFiles = useMemo(
+    () => (order ? getOrderTechPackFiles(order) : []),
+    [order]
   );
   const notes = imprint?.notes;
   const hasSpecs =
@@ -75,10 +111,23 @@ export function ArtworkProofDetail({
     notes?.colors ||
     notes?.instructions;
   const locked = readOnly || liveEntry.archived;
+  const isFinishing = imprint?.decoration === "finishing";
+  const readiness = canCompleteArtworkProof(imprint);
+  const colorsTitle =
+    imprint?.decoration === "dtf"
+      ? "Transfer specs"
+      : imprint?.decoration === "screen_print"
+        ? "Ink colors & Pantones"
+        : "Colors & Pantones";
 
   const handleStatusChange = (
     status: ArtworkFile["status"],
-    options?: { message?: string; messageRole?: "staff" | "customer" }
+    options?: {
+      message?: string;
+      messageRole?: "staff" | "customer";
+      assigneeId?: string | null;
+      clearAssignee?: boolean;
+    }
   ) => {
     setArtworkStatus(
       liveEntry.orderId,
@@ -90,13 +139,29 @@ export function ArtworkProofDetail({
             message: options.message,
             messageRole: options.messageRole ?? "staff",
             notifyOrderMessage: false,
+            assigneeId: options.assigneeId,
+            clearAssignee: options.clearAssignee,
           }
-        : undefined
+        : options?.assigneeId !== undefined || options?.clearAssignee
+          ? {
+              assigneeId: options.assigneeId,
+              clearAssignee: options.clearAssignee,
+            }
+          : undefined
     );
     if (status === "revision_requested") {
       setShowRevisionForm(false);
       setRevisionDraft("");
     }
+  };
+
+  const handleAssigneeChange = (artistId: string | null) => {
+    const current = liveEntry.artwork.artAssigneeId ?? null;
+    if (artistId === current) return;
+    handleStatusChange(liveEntry.artwork.status, {
+      assigneeId: artistId,
+      clearAssignee: !artistId,
+    });
   };
 
   const submitRevisionRequest = () => {
@@ -108,17 +173,28 @@ export function ArtworkProofDetail({
     });
   };
 
-  const handleSendProof = async () => {
-    setSendingProof(true);
+  const handleCompleteAndSendToTeam = async () => {
+    if (!readiness.ok) {
+      setProofFeedback({
+        message: `Finish before sending back to the team: ${readiness.missing.join(
+          " · "
+        )}`,
+        type: "error",
+      });
+      return;
+    }
+    setCompletingArt(true);
     setProofFeedback(null);
     try {
-      const email = await sendProofToCustomer(
+      await setArtworkStatus(
         liveEntry.orderId,
         liveEntry.jobId,
-        liveEntry.imprintId
+        liveEntry.imprintId,
+        "art_ready"
       );
       setProofFeedback({
-        message: `Proof emailed to ${email.to}.`,
+        message:
+          "Artwork marked complete and sent back to the team. They’ll review it, then send the proof to the customer.",
         type: "success",
       });
     } catch (err) {
@@ -126,25 +202,143 @@ export function ArtworkProofDetail({
         message:
           err instanceof Error
             ? err.message
-            : "Could not send the email. Please try again.",
+            : "Could not send this proof back to the team.",
         type: "error",
       });
     } finally {
-      setSendingProof(false);
+      setCompletingArt(false);
+    }
+  };
+
+  const persistInkColors = async (inkColors: ImprintInkColor[]) => {
+    await updateImprintInkColors(
+      liveEntry.orderId,
+      liveEntry.jobId,
+      liveEntry.imprintId,
+      inkColors
+    );
+  };
+
+  const handleLocationFileUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!files.length || !order || !job || !imprint || locked) return;
+
+    const named = await promptRename(files, {
+      title:
+        files.length > 1
+          ? `Name ${files.length} artwork files`
+          : "Name this artwork file",
+      description:
+        "Choose a clear name before uploading so production can find the right file.",
+    });
+    if (!named?.length) return;
+
+    setUploadingLocationFile(true);
+    setProofFeedback(null);
+    try {
+      for (const { file, name } of named) {
+        const { base64, contentType, error } = await readUploadContent(file);
+        if (error) throw new Error(error);
+        await uploadOrderFile(order.id, {
+          name,
+          kind: "production_art",
+          uploadedBy: "Shop",
+          contentBase64: base64,
+          contentType,
+          jobId: job.id,
+          imprintId: imprint.id,
+        });
+      }
+      setProofFeedback({
+        message:
+          named.length === 1
+            ? "Artwork file uploaded for this location."
+            : `${named.length} artwork files uploaded for this location.`,
+        type: "success",
+      });
+    } catch (err) {
+      setProofFeedback({
+        message:
+          err instanceof Error
+            ? err.message
+            : "Could not upload artwork for this location.",
+        type: "error",
+      });
+    } finally {
+      setUploadingLocationFile(false);
+    }
+  };
+
+  const handleTechPackUpload = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!files.length || !order || locked) return;
+
+    const named = await promptRename(files, {
+      title:
+        files.length > 1
+          ? `Name ${files.length} tech packs`
+          : "Name this tech pack",
+      description:
+        "Choose a clear name before uploading the summary proof / tech pack.",
+    });
+    if (!named?.length) return;
+
+    setUploadingTechPack(true);
+    setProofFeedback(null);
+    try {
+      for (const { file, name } of named) {
+        const { base64, contentType, error } = await readUploadContent(file);
+        if (error) throw new Error(error);
+        await uploadOrderFile(order.id, {
+          name,
+          kind: "tech_pack",
+          uploadedBy: "Shop",
+          contentBase64: base64,
+          contentType,
+          notes: "Order summary proof / tech pack",
+        });
+      }
+      setProofFeedback({
+        message:
+          named.length === 1
+            ? "Summary tech pack added to this order."
+            : `${named.length} tech pack files added to this order.`,
+        type: "success",
+      });
+    } catch (err) {
+      setProofFeedback({
+        message:
+          err instanceof Error
+            ? err.message
+            : "Could not upload the tech pack.",
+        type: "error",
+      });
+    } finally {
+      setUploadingTechPack(false);
     }
   };
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
-      <div className="flex min-h-0 flex-col border-b border-[#ebebeb] bg-[#fafafa] p-4 sm:p-5 lg:border-b-0 lg:border-r">
-        {job && imprint ? (
-          <div className="flex min-h-[280px] flex-1 flex-col lg:min-h-[420px]">
-            <ProofSlidesViewer
-              artwork={imprint.artwork}
-              imprintLabel={imprint.label}
-              jobName={job.name}
-              className="flex h-full flex-col rounded-lg border border-[#e3e3e3] bg-white p-3"
+    <div className="grid min-h-0 h-full flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+      <div className="flex min-h-0 flex-col overflow-hidden border-b border-[#ebebeb] bg-[#fafafa] p-4 sm:p-5 lg:border-b-0 lg:border-r">
+        {job && imprint && !isFinishing ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <ProofSlidesEditor
+              orderId={liveEntry.orderId}
+              job={job}
+              imprint={imprint}
+              readOnly={locked}
             />
+          </div>
+        ) : job && imprint && isFinishing ? (
+          <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[#e3e3e3] bg-white/60 p-8 text-sm text-[#616161]">
+            Finishing step — no proof images
           </div>
         ) : (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[#e3e3e3] bg-white/60 p-8 text-sm text-[#616161]">
@@ -153,38 +347,25 @@ export function ArtworkProofDetail({
         )}
       </div>
 
-      <div className="flex min-h-0 flex-col overflow-hidden">
-        <div className="scroll-pane min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-y-contain p-4 sm:p-5">
-          <ProofNotesThread
-            notes={proofNotes}
-            title="Proof notes"
-            alwaysShow
-            disabled={locked}
-            emptyLabel={
-              liveEntry.artwork.status === "revision_requested"
-                ? "Revision was requested but no message was saved on this proof yet. Reply below or check the order message thread."
-                : "Customer and team notes tied to this proof will appear here."
-            }
-            replyPlaceholder="Reply to the customer about this proof…"
-            onSendReply={(message) =>
-              addArtworkProofNote(
-                liveEntry.orderId,
-                liveEntry.jobId,
-                liveEntry.imprintId,
-                message
-              )
-            }
-          />
-
+      <div className="scroll-pane min-h-0 space-y-5 overflow-y-auto overscroll-y-contain p-4 sm:p-5">
           <section className="rounded-lg border border-[#e3e3e3] bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-[#616161]">
-                Review actions
+                Art workflow
               </p>
               <Select
                 value={liveEntry.artwork.status}
                 onValueChange={(value) => {
                   if (!value) return;
+                  if (value === "art_ready" && !readiness.ok) {
+                    setProofFeedback({
+                      message: `Finish before marking complete: ${readiness.missing.join(
+                        " · "
+                      )}`,
+                      type: "error",
+                    });
+                    return;
+                  }
                   handleStatusChange(value as ArtworkFile["status"]);
                 }}
                 disabled={locked}
@@ -210,40 +391,106 @@ export function ArtworkProofDetail({
               </Select>
             </div>
 
+            <p className="mt-3 text-[12px] leading-relaxed text-[#8a8a8a]">
+              {liveEntry.artwork.status === "art_ready"
+                ? "This proof is back with the internal team. They’ll confirm it looks right, then send it to the customer from the order."
+                : liveEntry.artwork.status === "approved"
+                  ? "This location is approved."
+                  : "Finish proof images and colors, then send this back to the team for review. The team sends proofs to the customer — not the art queue."}
+            </p>
+
+            <div className="mt-4 space-y-1.5">
+              <Label className="text-[11px] font-medium text-[#8a8a8a]">
+                Assign artist
+              </Label>
+              <StaffArtistSelect
+                id={`art-detail-artist-${liveEntry.imprintId}`}
+                value={liveEntry.artwork.artAssigneeId}
+                onChange={handleAssigneeChange}
+                disabled={locked}
+                placeholder="Unassigned"
+                triggerClassName="h-9"
+              />
+            </div>
+
+            {!readiness.ok &&
+            (liveEntry.artwork.status === "with_art" ||
+              liveEntry.artwork.status === "revision_requested" ||
+              liveEntry.artwork.status === "pending") ? (
+              <p className="mt-3 rounded-lg border border-[#f0e0b2] bg-[#fffbeb] px-3 py-2 text-[12px] text-[#7a5b00]">
+                Still needed: {readiness.missing.join(" · ")}
+              </p>
+            ) : null}
+
             <div className="mt-4 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                className={cn(dashboardPrimaryButtonClass, "h-9")}
-                onClick={() => void handleSendProof()}
-                disabled={
-                  locked ||
-                  liveEntry.artwork.status === "approved" ||
-                  sendingProof
-                }
-              >
-                <Send className="size-3.5" />
-                {sendingProof ? "Sending…" : "Send proof"}
-              </Button>
-              <Button
-                type="button"
-                className={cn(dashboardControlClass, "h-9")}
-                onClick={() => handleStatusChange("approved")}
-                disabled={locked || liveEntry.artwork.status === "approved"}
-              >
-                <CheckCircle2 className="size-3.5" />
-                Approve
-              </Button>
+              {liveEntry.artwork.status === "pending" ? (
+                <Button
+                  type="button"
+                  className={cn(dashboardPrimaryButtonClass, "h-9")}
+                  onClick={() =>
+                    handleStatusChange("with_art", {
+                      assigneeId: liveEntry.artwork.artAssigneeId ?? undefined,
+                    })
+                  }
+                  disabled={locked}
+                >
+                  <Send className="size-3.5" />
+                  Submit to artwork
+                </Button>
+              ) : null}
+
+              {liveEntry.artwork.status === "with_art" ||
+              liveEntry.artwork.status === "revision_requested" ? (
+                <Button
+                  type="button"
+                  className={cn(
+                    dashboardPrimaryButtonClass,
+                    "h-9 min-w-[12rem]",
+                    completingArt && "opacity-90"
+                  )}
+                  onClick={() => void handleCompleteAndSendToTeam()}
+                  disabled={locked || completingArt || !readiness.ok}
+                  aria-busy={completingArt || undefined}
+                >
+                  {completingArt ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Palette className="size-3.5" />
+                  )}
+                  {completingArt
+                    ? "Sending back to team…"
+                    : "Complete & send back to team"}
+                </Button>
+              ) : null}
+
+              {liveEntry.artwork.status === "art_ready" ? (
+                <div className="inline-flex h-9 items-center gap-1.5 rounded-md bg-[#e8f1ff] px-3 text-[12px] font-medium text-[#1f4b99]">
+                  <CheckCircle2 className="size-3.5" />
+                  With the team for review
+                </div>
+              ) : null}
+
               <Button
                 type="button"
                 className={cn(dashboardControlClass, "h-9")}
                 onClick={() => setShowRevisionForm((current) => !current)}
-                disabled={locked || liveEntry.artwork.status === "approved"}
+                disabled={
+                  locked ||
+                  completingArt ||
+                  liveEntry.artwork.status === "approved"
+                }
               >
                 <RotateCcw className="size-3.5" />
                 Request revision
               </Button>
             </div>
 
+            {completingArt ? (
+              <p className="mt-3 inline-flex items-center gap-2 rounded-lg border border-[#c4d7f2] bg-[#f4f7fd] px-3 py-2 text-[12px] font-medium text-[#1f4b99]">
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                Sending this proof back to the internal team…
+              </p>
+            ) : null}
             {showRevisionForm ? (
               <div className="mt-4 space-y-2 rounded-lg border border-[#ebebeb] bg-[#fafafa] p-3">
                 <label className="text-[12px] font-medium text-[#616161]">
@@ -293,6 +540,53 @@ export function ArtworkProofDetail({
             ) : null}
           </section>
 
+          <ProofNotesThread
+            notes={proofNotes}
+            title="Proof notes"
+            alwaysShow
+            disabled={locked}
+            emptyLabel={
+              liveEntry.artwork.status === "revision_requested"
+                ? "Revision was requested but no message was saved on this proof yet. Reply below or check the order message thread."
+                : "Customer and team notes tied to this proof will appear here."
+            }
+            replyPlaceholder="Reply to the customer about this proof…"
+            onSendReply={(message) =>
+              addArtworkProofNote(
+                liveEntry.orderId,
+                liveEntry.jobId,
+                liveEntry.imprintId,
+                message
+              )
+            }
+          />
+
+          {imprint && !isFinishing ? (
+            <section className="rounded-lg border border-[#e3e3e3] bg-white p-4 shadow-sm">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[#616161]">
+                  {colorsTitle}
+                </p>
+                {!readiness.ok &&
+                readiness.missing.includes("Add ink / Pantone colors") ? (
+                  <span className="rounded-md bg-[#fff4e5] px-2 py-0.5 text-[11px] font-semibold text-[#9a6700]">
+                    Required to finish
+                  </span>
+                ) : null}
+              </div>
+              <p className="mb-3 text-[12px] leading-relaxed text-[#8a8a8a]">
+                Enter the ink / Pantone colors for this location before sending
+                the proof back to the team.
+              </p>
+              <ImprintInkColorsEditor
+                inkColors={imprint.inkColors ?? EMPTY_INK_COLORS}
+                readOnly={locked}
+                decoration={imprint.decoration}
+                onPersist={persistInkColors}
+              />
+            </section>
+          ) : null}
+
           {hasSpecs ? (
             <section>
               <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#616161]">
@@ -336,14 +630,40 @@ export function ArtworkProofDetail({
           ) : null}
 
           <section>
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#616161]">
-              Files
-            </h3>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-[#616161]">
+                Files for this location
+              </h3>
+              {!locked ? (
+                <>
+                  <input
+                    ref={locationFileInputRef}
+                    type="file"
+                    className="hidden"
+                    multiple
+                    onChange={(event) => void handleLocationFileUpload(event)}
+                  />
+                  <Button
+                    type="button"
+                    className={cn(dashboardControlClass, "h-8 text-[12px]")}
+                    disabled={uploadingLocationFile}
+                    onClick={() => locationFileInputRef.current?.click()}
+                  >
+                    {uploadingLocationFile ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="size-3.5" />
+                    )}
+                    {uploadingLocationFile ? "Uploading…" : "Upload artwork"}
+                  </Button>
+                </>
+              ) : null}
+            </div>
             <div className="divide-y divide-[#ebebeb] overflow-hidden rounded-lg border border-[#e3e3e3] bg-white">
               <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:px-4">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium text-[#303030]">
-                    {liveEntry.artwork.name}
+                    {resolveArtworkDisplayName(liveEntry.artwork)}
                   </p>
                   <p className="mt-0.5 text-xs text-[#616161]">
                     Current · v{liveEntry.artwork.version}
@@ -381,13 +701,78 @@ export function ArtworkProofDetail({
 
               {additionalFiles.length === 0 ? (
                 <div className="px-4 py-5 text-center text-sm text-[#616161]">
-                  No other files for this location.
+                  No other files for this location yet. Upload production art
+                  here, or add proof images in the preview.
                 </div>
               ) : null}
             </div>
           </section>
-        </div>
+
+          <section>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-[#616161]">
+                  Order tech pack
+                </h3>
+                <p className="mt-1 text-[12px] text-[#8a8a8a]">
+                  Optional summary proof / tech pack that covers every location
+                  on this order. Shows on the order Proofs summary.
+                </p>
+              </div>
+              {!locked ? (
+                <>
+                  <input
+                    ref={techPackInputRef}
+                    type="file"
+                    className="hidden"
+                    multiple
+                    accept="image/*,.pdf,.ai,.eps,.psd,.zip"
+                    onChange={(event) => void handleTechPackUpload(event)}
+                  />
+                  <Button
+                    type="button"
+                    className={cn(dashboardControlClass, "h-8 text-[12px]")}
+                    disabled={uploadingTechPack}
+                    onClick={() => techPackInputRef.current?.click()}
+                  >
+                    {uploadingTechPack ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <FileUp className="size-3.5" />
+                    )}
+                    {uploadingTechPack ? "Uploading…" : "Add tech pack"}
+                  </Button>
+                </>
+              ) : null}
+            </div>
+            <div className="divide-y divide-[#ebebeb] overflow-hidden rounded-lg border border-[#e3e3e3] bg-white">
+              {techPackFiles.map((file) => (
+                <div
+                  key={file.id}
+                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:px-4"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-[#303030]">
+                      {file.name}
+                    </p>
+                    <p className="mt-0.5 text-xs text-[#616161]">
+                      {ORDER_FILE_KIND_LABELS.tech_pack}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[11px] text-[#616161]">
+                    {formatDateTime(file.uploadedAt)}
+                  </span>
+                </div>
+              ))}
+              {techPackFiles.length === 0 ? (
+                <div className="px-4 py-5 text-center text-sm text-[#616161]">
+                  No order-level tech pack yet.
+                </div>
+              ) : null}
+            </div>
+          </section>
       </div>
+      {nameFilesDialog}
     </div>
   );
 }

@@ -43,6 +43,10 @@ import {
   addProductionJob as apiAddProductionJob,
   createCustomer as apiCreateCustomer,
   updateCustomer as apiUpdateCustomer,
+  uploadCustomerTaxDocument as apiUploadCustomerTaxDocument,
+  deleteCustomerTaxDocument as apiDeleteCustomerTaxDocument,
+  uploadCustomerFile as apiUploadCustomerFile,
+  deleteCustomerFile as apiDeleteCustomerFile,
   archiveCustomer as apiArchiveCustomer,
   restoreCustomer as apiRestoreCustomer,
   type CustomerUpdate,
@@ -61,6 +65,7 @@ import {
   listScheduleBlocks as apiListScheduleBlocks,
   removeOrderLineItem as apiRemoveOrderLineItem,
   removeProductionJob as apiRemoveProductionJob,
+  updateProductionJobLineItems as apiUpdateProductionJobLineItems,
   archiveOrder as apiArchiveOrder,
   bulkArchiveOrders as apiBulkArchiveOrders,
   restoreOrder as apiRestoreOrder,
@@ -72,7 +77,10 @@ import {
   sendProofsAndEstimate as apiSendProofsAndEstimate,
   sendInvoice as apiSendInvoice,
   previewOrderDocument as apiPreviewOrderDocument,
+  previewOrderEmail as apiPreviewOrderEmail,
   type OrderDocumentScope,
+  type OrderEmailPreview,
+  type OrderEmailPreviewVariant,
   updateOrderProducedGoods as apiUpdateOrderProducedGoods,
   setArtworkStatus as apiSetArtworkStatus,
   addArtworkProofNote as apiAddArtworkProofNote,
@@ -85,6 +93,7 @@ import {
   updateJobRunStatus as apiUpdateJobRunStatus,
   updateMachine as apiUpdateMachine,
   updateOrder as apiUpdateOrder,
+  recordInvoicePayments as apiRecordInvoicePayments,
   updateOrderProductionRun as apiUpdateOrderProductionRun,
   updateOrderGarments as apiUpdateOrderGarments,
   updateOrderMaterials as apiUpdateOrderMaterials,
@@ -153,6 +162,35 @@ type ScheduleContextValue = {
   getCustomerById: (id: string) => Customer | undefined;
   addCustomer: (input: NewCustomerInput) => Promise<Customer>;
   updateCustomer: (id: string, updates: CustomerUpdate) => Promise<Customer>;
+  uploadCustomerTaxDocument: (
+    customerId: string,
+    payload: {
+      name: string;
+      kind: import("@/types").CustomerTaxDocument["kind"];
+      contentBase64?: string;
+      contentType?: string;
+      inlineDataUrl?: string;
+    }
+  ) => Promise<Customer>;
+  deleteCustomerTaxDocument: (
+    customerId: string,
+    documentId: string
+  ) => Promise<Customer>;
+  uploadCustomerFile: (
+    customerId: string,
+    payload: {
+      name: string;
+      kind?: import("@/types").CustomerFile["kind"];
+      contentBase64?: string;
+      contentType?: string;
+      inlineDataUrl?: string;
+      size?: number;
+    }
+  ) => Promise<Customer>;
+  deleteCustomerFile: (
+    customerId: string,
+    fileId: string
+  ) => Promise<Customer>;
   archiveCustomer: (id: string) => Promise<number>;
   restoreCustomer: (id: string) => Promise<number>;
   createOrderFromForm: (form: NewOrderFormInput) => Promise<Order>;
@@ -187,6 +225,11 @@ type ScheduleContextValue = {
   restoreOrder: (orderId: string) => Promise<void>;
   addProductionJob: (orderId: string, job: Job) => Promise<void>;
   removeProductionJob: (orderId: string, jobId: string) => void;
+  updateProductionJobLineItems: (
+    orderId: string,
+    jobId: string,
+    lineItemIds: string[]
+  ) => Promise<void>;
   machines: Machine[];
   scheduleBlocks: ScheduleBlock[];
   /** Schedule blocks excluding archived orders - use on shop floor views. */
@@ -238,8 +281,12 @@ type ScheduleContextValue = {
       message?: string;
       messageRole?: "staff" | "customer";
       notifyOrderMessage?: boolean;
+      assigneeId?: string | null;
+      clearAssignee?: boolean;
+      dueAt?: string | null;
+      clearDueAt?: boolean;
     }
-  ) => void;
+  ) => void | Promise<void>;
   addArtworkProofNote: (
     orderId: string,
     jobId: string,
@@ -346,25 +393,98 @@ type ScheduleContextValue = {
     imprintId: string
   ) => Promise<{ sent: boolean; to: string }>;
   sendProofsAndEstimate: (
-    orderId: string
-  ) => Promise<{ sent: boolean; to: string }>;
-  sendInvoice: (orderId: string) => Promise<{ sent: boolean; to: string }>;
+    orderId: string,
+    options?: {
+      includeEstimate?: boolean;
+      proofs?: Array<{ jobId: string; imprintId: string }>;
+      techPacks?: Array<{ fileId: string }>;
+      estimateNotes?: string | null;
+      to?: string[];
+      cc?: string[];
+      subject?: string;
+      message?: string;
+      recipientName?: string;
+    }
+  ) => Promise<{ sent: boolean; to: string; cc?: string[] }>;
+  sendInvoice: (
+    orderId: string,
+    options?: {
+      to?: string[];
+      cc?: string[];
+      subject?: string;
+      message?: string;
+      recipientName?: string;
+      invoiceNotes?: string | null;
+      proofs?: Array<{ jobId: string; imprintId: string }>;
+      techPacks?: Array<{ fileId: string }>;
+      paymentSelection?: {
+        includeStripe?: boolean;
+        includeQuickBooks?: boolean;
+        methodIds?: string[];
+      };
+    }
+  ) => Promise<{ sent: boolean; to: string; cc?: string[] }>;
   previewOrderDocument: (
     orderId: string,
-    scope?: OrderDocumentScope
+    scope?: OrderDocumentScope,
+    selection?: {
+      includeEstimate?: boolean;
+      proofs?: Array<{ jobId: string; imprintId: string }>;
+      techPacks?: Array<{ fileId: string }>;
+      invoiceNotes?: string | null;
+      estimateNotes?: string | null;
+      paymentSelection?: {
+        includeStripe?: boolean;
+        includeQuickBooks?: boolean;
+        methodIds?: string[];
+      };
+    }
   ) => Promise<{ pdfBase64: string; filename: string }>;
+  previewOrderEmail: (
+    orderId: string,
+    options: {
+      variant: OrderEmailPreviewVariant;
+      includeEstimate?: boolean;
+      proofs?: Array<{ jobId: string; imprintId: string }>;
+      techPacks?: Array<{ fileId: string }>;
+      estimateNotes?: string | null;
+      invoiceNotes?: string | null;
+      subject?: string;
+      message?: string;
+      recipientName?: string;
+    }
+  ) => Promise<OrderEmailPreview>;
   updateOrderStatus: (
     orderId: string,
     status: import("@/types").OrderStatus
   ) => Promise<void>;
   updateOrderPayment: (
     orderId: string,
-    payment: { paid: number; balance: number }
+    payment: {
+      paid: number;
+      balance: number;
+      method?: string;
+      note?: string;
+    }
   ) => Promise<Order>;
+  recordInvoicePayments: (input: {
+    payments: Array<{ orderId: string; amount?: number }>;
+    method: string;
+    note?: string;
+    syncQuickBooks?: boolean;
+  }) => Promise<Order[]>;
   setOrderRush: (orderId: string, rush: boolean) => Promise<void>;
   updateOrderCustomLabel: (
     orderId: string,
     customLabel: string
+  ) => Promise<Order>;
+  updateOrderCustomerPoNumber: (
+    orderId: string,
+    customerPoNumber: string
+  ) => Promise<Order>;
+  updateOrderDesignCode: (
+    orderId: string,
+    designCode: string
   ) => Promise<Order>;
   updateOrderEndBusiness: (
     orderId: string,
@@ -374,6 +494,13 @@ type ScheduleContextValue = {
     orderId: string,
     salesRepId: string | null
   ) => Promise<Order>;
+  updateOrderAddresses: (
+    orderId: string,
+    addresses: {
+      billTo?: import("@/types").OrderAddressSelection | null;
+      shipTo?: import("@/types").OrderAddressSelection | null;
+    }
+  ) => Promise<Order>;
   updateOrderProductionRun: (
     orderId: string,
     linkedOrderIds: string[]
@@ -382,6 +509,8 @@ type ScheduleContextValue = {
     orderId: string,
     updates: {
       selectedRateSheetId?: string | null;
+      estimateOneTimeRateSheet?: import("@/types").OrderOneTimeRateSheet | null;
+      estimateStaffNote?: string | null;
       estimateAdjustments?: OrderEstimateAdjustment[];
       excludedContractFeeIds?: string[];
       taxEnabled?: boolean;
@@ -708,6 +837,101 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       return customer;
     },
     [getIdToken, refreshShopData]
+  );
+
+  const uploadCustomerTaxDocument = useCallback(
+    async (
+      customerId: string,
+      payload: {
+        name: string;
+        kind: import("@/types").CustomerTaxDocument["kind"];
+        contentBase64?: string;
+        contentType?: string;
+        inlineDataUrl?: string;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      const { customer } = await apiUploadCustomerTaxDocument(
+        token,
+        customerId,
+        payload
+      );
+      setCustomers((prev) =>
+        prev
+          .map((existing) => (existing.id === customerId ? customer : existing))
+          .sort((a, b) => a.company.localeCompare(b.company))
+      );
+      return customer;
+    },
+    [getIdToken]
+  );
+
+  const deleteCustomerTaxDocument = useCallback(
+    async (customerId: string, documentId: string) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      const { customer } = await apiDeleteCustomerTaxDocument(
+        token,
+        customerId,
+        documentId
+      );
+      setCustomers((prev) =>
+        prev
+          .map((existing) => (existing.id === customerId ? customer : existing))
+          .sort((a, b) => a.company.localeCompare(b.company))
+      );
+      return customer;
+    },
+    [getIdToken]
+  );
+
+  const uploadCustomerFile = useCallback(
+    async (
+      customerId: string,
+      payload: {
+        name: string;
+        kind?: import("@/types").CustomerFile["kind"];
+        contentBase64?: string;
+        contentType?: string;
+        inlineDataUrl?: string;
+        size?: number;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      const { customer } = await apiUploadCustomerFile(
+        token,
+        customerId,
+        payload
+      );
+      setCustomers((prev) =>
+        prev
+          .map((existing) => (existing.id === customerId ? customer : existing))
+          .sort((a, b) => a.company.localeCompare(b.company))
+      );
+      return customer;
+    },
+    [getIdToken]
+  );
+
+  const deleteCustomerFile = useCallback(
+    async (customerId: string, fileId: string) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+      const { customer } = await apiDeleteCustomerFile(
+        token,
+        customerId,
+        fileId
+      );
+      setCustomers((prev) =>
+        prev
+          .map((existing) => (existing.id === customerId ? customer : existing))
+          .sort((a, b) => a.company.localeCompare(b.company))
+      );
+      return customer;
+    },
+    [getIdToken]
   );
 
   const archiveCustomer = useCallback(
@@ -1192,6 +1416,57 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate, refreshScheduleData]
   );
 
+  const updateProductionJobLineItems = useCallback(
+    async (orderId: string, jobId: string, lineItemIds: string[]) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("Not signed in");
+
+      const existing = orders.find((entry) => entry.id === orderId);
+      if (!existing) throw new Error("Order not found");
+
+      if (!existing.jobs.some((entry) => entry.id === jobId)) {
+        throw new Error("Production event not found");
+      }
+
+      const validIds = new Set(existing.lineItems.map((item) => item.id));
+      const nextIds = [
+        ...new Set(lineItemIds.filter((id) => validIds.has(id))),
+      ];
+      if (nextIds.length === 0) {
+        throw new Error("Select at least one blank for this decoration event");
+      }
+
+      const nextJobs = existing.jobs.map((entry) =>
+        entry.id === jobId ? { ...entry, lineItemIds: nextIds } : entry
+      );
+
+      // Optimistic local update so checkboxes don't snap back while saving.
+      applyOrderUpdate({ ...existing, jobs: nextJobs });
+
+      try {
+        try {
+          const { order } = await apiUpdateProductionJobLineItems(
+            token,
+            orderId,
+            jobId,
+            nextIds
+          );
+          applyOrderUpdate(order);
+        } catch {
+          // Dedicated function may not be deployed yet — use updateOrder.
+          const { order } = await apiUpdateOrder(token, orderId, {
+            jobs: nextJobs,
+          });
+          applyOrderUpdate(order);
+        }
+      } catch (err) {
+        applyOrderUpdate(existing);
+        throw err;
+      }
+    },
+    [getIdToken, applyOrderUpdate, orders]
+  );
+
   const getOrderMessages = useCallback(
     (orderId: string): Message[] =>
       orders.find((o) => o.id === orderId)?.messages ?? [],
@@ -1221,6 +1496,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         message?: string;
         messageRole?: "staff" | "customer";
         notifyOrderMessage?: boolean;
+        assigneeId?: string | null;
+        clearAssignee?: boolean;
+        dueAt?: string | null;
+        clearDueAt?: boolean;
       }
     ) => {
       const token = await getIdToken();
@@ -1624,11 +1903,28 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   );
 
   const sendProofsAndEstimate = useCallback(
-    async (orderId: string) => {
+    async (
+      orderId: string,
+      options?: {
+        includeEstimate?: boolean;
+        proofs?: Array<{ jobId: string; imprintId: string }>;
+        techPacks?: Array<{ fileId: string }>;
+        estimateNotes?: string | null;
+        to?: string[];
+        cc?: string[];
+        subject?: string;
+        message?: string;
+        recipientName?: string;
+      }
+    ) => {
       const token = await getIdToken();
       if (!token) throw new Error("You need to be signed in to send proofs.");
 
-      const { order, email } = await apiSendProofsAndEstimate(token, orderId);
+      const { order, email } = await apiSendProofsAndEstimate(
+        token,
+        orderId,
+        options
+      );
       applyOrderUpdate(order);
       return email;
     },
@@ -1636,21 +1932,76 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   );
 
   const previewOrderDocument = useCallback(
-    async (orderId: string, scope: OrderDocumentScope = "all") => {
+    async (
+      orderId: string,
+      scope: OrderDocumentScope = "all",
+      selection?: {
+        includeEstimate?: boolean;
+        proofs?: Array<{ jobId: string; imprintId: string }>;
+        techPacks?: Array<{ fileId: string }>;
+        invoiceNotes?: string | null;
+        estimateNotes?: string | null;
+        paymentSelection?: {
+          includeStripe?: boolean;
+          includeQuickBooks?: boolean;
+          methodIds?: string[];
+        };
+      }
+    ) => {
       const token = await getIdToken();
       if (!token) throw new Error("You need to be signed in to preview documents.");
 
-      return apiPreviewOrderDocument(token, orderId, scope);
+      return apiPreviewOrderDocument(token, orderId, scope, selection);
+    },
+    [getIdToken]
+  );
+
+  const previewOrderEmail = useCallback(
+    async (
+      orderId: string,
+      options: {
+        variant: OrderEmailPreviewVariant;
+        includeEstimate?: boolean;
+        proofs?: Array<{ jobId: string; imprintId: string }>;
+        techPacks?: Array<{ fileId: string }>;
+        estimateNotes?: string | null;
+        invoiceNotes?: string | null;
+        subject?: string;
+        message?: string;
+        recipientName?: string;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) throw new Error("You need to be signed in to preview emails.");
+
+      return apiPreviewOrderEmail(token, orderId, options);
     },
     [getIdToken]
   );
 
   const sendInvoice = useCallback(
-    async (orderId: string) => {
+    async (
+      orderId: string,
+      options?: {
+        to?: string[];
+        cc?: string[];
+        subject?: string;
+        message?: string;
+        recipientName?: string;
+        invoiceNotes?: string | null;
+        proofs?: Array<{ jobId: string; imprintId: string }>;
+        techPacks?: Array<{ fileId: string }>;
+        paymentSelection?: {
+          includeStripe?: boolean;
+          includeQuickBooks?: boolean;
+          methodIds?: string[];
+        };
+      }
+    ) => {
       const token = await getIdToken();
       if (!token) throw new Error("You need to be signed in to send invoices.");
 
-      const { order, email } = await apiSendInvoice(token, orderId);
+      const { order, email } = await apiSendInvoice(token, orderId, options);
       applyOrderUpdate(order);
       return email;
     },
@@ -1669,7 +2020,15 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   );
 
   const updateOrderPayment = useCallback(
-    async (orderId: string, payment: { paid: number; balance: number }) => {
+    async (
+      orderId: string,
+      payment: {
+        paid: number;
+        balance: number;
+        method?: string;
+        note?: string;
+      }
+    ) => {
       const token = await getIdToken();
       if (!token) {
         throw new Error("You must be signed in to record a payment.");
@@ -1678,11 +2037,31 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const { order } = await apiUpdateOrder(token, orderId, {
         paid: payment.paid,
         balance: payment.balance,
+        ...(payment.method ? { paymentMethod: payment.method } : {}),
+        ...(payment.note ? { paymentNote: payment.note } : {}),
       });
       applyOrderUpdate(order);
       return order;
     },
     [getIdToken, applyOrderUpdate]
+  );
+
+  const recordInvoicePayments = useCallback(
+    async (input: {
+      payments: Array<{ orderId: string; amount?: number }>;
+      method: string;
+      note?: string;
+      syncQuickBooks?: boolean;
+    }) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to record a payment.");
+      }
+      const result = await apiRecordInvoicePayments(token, input);
+      applyOrderUpdates(result.orders || []);
+      return result.orders || [];
+    },
+    [getIdToken, applyOrderUpdates]
   );
 
   const setOrderRush = useCallback(
@@ -1706,6 +2085,39 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const trimmed = customLabel.trim();
       const { order } = await apiUpdateOrder(token, orderId, {
         customLabel: trimmed,
+      });
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderCustomerPoNumber = useCallback(
+    async (orderId: string, customerPoNumber: string) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update the PO number.");
+      }
+
+      const trimmed = customerPoNumber.trim();
+      const { order } = await apiUpdateOrder(token, orderId, {
+        customerPoNumber: trimmed || null,
+      });
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderDesignCode = useCallback(
+    async (orderId: string, designCode: string) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update the design code.");
+      }
+
+      const { order } = await apiUpdateOrder(token, orderId, {
+        designCode: designCode.trim() || null,
       });
       applyOrderUpdate(order);
       return order;
@@ -1745,6 +2157,29 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateOrderAddresses = useCallback(
+    async (
+      orderId: string,
+      addresses: {
+        billTo?: import("@/types").OrderAddressSelection | null;
+        shipTo?: import("@/types").OrderAddressSelection | null;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update order addresses.");
+      }
+
+      const { order } = await apiUpdateOrder(token, orderId, {
+        billTo: addresses.billTo ?? null,
+        shipTo: addresses.shipTo ?? null,
+      });
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const updateOrderProductionRun = useCallback(
     async (orderId: string, linkedOrderIds: string[]) => {
       const token = await getIdToken();
@@ -1767,6 +2202,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       orderId: string,
       updates: {
         selectedRateSheetId?: string | null;
+        estimateOneTimeRateSheet?: import("@/types").OrderOneTimeRateSheet | null;
+        estimateStaffNote?: string | null;
         estimateAdjustments?: OrderEstimateAdjustment[];
         excludedContractFeeIds?: string[];
         taxEnabled?: boolean;
@@ -2124,6 +2561,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getCustomerById,
       addCustomer,
       updateCustomer,
+      uploadCustomerTaxDocument,
+      deleteCustomerTaxDocument,
+      uploadCustomerFile,
+      deleteCustomerFile,
       archiveCustomer,
       restoreCustomer,
       createOrderFromForm,
@@ -2144,6 +2585,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       restoreOrder,
       addProductionJob,
       removeProductionJob,
+      updateProductionJobLineItems,
       machines,
       scheduleBlocks,
       activeScheduleBlocks,
@@ -2189,12 +2631,17 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       sendProofsAndEstimate,
       sendInvoice,
       previewOrderDocument,
+      previewOrderEmail,
       updateOrderStatus,
       updateOrderPayment,
+      recordInvoicePayments,
       setOrderRush,
       updateOrderCustomLabel,
+      updateOrderCustomerPoNumber,
+      updateOrderDesignCode,
       updateOrderEndBusiness,
       updateOrderSalesRep,
+      updateOrderAddresses,
       updateOrderProductionRun,
       updateOrderEstimatePricing,
       updateOrderShipments,
@@ -2215,6 +2662,10 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       getCustomerById,
       addCustomer,
       updateCustomer,
+      uploadCustomerTaxDocument,
+      deleteCustomerTaxDocument,
+      uploadCustomerFile,
+      deleteCustomerFile,
       archiveCustomer,
       restoreCustomer,
       createOrderFromForm,
@@ -2235,6 +2686,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       restoreOrder,
       addProductionJob,
       removeProductionJob,
+      updateProductionJobLineItems,
       machines,
       scheduleBlocks,
       activeScheduleBlocks,
@@ -2280,12 +2732,17 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       sendProofsAndEstimate,
       sendInvoice,
       previewOrderDocument,
+      previewOrderEmail,
       updateOrderStatus,
       updateOrderPayment,
+      recordInvoicePayments,
       setOrderRush,
       updateOrderCustomLabel,
+      updateOrderCustomerPoNumber,
+      updateOrderDesignCode,
       updateOrderEndBusiness,
       updateOrderSalesRep,
+      updateOrderAddresses,
       updateOrderProductionRun,
       updateOrderEstimatePricing,
       updateOrderShipments,

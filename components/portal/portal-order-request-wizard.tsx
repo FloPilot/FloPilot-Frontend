@@ -12,6 +12,7 @@ import { PortalPrintSizeFields } from "@/components/portal/portal-print-size-fie
 import { PortalVendorPoPanel } from "@/components/portal/portal-vendor-po-panel";
 import { usePortalAccess } from "@/components/portal/use-portal-access";
 import { usePortalPaths } from "@/components/portal/portal-paths";
+import { useNameBeforeUpload } from "@/hooks/use-name-before-upload";
 import type { DecorationType } from "@/types";
 import {
   createPortalOrderRequest,
@@ -342,6 +343,7 @@ export function PortalOrderRequestWizard() {
   const [estimateLoading, setEstimateLoading] = useState(false);
   const [estimateError, setEstimateError] = useState<string | null>(null);
   const [pricingMessage, setPricingMessage] = useState<string | null>(null);
+  const { promptRename, nameFilesDialog } = useNameBeforeUpload();
   const [pricingReady, setPricingReady] = useState(false);
   const [runCandidates, setRunCandidates] = useState<OrderRequestSummary[]>(
     []
@@ -702,12 +704,21 @@ export function PortalOrderRequestWizard() {
   ) => {
     const file = fileList?.[0];
     if (!file) return;
+
+    const named = await promptRename([file], {
+      title: "Name this mockup",
+      description:
+        "Choose a clear name before attaching this mockup to the event.",
+    });
+    if (!named?.length) return;
+
     try {
-      const previewUrl = await readFileAsDataUrl(file);
+      const { file: namedFile, name } = named[0];
+      const previewUrl = await readFileAsDataUrl(namedFile);
       updateEvent(eventId, {
         mockupFile: {
           id: createDraftId("mockup"),
-          name: file.name,
+          name,
           previewUrl,
         },
       });
@@ -2493,6 +2504,7 @@ export function PortalOrderRequestWizard() {
         onDiscard={handleLeaveDiscard}
         onSave={() => void handleLeaveSave()}
       />
+      {nameFilesDialog}
     </div>
   );
 }

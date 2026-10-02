@@ -4,7 +4,7 @@ import { CheckCircle2, Shirt } from "lucide-react";
 import { decorationLabel, formatDateTime } from "@/lib/format";
 import type { MockupEntry } from "@/lib/job-imprints";
 import { dashboardElevatedShadow } from "@/lib/dashboard-styles";
-import { artworkHasProofImages, getProofSlides } from "@/lib/proof-slides";
+import { artworkHasProofImages, getProofSlides, isArtworkPlaceholderName, resolveArtworkDisplayName } from "@/lib/proof-slides";
 import { cn } from "@/lib/utils";
 import { ArtworkStatusBadge } from "./artwork-status-badge";
 
@@ -37,7 +37,9 @@ export function MockupPreview({
   const hasPreview = artworkHasProofImages(file);
   const previewUrl = slides[0]?.previewUrl;
   const slideCount = slides.length;
-  const noMockupAttached = file.name === "No mockup attached";
+  const noMockupAttached =
+    isArtworkPlaceholderName(file.name) && !hasPreview;
+  const displayName = resolveArtworkDisplayName(file);
   const Wrapper = onClick ? "button" : "div";
 
   return (
@@ -161,7 +163,7 @@ export function MockupPreview({
       >
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-[#303030]">
-            {noMockupAttached ? "No mockup attached" : file.name}
+            {noMockupAttached ? "No mockup attached" : displayName}
           </p>
           <p className="text-xs text-[#8a8a8a]">
             {imprint.label} · v{file.version}

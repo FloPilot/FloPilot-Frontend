@@ -10,17 +10,31 @@ import {
   ExternalLink,
   Loader2,
   Package,
+  Plus,
   Plug,
   RefreshCw,
+  Trash2,
   Unplug,
 } from "lucide-react";
 import {
+  SaveButton,
   SettingsHeader,
   SettingsMain,
   SettingsPanel,
+  useRegisterSectionUnsavedChanges,
+  useSectionDraft,
 } from "@/components/settings/settings-kit";
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   LabeledSelectValue,
@@ -30,6 +44,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import {
+  createQuickBooksItem,
   disconnectQuickBooks,
   fetchAccountingIntegrations,
   listQuickBooksItems,
@@ -38,12 +53,15 @@ import {
   verifyQuickBooks,
 } from "@/lib/api";
 import {
+  createAdditionalItemMappingId,
   EMPTY_ITEM_MAPPINGS,
   isQuickBooksConnected,
   QUICKBOOKS_ITEM_MAPPING_OPTIONS,
   type AccountingIntegration,
+  type QuickBooksAdditionalItemMapping,
   type QuickBooksCatalogItem,
   type QuickBooksDocumentType,
+  type QuickBooksItemMapping,
   type QuickBooksItemMappingKey,
   type QuickBooksItemMappings,
   type QuickBooksSettings,
@@ -99,6 +117,47 @@ function resolveItemMappings(
   };
 }
 
+function resolveAdditionalMappings(
+  settings?: QuickBooksSettings | null
+): QuickBooksAdditionalItemMapping[] {
+  return Array.isArray(settings?.additionalItemMappings)
+    ? settings.additionalItemMappings
+    : [];
+}
+
+function catalogSelectOptions(
+  catalogItems: QuickBooksCatalogItem[],
+  mapped?: QuickBooksItemMapping | null,
+  autoLabel?: string
+) {
+  const options = [
+    ...(autoLabel
+      ? [
+          {
+            value: AUTO_ITEM_VALUE,
+            label: `Auto · ${autoLabel}`,
+          },
+        ]
+      : [
+          {
+            value: AUTO_ITEM_VALUE,
+            label: "Choose a Product/Service",
+          },
+        ]),
+    ...catalogItems.map((item) => ({
+      value: item.id,
+      label: item.name,
+    })),
+  ];
+  if (mapped?.id && !catalogItems.some((item) => item.id === mapped.id)) {
+    options.splice(autoLabel ? 1 : 0, 0, {
+      value: mapped.id,
+      label: mapped.name || `Saved item (${mapped.id})`,
+    });
+  }
+  return options;
+}
+
 export function AccountingIntegrationsSection() {
   const { getIdToken } = useAuth();
   const [integrations, setIntegrations] = useState<AccountingIntegration[]>([]);
@@ -112,9 +171,18 @@ export function AccountingIntegrationsSection() {
   const [disconnecting, setDisconnecting] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [savingMappings, setSavingMappings] = useState(false);
+  const [savedMappings, setSavedMappings] = useState(false);
   const [catalogItems, setCatalogItems] = useState<QuickBooksCatalogItem[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createName, setCreateName] = useState("");
+  const [creatingItem, setCreatingItem] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createAssignKey, setCreateAssignKey] = useState<
+    QuickBooksItemMappingKey | "none"
+  >("none");
 
   const quickbooks = useMemo(
     () => integrations.find((entry) => entry.provider === "quickbooks"),
@@ -123,7 +191,22 @@ export function AccountingIntegrationsSection() {
   const connected = isQuickBooksConnected(quickbooks);
   const badge = statusBadge(quickbooks);
   const BadgeIcon = badge.icon;
-  const itemMappings = resolveItemMappings(quickbooks?.settings);
+
+  const savedMappingState = useMemo(
+    () => ({
+      itemMappings: resolveItemMappings(quickbooks?.settings),
+      additionalItemMappings: resolveAdditionalMappings(quickbooks?.settings),
+    }),
+    [quickbooks?.settings]
+  );
+  const {
+    draft: mappingDraft,
+    setDraft: setMappingDraft,
+    dirty: mappingsDirty,
+    discard: discardMappings,
+  } = useSectionDraft(savedMappingState);
+  const itemMappings = mappingDraft.itemMappings;
+  const additionalItemMappings = mappingDraft.additionalItemMappings;
 
   const settings: QuickBooksSettings = {
     defaultDocumentType: quickbooks?.settings?.defaultDocumentType || "ask",
@@ -134,7 +217,8 @@ export function AccountingIntegrationsSection() {
     autoPushOnEstimateApprove:
       quickbooks?.settings?.autoPushOnEstimateApprove || false,
     autoPushOnInvoice: quickbooks?.settings?.autoPushOnInvoice || false,
-    itemMappings,
+    itemMappings: savedMappingState.itemMappings,
+    additionalItemMappings: savedMappingState.additionalItemMappings,
   };
 
   const load = useCallback(async () => {
@@ -168,8 +252,6 @@ export function AccountingIntegrationsSection() {
           ? err.message
           : "Could not load QuickBooks products/services";
       setItemsError(message);
-      // Token refresh failure updates the integration record server-side;
-      // reload so the Connected badge doesn't disagree with the warning.
       if (/session expired|reconnect/i.test(message)) {
         void load();
       }
@@ -238,19 +320,25 @@ export function AccountingIntegrationsSection() {
     }
   };
 
-  const saveSettings = async (patch: Partial<QuickBooksSettings>) => {
+  /** Document prefs only — leave product mappings in the local draft. */
+  const saveDocumentSettings = async (patch: Partial<QuickBooksSettings>) => {
     setSavingSettings(true);
     setError(null);
     try {
       const token = await getIdToken();
       if (!token) throw new Error("You must be signed in.");
       const result = await updateQuickBooksSettings(token, {
-        ...settings,
-        ...patch,
-        itemMappings: {
-          ...itemMappings,
-          ...(patch.itemMappings || {}),
-        },
+        defaultDocumentType:
+          patch.defaultDocumentType ?? settings.defaultDocumentType,
+        allowedDocumentTypes:
+          patch.allowedDocumentTypes ?? settings.allowedDocumentTypes,
+        autoPushOnEstimateApprove:
+          patch.autoPushOnEstimateApprove ??
+          settings.autoPushOnEstimateApprove,
+        autoPushOnInvoice:
+          patch.autoPushOnInvoice ?? settings.autoPushOnInvoice,
+        itemMappings: savedMappingState.itemMappings,
+        additionalItemMappings: savedMappingState.additionalItemMappings,
       });
       setIntegrations([result.integration]);
     } catch (err) {
@@ -260,6 +348,49 @@ export function AccountingIntegrationsSection() {
     }
   };
 
+  const saveMappings = async () => {
+    setSavingMappings(true);
+    setError(null);
+    setSavedMappings(false);
+    try {
+      const token = await getIdToken();
+      if (!token) throw new Error("You must be signed in.");
+      const cleanedAdditional = mappingDraft.additionalItemMappings
+        .map((entry) => ({
+          ...entry,
+          label: entry.label.trim(),
+        }))
+        .filter((entry) => entry.label || entry.item?.id);
+      const result = await updateQuickBooksSettings(token, {
+        defaultDocumentType: settings.defaultDocumentType,
+        allowedDocumentTypes: settings.allowedDocumentTypes,
+        autoPushOnEstimateApprove: settings.autoPushOnEstimateApprove,
+        autoPushOnInvoice: settings.autoPushOnInvoice,
+        itemMappings: mappingDraft.itemMappings,
+        additionalItemMappings: cleanedAdditional,
+      });
+      setIntegrations([result.integration]);
+      setSavedMappings(true);
+      window.setTimeout(() => setSavedMappings(false), 2500);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Could not save product mappings"
+      );
+    } finally {
+      setSavingMappings(false);
+    }
+  };
+
+  useRegisterSectionUnsavedChanges({
+    dirty: mappingsDirty,
+    saving: savingMappings,
+    enabled: connected,
+    label: "Unsaved products & services",
+    onSave: () => saveMappings(),
+    onDiscard: discardMappings,
+    id: "settings-accounting-products",
+  });
+
   const toggleAllowed = (type: QuickBooksDocumentType) => {
     const current = new Set(settings.allowedDocumentTypes);
     if (current.has(type)) {
@@ -268,7 +399,7 @@ export function AccountingIntegrationsSection() {
     } else {
       current.add(type);
     }
-    void saveSettings({ allowedDocumentTypes: [...current] });
+    void saveDocumentSettings({ allowedDocumentTypes: [...current] });
   };
 
   const updateItemMapping = (
@@ -276,40 +407,110 @@ export function AccountingIntegrationsSection() {
     itemId: string | null
   ) => {
     const selected = catalogItems.find((item) => item.id === itemId);
-    const nextMappings: QuickBooksItemMappings = {
-      ...itemMappings,
-      [key]: selected
-        ? { id: selected.id, name: selected.name }
-        : { id: null, name: null },
-    };
-    void saveSettings({ itemMappings: nextMappings });
+    setMappingDraft((current) => ({
+      ...current,
+      itemMappings: {
+        ...current.itemMappings,
+        [key]: selected
+          ? { id: selected.id, name: selected.name }
+          : { id: null, name: null },
+      },
+    }));
   };
 
   const selectOptionsForKey = (key: QuickBooksItemMappingKey) => {
     const option = QUICKBOOKS_ITEM_MAPPING_OPTIONS.find(
       (entry) => entry.key === key
     );
-    const mapped = itemMappings[key];
-    const options = [
-      {
-        value: AUTO_ITEM_VALUE,
-        label: `Auto · ${option?.defaultLabel || "FloPilot default"}`,
-      },
-      ...catalogItems.map((item) => ({
-        value: item.id,
-        label: item.name,
-      })),
-    ];
-    if (
-      mapped?.id &&
-      !catalogItems.some((item) => item.id === mapped.id)
-    ) {
-      options.splice(1, 0, {
-        value: mapped.id,
-        label: mapped.name || `Saved item (${mapped.id})`,
-      });
+    return catalogSelectOptions(
+      catalogItems,
+      itemMappings[key],
+      option?.defaultLabel
+    );
+  };
+
+  const selectOptionsForAdditional = (mapped?: QuickBooksItemMapping | null) =>
+    catalogSelectOptions(catalogItems, mapped);
+
+  const openCreateDialog = () => {
+    setCreateName("");
+    setCreateError(null);
+    setCreateAssignKey("none");
+    setCreateOpen(true);
+  };
+
+  const handleCreateItem = async () => {
+    const name = createName.trim();
+    if (!name) {
+      setCreateError("Enter a product/service name.");
+      return;
     }
-    return options;
+    setCreatingItem(true);
+    setCreateError(null);
+    try {
+      const token = await getIdToken();
+      if (!token) throw new Error("You must be signed in.");
+      const result = await createQuickBooksItem(token, { name });
+      const created = result.item;
+      setCatalogItems((prev) => {
+        if (prev.some((item) => item.id === created.id)) return prev;
+        return [...prev, created].sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+        );
+      });
+      if (createAssignKey !== "none") {
+        setMappingDraft((current) => ({
+          ...current,
+          itemMappings: {
+            ...current.itemMappings,
+            [createAssignKey]: { id: created.id, name: created.name },
+          },
+        }));
+      }
+      setCreateOpen(false);
+      setCreateName("");
+    } catch (err) {
+      setCreateError(
+        err instanceof Error ? err.message : "Could not create in QuickBooks"
+      );
+    } finally {
+      setCreatingItem(false);
+    }
+  };
+
+  const addAdditionalMapping = () => {
+    setMappingDraft((current) => ({
+      ...current,
+      additionalItemMappings: [
+        ...current.additionalItemMappings,
+        {
+          id: createAdditionalItemMappingId(),
+          label: "",
+          item: { id: null, name: null },
+        },
+      ],
+    }));
+  };
+
+  const updateAdditionalMapping = (
+    id: string,
+    patch: Partial<Pick<QuickBooksAdditionalItemMapping, "label" | "item">>
+  ) => {
+    setMappingDraft((current) => ({
+      ...current,
+      additionalItemMappings: current.additionalItemMappings.map((entry) =>
+        entry.id === id ? { ...entry, ...patch } : entry
+      ),
+    }));
+  };
+
+  const removeAdditionalMapping = (id: string) => {
+    setMappingDraft((current) => ({
+      ...current,
+      additionalItemMappings: current.additionalItemMappings.filter(
+        (entry) => entry.id !== id
+      ),
+    }));
   };
 
   return (
@@ -317,7 +518,17 @@ export function AccountingIntegrationsSection() {
       <SettingsHeader
         title="Accounting"
         description="Connect QuickBooks Online when you’re ready to push estimates and invoices from FloPilot. Nothing syncs until you authorize a company."
-      />
+      >
+        {connected ? (
+          <SaveButton
+            dirty={mappingsDirty}
+            saving={savingMappings}
+            saved={savedMappings}
+            headerBar
+            onSave={() => void saveMappings()}
+          />
+        ) : null}
+      </SettingsHeader>
 
       {!loading && !connected && appConfigured ? (
         <div className="rounded-lg border border-[#e3e3e3] bg-[#fafafa] px-4 py-3 text-[13px] text-[#616161]">
@@ -405,6 +616,14 @@ export function AccountingIntegrationsSection() {
                   <p className="mt-1 text-sm text-[#616161]">
                     Sync customers and push estimates or invoices from shop
                     orders — you choose what to send.
+                    {environment === "sandbox" ? (
+                      <>
+                        {" "}
+                        FloPilot is in <span className="font-medium">sandbox</span>{" "}
+                        mode — connect a QuickBooks sandbox company, not a live
+                        production file.
+                      </>
+                    ) : null}
                   </p>
                   {connected && (
                     <p className="mt-2 text-[12px] text-[#616161]">
@@ -485,24 +704,35 @@ export function AccountingIntegrationsSection() {
                         Products & services
                       </h4>
                       <p className="mt-0.5 text-[13px] text-[#616161]">
-                        Map each FloPilot line type to a QuickBooks Product/Service
-                        once — pushes will always use these.
+                        Map FloPilot line types to QuickBooks Products/Services —
+                        or create a new one in QuickBooks from here.
                       </p>
                     </div>
                   </div>
-                  <Button
-                    type="button"
-                    className={cn(dashboardControlClass, "h-8 shrink-0")}
-                    disabled={loadingItems}
-                    onClick={() => void loadCatalogItems()}
-                  >
-                    {loadingItems ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="size-3.5" />
-                    )}
-                    Refresh list
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      className={cn(dashboardControlClass, "h-8 shrink-0")}
+                      disabled={loadingItems}
+                      onClick={() => void loadCatalogItems()}
+                    >
+                      {loadingItems ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="size-3.5" />
+                      )}
+                      Refresh list
+                    </Button>
+                    <Button
+                      type="button"
+                      className={cn(dashboardPrimaryButtonClass, "h-8 shrink-0")}
+                      disabled={creatingItem}
+                      onClick={openCreateDialog}
+                    >
+                      <Plus className="size-3.5" />
+                      Create in QuickBooks
+                    </Button>
+                  </div>
                 </div>
 
                 {itemsError && (
@@ -532,7 +762,7 @@ export function AccountingIntegrationsSection() {
                         </div>
                         <Select
                           value={value}
-                          disabled={savingSettings || loadingItems}
+                          disabled={savingMappings || loadingItems}
                           onValueChange={(next) => {
                             const selected =
                               !next || next === AUTO_ITEM_VALUE
@@ -569,17 +799,148 @@ export function AccountingIntegrationsSection() {
                   })}
                 </div>
 
+                <div className="mt-5 rounded-xl border border-[#ebebeb] bg-white px-3 py-4 sm:px-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-semibold text-[#303030]">
+                        Additional products & services
+                      </p>
+                      <p className="mt-0.5 text-[12px] leading-snug text-[#8a8a8a]">
+                        Map specific FloPilot fee or offering labels (exact name
+                        match) to their own QuickBooks Product/Service — useful
+                        when Fees & setup is too broad.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      className={cn(dashboardControlClass, "h-8 shrink-0")}
+                      disabled={
+                        savingMappings || additionalItemMappings.length >= 25
+                      }
+                      onClick={addAdditionalMapping}
+                    >
+                      <Plus className="size-3.5" />
+                      Add mapping
+                    </Button>
+                  </div>
+
+                  {additionalItemMappings.length === 0 ? (
+                    <p className="mt-3 text-[12px] text-[#8a8a8a]">
+                      No additional mappings yet. Add one for a named fee (e.g.
+                      “Rush fee”) and assign the QuickBooks service it should
+                      push as.
+                    </p>
+                  ) : (
+                    <div className="mt-3 space-y-2">
+                      {additionalItemMappings.map((entry) => {
+                        const itemValue = entry.item?.id || AUTO_ITEM_VALUE;
+                        const itemOptions = selectOptionsForAdditional(
+                          entry.item
+                        );
+                        return (
+                          <div
+                            key={entry.id}
+                            className="grid gap-2 rounded-lg border border-[#ebebeb] bg-[#fafafa] px-3 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(200px,260px)_auto] sm:items-center sm:gap-3"
+                          >
+                            <div className="min-w-0 space-y-1">
+                              <Label className="text-[11px] font-medium uppercase tracking-wide text-[#8a8a8a]">
+                                FloPilot offering label
+                              </Label>
+                              <Input
+                                value={entry.label}
+                                disabled={savingMappings}
+                                placeholder="e.g. Rush fee"
+                                className="h-10 rounded-xl border-[#e3e3e3] bg-white"
+                                onChange={(event) => {
+                                  updateAdditionalMapping(entry.id, {
+                                    label: event.target.value,
+                                  });
+                                }}
+                                onBlur={(event) => {
+                                  const next = event.target.value.trim();
+                                  if (next === entry.label) return;
+                                  updateAdditionalMapping(entry.id, {
+                                    label: next,
+                                  });
+                                }}
+                              />
+                            </div>
+                            <div className="min-w-0 space-y-1">
+                              <Label className="text-[11px] font-medium uppercase tracking-wide text-[#8a8a8a]">
+                                QuickBooks Product/Service
+                              </Label>
+                              <Select
+                                value={itemValue}
+                                disabled={savingMappings || loadingItems}
+                                onValueChange={(next) => {
+                                  const selectedId =
+                                    !next || next === AUTO_ITEM_VALUE
+                                      ? null
+                                      : String(next);
+                                  const selected = catalogItems.find(
+                                    (item) => item.id === selectedId
+                                  );
+                                  updateAdditionalMapping(entry.id, {
+                                    item: selected
+                                      ? {
+                                          id: selected.id,
+                                          name: selected.name,
+                                        }
+                                      : { id: null, name: null },
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="h-10 w-full rounded-xl border-[#e3e3e3] bg-white">
+                                  <LabeledSelectValue
+                                    value={itemValue}
+                                    options={itemOptions}
+                                    placeholder="Choose a Product/Service"
+                                  />
+                                </SelectTrigger>
+                                <SelectContent className="max-h-72">
+                                  {itemOptions.map((opt) => (
+                                    <SelectItem
+                                      key={opt.value}
+                                      value={opt.value}
+                                    >
+                                      {opt.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <Button
+                              type="button"
+                              aria-label="Remove mapping"
+                              className={cn(
+                                dashboardControlClass,
+                                "h-10 w-10 shrink-0 px-0 sm:mt-5"
+                              )}
+                              disabled={savingMappings}
+                              onClick={() => removeAdditionalMapping(entry.id)}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 <p className="mt-3 text-[12px] text-[#8a8a8a]">
                   Leave any row on Auto and FloPilot will create a matching
-                  service in QuickBooks the first time you push.
+                  service in QuickBooks the first time you push. Additional
+                  mappings override Fees & setup when the line label matches
+                  exactly. Use Save / Discard in the top bar when you’re done
+                  editing mappings.
                 </p>
 
-                {savingSettings && (
-                  <p className="mt-2 flex items-center gap-2 text-[12px] text-[#616161]">
-                    <Loader2 className="size-3.5 animate-spin" />
-                    Saving mapping…
+                {mappingsDirty ? (
+                  <p className="mt-2 text-[12px] font-medium text-[#2c6ecb]">
+                    Mapping changes aren’t saved yet — use the bar at the top.
                   </p>
-                )}
+                ) : null}
               </div>
             )}
 
@@ -653,7 +1014,9 @@ export function AccountingIntegrationsSection() {
                     key={type}
                     type="button"
                     disabled={savingSettings}
-                    onClick={() => void saveSettings({ defaultDocumentType: type })}
+                    onClick={() =>
+                      void saveDocumentSettings({ defaultDocumentType: type })
+                    }
                     className={cn(
                       "rounded-full border px-3 py-1.5 text-[13px] font-medium capitalize transition-colors",
                       settings.defaultDocumentType === type
@@ -680,6 +1043,111 @@ export function AccountingIntegrationsSection() {
           </div>
         </SettingsPanel>
       )}
+
+      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+        <DialogContent className="rounded-2xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-[16px] font-semibold text-[#303030]">
+              Create product/service
+            </DialogTitle>
+            <DialogDescription className="text-[13px] text-[#616161]">
+              Adds a Service item in your QuickBooks company, then appears in
+              the mapping lists above.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 px-1 pb-1">
+            <div className="space-y-1.5">
+              <Label htmlFor="qb-create-name" className="text-[13px] text-[#303030]">
+                Name in QuickBooks
+              </Label>
+              <Input
+                id="qb-create-name"
+                value={createName}
+                autoFocus
+                maxLength={100}
+                placeholder="e.g. Rush fee"
+                className="h-10 rounded-xl border-[#e3e3e3]"
+                disabled={creatingItem}
+                onChange={(event) => setCreateName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleCreateItem();
+                  }
+                }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-[13px] text-[#303030]">
+                Assign to mapping (optional)
+              </Label>
+              <Select
+                value={createAssignKey}
+                disabled={creatingItem}
+                onValueChange={(next) =>
+                  setCreateAssignKey(
+                    (next as QuickBooksItemMappingKey | "none") || "none"
+                  )
+                }
+              >
+                <SelectTrigger className="h-10 w-full rounded-xl border-[#e3e3e3]">
+                  <LabeledSelectValue
+                    value={createAssignKey}
+                    options={[
+                      { value: "none", label: "Don’t assign yet" },
+                      ...QUICKBOOKS_ITEM_MAPPING_OPTIONS.map((option) => ({
+                        value: option.key,
+                        label: option.label,
+                      })),
+                    ]}
+                    placeholder="Don’t assign yet"
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Don’t assign yet</SelectItem>
+                  {QUICKBOOKS_ITEM_MAPPING_OPTIONS.map((option) => (
+                    <SelectItem key={option.key} value={option.key}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[12px] text-[#8a8a8a]">
+                Or leave unassigned and pick it later under Additional products
+                & services — then Save from the top bar.
+              </p>
+            </div>
+            {createError && (
+              <p className="rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2 text-[12px] text-[#8f1f1f]">
+                {createError}
+              </p>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:justify-end">
+            <Button
+              type="button"
+              className={cn(dashboardControlClass, "h-9")}
+              disabled={creatingItem}
+              onClick={() => setCreateOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className={cn(dashboardPrimaryButtonClass, "h-9")}
+              disabled={creatingItem || !createName.trim()}
+              onClick={() => void handleCreateItem()}
+            >
+              {creatingItem ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : (
+                <Plus className="size-3.5" />
+              )}
+              Create & push
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SettingsMain>
   );
 }

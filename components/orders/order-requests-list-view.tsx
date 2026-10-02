@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import { ClipboardList, Layers3, Loader2 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
@@ -107,7 +107,7 @@ function chipClass(active: boolean) {
 }
 
 export function OrderRequestsListView() {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const { getIdToken, profile } = useAuth();
   const { customers } = useSchedule();
   const myUserId =

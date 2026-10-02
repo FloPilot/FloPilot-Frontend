@@ -20,6 +20,7 @@ import {
   type CustomerPortalArtworkItem,
 } from "@/lib/customer-portal-api";
 import { decorationLabel, formatDate } from "@/lib/format";
+import { matchesDesignCodeSearch } from "@/lib/design-code";
 import {
   dashboardInsetSurfaceClass,
   dashboardPrimaryButtonClass,
@@ -177,8 +178,10 @@ export function PortalApplyDesignLibraryDialog({
 
     if (!needle) return rows;
     return rows.filter((design) => {
+      if (matchesDesignCodeSearch(design.designCode, query)) return true;
       const haystack = [
         design.name,
+        design.designCode,
         design.locationLabel,
         design.imprintCustomLabel,
         design.sourceOrderNumber,
@@ -234,7 +237,7 @@ export function PortalApplyDesignLibraryDialog({
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search name, location, order…"
+                placeholder="Search design code, name, location…"
                 className="h-10 w-full rounded-lg border border-[#ebebeb] bg-white pl-9 pr-3 text-[13px] text-[#303030] outline-none focus:border-[#c9cccf]"
               />
             </div>

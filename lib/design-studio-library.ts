@@ -113,15 +113,43 @@ export function parseDesignStudioEntryId(id: string): {
   return { kind: "design", designId: id };
 }
 
-function previewForDesign(design: SavedDesign): string | undefined {
+export function previewForDesign(design: SavedDesign): string | undefined {
   const mockup = design.designMockup || design.locations?.[0]?.designMockup;
   const layerUrl =
     mockup?.artLayers
       ?.map((layer) => layer.cleanUrl || layer.url)
       .find((url) => typeof url === "string" && url.trim()) || undefined;
+  const slidePreview =
+    design.artwork?.proofSlides
+      ?.map((slide) =>
+        typeof slide.previewUrl === "string" ? slide.previewUrl.trim() : ""
+      )
+      .find(Boolean) || undefined;
+  const historyPreview =
+    design.artwork?.history
+      ?.map((entry) => {
+        const fromSlides = entry.proofSlides
+          ?.map((slide) =>
+            typeof slide.previewUrl === "string" ? slide.previewUrl.trim() : ""
+          )
+          .find(Boolean);
+        return (
+          fromSlides ||
+          (typeof entry.previewUrl === "string"
+            ? entry.previewUrl.trim()
+            : "") ||
+          undefined
+        );
+      })
+      .find(Boolean) || undefined;
+
   return (
     mockup?.composedPreviewUrl ||
-    design.artwork?.previewUrl ||
+    (typeof design.artwork?.previewUrl === "string"
+      ? design.artwork.previewUrl.trim()
+      : undefined) ||
+    slidePreview ||
+    historyPreview ||
     mockup?.blankImageUrl ||
     mockup?.blankImageFrontUrl ||
     layerUrl ||

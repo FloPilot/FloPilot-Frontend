@@ -26,7 +26,8 @@ function createShopSheetId(): string {
 export type ShopPricingSource = Pick<
   ShopSettings,
   "pricingMatrix" | "pricingRateSheets"
->;
+> &
+  Partial<Pick<ShopSettings, "productionDefaults">>;
 
 export function emptyShopRateSheet(
   name = "Shop standard"

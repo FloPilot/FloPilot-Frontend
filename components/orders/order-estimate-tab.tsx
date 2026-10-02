@@ -6,13 +6,16 @@ import {
   CheckCircle2,
   FileText,
   Loader2,
+  Lock,
   Ruler,
   Send,
   Sparkles,
+  StickyNote,
   Table2,
 } from "lucide-react";
 import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-changes-provider";
 import { PdfPreviewDialog } from "@/components/orders/pdf-preview-dialog";
+import { SendProofsEstimateDialog } from "@/components/orders/send-proofs-estimate-dialog";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
 import {
@@ -29,6 +32,7 @@ import {
   customerHasNegotiatedPricing,
   resolveEffectivePricingMatrix,
 } from "@/lib/customer-pricing";
+import { isOneTimeRateSheetId } from "@/lib/order-one-time-rate-sheet";
 import { computeEstimateTotals, computeEstimatePerPieceCosts } from "@/lib/order-estimate";
 import { OrderEstimateApprovalPanel } from "@/components/orders/order-estimate-approval-panel";
 import {
@@ -38,6 +42,7 @@ import {
 import { EstimatePerPieceSummary } from "@/components/orders/estimate-per-piece-summary";
 import { StaffEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { countExpectedGarmentPieces } from "@/lib/order-garments";
 import { orderHasDtfEvents } from "@/lib/order-materials";
 import {
@@ -67,8 +72,11 @@ function formatTaxPercent(rate: number): string {
 function pricingDraftFromOrder(order: Order): OrderEstimatePricingDraft {
   return {
     selectedRateSheetId: order.selectedRateSheetId ?? null,
+    estimateOneTimeRateSheet: order.estimateOneTimeRateSheet ?? null,
     estimateAdjustments: order.estimateAdjustments ?? [],
-    excludedContractFeeIds: order.excludedContractFeeIds ?? [],
+    excludedContractFeeIds: Array.isArray(order.excludedContractFeeIds)
+      ? order.excludedContractFeeIds
+      : null,
   };
 }
 
@@ -76,7 +84,6 @@ export function OrderEstimateTab({ order }: { order: Order }) {
   const { settings } = useShopSettings();
   const {
     previewOrderDocument,
-    sendProofsAndEstimate,
     getCustomerById,
     updateOrderEstimatePricing,
   } =
@@ -93,6 +100,8 @@ export function OrderEstimateTab({ order }: { order: Order }) {
   const [pricingDraft, setPricingDraft] = useState<OrderEstimatePricingDraft>(
     () => pricingDraftFromOrder(order)
   );
+  const [noteDraft, setNoteDraft] = useState(order.estimateStaffNote ?? "");
+  const [noteSaving, setNoteSaving] = useState(false);
 
   useEffect(() => {
     setTaxEnabledDraft(savedTaxEnabled);
@@ -104,9 +113,14 @@ export function OrderEstimateTab({ order }: { order: Order }) {
   }, [
     order.id,
     order.selectedRateSheetId,
+    order.estimateOneTimeRateSheet,
     order.estimateAdjustments,
     order.excludedContractFeeIds,
   ]);
+
+  useEffect(() => {
+    setNoteDraft(order.estimateStaffNote ?? "");
+  }, [order.id, order.estimateStaffNote]);
 
   const handlePricingDraftChange = useCallback(
     (draft: OrderEstimatePricingDraft) => {
@@ -125,8 +139,10 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     () => ({
       ...order,
       selectedRateSheetId: pricingDraft.selectedRateSheetId,
+      estimateOneTimeRateSheet: pricingDraft.estimateOneTimeRateSheet,
       estimateAdjustments: pricingDraft.estimateAdjustments,
-      excludedContractFeeIds: pricingDraft.excludedContractFeeIds,
+      excludedContractFeeIds:
+        pricingDraft.excludedContractFeeIds ?? undefined,
       taxEnabled: taxEnabledDraft,
       taxRate: parsedTaxRateDraft,
     }),
@@ -138,15 +154,24 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     [settings.pricingMatrix, settings.pricingRateSheets, customer, previewOrder]
   );
 
+  const shopPricing = useMemo(
+    () => ({
+      pricingMatrix,
+      pricingRateSheets: settings.pricingRateSheets,
+      productionDefaults: settings.productionDefaults,
+    }),
+    [pricingMatrix, settings.pricingRateSheets, settings.productionDefaults]
+  );
+
   const totals = useMemo(
     () =>
       computeEstimateTotals(
         previewOrder,
         settings.taxRate,
-        pricingMatrix,
+        shopPricing,
         customer
       ),
-    [previewOrder, settings.taxRate, pricingMatrix, customer]
+    [previewOrder, settings.taxRate, shopPricing, customer]
   );
 
   const perPieceCosts = useMemo(
@@ -203,7 +228,7 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     (!hasDtf && pricingLookup.highlights.length > 0);
 
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
   const [toast, setToast] = useState<ToastState>(null);
 
   const taxDirty =
@@ -221,24 +246,6 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     () => previewOrderDocument(order.id, "all"),
     [previewOrderDocument, order.id]
   );
-
-  const handleSend = useCallback(async () => {
-    setSending(true);
-    showToast("Sending proofs & estimate…", "loading");
-    try {
-      const email = await sendProofsAndEstimate(order.id);
-      showToast(`Proofs & estimate emailed to ${email.to}.`, "success");
-    } catch (err) {
-      showToast(
-        err instanceof Error
-          ? err.message
-          : "Could not send the email. Please try again.",
-        "error"
-      );
-    } finally {
-      setSending(false);
-    }
-  }, [sendProofsAndEstimate, order.id, showToast]);
 
   const discardTaxChanges = useCallback(() => {
     setTaxEnabledDraft(savedTaxEnabled);
@@ -300,9 +307,85 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     `order-estimate-tax-${order.id}`
   );
 
+  const savedNote = order.estimateStaffNote ?? "";
+  const noteDirty = noteDraft.trim() !== savedNote.trim();
+
+  const discardNoteChanges = useCallback(() => {
+    setNoteDraft(order.estimateStaffNote ?? "");
+  }, [order.estimateStaffNote]);
+
+  const saveNoteChanges = useCallback(async () => {
+    if (!noteDirty) return;
+    setNoteSaving(true);
+    try {
+      await updateOrderEstimatePricing(order.id, {
+        estimateStaffNote: noteDraft.trim() || null,
+      });
+      showToast("Estimate note saved.", "success");
+    } catch (err) {
+      showToast(
+        err instanceof Error ? err.message : "Could not save estimate note.",
+        "error"
+      );
+    } finally {
+      setNoteSaving(false);
+    }
+  }, [
+    noteDirty,
+    noteDraft,
+    order.id,
+    updateOrderEstimatePricing,
+    showToast,
+  ]);
+
+  useRegisterUnsavedChanges(
+    noteDirty || noteSaving
+      ? {
+          dirty: true,
+          saving: noteSaving,
+          label: "Unsaved estimate note",
+          persistAcrossTabs: true,
+          onSave: () => saveNoteChanges(),
+          onDiscard: discardNoteChanges,
+        }
+      : null,
+    `order-estimate-note-${order.id}`
+  );
+
   return (
     <div className="space-y-4">
       <OrderEstimateApprovalPanel order={order} />
+
+      <section className={dashboardCardClass}>
+        <div className="flex flex-col gap-3 border-b border-[#ebebeb] px-4 py-3.5 sm:flex-row sm:items-start sm:justify-between sm:px-5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <StickyNote className="size-4 text-[#616161]" />
+              <h2 className={dashboardTaskTitleClass}>Estimate note</h2>
+              <span className="inline-flex items-center gap-1 rounded-md bg-[#f3f3f3] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-[#616161]">
+                <Lock className="size-2.5" />
+                Staff only
+              </span>
+              {noteSaving ? (
+                <Loader2 className="size-3.5 animate-spin text-[#8a8a8a]" />
+              ) : null}
+            </div>
+            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+              Why this estimate is priced the way it is — one-time overrides,
+              exceptions, or anything future-you will want to remember.
+            </p>
+          </div>
+        </div>
+        <div className="p-4 sm:p-5">
+          <Textarea
+            value={noteDraft}
+            onChange={(event) => setNoteDraft(event.target.value)}
+            placeholder="e.g. Used one-time override — single shirt sample at cost-plus for Premier…"
+            rows={3}
+            className="min-h-[88px] resize-y bg-white text-[13px]"
+          />
+        </div>
+      </section>
 
       <section className={dashboardCardClass}>
         <div className="flex flex-col gap-4 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
@@ -363,7 +446,12 @@ export function OrderEstimateTab({ order }: { order: Order }) {
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
               Pricing breakdown for this order. Preview the full customer PDF
               (estimate + proofs) or send it for approval.
-              {pricingMatrix.rateSheetName && !pricingMatrix.usingShopPricing ? (
+              {isOneTimeRateSheetId(previewOrder.selectedRateSheetId) &&
+              pricingMatrix.rateSheetName ? (
+                <span className="mt-1 block text-[#2c6ecb]">
+                  Using one-time pricing: {pricingMatrix.rateSheetName}
+                </span>
+              ) : pricingMatrix.rateSheetName && !pricingMatrix.usingShopPricing ? (
                 <span className="mt-1 block text-[#2c6ecb]">
                   Using negotiated rates: {pricingMatrix.rateSheetName}
                 </span>
@@ -388,18 +476,13 @@ export function OrderEstimateTab({ order }: { order: Order }) {
             </button>
             <button
               type="button"
-              onClick={handleSend}
-              disabled={sending}
+              onClick={() => setSendOpen(true)}
               className={cn(
                 dashboardPrimaryButtonClass,
-                "inline-flex h-9 items-center gap-1.5 px-3 text-[13px] disabled:cursor-not-allowed disabled:opacity-70"
+                "inline-flex h-9 items-center gap-1.5 px-3 text-[13px]"
               )}
             >
-              {sending ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : (
-                <Send className="size-3.5" />
-              )}
+              <Send className="size-3.5" />
               Send proofs + estimate
             </button>
           </div>
@@ -529,6 +612,13 @@ export function OrderEstimateTab({ order }: { order: Order }) {
         title={`Proofs & estimate · Order ${formatOrderDisplayLine(order)}`}
         subtitle="Same PDF attached when you send proofs + estimate to the customer."
         load={loadEstimatePdf}
+      />
+
+      <SendProofsEstimateDialog
+        order={order}
+        open={sendOpen}
+        onOpenChange={setSendOpen}
+        onSent={(message) => showToast(message, "success")}
       />
     </div>
   );

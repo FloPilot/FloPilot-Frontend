@@ -249,6 +249,14 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
     () => resolveEffectivePricingMatrix(settings, customer, order),
     [settings.pricingMatrix, customer, order]
   );
+  const shopPricing = useMemo(
+    () => ({
+      pricingMatrix,
+      pricingRateSheets: settings.pricingRateSheets,
+      productionDefaults: settings.productionDefaults,
+    }),
+    [pricingMatrix, settings.pricingRateSheets, settings.productionDefaults]
+  );
   const useInvoiceTotals =
     order.status === "ready_to_invoice" ||
     order.status === "invoice_sent" ||
@@ -258,9 +266,9 @@ export function OrderCustomerPaymentPanel({ order }: { order: Order }) {
   const totals = useMemo(
     () =>
       useInvoiceTotals
-        ? computeInvoiceTotals(order, settings.taxRate, pricingMatrix, customer)
-        : computeEstimateTotals(order, settings.taxRate, pricingMatrix, customer),
-    [order, settings.taxRate, pricingMatrix, customer, useInvoiceTotals]
+        ? computeInvoiceTotals(order, settings.taxRate, shopPricing, customer)
+        : computeEstimateTotals(order, settings.taxRate, shopPricing, customer),
+    [order, settings.taxRate, shopPricing, customer, useInvoiceTotals]
   );
 
   const [stripeReady, setStripeReady] = useState(false);

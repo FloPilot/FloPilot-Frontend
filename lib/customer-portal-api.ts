@@ -166,6 +166,7 @@ export type CustomerPortalPricingResponse = {
 export type CustomerPortalArtworkItem = {
   id: string;
   name: string;
+  designCode?: string | null;
   locationKey?: string;
   locationLabel: string;
   decoration: string;
@@ -1068,9 +1069,9 @@ export const PORTAL_STATUS_LABELS: Record<string, string> = {
   in_production: "In production",
   ready_to_ship: "Ready to ship",
   shipped: "Shipped",
-  ready_to_invoice: "Invoice ready",
+  ready_to_invoice: "Ready to invoice",
   invoice_sent: "Invoice sent",
-  completed: "Completed",
+  completed: "Paid",
 };
 
 export function portalStatusLabel(status: string): string {

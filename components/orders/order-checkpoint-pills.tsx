@@ -93,14 +93,13 @@ function labelForCheckpoint(checkpoint: OrderCheckpoint): string {
   if (key === "blanks") {
     if (status === "done") return "Received";
     if (status === "in_progress") return "Partial";
-    if (checkpoint.detail.toLowerCase().includes("missing")) return "Missing";
-    return "Waiting";
+    return "Pending";
   }
 
   if (key === "dtf_transfers") {
     if (status === "done") return "Received";
     if (status === "in_progress") return "Partial";
-    return "Waiting";
+    return "Pending";
   }
 
   if (key === "blank_source") {

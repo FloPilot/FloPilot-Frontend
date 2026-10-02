@@ -7,6 +7,11 @@ import type {
   OrderEstimateFeeCategory,
 } from "@/types";
 import type { PricingMatrix } from "@/lib/shop-settings";
+import {
+  finishingStepContractFeeId,
+  resolveFinishingStepPrice,
+  type FinishingStepPreset,
+} from "@/lib/shop-settings";
 import { resolveRateSheetForOrder, SHOP_PRICING_SHEET_ID } from "@/lib/customer-pricing";
 import {
   asShopPricingSource,
@@ -14,6 +19,7 @@ import {
   resolveShopRateSheet,
   type ShopPricingSource,
 } from "@/lib/shop-pricing";
+import { isOneTimeRateSheetId } from "@/lib/order-one-time-rate-sheet";
 import {
   autoFeeCategoryFromContract,
   defaultLabelForFeeCategory,
@@ -77,6 +83,20 @@ export function listEnabledContractFees(
   return (fees ?? []).filter((fee) => fee.enabled !== false);
 }
 
+/**
+ * Additional contract/finishing fees are opt-in.
+ * When `excludedContractFeeIds` has never been saved, every fee is deselected.
+ * Once an array is stored (even empty), it is an explicit skip list.
+ */
+export function isContractFeeDeselected(
+  order: Pick<Order, "excludedContractFeeIds"> | null | undefined,
+  feeId: string
+): boolean {
+  const excluded = order?.excludedContractFeeIds;
+  if (!Array.isArray(excluded)) return true;
+  return excluded.includes(feeId);
+}
+
 export function resolveContractFeesForOrder(
   order: Order,
   customer?: Customer | null,
@@ -84,6 +104,10 @@ export function resolveContractFeesForOrder(
 ): CustomerContractFee[] {
   const source = asShopPricingSource(shop);
   const selectedId = order.selectedRateSheetId;
+
+  if (isOneTimeRateSheetId(selectedId) && order.estimateOneTimeRateSheet) {
+    return listEnabledContractFees(order.estimateOneTimeRateSheet.contractFees);
+  }
 
   if (selectedId && isShopRateSheetId(source, selectedId)) {
     const sheet = resolveShopRateSheet(source, order);
@@ -109,14 +133,13 @@ export function computeAutoContractFees(
   options?: { includeExcluded?: boolean }
 ): OrderEstimateAdjustment[] {
   const enabledFees = listEnabledContractFees(fees);
-  const excluded = new Set(order.excludedContractFeeIds ?? []);
   const pieceCount = countOrderPieces(order);
   const imprintCount = countBillableImprints(order);
   const rows: OrderEstimateAdjustment[] = [];
   const includeExcluded = options?.includeExcluded === true;
 
   for (const fee of enabledFees) {
-    const isExcluded = excluded.has(fee.id);
+    const isExcluded = isContractFeeDeselected(order, fee.id);
     if (isExcluded && !includeExcluded) continue;
 
     if (fee.kind === "setup" && fee.chargeMode === "per_order") {
@@ -182,6 +205,83 @@ export function computeAutoContractFees(
   return rows;
 }
 
+function listShopFinishingSteps(
+  shop?: PricingMatrix | ShopPricingSource | null
+): FinishingStepPreset[] {
+  const source = asShopPricingSource(shop);
+  return (source.productionDefaults?.finishingSteps ?? []).filter(
+    (step) => step.enabled !== false
+  );
+}
+
+function finishingJobsOnOrder(order: Order): {
+  stepIds: Set<string>;
+  names: Set<string>;
+} {
+  const stepIds = new Set<string>();
+  const names = new Set<string>();
+  for (const job of order.jobs || []) {
+    if (job.kind !== "finishing") continue;
+    if (job.finishingStepId) stepIds.add(job.finishingStepId);
+    const name = String(job.name || "")
+      .trim()
+      .toLowerCase();
+    if (name) names.add(name);
+  }
+  return { stepIds, names };
+}
+
+/**
+ * Auto finishing fees for bagging/labeling/etc. when matching finishing jobs
+ * exist on the order. Uses shop finishing pricing sheets (qty breaks).
+ */
+export function computeAutoFinishingFees(
+  order: Order,
+  shop?: PricingMatrix | ShopPricingSource | null,
+  options?: { includeExcluded?: boolean }
+): OrderEstimateAdjustment[] {
+  const steps = listShopFinishingSteps(shop);
+  if (steps.length === 0) return [];
+
+  const { stepIds, names } = finishingJobsOnOrder(order);
+  if (stepIds.size === 0 && names.size === 0) return [];
+
+  const includeExcluded = options?.includeExcluded === true;
+  const pieceCount = countOrderPieces(order);
+  const rows: OrderEstimateAdjustment[] = [];
+
+  for (const step of steps) {
+    const matched =
+      stepIds.has(step.id) || names.has(step.name.trim().toLowerCase());
+    if (!matched) continue;
+
+    const feeId = finishingStepContractFeeId(step.id);
+    const isExcluded = isContractFeeDeselected(order, feeId);
+    if (isExcluded && !includeExcluded) continue;
+
+    const unitPrice = resolveFinishingStepPrice(step, pieceCount);
+    if (unitPrice <= 0 && !includeExcluded) continue;
+
+    const perPiece = step.chargeMode !== "per_order";
+    rows.push({
+      id: `auto-${feeId}`,
+      label: step.name,
+      detail:
+        step.description ||
+        (perPiece
+          ? `Finishing · ${pieceCount} pcs`
+          : "Finishing · flat rate"),
+      qty: perPiece ? Math.max(1, pieceCount) : 1,
+      unitPrice,
+      source: "auto",
+      category: "finishing",
+      contractFeeId: feeId,
+    });
+  }
+
+  return rows;
+}
+
 export function mergeEstimateAdjustments(
   order: Order,
   autoRows: OrderEstimateAdjustment[]
@@ -204,7 +304,10 @@ export function buildFeeEstimateRows(
   shop?: PricingMatrix | ShopPricingSource | null
 ): OrderEstimateAdjustment[] {
   const fees = resolveContractFeesForOrder(order, customer, shop);
-  const autoRows = computeAutoContractFees(order, fees);
+  const autoRows = [
+    ...computeAutoContractFees(order, fees),
+    ...computeAutoFinishingFees(order, shop),
+  ];
   return mergeEstimateAdjustments(order, autoRows);
 }
 
@@ -215,7 +318,10 @@ export function listAutoContractFeeCandidates(
   shop?: PricingMatrix | ShopPricingSource | null
 ): OrderEstimateAdjustment[] {
   const fees = resolveContractFeesForOrder(order, customer, shop);
-  return computeAutoContractFees(order, fees, { includeExcluded: true });
+  return [
+    ...computeAutoContractFees(order, fees, { includeExcluded: true }),
+    ...computeAutoFinishingFees(order, shop, { includeExcluded: true }),
+  ];
 }
 
 export function emptyManualAdjustment(

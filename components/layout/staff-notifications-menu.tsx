@@ -1,10 +1,10 @@
 "use client";
 
 import { useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { Bell, CalendarClock, ListChecks } from "lucide-react";
 import { NotificationListItem } from "@/components/notifications/notification-list-item";
 import { useNotifications } from "@/components/providers/notifications-provider";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -75,7 +75,7 @@ export function StaffNotificationsMenu({
 }: {
   triggerClassName?: string;
 }) {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const {
     notifications,
     assignedTasks,

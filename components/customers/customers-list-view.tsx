@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   Archive,
@@ -23,6 +22,8 @@ import { CustomerBrandMarkFromRecord } from "@/components/customers/customer-bra
 import { ReportsLauncher } from "@/components/reports/reports-launcher";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
+import { useWorkspaceScope } from "@/components/providers/workspace-scope-provider";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -51,7 +52,11 @@ import {
   type CustomerListSort,
   type CustomerQuickFilter,
 } from "@/lib/customer-list-summary";
-import { formatCustomerFullName, type NewCustomerInput } from "@/lib/customers";
+import {
+  formatCustomerBillingAddress,
+  formatCustomerFullName,
+  type NewCustomerInput,
+} from "@/lib/customers";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -67,6 +72,7 @@ import { formatCompactCurrency, formatCurrency, formatDate } from "@/lib/format"
 import { downloadReportCsv } from "@/lib/reports/csv";
 import { getReportsForContext, runReport } from "@/lib/reports/registry";
 import { EMPTY_SHOP_REPORT_DATA } from "@/lib/reports/shop-report-data";
+import { applyWorkspaceScopeToCustomers } from "@/lib/workspace-scope";
 import { cn } from "@/lib/utils";
 
 const QUICK_FILTERS: {
@@ -184,7 +190,7 @@ function FilterChip({
 }
 
 export function CustomersListView() {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const {
     customers,
     orders,
@@ -196,6 +202,7 @@ export function CustomersListView() {
     getCustomerById,
   } = useSchedule();
   const { settings } = useShopSettings();
+  const { scope: workspaceScope, currentUserId } = useWorkspaceScope();
 
   const reportFinancials = useMemo(
     () => ({
@@ -221,10 +228,14 @@ export function CustomersListView() {
 
   const baseCustomers = useMemo(
     () =>
-      customers.filter((customer) =>
-        archivedOnly ? customer.archived === true : customer.archived !== true
+      applyWorkspaceScopeToCustomers(
+        customers.filter((customer) =>
+          archivedOnly ? customer.archived === true : customer.archived !== true
+        ),
+        workspaceScope,
+        currentUserId
       ),
-    [customers, archivedOnly]
+    [customers, archivedOnly, workspaceScope, currentUserId]
   );
 
   const activeCustomers = useMemo(
@@ -483,7 +494,7 @@ export function CustomersListView() {
                   <Input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search company, contact, email, city…"
+                    placeholder="Search company, contact, email, address…"
                     className={cn(dashboardControlClass, "h-9 w-full pl-9")}
                   />
                 </div>
@@ -541,7 +552,7 @@ export function CustomersListView() {
                         Contact
                       </TableHead>
                       <TableHead className="hidden text-[#616161] lg:table-cell">
-                        Location
+                        Billing address
                       </TableHead>
                       <TableHead className="text-right text-[#616161]">
                         Open orders
@@ -643,7 +654,7 @@ export function CustomersListView() {
                               </div>
                             </TableCell>
                             <TableCell className="hidden text-[#616161] lg:table-cell">
-                              {customer.city}, {customer.state}
+                              {formatCustomerBillingAddress(customer) || "—"}
                             </TableCell>
                             <TableCell className="text-right tabular-nums text-[#303030]">
                               {summary?.openOrderCount ?? 0}

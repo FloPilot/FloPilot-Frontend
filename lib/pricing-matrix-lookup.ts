@@ -1,4 +1,5 @@
 import { decorationLabel } from "@/lib/format";
+import { formatJobBlankLabels, jobUsesAllBlanks } from "@/lib/job-line-items";
 import { lineItemPieceCount } from "@/lib/order-estimate";
 import {
   priceColumnIndexes,
@@ -41,6 +42,8 @@ export type PricingMatrixHighlight = {
   bundledImprintLabels?: string[];
   /** True when this imprint is covered by another line's location bundle charge */
   bundledIncluded?: boolean;
+  /** When this event only runs on a subset of order blanks */
+  blankLabels?: string[];
 };
 
 export type PricingStepAccent = {
@@ -211,7 +214,7 @@ export function formatPricingHighlightDetail(
 ): string {
   const tierPrefix =
     entry.tierPieceCount > entry.pieceCount
-      ? `${entry.tierPieceCount} combined pcs · `
+      ? `${entry.tierPieceCount} run pcs · `
       : "";
   if (entry.bundledIncluded) {
     return `${entry.methodName} · included in location rate`;
@@ -220,11 +223,15 @@ export function formatPricingHighlightDetail(
     entry.bundledLocationCount && entry.bundledLocationCount > 1
       ? `up to ${entry.bundledLocationCount} locations · `
       : "";
+  const blanksPrefix =
+    entry.blankLabels && entry.blankLabels.length > 0
+      ? `${entry.blankLabels.join(", ")} · `
+      : "";
   if (entry.columnMode === "size") {
     const size = entry.sizeLabel || entry.columnLabel;
-    return `${entry.methodName} · ${bundlePrefix}${tierPrefix}${entry.qtyLabel} tier · ${size}`;
+    return `${entry.methodName} · ${blanksPrefix}${bundlePrefix}${tierPrefix}${entry.qtyLabel} tier · ${size}`;
   }
-  return `${entry.methodName} · ${bundlePrefix}${tierPrefix}${entry.qtyLabel} tier · ${entry.columnLabel}`;
+  return `${entry.methodName} · ${blanksPrefix}${bundlePrefix}${tierPrefix}${entry.qtyLabel} tier · ${entry.columnLabel}`;
 }
 
 export function formatPricingHighlightSummary(
@@ -347,6 +354,23 @@ function pieceCountForJob(order: Order, job: Job): number {
   );
 }
 
+/**
+ * Matrix tier qty for an event.
+ * Shared / all-blank events can use multi-order production-run volume.
+ * Events assigned to a blank subset (e.g. youth-only back) tier on their own
+ * piece count so they don't inherit the full-order discount.
+ */
+function tierQuantityForJob(
+  order: Order,
+  job: Job,
+  jobPieceCount: number
+): number {
+  if (!jobUsesAllBlanks(order, job)) {
+    return jobPieceCount;
+  }
+  return Math.max(productionRunTierQuantity(order), jobPieceCount);
+}
+
 function decorationImprints(order: Order): { job: Job; imprint: JobImprint }[] {
   const entries: { job: Job; imprint: JobImprint }[] = [];
 
@@ -403,7 +427,11 @@ export function resolveOrderPricingHighlights(
       unitPriceOverride?: number;
     }
   ) => {
-    const tierPieceCount = productionRunTierQuantity(order);
+    const tierPieceCount = tierQuantityForJob(
+      order,
+      opts.job,
+      opts.pieceCount
+    );
     const rowIndex = resolveQtyRowIndex(method, tierPieceCount);
     if (rowIndex === null) return;
 
@@ -431,6 +459,10 @@ export function resolveOrderPricingHighlights(
     const existing = methodCells.get(cellKey) ?? [];
     methodCells.set(cellKey, [...existing, stepIndex]);
 
+    const blankLabels = jobUsesAllBlanks(order, opts.job)
+      ? undefined
+      : formatJobBlankLabels(order, opts.job);
+
     highlights.push({
       stepIndex,
       methodId: method.id,
@@ -455,6 +487,7 @@ export function resolveOrderPricingHighlights(
       bundledLocationCount: opts.bundledLocationCount,
       bundledImprintLabels: opts.bundledImprintLabels,
       bundledIncluded: opts.bundledIncluded,
+      ...(blankLabels && blankLabels.length > 0 ? { blankLabels } : {}),
     });
   };
 

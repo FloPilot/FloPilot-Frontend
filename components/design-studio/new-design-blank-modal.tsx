@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import {
   Check,
   ExternalLink,
@@ -101,7 +101,7 @@ export function NewDesignBlankModal({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const router = useRouter();
+  const router = useGuardedRouter();
   const { getIdToken } = useAuth();
   const { settings } = useShopSettings();
   const blankInputRef = useRef<HTMLInputElement>(null);

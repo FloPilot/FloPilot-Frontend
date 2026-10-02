@@ -7,7 +7,7 @@ import {
   type ShopProductionDefaults,
 } from "@/lib/shop-settings";
 import { buildCustomProductionJob } from "@/lib/order-production";
-import { buildLineItemFromCatalog, createLineItemId } from "@/lib/line-items";
+import { createLineItemId } from "@/lib/line-items";
 import type { PricingMatrix } from "@/lib/shop-settings";
 import type {
   BlankSource,
@@ -27,6 +27,8 @@ export type NewOrderJobInput = {
   locationKey: ImprintLocationKey;
   notes: string;
   kind: "decoration" | "finishing";
+  /** Links finishing jobs to Shop Setup → Finishing pricing sheets */
+  finishingStepId?: string;
   /** Blank line items this decoration runs on */
   lineItemIds?: string[];
   /** Print size "W × H" — becomes imprint notes.dimensions */
@@ -47,9 +49,14 @@ export type NewOrderMockupFile = {
 
 export type NewOrderCatalogLineItemInput = {
   id: string;
-  productKey: (typeof NEW_ORDER_PRODUCTS)[number]["key"];
-  colorKey: (typeof NEW_ORDER_COLORS)[number]["key"];
-  sizes: Record<(typeof NEW_ORDER_SIZES)[number], number>;
+  /** Freeform manual catalog fields */
+  productName: string;
+  brand: string;
+  color: string;
+  /** Optional legacy catalog keys when still known */
+  productKey?: string;
+  colorKey?: string;
+  sizes: ManualSizeQtyRecord;
   unitCost: number;
   markupPercent?: number;
   customerUnitPrice?: number;
@@ -87,18 +94,23 @@ export function draftLineItemToLineItem(
     };
   }
 
-  const built = buildLineItemFromCatalog(
-    item.productKey,
-    item.colorKey,
-    item.sizes,
-    idOverride ?? item.id
-  );
+  const productName = item.productName.trim();
+  const brand = item.brand.trim();
+  const color = item.color.trim();
 
   return {
-    ...built,
+    id: idOverride ?? item.id,
+    productName: productName || "Custom blank",
+    brand: brand || "Custom",
+    color: color || "Unspecified",
     unitCost: item.unitCost,
+    ...(item.productKey ? { productKey: item.productKey } : {}),
+    ...(item.colorKey ? { colorKey: item.colorKey } : {}),
     markupPercent: item.markupPercent,
     customerUnitPrice: item.customerUnitPrice,
+    sizes: Object.entries(item.sizes)
+      .filter(([, quantity]) => quantity > 0)
+      .map(([size, quantity]) => ({ size, quantity })),
   };
 }
 
@@ -123,13 +135,13 @@ export function createJobDraftId(): string {
 }
 
 export function createEmptyNewOrderLineItem(): NewOrderLineItemInput {
-  const product = NEW_ORDER_PRODUCTS[0];
   return {
     id: createLineItemDraftId(),
-    productKey: product.key,
-    colorKey: "heather",
-    sizes: { S: 0, M: 0, L: 0, XL: 0 },
-    unitCost: product.unitCost,
+    productName: "",
+    brand: "",
+    color: "",
+    sizes: emptyManualSizeRecord(),
+    unitCost: 0,
   };
 }
 
@@ -168,7 +180,41 @@ export const NEW_ORDER_COLORS = [
   { key: "navy", label: "Navy" },
 ] as const;
 
-export const NEW_ORDER_SIZES = ["S", "M", "L", "XL"] as const;
+export const NEW_ORDER_SIZES = [
+  "XS",
+  "S",
+  "M",
+  "L",
+  "XL",
+  "2XL",
+  "3XL",
+] as const;
+
+/** Suggested labels when adding a size row in the manual catalog. */
+export const MANUAL_BLANK_SIZE_SUGGESTIONS = [
+  ...NEW_ORDER_SIZES,
+  "4XL",
+  "5XL",
+  "One Size",
+] as const;
+
+export type ManualSizeQtyRecord = Record<string, number>;
+
+export function emptyManualSizeRecord(): ManualSizeQtyRecord {
+  return { S: 0, M: 0, L: 0, XL: 0 };
+}
+
+export function orderedManualSizeKeys(record: ManualSizeQtyRecord): string[] {
+  const rank = new Map<string, number>(
+    MANUAL_BLANK_SIZE_SUGGESTIONS.map((size, index) => [size, index])
+  );
+  return Object.keys(record).sort((a, b) => {
+    const ia = rank.has(a) ? rank.get(a)! : Number.MAX_SAFE_INTEGER;
+    const ib = rank.has(b) ? rank.get(b)! : Number.MAX_SAFE_INTEGER;
+    if (ia !== ib) return ia - ib;
+    return a.localeCompare(b, undefined, { numeric: true });
+  });
+}
 
 export const SHIPPING_METHODS = [
   { key: "ups_ground", label: "UPS Ground" },
@@ -178,7 +224,7 @@ export const SHIPPING_METHODS = [
 
 export const BLANK_SOURCE_OPTIONS: { value: BlankSource; label: string }[] = [
   { value: "shop_orders", label: "Shop orders blanks" },
-  { value: "customer_supplies", label: "Customer ships garments" },
+  { value: "customer_supplies", label: "Customer supplied goods" },
 ];
 
 export const ARTWORK_ATTACHABLE_KINDS: OrderFileKind[] = [
@@ -201,9 +247,18 @@ export type NewOrderFormInput = {
   rush: boolean;
   /** Optional label shown as "SO-1234 — your label" on orders and calendar */
   customLabel?: string;
-  /** Assigned sales rep — defaults from customer when unset */
+  /** Assigned sales rep — required; defaults from customer, else creator */
   salesRepId?: string;
 };
+
+export function resolveDefaultSalesRepId(
+  customer: { salesRepId?: string | null } | null | undefined,
+  currentUserId?: string | null
+): string {
+  const fromCustomer = customer?.salesRepId?.trim();
+  if (fromCustomer) return fromCustomer;
+  return currentUserId?.trim() || "";
+}
 
 export function createEmptyNewOrderJob(
   overrides?: Partial<NewOrderJobInput>
@@ -262,7 +317,11 @@ export function validateNewOrderStep(
 ): string | null {
   switch (step) {
     case 1:
-      return form.customerId ? null : "Select a customer to continue.";
+      if (!form.customerId) return "Select a customer to continue.";
+      if (!form.salesRepId?.trim()) {
+        return "Assign a sales rep to continue.";
+      }
+      return null;
     case 2: {
       const blanks = activeLineItems(form);
       if (blanks.length > 0 && !form.blankSource) {
@@ -339,23 +398,7 @@ function buildOrderLineItemsAndJobs(
 
   const lineItems = activeLineItems(form).map((item) => {
     const id = resolveLineItemId(item, suffix);
-
-    if (isSupplierDraftLineItem(item)) {
-      return draftLineItemToLineItem(item, id);
-    }
-
-    const built = buildLineItemFromCatalog(
-      item.productKey,
-      item.colorKey,
-      item.sizes,
-      id
-    );
-    return {
-      ...built,
-      unitCost: item.unitCost,
-      markupPercent: item.markupPercent,
-      customerUnitPrice: item.customerUnitPrice,
-    };
+    return draftLineItemToLineItem(item, id);
   });
 
   const lineItemIdSet = new Set(lineItems.map((item) => item.id));
@@ -377,6 +420,7 @@ function buildOrderLineItemsAndJobs(
         decoration:
           jobInput.kind === "finishing" ? "finishing" : jobInput.decorationType,
         kind: jobInput.kind,
+        finishingStepId: jobInput.finishingStepId,
       },
       productionDefaults
     );
@@ -456,12 +500,14 @@ export function previewOrderTotals(
     previewOrderNumber: string;
     taxRate: number;
     pricingMatrix?: PricingMatrix;
+    productionDefaults?: ShopProductionDefaults | null;
   }
 ) {
   const { lineItems, jobs } = buildOrderLineItemsAndJobs(
     form,
     options.previewOrderNumber,
-    "preview"
+    "preview",
+    options.productionDefaults
   );
 
   const previewOrder: Order = {
@@ -492,7 +538,13 @@ export function previewOrderTotals(
   return computeEstimateTotals(
     previewOrder,
     options.taxRate,
-    options.pricingMatrix
+    {
+      pricingMatrix: options.pricingMatrix || {
+        enabled: false,
+        methods: [],
+      },
+      productionDefaults: options.productionDefaults ?? undefined,
+    }
   );
 }
 
@@ -555,13 +607,9 @@ export function formatLineItemInputLabel(item: NewOrderLineItemInput): string {
     return `${label} · ${item.item.color} · ${pieces} pcs`;
   }
 
-  const product =
-    NEW_ORDER_PRODUCTS.find((entry) => entry.key === item.productKey) ??
-    NEW_ORDER_PRODUCTS[0];
-  const color =
-    NEW_ORDER_COLORS.find((entry) => entry.key === item.colorKey) ??
-    NEW_ORDER_COLORS[0];
-  return `${formatBrandProductName(product.brand, product.name)} · ${color.label} · ${pieces} pcs`;
+  const label = formatBrandProductName(item.brand, item.productName);
+  const color = item.color.trim() || "Unspecified";
+  return `${label || "Custom blank"} · ${color} · ${pieces} pcs`;
 }
 
 function resolveLineItemId(item: NewOrderLineItemInput, suffix: string): string {
@@ -619,7 +667,13 @@ export function buildOrderFromForm(
         : undefined,
     },
     options?.taxRate ?? 0.08,
-    options?.pricingMatrix
+    {
+      pricingMatrix: options?.pricingMatrix || {
+        enabled: false,
+        methods: [],
+      },
+      productionDefaults: options?.productionDefaults ?? undefined,
+    }
   );
   const { subtotal, tax, total } = financials;
 

@@ -28,7 +28,8 @@ function materialLinesToStatus(
 ): CheckpointRollupStatus {
   if (lines.length === 0) return "not_applicable";
   if (lines.every((line) => line.status === "received")) return "done";
-  if (lines.every((line) => line.status === "waiting")) return "blocked";
+  // Not started yet — pending, not blocked (blocked is for hard stoppers).
+  if (lines.every((line) => line.status === "waiting")) return "pending";
   return "in_progress";
 }
 
@@ -67,7 +68,7 @@ export function blankSourceLabel(source?: BlankSource): string {
     case "shop_orders":
       return "Shop orders";
     case "customer_supplies":
-      return "Customer ships";
+      return "Customer supplied";
     default:
       return "Not set";
   }
