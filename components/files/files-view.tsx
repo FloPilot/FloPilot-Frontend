@@ -58,6 +58,7 @@ const KIND_LABELS: Record<OrderFileKind, string> = {
   production_art: "Production art",
   separation: "Separation",
   embroidery_file: "Embroidery",
+  embroidery_sewout: "Sew-out",
   purchase_order: "Purchase order",
   invoice: "Invoice",
   quote: "Quote",

@@ -1263,9 +1263,15 @@ export async function createOrderFromForm(token: string, form: NewOrderFormInput
 export async function updateOrder(
   token: string,
   orderId: string,
-  updates: Partial<Order> & {
+  updates: Partial<
+    Omit<Order, "orderDate" | "shipDate" | "inHandsDate">
+  > & {
     paymentMethod?: string;
     paymentNote?: string;
+    /** Pass null to clear a date field. */
+    orderDate?: string | null;
+    shipDate?: string | null;
+    inHandsDate?: string | null;
   }
 ) {
   return callApi<{ order: Order }>("updateOrder", {
