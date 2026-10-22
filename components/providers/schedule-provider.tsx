@@ -39,6 +39,7 @@ import {
   updateOrderFile as apiUpdateOrderFile,
   deleteOrderFile as apiDeleteOrderFile,
   addOrderInternalNote as apiAddOrderInternalNote,
+  acknowledgeOrderInternalNotes as apiAcknowledgeOrderInternalNotes,
   addOrderLineItem as apiAddOrderLineItem,
   addProductionJob as apiAddProductionJob,
   createCustomer as apiCreateCustomer,
@@ -89,6 +90,8 @@ import {
   updateImprintInkColors as apiUpdateImprintInkColors,
   updateImprintNotes as apiUpdateImprintNotes,
   updateImprintCustomLabel as apiUpdateImprintCustomLabel,
+  updateImprintSpecs as apiUpdateImprintSpecs,
+  duplicateOrderImprint as apiDuplicateOrderImprint,
   updateProductionEventWorkflow as apiUpdateProductionEventWorkflow,
   updateJobRunStatus as apiUpdateJobRunStatus,
   updateMachine as apiUpdateMachine,
@@ -228,7 +231,8 @@ type ScheduleContextValue = {
   updateProductionJobLineItems: (
     orderId: string,
     jobId: string,
-    lineItemIds: string[]
+    lineItemIds: string[],
+    blankAssignments?: Array<{ lineItemId: string; sizes?: string[] }>
   ) => Promise<void>;
   machines: Machine[];
   scheduleBlocks: ScheduleBlock[];
@@ -385,8 +389,14 @@ type ScheduleContextValue = {
   addInternalNote: (
     orderId: string,
     content: string,
-    author?: string
-  ) => void;
+    author?: string,
+    options?: {
+      targetDepartment?: import("@/lib/departments").DepartmentSlug | null;
+    }
+  ) => Promise<void>;
+  acknowledgeInternalNotes: (
+    items: Array<{ orderId: string; noteId: string }>
+  ) => Promise<void>;
   sendProofToCustomer: (
     orderId: string,
     jobId: string,
@@ -501,9 +511,32 @@ type ScheduleContextValue = {
       shipTo?: import("@/types").OrderAddressSelection | null;
     }
   ) => Promise<Order>;
+  updateOrderDates: (
+    orderId: string,
+    dates: {
+      orderDate?: string | null;
+      shipDate?: string | null;
+      inHandsDate?: string | null;
+    }
+  ) => Promise<Order>;
+  updateOrderPaymentTerms: (
+    orderId: string,
+    terms: {
+      paymentTermsLabel?: string | null;
+      paymentTermsDays?: number | null;
+    }
+  ) => Promise<Order>;
   updateOrderProductionRun: (
     orderId: string,
-    linkedOrderIds: string[]
+    linkedOrderIds: string[],
+    eventGangs?: Array<{
+      id?: string;
+      members: Array<{
+        orderId: string;
+        jobId: string;
+        imprintId: string;
+      }>;
+    }>
   ) => Promise<Order>;
   updateOrderEstimatePricing: (
     orderId: string,
@@ -513,6 +546,7 @@ type ScheduleContextValue = {
       estimateStaffNote?: string | null;
       estimateAdjustments?: OrderEstimateAdjustment[];
       excludedContractFeeIds?: string[];
+      paymentSurcharge?: import("@/types").OrderPaymentSurcharge | null;
       taxEnabled?: boolean;
       taxRate?: number;
     }
@@ -543,6 +577,25 @@ type ScheduleContextValue = {
     jobId: string,
     imprintId: string,
     customLabel: string
+  ) => Promise<void>;
+  updateImprintSpecs: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    patch: {
+      decoration?: string;
+      locationKey?: string;
+      label?: string;
+      customLabel?: string | null;
+      designCode?: string | null;
+      isLegacy?: boolean;
+      subcontract?: import("@/types").SubcontractDetails | null;
+    }
+  ) => Promise<void>;
+  duplicateOrderImprint: (
+    orderId: string,
+    jobId: string,
+    imprintId: string
   ) => Promise<void>;
   updateImprintInkColors: (
     orderId: string,
@@ -1417,14 +1470,20 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   );
 
   const updateProductionJobLineItems = useCallback(
-    async (orderId: string, jobId: string, lineItemIds: string[]) => {
+    async (
+      orderId: string,
+      jobId: string,
+      lineItemIds: string[],
+      blankAssignments?: Array<{ lineItemId: string; sizes?: string[] }>
+    ) => {
       const token = await getIdToken();
       if (!token) throw new Error("Not signed in");
 
       const existing = orders.find((entry) => entry.id === orderId);
       if (!existing) throw new Error("Order not found");
 
-      if (!existing.jobs.some((entry) => entry.id === jobId)) {
+      const job = existing.jobs.find((entry) => entry.id === jobId);
+      if (!job) {
         throw new Error("Production event not found");
       }
 
@@ -1432,12 +1491,23 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const nextIds = [
         ...new Set(lineItemIds.filter((id) => validIds.has(id))),
       ];
-      if (nextIds.length === 0) {
+      if (nextIds.length === 0 && existing.lineItems.length > 0) {
         throw new Error("Select at least one blank for this decoration event");
       }
 
+      const nextJob = { ...job };
+      if (nextIds.length) nextJob.lineItemIds = nextIds;
+      else delete nextJob.lineItemIds;
+      if (blankAssignments !== undefined) {
+        if (blankAssignments.length) {
+          nextJob.blankAssignments = blankAssignments;
+        } else {
+          delete nextJob.blankAssignments;
+        }
+      }
+
       const nextJobs = existing.jobs.map((entry) =>
-        entry.id === jobId ? { ...entry, lineItemIds: nextIds } : entry
+        entry.id === jobId ? nextJob : entry
       );
 
       // Optimistic local update so checkboxes don't snap back while saving.
@@ -1449,7 +1519,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
             token,
             orderId,
             jobId,
-            nextIds
+            nextIds,
+            blankAssignments
           );
           applyOrderUpdate(order);
         } catch {
@@ -1868,7 +1939,14 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
   );
 
   const addInternalNote = useCallback(
-    async (orderId: string, content: string, author = "Shop") => {
+    async (
+      orderId: string,
+      content: string,
+      author = "Shop",
+      options?: {
+        targetDepartment?: import("@/lib/departments").DepartmentSlug | null;
+      }
+    ) => {
       const trimmed = content.trim();
       if (!trimmed) return;
       const token = await getIdToken();
@@ -1878,11 +1956,26 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         token,
         orderId,
         trimmed,
-        author
+        author,
+        options
       );
       applyOrderUpdate(order);
     },
     [getIdToken, applyOrderUpdate]
+  );
+
+  const acknowledgeInternalNotes = useCallback(
+    async (items: Array<{ orderId: string; noteId: string }>) => {
+      if (!items.length) return;
+      const token = await getIdToken();
+      if (!token) return;
+      const { orders: updatedOrders } = await apiAcknowledgeOrderInternalNotes(
+        token,
+        items
+      );
+      applyOrderUpdates(updatedOrders);
+    },
+    [getIdToken, applyOrderUpdates]
   );
 
   const sendProofToCustomer = useCallback(
@@ -2180,8 +2273,67 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     [getIdToken, applyOrderUpdate]
   );
 
+  const updateOrderDates = useCallback(
+    async (
+      orderId: string,
+      dates: {
+        orderDate?: string | null;
+        shipDate?: string | null;
+        inHandsDate?: string | null;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update order dates.");
+      }
+
+      const { order } = await apiUpdateOrder(token, orderId, {
+        orderDate: dates.orderDate ?? null,
+        shipDate: dates.shipDate ?? null,
+        inHandsDate: dates.inHandsDate ?? null,
+      });
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateOrderPaymentTerms = useCallback(
+    async (
+      orderId: string,
+      terms: {
+        paymentTermsLabel?: string | null;
+        paymentTermsDays?: number | null;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) {
+        throw new Error("You must be signed in to update payment terms.");
+      }
+
+      const { order } = await apiUpdateOrder(token, orderId, {
+        paymentTermsLabel: terms.paymentTermsLabel ?? null,
+        paymentTermsDays: terms.paymentTermsDays ?? null,
+      });
+      applyOrderUpdate(order);
+      return order;
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
   const updateOrderProductionRun = useCallback(
-    async (orderId: string, linkedOrderIds: string[]) => {
+    async (
+      orderId: string,
+      linkedOrderIds: string[],
+      eventGangs?: Array<{
+        id?: string;
+        members: Array<{
+          orderId: string;
+          jobId: string;
+          imprintId: string;
+        }>;
+      }>
+    ) => {
       const token = await getIdToken();
       if (!token) {
         throw new Error("You must be signed in to update a multi-job run.");
@@ -2189,7 +2341,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       const result = await apiUpdateOrderProductionRun(
         token,
         orderId,
-        linkedOrderIds
+        linkedOrderIds,
+        eventGangs
       );
       setOrders((current) => mergeOrdersFromServer(current, result.orders));
       return result.order;
@@ -2206,6 +2359,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         estimateStaffNote?: string | null;
         estimateAdjustments?: OrderEstimateAdjustment[];
         excludedContractFeeIds?: string[];
+        paymentSurcharge?: import("@/types").OrderPaymentSurcharge | null;
         taxEnabled?: boolean;
         taxRate?: number;
       }
@@ -2346,6 +2500,52 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         jobId,
         imprintId,
         customLabel
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const updateImprintSpecs = useCallback(
+    async (
+      orderId: string,
+      jobId: string,
+      imprintId: string,
+      patch: {
+        decoration?: string;
+        locationKey?: string;
+        label?: string;
+        customLabel?: string | null;
+        designCode?: string | null;
+        isLegacy?: boolean;
+        subcontract?: import("@/types").SubcontractDetails | null;
+      }
+    ) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiUpdateImprintSpecs(
+        token,
+        orderId,
+        jobId,
+        imprintId,
+        patch
+      );
+      applyOrderUpdate(order);
+    },
+    [getIdToken, applyOrderUpdate]
+  );
+
+  const duplicateOrderImprint = useCallback(
+    async (orderId: string, jobId: string, imprintId: string) => {
+      const token = await getIdToken();
+      if (!token) return;
+
+      const { order } = await apiDuplicateOrderImprint(
+        token,
+        orderId,
+        jobId,
+        imprintId
       );
       applyOrderUpdate(order);
     },
@@ -2627,6 +2827,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateOrderFile,
       deleteOrderFile,
       addInternalNote,
+      acknowledgeInternalNotes,
       sendProofToCustomer,
       sendProofsAndEstimate,
       sendInvoice,
@@ -2642,6 +2843,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateOrderEndBusiness,
       updateOrderSalesRep,
       updateOrderAddresses,
+      updateOrderDates,
+      updateOrderPaymentTerms,
       updateOrderProductionRun,
       updateOrderEstimatePricing,
       updateOrderShipments,
@@ -2650,6 +2853,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       removeOrderLineItem,
       updateImprintNotes,
       updateImprintCustomLabel,
+      updateImprintSpecs,
+      duplicateOrderImprint,
       updateImprintInkColors,
       linkImprintArtworkFromFile,
       productionTasks,
@@ -2728,6 +2933,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateOrderFile,
       deleteOrderFile,
       addInternalNote,
+      acknowledgeInternalNotes,
       sendProofToCustomer,
       sendProofsAndEstimate,
       sendInvoice,
@@ -2743,6 +2949,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       updateOrderEndBusiness,
       updateOrderSalesRep,
       updateOrderAddresses,
+      updateOrderDates,
+      updateOrderPaymentTerms,
       updateOrderProductionRun,
       updateOrderEstimatePricing,
       updateOrderShipments,
@@ -2751,6 +2959,8 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       removeOrderLineItem,
       updateImprintNotes,
       updateImprintCustomLabel,
+      updateImprintSpecs,
+      duplicateOrderImprint,
       updateImprintInkColors,
       linkImprintArtworkFromFile,
       productionTasks,

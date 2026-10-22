@@ -226,6 +226,16 @@ export type FinishingStepPreset = {
   quantityTiers?: FinishingPriceTier[];
 };
 
+/** Outside-vendor services (sew-on patches, specialty sew, etc.). */
+export type SubcontractServicePreset = {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  /** Optional default vendor shown when this service is added on an order */
+  defaultVendorName?: string;
+};
+
 export type ShopWarehouse = {
   id: string;
   name: string;
@@ -261,6 +271,8 @@ export type ShopProductionDefaults = {
   designPlacementPresets?: DesignPlacementPreset[];
   /** Finishing steps offered (bagging, labeling, etc.) */
   finishingSteps?: FinishingStepPreset[];
+  /** Subcontract services offered (patches, specialty sew, etc.) */
+  subcontractServices?: SubcontractServicePreset[];
 };
 
 export type ShopPricingRateSheet = {
@@ -422,6 +434,7 @@ export const DEFAULT_PRODUCTION_DEFAULTS: ShopProductionDefaults = {
   decorationTypes: [],
   printLocations: [],
   finishingSteps: [],
+  subcontractServices: [],
 };
 
 export const DEFAULT_WAREHOUSES: ShopWarehouse[] = [];
@@ -1239,6 +1252,19 @@ export function normalizeProductionDefaults(
         .slice(0, 20)
     : [];
 
+  const seenSubcontract = new Set<string>();
+  const subcontractServices = Array.isArray(input.subcontractServices)
+    ? input.subcontractServices
+        .map((item, index) => normalizeSubcontractServicePreset(item, index))
+        .filter((item): item is SubcontractServicePreset => item !== null)
+        .filter((item) => {
+          if (seenSubcontract.has(item.id)) return false;
+          seenSubcontract.add(item.id);
+          return true;
+        })
+        .slice(0, 40)
+    : [];
+
   const seenPlacementIds = new Set<string>();
   const designPlacementPresets = Array.isArray(input.designPlacementPresets)
     ? input.designPlacementPresets
@@ -1310,6 +1336,7 @@ export function normalizeProductionDefaults(
     printLocations,
     designPlacementPresets,
     finishingSteps,
+    subcontractServices,
   };
 }
 
@@ -1389,17 +1416,45 @@ export const DEFAULT_INK_TYPE_OPTIONS: InkTypeOption[] = [
   { value: "other", label: "Other" },
 ];
 
-export const DEFAULT_PRINT_LOCATIONS: PrintLocationOption[] = [
-  { value: "front_left_chest", label: "Front left chest", decorationType: "screen_print" },
-  { value: "front_chest", label: "Front chest", decorationType: "screen_print" },
-  { value: "full_front", label: "Full front", decorationType: "screen_print" },
-  { value: "full_back", label: "Full back", decorationType: "screen_print" },
-  { value: "back", label: "Back", decorationType: "screen_print" },
-  { value: "left_sleeve", label: "Left sleeve", decorationType: "screen_print" },
-  { value: "right_sleeve", label: "Right sleeve", decorationType: "screen_print" },
-  { value: "nape", label: "Nape / yoke", decorationType: "screen_print" },
-  { value: "other", label: "Other", decorationType: "screen_print" },
+const SHARED_PRINT_LOCATION_LABELS: { key: string; label: string }[] = [
+  { key: "front_left_chest", label: "Front left chest" },
+  { key: "front_chest", label: "Front chest" },
+  { key: "full_front", label: "Full front" },
+  { key: "full_back", label: "Full back" },
+  { key: "back", label: "Back" },
+  { key: "left_sleeve", label: "Left sleeve" },
+  { key: "right_sleeve", label: "Right sleeve" },
+  { key: "nape", label: "Nape / yoke" },
+  { key: "other", label: "Other" },
 ];
+
+const DEFAULT_LOCATION_DECORATIONS = [
+  "screen_print",
+  "embroidery",
+  "dtf",
+  "vinyl",
+] as const;
+
+function buildDefaultPrintLocations(): PrintLocationOption[] {
+  const locations: PrintLocationOption[] = [];
+  for (const decoration of DEFAULT_LOCATION_DECORATIONS) {
+    for (const entry of SHARED_PRINT_LOCATION_LABELS) {
+      const value =
+        decoration === "screen_print"
+          ? entry.key
+          : `${decoration === "vinyl" ? "ht" : decoration}_${entry.key}`;
+      locations.push({
+        value,
+        label: entry.label,
+        decorationType: decoration,
+      });
+    }
+  }
+  return locations;
+}
+
+export const DEFAULT_PRINT_LOCATIONS: PrintLocationOption[] =
+  buildDefaultPrintLocations();
 
 /** Default design editor art boxes — percentages of the blank canvas. */
 export const DEFAULT_DESIGN_PLACEMENT_PRESETS: DesignPlacementPreset[] = [
@@ -1529,6 +1584,7 @@ export const DEFAULT_DECORATION_TYPES: DecorationTypeOption[] = [
   { value: "embroidery", label: "Embroidery" },
   { value: "dtf", label: "DTF" },
   { value: "vinyl", label: "Vinyl" },
+  { value: "subcontract", label: "Subcontract" },
 ];
 
 export const STARTER_SCREEN_SIZES: ScreenSizePreset[] = [
@@ -1762,6 +1818,89 @@ export function finishingStepContractFeeId(stepId: string): string {
   return `finishing:${String(stepId || "").trim().slice(0, 52)}`;
 }
 
+export const STARTER_SUBCONTRACT_SERVICES: SubcontractServicePreset[] = [
+  {
+    id: "sew-on-patches",
+    name: "Sew-on patches",
+    description: "Send blanks out for patch application, then receive finished goods back",
+    enabled: true,
+  },
+  {
+    id: "specialty-embroidery",
+    name: "Specialty embroidery",
+    description: "Outside embroidery house for high-stitch or specialty work",
+    enabled: true,
+  },
+  {
+    id: "laser-etch",
+    name: "Laser etch / engraving",
+    description: "Vendor laser or engrave on blanks",
+    enabled: true,
+  },
+  {
+    id: "specialty-sew",
+    name: "Specialty sew / construction",
+    description: "Outside sew work before or after decoration",
+    enabled: true,
+  },
+];
+
+export function normalizeSubcontractServicePreset(
+  item: Partial<SubcontractServicePreset> | null | undefined,
+  index = 0
+): SubcontractServicePreset | null {
+  const name =
+    typeof item?.name === "string" ? item.name.trim().slice(0, 80) : "";
+  if (!name) return null;
+  const id =
+    typeof item?.id === "string" && item.id.trim()
+      ? item.id.trim().slice(0, 64)
+      : `subcontract-${index}`;
+  const defaultVendorName =
+    typeof item?.defaultVendorName === "string"
+      ? item.defaultVendorName.trim().slice(0, 120)
+      : "";
+  return {
+    id,
+    name,
+    description:
+      typeof item?.description === "string"
+        ? item.description.trim().slice(0, 280)
+        : "",
+    enabled: item?.enabled !== false,
+    ...(defaultVendorName ? { defaultVendorName } : {}),
+  };
+}
+
+export function getSubcontractServiceOptions(
+  productionDefaults?: ShopProductionDefaults | null
+): SubcontractServicePreset[] {
+  return (
+    normalizeProductionDefaults(productionDefaults).subcontractServices ?? []
+  ).filter((service) => service.enabled !== false);
+}
+
+export function resolveSubcontractService(
+  serviceId: string | null | undefined,
+  productionDefaults?: ShopProductionDefaults | null
+): SubcontractServicePreset | undefined {
+  const id = String(serviceId || "").trim();
+  if (!id) return undefined;
+  return (
+    normalizeProductionDefaults(productionDefaults).subcontractServices ?? []
+  ).find((service) => service.id === id);
+}
+
+export function slugifySubcontractServiceId(name: string): string {
+  const base = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return base ? `subcontract-${base}` : `subcontract-${Date.now()}`;
+}
+
 export function getMeshPresetOptions(
   productionDefaults?: ShopProductionDefaults | null
 ): { value: string; label: string; mesh: number }[] {
@@ -1832,6 +1971,96 @@ export function getPrintLocationOptions(
   return DEFAULT_PRINT_LOCATIONS;
 }
 
+/**
+ * Locations for a decoration method. Prefer shop locations tagged for that
+ * method; if none exist yet, fall back to the full list so mixed orders stay editable.
+ */
+export function getPrintLocationOptionsForDecoration(
+  productionDefaults: ShopProductionDefaults | null | undefined,
+  decoration: string | null | undefined,
+  options?: { includeValue?: string | null }
+): PrintLocationOption[] {
+  const all = getPrintLocationOptions(productionDefaults);
+  const deco = String(decoration || "screen_print").trim() || "screen_print";
+  let filtered = all.filter(
+    (entry) => resolvePrintLocationDecorationType(entry) === deco
+  );
+  if (filtered.length === 0) filtered = all;
+
+  const includeValue = options?.includeValue?.trim();
+  if (
+    includeValue &&
+    !filtered.some((entry) => entry.value === includeValue)
+  ) {
+    const current = all.find((entry) => entry.value === includeValue);
+    if (current) filtered = [current, ...filtered];
+  }
+  return filtered;
+}
+
+/** When decoration changes, keep the same placement label when possible. */
+export function rematchPrintLocationForDecoration(
+  currentKey: string | null | undefined,
+  decoration: string | null | undefined,
+  productionDefaults?: ShopProductionDefaults | null
+): { locationKey: string; label: string } {
+  const deco = String(decoration || "screen_print").trim() || "screen_print";
+  const options = getPrintLocationOptionsForDecoration(
+    productionDefaults,
+    deco,
+    { includeValue: currentKey }
+  );
+  const key = String(currentKey || "").trim();
+  if (key && options.some((entry) => entry.value === key)) {
+    return {
+      locationKey: key,
+      label: resolvePrintLocationLabel(key, productionDefaults),
+    };
+  }
+
+  const currentLabel = key
+    ? resolvePrintLocationLabel(key, productionDefaults)
+    : "";
+  const byLabel = currentLabel
+    ? options.find(
+        (entry) =>
+          entry.label.trim().toLowerCase() === currentLabel.trim().toLowerCase()
+      )
+    : undefined;
+  if (byLabel) {
+    return { locationKey: byLabel.value, label: byLabel.label };
+  }
+
+  const first = options[0];
+  if (first) {
+    return { locationKey: first.value, label: first.label };
+  }
+
+  return {
+    locationKey: key || "front_chest",
+    label: currentLabel || "Front chest",
+  };
+}
+
+export function getEmbroideryHoopOptions(
+  productionDefaults?: ShopProductionDefaults | null
+): { value: string; label: string }[] {
+  const configured = productionDefaults?.embroideryHoopSizes ?? [];
+  const source =
+    configured.length > 0 ? configured : STARTER_EMBROIDERY_HOOP_SIZES;
+  return source.map((hoop) => ({
+    value: hoop.id,
+    label: hoop.label || `${hoop.widthIn} × ${hoop.heightIn}`,
+  }));
+}
+
+export function getEmbroideryBackingOptions(
+  productionDefaults?: ShopProductionDefaults | null
+): EmbroideryBackingTypeOption[] {
+  const custom = productionDefaults?.embroideryBackingTypes ?? [];
+  return [...DEFAULT_EMBROIDERY_BACKING_TYPES, ...custom];
+}
+
 export function getDecorationTypeOptions(
   productionDefaults?: ShopProductionDefaults | null
 ): DecorationTypeOption[] {
@@ -1862,6 +2091,7 @@ const DECORATION_TYPE_FALLBACK_LABELS: Record<string, string> = {
   dtf: "DTF",
   vinyl: "Vinyl",
   finishing: "Finishing",
+  subcontract: "Subcontract",
 };
 
 export function resolvePrintLocationDecorationType(

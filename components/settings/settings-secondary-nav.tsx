@@ -23,6 +23,7 @@ import {
   Shirt,
   Sparkles,
   SlidersHorizontal,
+  Truck,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -138,6 +139,11 @@ const GROUPS: SettingsNavGroup[] = [
         href: "/app/settings/shop/finishing",
         label: "Finishing",
         icon: Sparkles,
+      },
+      {
+        href: "/app/settings/shop/subcontracting",
+        label: "Subcontracting",
+        icon: Truck,
       },
       {
         href: "/app/settings/shop/warehouse",

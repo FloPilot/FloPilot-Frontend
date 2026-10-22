@@ -46,7 +46,9 @@ export type OrderCheckpoint = {
     | "materials"
     | "prep"
     | "scheduled"
-    | "floor";
+    | "floor"
+    | "subcontract_sent"
+    | "subcontract_return";
   label: string;
   shortLabel: string;
   status: CheckpointRollupStatus;

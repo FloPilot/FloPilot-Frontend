@@ -12,17 +12,21 @@ import {
   MapPin,
   Pencil,
   Phone,
+  Hash,
   Search,
 } from "lucide-react";
 import { CustomerOrderDialog } from "@/components/customers/customer-order-dialog";
 import { CustomerBrandMarkFromRecord } from "@/components/customers/customer-brand-mark";
 import { CustomerShippingLocationsSection } from "@/components/customers/customer-shipping-locations-section";
+import { CustomerThirdPartyShippingSection } from "@/components/customers/customer-third-party-shipping-section";
 import { CustomerTaxExemptionSection } from "@/components/customers/customer-tax-exemption-section";
 import { CustomerContactsSection } from "@/components/customers/customer-contacts-section";
 import { CustomerSubCustomersSection } from "@/components/customers/customer-sub-customers-section";
 import { CustomerSalesRepSection } from "@/components/customers/customer-sales-rep-section";
+import { CustomerNumberSection } from "@/components/customers/customer-number-section";
 import { CustomerPaymentTermsSection } from "@/components/customers/customer-payment-terms-section";
 import { CustomerNotesSection } from "@/components/customers/customer-notes-section";
+import { suggestNextCustomerNumber } from "@/lib/customer-number";
 import { CustomerNegotiatedPricingSection } from "@/components/customers/customer-negotiated-pricing-section";
 import { CustomerFilesSection } from "@/components/customers/customer-files-section";
 import { EditCustomerDialog } from "@/components/customers/edit-customer-dialog";
@@ -81,6 +85,7 @@ import { cn } from "@/lib/utils";
 
 export function CustomerDetailView({ customerId }: { customerId: string }) {
   const {
+    customers,
     getCustomerById,
     getOrdersByCustomerId,
     createReorderFromOrder,
@@ -95,6 +100,10 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
   } = useSchedule();
   const customer = getCustomerById(customerId);
   const allOrders = getOrdersByCustomerId(customerId);
+  const nextCustomerNumber = useMemo(
+    () => suggestNextCustomerNumber(customers, customerId),
+    [customers, customerId]
+  );
 
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState<CustomerOrderScope>("open");
@@ -130,11 +139,13 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
     if (!customer || !draft) return customer;
     return {
       ...customer,
+      customerNumber: draft.customerNumber,
       salesRepId: draft.salesRepId ?? undefined,
       taxExempt: draft.taxExempt,
       taxExemptNumber: draft.taxExemptNumber,
       contacts: draft.contacts,
       shippingLocations: draft.shippingLocations,
+      thirdPartyShippingAccounts: draft.thirdPartyShippingAccounts,
       subCustomers: draft.subCustomers,
       negotiatedPricing: draft.negotiatedPricing,
     } satisfies Customer;
@@ -156,6 +167,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
     try {
       let latest = await updateCustomer(customer.id, {
         salesRepId: draft.salesRepId,
+        customerNumber: draft.customerNumber,
         paymentTermsLabel: draft.paymentTermsLabel,
         paymentTermsDays: draft.paymentTermsDays,
         taxExempt: draft.taxExempt,
@@ -163,6 +175,7 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
         contacts: draft.contacts,
         accountNotes: draft.accountNotes,
         shippingLocations: draft.shippingLocations,
+        thirdPartyShippingAccounts: draft.thirdPartyShippingAccounts,
         subCustomers: draft.subCustomers,
         ...(draft.negotiatedPricing
           ? { negotiatedPricing: draft.negotiatedPricing }
@@ -579,6 +592,12 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                 </h2>
               </div>
               <div className="space-y-3 p-4 text-sm sm:p-5">
+                {(draft?.customerNumber || customer.customerNumber) ? (
+                  <ContactRow
+                    icon={Hash}
+                    label={`Customer #${draft?.customerNumber || customer.customerNumber}`}
+                  />
+                ) : null}
                 <ContactRow
                   href={`mailto:${customer.email}`}
                   icon={Mail}
@@ -633,6 +652,29 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                     current ? { ...current, accountNotes } : current
                   );
                 }}
+              />
+            ) : null}
+
+            {draft ? (
+              <CustomerNumberSection
+                customerNumber={draft.customerNumber}
+                suggestedNumber={nextCustomerNumber}
+                onGenerate={(next) => {
+                  setDraft((current) =>
+                    current ? { ...current, customerNumber: next } : current
+                  );
+                }}
+                onClear={
+                  customer.customerNumber?.trim()
+                    ? undefined
+                    : () => {
+                        setDraft((current) =>
+                          current
+                            ? { ...current, customerNumber: null }
+                            : current
+                        );
+                      }
+                }
               />
             ) : null}
 
@@ -726,6 +768,19 @@ export function CustomerDetailView({ customerId }: { customerId: string }) {
                 onSave={async (shippingLocations) => {
                   setDraft((current) =>
                     current ? { ...current, shippingLocations } : current
+                  );
+                }}
+              />
+            ) : null}
+
+            {draftCustomer ? (
+              <CustomerThirdPartyShippingSection
+                customer={draftCustomer}
+                onSave={async (thirdPartyShippingAccounts) => {
+                  setDraft((current) =>
+                    current
+                      ? { ...current, thirdPartyShippingAccounts }
+                      : current
                   );
                 }}
               />

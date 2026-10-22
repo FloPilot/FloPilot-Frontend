@@ -28,7 +28,6 @@ import {
   buildReceivingQueue,
   receivingQueueStats,
 } from "@/lib/receiving-queue";
-import { blankSourceLabel } from "@/lib/order-receiving-checkpoints";
 import type { ShopModuleKey } from "@/lib/shop-settings";
 import { cn } from "@/lib/utils";
 import type {
@@ -224,8 +223,8 @@ export function DashboardReceivingWidget({ orders }: { orders: Order[] }) {
                   </div>
                   <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
                     {group.order.company}
-                    {group.blankSource
-                      ? ` · ${blankSourceLabel(group.blankSource)}`
+                    {group.blankSourceSummary !== "Not set"
+                      ? ` · ${group.blankSourceSummary}`
                       : ""}
                   </p>
                 </div>

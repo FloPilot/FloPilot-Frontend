@@ -111,6 +111,9 @@ export function OrderRequestProofsTab({
       updateCustomLabel: async (_orderId, _jobId, imprintId, customLabel) => {
         await patchEvent(imprintId, { customLabel });
       },
+      updateDesignCode: async (_orderId, _jobId, imprintId, designCode) => {
+        await patchEvent(imprintId, { designCode: designCode || null });
+      },
       updateInkColors: async (_orderId, _jobId, imprintId, inkColors) => {
         await patchEvent(imprintId, {
           inkColors: inkColors as ImprintInkColor[],

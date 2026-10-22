@@ -56,6 +56,10 @@ import { cn } from "@/lib/utils";
 
 type ProofStep = { job: Job; imprint: JobImprint };
 
+function proofStepKey(step: ProofStep): string {
+  return `${step.job.id}-${step.imprint.id}`;
+}
+
 function defaultOrderArtDueDate(order: Order, steps: ProofStep[]): string {
   for (const step of steps) {
     const existing = artDueDateKey(step.imprint.artwork.artDueAt);
@@ -105,6 +109,16 @@ export function ProofOrderSummaryPanel({
   const [dueAt, setDueAt] = useState(() =>
     defaultOrderArtDueDate(order, proofSteps)
   );
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    for (const step of proofSteps) {
+      if (step.imprint.isLegacy) continue;
+      if (canSubmitProofToArt(step.imprint.artwork.status)) {
+        initial.add(proofStepKey(step));
+      }
+    }
+    return initial;
+  });
   const isArtDept = mode === "art_department";
 
   const statuses = useMemo(
@@ -123,6 +137,40 @@ export function ProofOrderSummaryPanel({
   const submittable = proofSteps.filter((step) =>
     canSubmitProofToArt(step.imprint.artwork.status)
   );
+
+  const proofStepSignature = proofSteps
+    .map(
+      (step) =>
+        `${proofStepKey(step)}:${step.imprint.artwork.status}:${step.imprint.isLegacy ? 1 : 0}`
+    )
+    .join("|");
+
+  useEffect(() => {
+    const next = new Set<string>();
+    for (const step of proofSteps) {
+      if (step.imprint.isLegacy) continue;
+      if (canSubmitProofToArt(step.imprint.artwork.status)) {
+        next.add(proofStepKey(step));
+      }
+    }
+    setSelectedKeys(next);
+    // Re-seed when locations / status / legacy tags change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- signature captures proofSteps
+  }, [order.id, proofStepSignature]);
+
+  const selectedSubmittable = submittable.filter((step) =>
+    selectedKeys.has(proofStepKey(step))
+  );
+
+  const toggleSelected = (step: ProofStep, checked: boolean) => {
+    const key = proofStepKey(step);
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  };
   const completable = proofSteps.filter(
     (step) =>
       canMarkArtComplete(step.imprint.artwork.status) &&
@@ -246,8 +294,8 @@ export function ProofOrderSummaryPanel({
     }
   };
 
-  const handleSubmitAll = async () => {
-    if (busy || readOnly || submittable.length === 0) return;
+  const handleSubmitSelected = async () => {
+    if (busy || readOnly || selectedSubmittable.length === 0) return;
     if (!dueAt.trim()) {
       setError("Pick a due date before submitting to artwork.");
       return;
@@ -256,10 +304,15 @@ export function ProofOrderSummaryPanel({
     setError(null);
     setSendMessage(null);
     try {
-      await runForSteps(submittable, "with_art", {
+      await runForSteps(selectedSubmittable, "with_art", {
         assigneeId: assigneeId ?? undefined,
         dueAt: dueAt.trim(),
       });
+      setSendMessage(
+        `Sent ${selectedSubmittable.length} design${
+          selectedSubmittable.length === 1 ? "" : "s"
+        } to artwork.`
+      );
     } catch (err) {
       setError(
         err instanceof Error
@@ -412,12 +465,12 @@ export function ProofOrderSummaryPanel({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className={dashboardTaskTitleClass}>
-            {isArtDept ? "Send back to the team" : "Order artwork"}
+            {isArtDept ? "Send back to the team" : "Proof review"}
           </h3>
           <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
             {isArtDept
               ? "Finish every location, then hand the whole order back to the internal team in one pass — same idea as submitting to artwork."
-              : "Review every proof, assign one artist, and send the whole order to art in one pass."}
+              : "Choose which designs need art. Skip old designs, then submit only the ones that still need work. Edit decoration or location on Events & Designs."}
           </p>
         </div>
         {rollup ? <ArtworkStatusBadge status={rollup} /> : null}
@@ -545,20 +598,18 @@ export function ProofOrderSummaryPanel({
 
         {!readOnly ? (
           <div className="flex flex-wrap gap-2">
-            {!isArtDept && !artLocked && submittable.length > 0 ? (
+            {!isArtDept && !artLocked && selectedSubmittable.length > 0 ? (
               <ProofActionButton
                 variant="primary"
                 className="h-8 flex-1 text-[12px]"
                 disabled={busy || !dueAt.trim()}
                 successLabel="Submitted"
-                onClick={() => void handleSubmitAll()}
+                onClick={() => void handleSubmitSelected()}
               >
                 <span className="inline-flex items-center gap-1.5">
                   <Send className="size-3.5" />
-                  Submit all to artwork
-                  {submittable.length > 0
-                    ? ` (${submittable.length})`
-                    : ""}
+                  Submit selected to artwork
+                  {` (${selectedSubmittable.length})`}
                 </span>
               </ProofActionButton>
             ) : null}
@@ -646,11 +697,7 @@ export function ProofOrderSummaryPanel({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-              Design code
-            </p>
-            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-              Shop-facing job code for this artwork package — searchable in
-              Designs.
+              Order design code
             </p>
           </div>
         </div>
@@ -820,86 +867,153 @@ export function ProofOrderSummaryPanel({
       </div>
 
       <div className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-          All proofs
-        </p>
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+              Designs to review
+            </p>
+            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+              Check the designs that still need art. Old designs stay unchecked
+              unless you opt them in.
+            </p>
+          </div>
+          {!readOnly && !isArtDept && !artLocked && submittable.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="text-[12px] font-semibold text-[#2c6ecb] hover:underline"
+                onClick={() => {
+                  const next = new Set<string>();
+                  for (const step of submittable) {
+                    if (!step.imprint.isLegacy) next.add(proofStepKey(step));
+                  }
+                  setSelectedKeys(next);
+                }}
+              >
+                Select new only
+              </button>
+              <button
+                type="button"
+                className="text-[12px] font-semibold text-[#2c6ecb] hover:underline"
+                onClick={() => {
+                  setSelectedKeys(
+                    new Set(submittable.map((step) => proofStepKey(step)))
+                  );
+                }}
+              >
+                Select all
+              </button>
+            </div>
+          ) : null}
+        </div>
         <ul className="space-y-2">
-          {proofSteps.map(({ job, imprint }) => {
+          {proofSteps.map((step) => {
+            const { job, imprint } = step;
+            const key = proofStepKey(step);
             const slides = getProofSlides(imprint.artwork);
             const thumb = slides[0]?.previewUrl || imprint.artwork.previewUrl;
             const artist = imprint.artwork.artAssigneeName?.trim();
             const ready = canCompleteArtworkProof(imprint);
+            const canSelect =
+              !readOnly &&
+              !isArtDept &&
+              !artLocked &&
+              canSubmitProofToArt(imprint.artwork.status);
+            const selected = selectedKeys.has(key);
 
             return (
-              <li key={`${job.id}-${imprint.id}`}>
-                <button
-                  type="button"
-                  onClick={() => onSelectProof(job.id, imprint.id)}
+              <li key={key}>
+                <div
                   className={cn(
                     dashboardInsetSurfaceClass,
-                    "flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#f4f7fd]"
+                    "flex w-full items-center gap-3 px-3 py-2.5 transition-colors",
+                    selected && canSelect && "border-[#c9d7ef] bg-[#f8faff]"
                   )}
                 >
-                  <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[#ebebeb] bg-[#fafafa]">
-                    {thumb ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={thumb}
-                        alt=""
-                        className="size-full object-cover"
-                      />
-                    ) : (
-                      <ImageIcon className="size-4 text-[#c9c9c9]" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate text-[13px] font-semibold text-[#303030]">
-                        {imprintDisplayName(imprint)}
-                      </p>
-                      <ArtworkStatusBadge
-                        status={imprint.artwork.status}
-                        className="scale-90"
-                      />
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <DecorationTypePill decoration={imprint.decoration} />
-                      {artist ? (
-                        <span className="text-[11px] text-[#8a8a8a]">
-                          Artist · {artist}
-                        </span>
+                  {canSelect ? (
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={(event) =>
+                        toggleSelected(step, event.target.checked)
+                      }
+                      aria-label={`Include ${imprintDisplayName(imprint)} for art`}
+                      className="size-4 shrink-0 rounded border-[#c9c9c9] text-[#2c6ecb] accent-[#2c6ecb]"
+                    />
+                  ) : (
+                    <div className="size-4 shrink-0" aria-hidden />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onSelectProof(job.id, imprint.id)}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  >
+                    <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[#ebebeb] bg-[#fafafa]">
+                      {thumb ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={thumb}
+                          alt=""
+                          className="size-full object-cover"
+                        />
                       ) : (
-                        <span className="text-[11px] text-[#8a8a8a]">
-                          Unassigned
-                        </span>
+                        <ImageIcon className="size-4 text-[#c9c9c9]" />
                       )}
-                      {imprint.artwork.artDueAt ? (
-                        <span className="text-[11px] text-[#8a8a8a]">
-                          Due {formatArtDueLabel(imprint.artwork.artDueAt)}
-                        </span>
-                      ) : null}
-                      {!ready.ok ? (
-                        <span className="text-[11px] font-medium text-[#9a6700]">
-                          Needs{" "}
-                          {[
-                            ready.missing.some((item) =>
-                              item.toLowerCase().includes("image")
-                            )
-                              ? "proof images"
-                              : null,
-                            ready.missing.some((item) =>
-                              item.toLowerCase().includes("color")
-                            )
-                              ? "colors"
-                              : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                      ) : null}
                     </div>
-                  </div>
-                </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-[13px] font-semibold text-[#303030]">
+                          {imprintDisplayName(imprint)}
+                        </p>
+                        {imprint.isLegacy ? (
+                          <span className="rounded-md border border-[#e3e3e3] bg-[#f6f6f7] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161]">
+                            Old design
+                          </span>
+                        ) : null}
+                        <ArtworkStatusBadge
+                          status={imprint.artwork.status}
+                          className="scale-90"
+                        />
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <DecorationTypePill decoration={imprint.decoration} />
+                        {artist ? (
+                          <span className="text-[11px] text-[#8a8a8a]">
+                            Artist · {artist}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-[#8a8a8a]">
+                            Unassigned
+                          </span>
+                        )}
+                        {imprint.artwork.artDueAt ? (
+                          <span className="text-[11px] text-[#8a8a8a]">
+                            Due {formatArtDueLabel(imprint.artwork.artDueAt)}
+                          </span>
+                        ) : null}
+                        {!ready.ok ? (
+                          <span className="text-[11px] font-medium text-[#9a6700]">
+                            Needs{" "}
+                            {[
+                              ready.missing.some((item) =>
+                                item.toLowerCase().includes("image")
+                              )
+                                ? "proof images"
+                                : null,
+                              ready.missing.some((item) =>
+                                item.toLowerCase().includes("color")
+                              )
+                                ? "colors"
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </button>
+                </div>
               </li>
             );
           })}

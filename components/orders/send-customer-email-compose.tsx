@@ -188,7 +188,21 @@ export function SendCustomerEmailCompose({
     [selectedCc]
   );
 
-  const recipientName = selectedTo[0]?.name?.trim() || undefined;
+  // Greet every To recipient ("Hi Angel and Nancy,") — CC is ignored.
+  const recipientName = useMemo(() => {
+    const names = selectedTo
+      .map((entry) => {
+        const full = entry.name?.trim() || "";
+        if (full) return full.split(/\s+/)[0] || "";
+        const email = entry.email?.trim() || "";
+        return email.includes("@") ? email.split("@")[0] || "" : "";
+      })
+      .filter(Boolean);
+    if (names.length === 0) return undefined;
+    if (names.length === 1) return names[0];
+    if (names.length === 2) return `${names[0]} and ${names[1]}`;
+    return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+  }, [selectedTo]);
 
   const setRole = (id: string, next: RecipientRole) => {
     setRoles((current) => {

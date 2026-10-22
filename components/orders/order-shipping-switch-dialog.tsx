@@ -48,14 +48,14 @@ export function OrderShippingSwitchDialog({
             </span>
             <div className="min-w-0 space-y-1">
               <DialogTitle className="text-[15px] font-semibold text-[#303030]">
-                {toWillCall ? "Switch to Will Call?" : "Switch to carrier shipping?"}
+                {toWillCall ? "Switch to Pickup?" : "Switch to carrier shipping?"}
               </DialogTitle>
               <DialogDescription className="text-[13px] leading-relaxed text-[#616161]">
                 {toWillCall ? (
                   <>
                     This order has {count} planned shipment
-                    {count !== 1 ? "s" : ""} with ship-to addresses. Will Call
-                    means the customer picks up from your shop — those shipment
+                    {count !== 1 ? "s" : ""} with ship-to addresses. Pickup
+                    means the customer collects from your shop — those shipment
                     locations won&apos;t apply.
                   </>
                 ) : (
@@ -95,7 +95,7 @@ export function OrderShippingSwitchDialog({
                 className={cn(dashboardControlClass, "h-10 w-full rounded-lg")}
                 onClick={onConfirmClear}
               >
-                Clear all & start Will Call
+                Clear all & start Pickup
               </Button>
             </>
           ) : (

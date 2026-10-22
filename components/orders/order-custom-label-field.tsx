@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  OrderHeaderCombo,
+  OrderHeaderField,
+} from "@/components/orders/order-header-field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatOrderDisplayLine } from "@/lib/order-display";
@@ -23,27 +27,28 @@ export function OrderCustomLabelField({
   return (
     <div className={cn("space-y-1.5", className)}>
       <Label htmlFor={id} className="text-[13px] font-medium text-[#303030]">
-        Custom order name{" "}
+        Customer PO / Job name{" "}
         <span className="font-normal text-[#8a8a8a]">(optional)</span>
       </Label>
       <Input
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder="e.g. CUSTOM NAME"
         className={cn(dashboardControlClass, "h-10 rounded-lg")}
         maxLength={120}
       />
-      <p className="text-[12px] text-[#616161]">
-        Shows as{" "}
-        <span className="font-medium text-[#303030]">
-          {formatOrderDisplayLine({
-            number: orderNumber,
-            customLabel: value,
-          })}
-        </span>
-        {". Calendar events will use this name by default."}
-      </p>
+      {value.trim() ? (
+        <p className="text-[12px] text-[#616161]">
+          Shows as{" "}
+          <span className="font-medium text-[#303030]">
+            {formatOrderDisplayLine({
+              number: orderNumber,
+              customLabel: value,
+            })}
+          </span>
+          {"."}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -62,7 +67,6 @@ export function OrderCustomLabelEditor({
 }) {
   const [draft, setDraft] = useState(order.customLabel ?? "");
   const [saving, setSaving] = useState(false);
-  const [focused, setFocused] = useState(false);
   const deferSave = Boolean(onDraftChange);
 
   useEffect(() => {
@@ -83,45 +87,37 @@ export function OrderCustomLabelEditor({
     }
   };
 
-  const hasValue = Boolean(draft.trim());
-
   return (
-    <div className={cn("min-w-0 w-[min(100%,20rem)] sm:w-[22rem]", className)}>
-      <Label htmlFor={`order-custom-label-${order.id}`} className="sr-only">
-        Custom order name
-      </Label>
-      <input
-        id={`order-custom-label-${order.id}`}
-        value={draft}
-        onChange={(event) => {
-          const next = event.target.value;
-          setDraft(next);
-          onDraftChange?.(next);
-        }}
-        onFocus={() => setFocused(true)}
-        onBlur={() => {
-          setFocused(false);
-          void saveIfChanged();
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            (event.target as HTMLInputElement).blur();
-          }
-        }}
-        placeholder="Custom order name (optional)"
-        disabled={saving}
-        maxLength={120}
-        className={cn(
-          "h-8 w-full rounded-md border bg-transparent px-2.5 text-[13px] font-medium outline-none transition-colors",
-          "placeholder:font-normal placeholder:text-[#b0b0b0]",
-          focused || hasValue
-            ? "border-[#d8d8d8] text-[#303030]"
-            : "border-[#ebebeb] text-[#8a8a8a] hover:border-[#d8d8d8]",
-          "focus:border-[#c4d7f2] focus:bg-white focus:text-[#303030] focus:ring-2 focus:ring-[#2c6ecb]/10",
-          saving && "opacity-60"
-        )}
-      />
-    </div>
+    <OrderHeaderField label="Customer PO / Job name" className={className}>
+      <OrderHeaderCombo className="min-w-[12rem] sm:min-w-[14rem]">
+        <input
+          id={`order-custom-label-${order.id}`}
+          value={draft}
+          onChange={(event) => {
+            const next = event.target.value;
+            setDraft(next);
+            onDraftChange?.(next);
+          }}
+          onBlur={() => {
+            void saveIfChanged();
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              (event.target as HTMLInputElement).blur();
+            }
+          }}
+          disabled={saving}
+          maxLength={120}
+          aria-label="Customer PO / Job name"
+          className={cn(
+            "h-full min-h-8 w-full min-w-0 bg-transparent px-2.5 text-[13px] font-medium text-[#303030] outline-none",
+            "placeholder:font-normal placeholder:text-[#8a8a8a]",
+            "hover:bg-[#fafafa] focus:bg-white",
+            saving && "opacity-60"
+          )}
+        />
+      </OrderHeaderCombo>
+    </OrderHeaderField>
   );
 }

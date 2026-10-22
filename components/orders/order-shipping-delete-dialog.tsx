@@ -75,7 +75,7 @@ export function OrderShippingDeleteDialog({
                 {label}
               </p>
               <p className="mt-0.5 text-[12px] text-[#8a8a8a]">
-                {isPickup ? "Will Call pickup" : "Carrier shipment"}
+                {isPickup ? "Shop pickup" : "Carrier shipment"}
               </p>
             </div>
           </div>

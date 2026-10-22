@@ -18,7 +18,34 @@ export type BuiltInDecorationType =
   | "embroidery"
   | "dtf"
   | "vinyl"
-  | "finishing";
+  | "finishing"
+  | "subcontract";
+
+/** Lifecycle for work sent to an outside vendor (patches, specialty sew, etc.). */
+export type SubcontractStatus =
+  | "planned"
+  | "awaiting_blanks"
+  | "ready_to_send"
+  | "at_vendor"
+  | "partial_return"
+  | "returned"
+  | "complete";
+
+export interface SubcontractDetails {
+  vendorName?: string;
+  poNumber?: string;
+  /** What the vendor is doing — e.g. "Sew-on patches" */
+  workDescription?: string;
+  expectedQty?: number;
+  sentQty?: number;
+  sentAt?: string | null;
+  expectedReturnAt?: string | null;
+  returnedQty?: number;
+  returnedAt?: string | null;
+  /** Derived or manually set status for the send/return loop */
+  status?: SubcontractStatus;
+  notes?: string;
+}
 
 /**
  * Decoration method key — built-in values, or a shop-configured custom type
@@ -40,6 +67,11 @@ export type CustomerBillingAddress = {
 
 export interface Customer {
   id: string;
+  /**
+   * Shop-facing account number shown on estimates (e.g. "1000").
+   * Auto-assigned on create; legacy accounts can generate one from the customer page.
+   */
+  customerNumber?: string | null;
   company: string;
   email: string;
   phone: string;
@@ -77,6 +109,11 @@ export interface Customer {
   archivedBy?: string;
   /** Saved ship-to addresses for split shipments */
   shippingLocations?: CustomerShippingLocation[];
+  /**
+   * Carrier accounts the customer provides for third-party / collect billing.
+   * Default account is copied onto new orders and remains editable per order.
+   */
+  thirdPartyShippingAccounts?: ThirdPartyShippingAccount[];
   /** Additional people at this company (estimators, POs, A/P, etc.) */
   contacts?: CustomerContact[];
   /** End businesses / accounts under a broker or contractor parent */
@@ -161,6 +198,9 @@ export type CustomerActivityType =
   | "shipping_location_added"
   | "shipping_location_updated"
   | "shipping_location_removed"
+  | "third_party_shipping_added"
+  | "third_party_shipping_updated"
+  | "third_party_shipping_removed"
   | "contact_added"
   | "contact_updated"
   | "contact_removed"
@@ -277,6 +317,23 @@ export type OrderEstimateAdjustment = {
   contractFeeId?: string;
 };
 
+/**
+ * Payment / processing surcharge on an estimate (e.g. 3% card fee).
+ * Applied after garments, decoration, and other fees — before tax.
+ */
+export type OrderPaymentSurcharge = {
+  enabled: boolean;
+  /** Percent of pre-surcharge subtotal (3 = 3%) */
+  percent: number;
+  label: string;
+  /**
+   * When set, uses this fixed dollar amount instead of percent × base.
+   * Cleared when staff recalculates after order changes.
+   */
+  amountOverride?: number | null;
+  updatedAt?: string;
+};
+
 export type CustomerNegotiatedPricing = {
   summary?: string;
   updatedAt?: string;
@@ -300,6 +357,58 @@ export interface ShippingAddress {
 export interface CustomerShippingLocation extends ShippingAddress {
   id: string;
   isDefault?: boolean;
+}
+
+/** Carrier used for third-party / collect freight billing */
+export type ThirdPartyShippingCarrier =
+  | "ups"
+  | "fedex"
+  | "dhl"
+  | "usps"
+  | "other";
+
+/** Who is billed on the carrier label */
+export type ThirdPartyBillingType = "third_party" | "collect" | "consignee";
+
+/**
+ * Customer-book carrier account for third-party shipping.
+ * Account # + billing ZIP are required by UPS/FedEx for 3rd-party billing.
+ */
+export interface ThirdPartyShippingAccount {
+  id: string;
+  /** Short name for staff (e.g. “Acme UPS collect”) */
+  label?: string;
+  carrier: ThirdPartyShippingCarrier;
+  /** When carrier is `other`, the free-text carrier name */
+  carrierOther?: string;
+  accountNumber: string;
+  /** Billing ZIP/postal required to validate the carrier account */
+  billingPostalCode: string;
+  billingCountry?: string;
+  /** Name on the carrier account */
+  accountName?: string;
+  billingType?: ThirdPartyBillingType;
+  notes?: string;
+  isDefault?: boolean;
+}
+
+/**
+ * Order-level snapshot of third-party shipping billing.
+ * Copied from the customer default on create; editable per order.
+ */
+export interface OrderThirdPartyShippingAccount {
+  /** Customer book entry this was copied from (if any) */
+  customerAccountId?: string | null;
+  label?: string;
+  carrier: ThirdPartyShippingCarrier;
+  /** When carrier is `other`, the free-text carrier name */
+  carrierOther?: string;
+  accountNumber: string;
+  billingPostalCode: string;
+  billingCountry?: string;
+  accountName?: string;
+  billingType?: ThirdPartyBillingType;
+  notes?: string;
 }
 
 /** Account billing profile option in order Bill To select. */
@@ -357,10 +466,22 @@ export interface LineItem {
   color: string;
   sizes: SizeBreakdown[];
   unitCost: number;
+  /**
+   * Editable garment description for this order (estimate / PO label).
+   * When unset, falls back to brand + productName.
+   */
+  description?: string;
   /** Markup % over shop blank cost — defaults from shop settings when unset */
   markupPercent?: number;
   /** Customer-facing unit price; overrides markup-derived price when set */
   customerUnitPrice?: number;
+  /**
+   * Who supplies this blank. When unset, falls back to
+   * `order.materials.blankSource` so mixed shop + customer lines can coexist.
+   */
+  blankSource?: BlankSource;
+  /** Staff note on this blank — damages, reorder reason, etc. */
+  notes?: string;
   /** Catalog keys for editing blank garments on the order */
   productKey?: string;
   colorKey?: string;
@@ -450,6 +571,7 @@ export type OrderFileKind =
   | "production_art"
   | "separation"
   | "embroidery_file"
+  | "embroidery_sewout"
   | "purchase_order"
   | "invoice"
   | "quote"
@@ -469,7 +591,8 @@ export type OrderMaterialKind =
   | "screen_setup"
   | "ink_prep"
   | "screen_supplies"
-  | "supplies";
+  | "supplies"
+  | "subcontract_return";
 
 export interface OrderMaterialLine {
   id: string;
@@ -510,6 +633,11 @@ export interface OrderMaterials {
   lines: OrderMaterialLine[];
   /** Who orders blank garments — shop PO or customer ships their own */
   blankSource?: BlankSource;
+  /**
+   * Short callout pinned at the top of the Receiving tab for the floor team
+   * (e.g. “Watch for short Mediums — vendor reshipping Thursday”).
+   */
+  receivingCallout?: string | null;
   updatedAt?: string;
 }
 
@@ -603,6 +731,13 @@ export interface InternalNote {
   author: string;
   content: string;
   timestamp: string;
+  /**
+   * Optional department this note is aimed at (e.g. receiving).
+   * When set, that team sees it as a popup when they open the app.
+   */
+  targetDepartment?: import("@/lib/departments").DepartmentSlug | null;
+  /** Staff user IDs who dismissed the department popup for this note. */
+  acknowledgedBy?: string[];
 }
 
 export type OrderActivityType =
@@ -656,6 +791,22 @@ export interface ImprintInkColor {
   isFlash?: boolean;
 }
 
+/** Thread / color line on an embroidery location. */
+export type EmbroideryThreadLine = {
+  id: string;
+  /** Thread color name or number */
+  color?: string;
+  /** Manufacturer thread code */
+  mfgCode?: string;
+};
+
+/** Freeform embroidery production line (puff, stop, letter height, etc.). */
+export type EmbroideryExtraLine = {
+  id: string;
+  /** e.g. "2mm puff", "3mm puff", "Stop" */
+  text?: string;
+};
+
 export interface ImprintProductionNotes {
   colors?: string;
   dimensions?: string;
@@ -670,6 +821,20 @@ export interface ImprintProductionNotes {
   dtfImprintAreaId?: string;
   colorCount?: number;
   flashCount?: number;
+  /** Embroidery stitch count (e.g. 8500) */
+  stitchCount?: string;
+  /** Embroidery hoop size preset id from shop settings */
+  embroideryHoopSizeId?: string;
+  /** Embroidery backing type */
+  embroideryBackingType?: string;
+  /** Thread colors / MFG codes for this embroidery location */
+  embroideryThreads?: EmbroideryThreadLine[];
+  /** Puff, stops, letter heights, and other embroidery notes */
+  embroideryExtras?: EmbroideryExtraLine[];
+  /** Heat transfer / vinyl press temperature */
+  applicationTemp?: string;
+  /** Heat transfer / vinyl application instructions */
+  applicationNotes?: string;
 }
 
 export type PrepCheckpointStatus =
@@ -779,10 +944,15 @@ export interface JobImprint {
   /** Display label, e.g. "Front left chest" */
   label: string;
   /**
-   * Optional custom proof name (e.g. distinguishing multiple neck labels).
-   * Empty by default — when set, used as the primary display name.
+   * Optional custom proof name (legacy — prefer designCode for identifiers).
+   * When set, used as the primary display name.
    */
   customLabel?: string;
+  /**
+   * Per-artwork design code (e.g. DC-1063-FLC). The order can also have a
+   * job-level designCode — this is the code for this decoration location.
+   */
+  designCode?: string | null;
   decoration: DecorationType;
   artwork: ArtworkFile;
   notes?: ImprintProductionNotes;
@@ -790,10 +960,20 @@ export interface JobImprint {
   inkColors?: ImprintInkColor[];
   /** Link to a saved design in the library for reorder */
   libraryDesignId?: string;
+  /**
+   * Reused / previously approved design — skip art department by default
+   * and show an “Old design” tag on Proofs.
+   */
+  isLegacy?: boolean;
   /** Per-event workflow — prep, assignment, and status overrides */
   workflow?: ProductionEventWorkflow;
   /** Composed blank + artwork mockup from the Design tab */
   designMockup?: OrderDesignMockup;
+  /**
+   * Outside vendor work for this event — blanks leave the shop, return finished.
+   * Present when decoration is subcontract (or job.kind is subcontract).
+   */
+  subcontract?: SubcontractDetails;
 }
 
 export interface Task {
@@ -818,17 +998,37 @@ export interface Task {
   };
 }
 
+/**
+ * Which blank (and optionally which sizes) a decoration event runs on.
+ * Omit `sizes` (or leave empty) to include every size on that blank.
+ */
+export interface JobBlankAssignment {
+  lineItemId: string;
+  sizes?: string[];
+}
+
 /** Decoration work package — one production event on the order (may include multiple imprint locations) */
 export interface Job {
   id: string;
   name: string;
+  /**
+   * Blanks linked to this decoration. Empty / omitted = all blanks.
+   * Derived from `blankAssignments` when size-level mapping is used.
+   */
   lineItemIds?: string[];
+  /**
+   * Per-blank (and optional per-size) decoration mapping.
+   * When set, preferred over `lineItemIds` alone for piece counts / matrix tiers.
+   */
+  blankAssignments?: JobBlankAssignment[];
   imprints: JobImprint[];
   tasks: Task[];
   /** Finishing steps like bagging don't need garment decoration specs */
-  kind?: "decoration" | "finishing";
+  kind?: "decoration" | "finishing" | "subcontract";
   /** Links to shop finishing step preset for priced bagging/labeling/etc. */
   finishingStepId?: string;
+  /** Links to shop subcontract service preset (Settings → Subcontracting). */
+  subcontractServiceId?: string;
 }
 
 export interface ShipmentAllocation {
@@ -862,6 +1062,12 @@ export interface Shipment {
 export interface OrderShippingSettings {
   instructions?: string;
   defaultMethodKey?: string;
+  /**
+   * Third-party / collect carrier billing for this order.
+   * `null` = shop pays (no 3rd party). Omitted until first save may fall
+   * back to the customer’s default account in the UI.
+   */
+  thirdPartyAccount?: OrderThirdPartyShippingAccount | null;
   updatedAt?: string;
 }
 
@@ -883,10 +1089,36 @@ export interface OrderProductionRunMember {
   quantity: number;
 }
 
+/** One decoration / finishing event participating in a ganged press run. */
+export interface OrderProductionRunEventMember {
+  orderId: string;
+  orderNumber: string;
+  customLabel?: string;
+  jobId: string;
+  jobName: string;
+  imprintId: string;
+  imprintLabel: string;
+  locationKey: string;
+  decoration: string;
+  quantity: number;
+}
+
+/**
+ * Events from one or more orders that should run together on press
+ * (e.g. left chest on SO-1 + left chest on SO-2).
+ */
+export interface OrderProductionRunEventGang {
+  id: string;
+  members: OrderProductionRunEventMember[];
+  combinedQuantity: number;
+}
+
 export interface OrderProductionRun {
   id: string;
   members: OrderProductionRunMember[];
   combinedQuantity: number;
+  /** Event-level gangs; when present, members are derived from these. */
+  eventGangs?: OrderProductionRunEventGang[];
   updatedAt: string;
 }
 
@@ -902,6 +1134,14 @@ export interface Order {
   subCustomerId?: string;
   subCustomerName?: string;
   createdAt: string;
+  /**
+   * Editable business order date (yyyy-MM-dd). Falls back to createdAt date
+   * when unset (legacy orders).
+   */
+  orderDate?: string | null;
+  /** Target ship date (yyyy-MM-dd). */
+  shipDate?: string | null;
+  /** Customer in-hands / due date (yyyy-MM-dd). */
   inHandsDate: string;
   subtotal: number;
   tax: number;
@@ -954,6 +1194,11 @@ export interface Order {
   estimateStaffNote?: string | null;
   /** One-off or auto contract fee lines on the estimate */
   estimateAdjustments?: OrderEstimateAdjustment[];
+  /**
+   * Optional card / processing surcharge on the estimate (typically ~3%).
+   * Recalculates from order subtotal unless a locked override amount is set.
+   */
+  paymentSurcharge?: OrderPaymentSurcharge | null;
   /** Contract fee ids excluded from this order. Unset = all fees deselected (opt-in). */
   excludedContractFeeIds?: string[];
   /** Optional shop label shown after order number, e.g. "CUSTOM NAME" */

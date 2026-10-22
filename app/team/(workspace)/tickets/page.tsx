@@ -1,5 +1,7 @@
-import { TeamTicketsView } from "@/components/team/team-tickets-view";
+import { redirect } from "next/navigation";
+import { teamPortalRedirectPath } from "@/lib/team-portal";
 
-export default function TeamTicketsPage() {
-  return <TeamTicketsView />;
+/** @deprecated Team portal lives at admin.flopilot.io — kept as a redirect. */
+export default function TeamTicketsRedirectPage() {
+  redirect(teamPortalRedirectPath("/tickets"));
 }

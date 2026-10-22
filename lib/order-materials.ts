@@ -25,6 +25,7 @@ export const MATERIAL_KIND_LABELS: Record<OrderMaterialKind, string> = {
   ink_prep: "Ink mixed & ready",
   screen_supplies: "Screen supplies",
   supplies: "Supplies",
+  subcontract_return: "Subcontract returns",
 };
 
 export const BLANK_SOURCE_LABELS: Record<
@@ -41,6 +42,13 @@ export function garmentReceivingLineId(lineItemId: string, size: string): string
 
 export function dtfReceivingLineId(jobId: string, imprintId: string): string {
   return `dtf-${jobId}-${imprintId}`;
+}
+
+export function subcontractReturnLineId(
+  jobId: string,
+  imprintId: string
+): string {
+  return `subcontract-return-${jobId}-${imprintId}`;
 }
 
 export function inkPrepLineId(jobId: string, imprintId: string): string {
@@ -231,6 +239,57 @@ export function buildDtfReceivingLines(
   });
 }
 
+export function buildSubcontractReturnLines(
+  order: Order,
+  savedLines: OrderMaterialLine[] = []
+): OrderMaterialLine[] {
+  const steps = getOrderProductionSteps(order).filter(
+    ({ job, imprint }) =>
+      job.kind === "subcontract" || imprint.decoration === "subcontract"
+  );
+
+  return steps.map(({ job, imprint }) => {
+    const id = subcontractReturnLineId(job.id, imprint.id);
+    const existing = savedLines.find((line) => line.id === id);
+    const expectedQty = Math.max(
+      0,
+      imprint.subcontract?.expectedQty ||
+        imprint.subcontract?.sentQty ||
+        countExpectedGarmentPieces(order)
+    );
+    // Subcontract.returnedQty is source of truth when set (Receiving saves
+    // returns via imprint specs). Fall back to a saved material line.
+    const returnedFromSpecs = imprint.subcontract?.returnedQty;
+    const receivedQty =
+      returnedFromSpecs !== undefined && returnedFromSpecs !== null
+        ? Math.max(0, returnedFromSpecs)
+        : existing?.receivedQty ?? 0;
+    const vendor = imprint.subcontract?.vendorName?.trim() || "";
+
+    return {
+      id,
+      kind: "subcontract_return" as const,
+      label:
+        imprint.subcontract?.workDescription?.trim() ||
+        imprint.customLabel?.trim() ||
+        imprint.label ||
+        job.name,
+      jobId: job.id,
+      imprintId: imprint.id,
+      linkedJobIds: [job.id],
+      expectedQty,
+      receivedQty,
+      status: computeMaterialLineStatus(expectedQty, receivedQty),
+      vendor: vendor || existing?.vendor,
+      poNumber: imprint.subcontract?.poNumber || existing?.poNumber,
+      notes: existing?.notes || imprint.subcontract?.notes,
+      updatedAt: existing?.updatedAt,
+      receivedBy: existing?.receivedBy,
+      receivedAt: existing?.receivedAt || imprint.subcontract?.returnedAt || undefined,
+    };
+  });
+}
+
 export function buildInkPrepLines(
   order: Order,
   savedLines: OrderMaterialLine[] = []
@@ -294,6 +353,7 @@ export function buildDefaultMaterials(order: Order): OrderMaterials {
   const lines: OrderMaterialLine[] = [
     ...buildGarmentReceivingLines(order, savedLines),
     ...buildDtfReceivingLines(order, savedLines),
+    ...buildSubcontractReturnLines(order, savedLines),
   ];
 
   const screenLine = buildScreenSetupLine(order, savedLines);
@@ -306,6 +366,7 @@ export function buildDefaultMaterials(order: Order): OrderMaterials {
   return {
     lines: migrated,
     blankSource: order.materials?.blankSource,
+    receivingCallout: order.materials?.receivingCallout ?? null,
     updatedAt: order.materials?.updatedAt,
   };
 }
@@ -323,6 +384,12 @@ export function getGarmentReceivingLines(
   materials: OrderMaterials
 ): OrderMaterialLine[] {
   return materials.lines.filter((line) => line.kind === "garments");
+}
+
+export function getSubcontractReturnLines(
+  materials: OrderMaterials
+): OrderMaterialLine[] {
+  return materials.lines.filter((line) => line.kind === "subcontract_return");
 }
 
 export function getDtfReceivingLines(

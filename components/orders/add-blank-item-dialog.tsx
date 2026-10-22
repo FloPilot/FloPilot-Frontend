@@ -41,7 +41,6 @@ import { formatCurrency } from "@/lib/format";
 import {
   applyDefaultBlankMarkup,
   deriveCustomerUnitPriceFromMarkup,
-  shouldShowBlankPricing,
   shouldShowBlankPricingForBlankSource,
 } from "@/lib/blank-pricing";
 import {
@@ -174,9 +173,11 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
   const contextLineItems = isDraft
     ? draftLineItemsToLineItems(props.draftLineItems)
     : order!.lineItems;
-  const showBlankPricing = isDraft
-    ? shouldShowBlankPricingForBlankSource(props.blankSource)
-    : shouldShowBlankPricing(order!);
+  const addBlankSource = isDraft
+    ? props.blankSource
+    : order?.materials?.blankSource;
+  // Price fields follow the source of the item being added (not other lines).
+  const showBlankPricing = shouldShowBlankPricingForBlankSource(addBlankSource);
   const onAddDraft = isDraft ? props.onAdd : undefined;
   const { getIdToken } = useAuth();
   const { settings } = useShopSettings();
@@ -326,6 +327,9 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
       unitCost: parsedUnitCost,
       ...blankPricingFields(),
       sizes: recordToSizes(sizes),
+      ...(order?.materials?.blankSource
+        ? { blankSource: order.materials.blankSource }
+        : {}),
     });
   };
 
@@ -375,10 +379,13 @@ export function AddBlankItemDialog(props: AddBlankItemDialogProps) {
     setSaving(true);
     setError(null);
     try {
+      const withSource = order?.materials?.blankSource
+        ? { ...item, blankSource: order.materials.blankSource }
+        : item;
       const payload = serializeLineItemForApi(
         showBlankPricing
-          ? applyDefaultBlankMarkup(item, shopDefaultMarkup)
-          : item
+          ? applyDefaultBlankMarkup(withSource, shopDefaultMarkup)
+          : withSource
       );
 
       if (isDraft && onAddDraft) {

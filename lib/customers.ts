@@ -212,38 +212,44 @@ export function formatCustomerFullName(
   return customer.name;
 }
 
+/**
+ * Create / quick-add validation — company only.
+ * Contact name, email, phone, and billing are optional at create time.
+ */
 export function validateNewCustomer(input: NewCustomerInput): string | null {
-  if (!input.company.trim()) return "Company name is required.";
-  if (!input.firstName.trim()) return "First name is required.";
-  if (!input.lastName.trim()) return "Last name is required.";
-  if (!input.email.trim()) return "Email is required.";
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email.trim())) {
+  if (!String(input.company ?? "").trim()) {
+    return "Company name is required.";
+  }
+  const email = String(input.email ?? "").trim();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return "Enter a valid email address.";
   }
-  if (!input.phone.trim()) return "Phone number is required.";
-  if (!input.addressLine1.trim()) return "Address is required.";
-  if (!input.city.trim()) return "City is required.";
-  if (!input.state.trim()) return "State is required.";
-  if (!input.postalCode.trim()) return "ZIP code is required.";
   return null;
 }
 
 export function buildCustomerFromInput(input: NewCustomerInput): Customer {
   const today = new Date().toISOString().slice(0, 10);
-  const firstName = input.firstName.trim();
-  const lastName = input.lastName.trim();
-  const name = [firstName, lastName].filter(Boolean).join(" ");
+  const company = String(input.company ?? "").trim();
+  const firstName = String(input.firstName ?? "").trim();
+  const lastName = String(input.lastName ?? "").trim();
+  const name =
+    [firstName, lastName].filter(Boolean).join(" ") || company;
   const billingAddress = buildBillingAddressFromInput(input);
+  const hasBilling =
+    Boolean(billingAddress.line1) ||
+    Boolean(billingAddress.city) ||
+    Boolean(billingAddress.state) ||
+    Boolean(billingAddress.postalCode);
 
   return {
     id: createCustomerId(),
-    company: input.company.trim(),
+    company,
     firstName,
     lastName,
     name,
     email: input.email.trim(),
     phone: input.phone.trim(),
-    billingAddress,
+    ...(hasBilling ? { billingAddress } : {}),
     city: billingAddress.city,
     state: billingAddress.state,
     postalCode: billingAddress.postalCode,

@@ -46,11 +46,13 @@ export const DECORATION_TYPE_OPTIONS = [
   { value: "dtf", label: "DTF" },
   { value: "vinyl", label: "Vinyl" },
   { value: "finishing", label: "Finishing" },
+  { value: "subcontract", label: "Subcontract" },
 ] as const;
 
 export const EVENT_KIND_OPTIONS = [
   { value: "decoration", label: "Decoration" },
   { value: "finishing", label: "Finishing" },
+  { value: "subcontract", label: "Subcontract" },
 ] as const;
 
 export function resolveSelectLabel(

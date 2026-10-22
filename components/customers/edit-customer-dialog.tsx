@@ -184,7 +184,7 @@ export function EditCustomerDialog({
                 <Field
                   label="First name"
                   htmlFor="edit-customer-first-name"
-                  required
+                  optional
                 >
                   <Input
                     id="edit-customer-first-name"
@@ -198,7 +198,7 @@ export function EditCustomerDialog({
                 <Field
                   label="Last name"
                   htmlFor="edit-customer-last-name"
-                  required
+                  optional
                 >
                   <Input
                     id="edit-customer-last-name"
@@ -212,9 +212,9 @@ export function EditCustomerDialog({
               </div>
             </FormSection>
 
-            <FormSection title="Contact">
+            <FormSection title="Contact" optional>
               <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                <Field label="Email" htmlFor="edit-customer-email" required>
+                <Field label="Email" htmlFor="edit-customer-email" optional>
                   <Input
                     id="edit-customer-email"
                     type="email"
@@ -225,7 +225,7 @@ export function EditCustomerDialog({
                     className={inputClassName}
                   />
                 </Field>
-                <Field label="Phone" htmlFor="edit-customer-phone" required>
+                <Field label="Phone" htmlFor="edit-customer-phone" optional>
                   <Input
                     id="edit-customer-phone"
                     type="tel"
@@ -239,12 +239,12 @@ export function EditCustomerDialog({
               </div>
             </FormSection>
 
-            <FormSection title="Billing address">
+            <FormSection title="Billing address" optional>
               <div className="grid gap-y-4">
                 <Field
                   label="Address"
                   htmlFor="edit-customer-address-line1"
-                  required
+                  optional
                 >
                   <AddressAutocompleteInput
                     id="edit-customer-address-line1"
@@ -280,7 +280,7 @@ export function EditCustomerDialog({
                   />
                 </Field>
                 <div className="grid gap-x-4 gap-y-4 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
-                  <Field label="City" htmlFor="edit-customer-city" required>
+                  <Field label="City" htmlFor="edit-customer-city" optional>
                     <Input
                       id="edit-customer-city"
                       value={form.city}
@@ -290,7 +290,7 @@ export function EditCustomerDialog({
                       className={inputClassName}
                     />
                   </Field>
-                  <Field label="State" required>
+                  <Field label="State" optional>
                     <Select
                       value={form.state || null}
                       onValueChange={(value) =>
@@ -312,7 +312,7 @@ export function EditCustomerDialog({
                   <Field
                     label="ZIP code"
                     htmlFor="edit-customer-postal"
-                    required
+                    optional
                   >
                     <Input
                       id="edit-customer-postal"

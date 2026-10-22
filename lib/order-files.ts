@@ -6,7 +6,8 @@ export const ORDER_FILE_KIND_LABELS: Record<OrderFileKind, string> = {
   mockup: "Mockup / proof",
   production_art: "Production artwork",
   separation: "Separations",
-  embroidery_file: "Embroidery file",
+  embroidery_file: "Embroidery PDF / file",
+  embroidery_sewout: "Embroidery sewout",
   purchase_order: "Purchase order",
   invoice: "Invoice",
   quote: "Quote",
@@ -40,8 +41,13 @@ export const ORDER_FILE_CATEGORY_OPTIONS: {
   },
   {
     kind: "embroidery_file",
-    label: "Embroidery file",
-    description: "DST, PES, and stitch files",
+    label: "Embroidery PDF / file",
+    description: "Digitizing PDF, DST, PES, and stitch files",
+  },
+  {
+    kind: "embroidery_sewout",
+    label: "Embroidery sewout",
+    description: "Photo of the physical sewout sample",
   },
   {
     kind: "purchase_order",
@@ -116,6 +122,7 @@ const KIND_TO_CATEGORY: Record<OrderFileKind, FileCategoryFilter> = {
   production_art: "artwork",
   separation: "artwork",
   embroidery_file: "artwork",
+  embroidery_sewout: "artwork",
   purchase_order: "purchase_order",
   invoice: "invoice",
   quote: "quote",

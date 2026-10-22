@@ -62,7 +62,7 @@ export function collectArtworkQueue(orders: Order[]): ArtworkQueueEntry[] {
           orderId: order.id,
           orderNumber: order.number,
           orderCustomLabel: order.customLabel,
-          designCode: order.designCode || null,
+          designCode: imprint.designCode || order.designCode || null,
           customerId: order.customerId,
           customerName: order.customerName,
           company: order.company,
@@ -174,6 +174,7 @@ const RELATED_ORDER_FILE_KINDS = new Set([
   "production_art",
   "separation",
   "embroidery_file",
+  "embroidery_sewout",
   "customer_supplied",
 ]);
 

@@ -149,6 +149,8 @@ export type MeResponse = (
         email: string;
         role: StaffRole;
         access?: StaffAccess | null;
+        /** Departments this staff member works in (for targeted note popups). */
+        departments?: import("@/lib/departments").DepartmentSlug[];
       };
       tenant: {
         id: string;
@@ -724,10 +726,14 @@ export type TeamMember = {
   id: string;
   name: string;
   email: string;
+  /** Direct dial shown on estimates / customer emails */
+  phone?: string | null;
   role: StaffRole;
   status?: "active" | "disabled";
   access?: StaffAccess | null;
   tags?: string[];
+  /** Shop floor departments this person belongs to. */
+  departments?: import("@/lib/departments").DepartmentSlug[];
   createdAt: string;
 };
 
@@ -769,9 +775,11 @@ export async function updateTeamMember(
   userId: string,
   body: {
     name?: string;
+    phone?: string | null;
     role?: StaffRole;
     access?: StaffAccess | null;
     tags?: string[];
+    departments?: import("@/lib/departments").DepartmentSlug[];
   }
 ) {
   return callApi<{ member: TeamMember }>("updateTeamMember", {
@@ -1005,11 +1013,14 @@ export type CustomerUpdate = Partial<NewCustomerInput> & {
   /** Structured billing address object (preferred) */
   billingAddress?: import("@/types").CustomerBillingAddress | string;
   shippingLocations?: import("@/types").CustomerShippingLocation[];
+  thirdPartyShippingAccounts?: import("@/types").ThirdPartyShippingAccount[];
   contacts?: import("@/types").CustomerContact[];
   accountNotes?: import("@/types").CustomerNote[];
   subCustomers?: import("@/types").SubCustomer[];
   negotiatedPricing?: import("@/types").CustomerNegotiatedPricing;
   salesRepId?: string | null;
+  /** Account # for estimates; pass "auto" to allocate the next number */
+  customerNumber?: string | null | "auto";
   paymentTermsDays?: number | null;
   paymentTermsLabel?: string | null;
   taxExempt?: boolean;
@@ -1267,13 +1278,25 @@ export async function updateOrder(
 export async function updateOrderProductionRun(
   token: string,
   orderId: string,
-  linkedOrderIds: string[]
+  linkedOrderIds: string[],
+  eventGangs?: Array<{
+    id?: string;
+    members: Array<{
+      orderId: string;
+      jobId: string;
+      imprintId: string;
+    }>;
+  }>
 ) {
   return callApi<{ order: Order; orders: Order[] }>(
     "updateOrderProductionRun",
     {
       method: "POST",
-      body: { orderId, linkedOrderIds },
+      body: {
+        orderId,
+        linkedOrderIds,
+        ...(eventGangs !== undefined ? { eventGangs } : {}),
+      },
       token,
     }
   );
@@ -1359,11 +1382,17 @@ export async function updateProductionJobLineItems(
   token: string,
   orderId: string,
   jobId: string,
-  lineItemIds: string[]
+  lineItemIds: string[],
+  blankAssignments?: Array<{ lineItemId: string; sizes?: string[] }>
 ) {
   return callApi<{ order: Order }>("updateProductionJobLineItems", {
     method: "PATCH",
-    body: { orderId, jobId, lineItemIds },
+    body: {
+      orderId,
+      jobId,
+      lineItemIds,
+      ...(blankAssignments !== undefined ? { blankAssignments } : {}),
+    },
     token,
   });
 }
@@ -1385,11 +1414,32 @@ export async function addOrderInternalNote(
   token: string,
   orderId: string,
   content: string,
-  author = "Shop"
+  author = "Shop",
+  options?: {
+    targetDepartment?: import("@/lib/departments").DepartmentSlug | null;
+  }
 ) {
   return callApi<{ order: Order }>("addOrderInternalNote", {
     method: "POST",
-    body: { orderId, content, author },
+    body: {
+      orderId,
+      content,
+      author,
+      ...(options?.targetDepartment
+        ? { targetDepartment: options.targetDepartment }
+        : {}),
+    },
+    token,
+  });
+}
+
+export async function acknowledgeOrderInternalNotes(
+  token: string,
+  items: Array<{ orderId: string; noteId: string }>
+) {
+  return callApi<{ orders: Order[] }>("acknowledgeOrderInternalNotes", {
+    method: "POST",
+    body: { items },
     token,
   });
 }
@@ -1553,6 +1603,41 @@ export async function updateImprintInkColors(
   return callApi<{ order: Order }>("updateImprintInkColors", {
     method: "PATCH",
     body: { orderId, jobId, imprintId, inkColors },
+    token,
+  });
+}
+
+export async function updateImprintSpecs(
+  token: string,
+  orderId: string,
+  jobId: string,
+  imprintId: string,
+  patch: {
+    decoration?: string;
+    locationKey?: string;
+    label?: string;
+    customLabel?: string | null;
+    designCode?: string | null;
+    isLegacy?: boolean;
+    subcontract?: import("@/types").SubcontractDetails | null;
+  }
+) {
+  return callApi<{ order: Order }>("updateImprintSpecs", {
+    method: "PATCH",
+    body: { orderId, jobId, imprintId, ...patch },
+    token,
+  });
+}
+
+export async function duplicateOrderImprint(
+  token: string,
+  orderId: string,
+  jobId: string,
+  imprintId: string
+) {
+  return callApi<{ order: Order }>("duplicateOrderImprint", {
+    method: "POST",
+    body: { orderId, jobId, imprintId },
     token,
   });
 }

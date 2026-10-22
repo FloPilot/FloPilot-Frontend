@@ -1,7 +1,10 @@
+import {
+  formatOrderBlankSourceSummary,
+  orderBlankSourcesResolved,
+} from "@/lib/blank-pricing";
 import type { CheckpointRollupStatus, OrderCheckpoint } from "@/lib/order-list-summary";
 import { computeEventCheckpoints } from "@/lib/order-list-summary";
 import {
-  blankSourceLabel,
   blanksColumnLabel,
   garmentLinesToCheckpointStatus,
   getOrderScreenFiles,
@@ -14,6 +17,10 @@ import {
   mergeOrderMaterials,
 } from "@/lib/order-materials";
 import type { ResolvedProductionEvent } from "@/lib/production-event-status";
+import {
+  isSubcontractEvent,
+  resolveSubcontractDetails,
+} from "@/lib/order-subcontract";
 import type { DecorationType, Job, JobImprint, MaterialReceiveStatus, Order } from "@/types";
 
 function lineStatusToRollup(
@@ -237,23 +244,92 @@ function buildEventDtfCheckpoint(
 function buildEventBlankSourceCheckpoint(order: Order): OrderCheckpoint {
   const materials = mergeOrderMaterials(order);
   const garmentLines = getGarmentReceivingLines(materials);
-  const source = materials.blankSource;
 
   if (garmentLines.length === 0) {
     return notApplicable("blank_source", "Goods source", "Source");
   }
 
+  const resolved = orderBlankSourcesResolved(order);
+  const detail = formatOrderBlankSourceSummary(order);
+
   return {
     key: "blank_source",
     label: "Goods source",
     shortLabel: "Source",
-    status: source ? "done" : "pending",
-    detail: source ? blankSourceLabel(source) : "Not set",
-    title: source
-      ? source === "shop_orders"
-        ? "Shop is ordering blank garments"
-        : "Customer is shipping their own garments"
-      : "Set who orders blanks on the Blanks tab",
+    status: resolved ? "done" : "pending",
+    detail: resolved ? detail : "Not set",
+    title: resolved
+      ? detail.startsWith("Mixed")
+        ? "This order mixes shop-purchased and customer-supplied goods"
+        : detail === "Shop orders"
+          ? "Shop is ordering blank garments"
+          : "Customer is shipping their own garments"
+      : "Set who supplies each blank on the Blanks / Garments tab",
+  };
+}
+
+function buildEventSubcontractSentCheckpoint(
+  order: Order,
+  job: Job,
+  imprint: JobImprint
+): OrderCheckpoint {
+  if (!isSubcontractEvent(job, imprint)) {
+    return notApplicable("subcontract_sent", "Sent to vendor", "Sent");
+  }
+  const details = resolveSubcontractDetails(order, job, imprint);
+  const expected = details.expectedQty || 0;
+  const sent = details.sentQty || 0;
+  const status: CheckpointRollupStatus =
+    expected > 0 && sent >= expected
+      ? "done"
+      : sent > 0
+        ? "in_progress"
+        : "pending";
+  return {
+    key: "subcontract_sent",
+    label: "Sent to vendor",
+    shortLabel: "Sent",
+    status,
+    detail: expected > 0 ? `${sent}/${expected}` : sent > 0 ? `${sent}` : "",
+    title:
+      status === "done"
+        ? "Blanks sent to the subcontract vendor"
+        : sent > 0
+          ? "Partial send recorded"
+          : "Mark blanks sent when they leave for the vendor",
+  };
+}
+
+function buildEventSubcontractReturnCheckpoint(
+  order: Order,
+  job: Job,
+  imprint: JobImprint
+): OrderCheckpoint {
+  if (!isSubcontractEvent(job, imprint)) {
+    return notApplicable("subcontract_return", "Vendor return", "Return");
+  }
+  const details = resolveSubcontractDetails(order, job, imprint);
+  const expected = details.expectedQty || details.sentQty || 0;
+  const returned = details.returnedQty || 0;
+  const status: CheckpointRollupStatus =
+    expected > 0 && returned >= expected
+      ? "done"
+      : returned > 0
+        ? "in_progress"
+        : "pending";
+  return {
+    key: "subcontract_return",
+    label: "Vendor return",
+    shortLabel: "Return",
+    status,
+    detail:
+      expected > 0 ? `${returned}/${expected}` : returned > 0 ? `${returned}` : "",
+    title:
+      status === "done"
+        ? "Finished goods returned from the vendor"
+        : returned > 0
+          ? "Partial return recorded"
+          : "Check finished goods back in when the vendor returns them",
   };
 }
 
@@ -267,6 +343,8 @@ export const EVENT_STATUS_COLUMNS: {
   { key: "screens", label: "Screens burned" },
   { key: "blanks", label: (order) => blanksColumnLabel(order) },
   { key: "dtf_transfers", label: "DTF" },
+  { key: "subcontract_sent", label: "Sent to vendor" },
+  { key: "subcontract_return", label: "Vendor return" },
   { key: "blank_source", label: "Goods source" },
   { key: "prep", label: "Setup" },
   { key: "scheduled", label: "Scheduled" },
@@ -296,6 +374,7 @@ export function isEventStatusColumnApplicable(
   decorationType: string | null | undefined
 ): boolean {
   const decoration = String(decorationType || "").toLowerCase();
+  const isSubcontract = decoration === "subcontract";
   if (
     columnKey === "ink" ||
     columnKey === "screen_files" ||
@@ -305,6 +384,16 @@ export function isEventStatusColumnApplicable(
   }
   if (columnKey === "dtf_transfers") {
     return decoration === "dtf";
+  }
+  if (
+    columnKey === "subcontract_sent" ||
+    columnKey === "subcontract_return"
+  ) {
+    return isSubcontract;
+  }
+  if (columnKey === "artwork" || columnKey === "prep" || columnKey === "floor") {
+    // Subcontract skips in-house art/setup/press — blanks + send/return matter.
+    if (isSubcontract) return false;
   }
   if (columnKey === "prep") {
     // Screen print already has Screen files + Screens burned.
@@ -334,25 +423,36 @@ export function computeEventStatusCards(
   const prep = workflow.find((checkpoint) => checkpoint.key === "prep");
   const scheduled = workflow.find((checkpoint) => checkpoint.key === "scheduled");
   const floor = workflow.find((checkpoint) => checkpoint.key === "floor");
+  const subcontract = isSubcontractEvent(job, imprint);
 
   // Screen print already has Screen files + Screens (burned). The workflow
   // "prep" step is also labeled Screens ready — hide it to avoid duplicates.
   const prepCard =
-    imprint.decoration === "screen_print"
+    imprint.decoration === "screen_print" || subcontract
       ? notApplicable("prep", "Setup", "Setup")
       : (prep ?? notApplicable("prep", "Setup", "Setup"));
 
+  const artworkCard = subcontract
+    ? notApplicable("artwork", "Proofs", "Proofs")
+    : buildEventArtworkCheckpoint(imprint);
+
+  const floorCard = subcontract
+    ? notApplicable("floor", "Production", "Production")
+    : (floor ?? notApplicable("floor", "Production", "Production"));
+
   return [
-    buildEventArtworkCheckpoint(imprint),
+    artworkCard,
     buildEventInkCheckpoint(order, job.id, imprint.id, imprint),
     buildEventScreenFilesCheckpoint(order, imprint.decoration),
     buildEventScreensCheckpoint(order, imprint.decoration),
     buildEventBlanksCheckpoint(order),
     buildEventDtfCheckpoint(order, job.id, imprint.id, imprint.decoration),
+    buildEventSubcontractSentCheckpoint(order, job, imprint),
+    buildEventSubcontractReturnCheckpoint(order, job, imprint),
     buildEventBlankSourceCheckpoint(order),
     prepCard,
     scheduled ?? notApplicable("scheduled", "Scheduled", "Scheduled"),
-    floor ?? notApplicable("floor", "Production", "Production"),
+    floorCard,
   ];
 }
 

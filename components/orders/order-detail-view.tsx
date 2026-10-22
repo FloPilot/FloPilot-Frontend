@@ -10,6 +10,7 @@ import {
 } from "@/components/layout/staff-unsaved-changes-provider";
 import { useGuardedRouter } from "@/hooks/use-guarded-router";
 import { OrderMaterialsPanel } from "@/components/orders/order-materials-panel";
+import { OrderReceivingTab } from "@/components/orders/order-receiving-tab";
 import { OrderDesignTab } from "@/components/orders/order-design-tab";
 import { OrderArtworkApprovalPanel } from "@/components/orders/order-artwork-approval-panel";
 import { OrderFilesTab } from "@/components/orders/order-files-tab";
@@ -46,6 +47,10 @@ import { isArchivedOrder } from "@/lib/order-archive";
 import {
   defaultBillToSelection,
 } from "@/lib/order-addresses";
+import {
+  orderDatesDraftFromOrder,
+  type OrderDatesDraft,
+} from "@/components/orders/order-dates-editor";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -181,6 +186,8 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     updateOrderEndBusiness,
     updateOrderSalesRep,
     updateOrderAddresses,
+    updateOrderDates,
+    updateOrderPaymentTerms,
     updateOrderProductionRun,
     updateCustomer,
     shopDataLoading,
@@ -202,6 +209,14 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     jobId: string;
     imprintId: string;
   } | null>(null);
+  const [proofFocus, setProofFocus] = useState<{
+    jobId: string;
+    imprintId: string;
+  } | null>(null);
+  const [eventsFocus, setEventsFocus] = useState<{
+    jobId: string;
+    imprintId: string;
+  } | null>(null);
   const [actionToast, setActionToast] = useState<{
     message: string;
     type: "success" | "error" | "loading";
@@ -212,6 +227,11 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     subCustomerId: null as string | null,
     billTo: null as import("@/types").OrderAddressSelection | null,
     shipTo: null as import("@/types").OrderAddressSelection | null,
+    orderDate: null as string | null,
+    shipDate: null as string | null,
+    inHandsDate: null as string | null,
+    paymentTermsLabel: null as string | null,
+    paymentTermsDays: null as number | null,
   });
   const [headerSaving, setHeaderSaving] = useState(false);
   const headerBaselineRef = useRef({
@@ -220,11 +240,17 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     subCustomerId: null as string | null,
     billTo: null as import("@/types").OrderAddressSelection | null,
     shipTo: null as import("@/types").OrderAddressSelection | null,
+    orderDate: null as string | null,
+    shipDate: null as string | null,
+    inHandsDate: null as string | null,
+    paymentTermsLabel: null as string | null,
+    paymentTermsDays: null as number | null,
   });
 
   useEffect(() => {
     if (!order) return;
     const scope = { subCustomerId: order.subCustomerId };
+    const dates = orderDatesDraftFromOrder(order);
     const next = {
       customLabel: order.customLabel ?? "",
       salesRepId: order.salesRepId ?? null,
@@ -232,6 +258,14 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       billTo:
         order.billTo ?? defaultBillToSelection(customer, scope),
       shipTo: order.shipTo ?? null,
+      orderDate: dates.orderDate,
+      shipDate: dates.shipDate,
+      inHandsDate: dates.inHandsDate,
+      paymentTermsLabel: order.paymentTermsLabel?.trim() || null,
+      paymentTermsDays:
+        typeof order.paymentTermsDays === "number"
+          ? order.paymentTermsDays
+          : null,
     };
     headerBaselineRef.current = next;
     setHeaderDraft(next);
@@ -242,6 +276,12 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     order?.subCustomerId,
     order?.billTo,
     order?.shipTo,
+    order?.orderDate,
+    order?.shipDate,
+    order?.inHandsDate,
+    order?.paymentTermsLabel,
+    order?.paymentTermsDays,
+    order?.createdAt,
     customer?.id,
   ]);
 
@@ -251,6 +291,15 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
   ) =>
     (a?.locationId ?? null) === (b?.locationId ?? null) &&
     JSON.stringify(a?.address ?? null) === JSON.stringify(b?.address ?? null);
+
+  const datesEqual = (a: string | null, b: string | null) =>
+    (a?.trim() || null) === (b?.trim() || null);
+
+  const paymentTermsEqual = (
+    a: { label: string | null; days: number | null },
+    b: { label: string | null; days: number | null }
+  ) =>
+    (a.label || "").trim() === (b.label || "").trim() && a.days === b.days;
 
   const headerDirty =
     Boolean(order) &&
@@ -267,6 +316,22 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       !addressSelectionEqual(
         headerDraft.shipTo,
         headerBaselineRef.current.shipTo
+      ) ||
+      !datesEqual(headerDraft.orderDate, headerBaselineRef.current.orderDate) ||
+      !datesEqual(headerDraft.shipDate, headerBaselineRef.current.shipDate) ||
+      !datesEqual(
+        headerDraft.inHandsDate,
+        headerBaselineRef.current.inHandsDate
+      ) ||
+      !paymentTermsEqual(
+        {
+          label: headerDraft.paymentTermsLabel,
+          days: headerDraft.paymentTermsDays,
+        },
+        {
+          label: headerBaselineRef.current.paymentTermsLabel,
+          days: headerBaselineRef.current.paymentTermsDays,
+        }
       ));
 
   const saveHeaderDraft = useCallback(async () => {
@@ -294,6 +359,34 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
           shipTo: headerDraft.shipTo,
         });
       }
+      if (
+        !datesEqual(headerDraft.orderDate, baseline.orderDate) ||
+        !datesEqual(headerDraft.shipDate, baseline.shipDate) ||
+        !datesEqual(headerDraft.inHandsDate, baseline.inHandsDate)
+      ) {
+        await updateOrderDates(order.id, {
+          orderDate: headerDraft.orderDate,
+          shipDate: headerDraft.shipDate,
+          inHandsDate: headerDraft.inHandsDate,
+        });
+      }
+      if (
+        !paymentTermsEqual(
+          {
+            label: headerDraft.paymentTermsLabel,
+            days: headerDraft.paymentTermsDays,
+          },
+          {
+            label: baseline.paymentTermsLabel,
+            days: baseline.paymentTermsDays,
+          }
+        )
+      ) {
+        await updateOrderPaymentTerms(order.id, {
+          paymentTermsLabel: headerDraft.paymentTermsLabel,
+          paymentTermsDays: headerDraft.paymentTermsDays,
+        });
+      }
     } finally {
       setHeaderSaving(false);
     }
@@ -305,6 +398,8 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     updateOrderSalesRep,
     updateOrderEndBusiness,
     updateOrderAddresses,
+    updateOrderDates,
+    updateOrderPaymentTerms,
   ]);
 
   const discardHeaderDraft = useCallback(() => {
@@ -325,6 +420,12 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     `order-header-${orderId}`
   );
 
+  const datesDraft: OrderDatesDraft = {
+    orderDate: headerDraft.orderDate,
+    shipDate: headerDraft.shipDate,
+    inHandsDate: headerDraft.inHandsDate,
+  };
+
   const headerOrder = useMemo(() => {
     if (!order) return order;
     const subName =
@@ -343,6 +444,11 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
       subCustomerName: subName,
       billTo: headerDraft.billTo,
       shipTo: headerDraft.shipTo,
+      orderDate: headerDraft.orderDate,
+      shipDate: headerDraft.shipDate,
+      inHandsDate: headerDraft.inHandsDate ?? order.inHandsDate,
+      paymentTermsLabel: headerDraft.paymentTermsLabel,
+      paymentTermsDays: headerDraft.paymentTermsDays,
     };
   }, [order, headerDraft, customer?.subCustomers]);
 
@@ -486,6 +592,18 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
     setActiveTab("files");
   };
 
+  const openProof = (jobId: string, imprintId: string) => {
+    if (!requestLeave(undefined, { inPage: true })) return;
+    setProofFocus({ jobId, imprintId });
+    setActiveTab("proof");
+  };
+
+  const openEventsDesign = (jobId: string, imprintId: string) => {
+    if (!requestLeave(undefined, { inPage: true })) return;
+    setEventsFocus({ jobId, imprintId });
+    setActiveTab("events");
+  };
+
   const handleAddProductionJob = (job: Job) => {
     if (activeTab !== "events") {
       // Leave gate first so other dirty tabs still shake; stage after switch.
@@ -584,6 +702,17 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
           onShipToDraftChange={(shipTo) =>
             setHeaderDraft((current) => ({ ...current, shipTo }))
           }
+          datesDraft={datesDraft}
+          onDatesDraftChange={(patch) =>
+            setHeaderDraft((current) => ({ ...current, ...patch }))
+          }
+          onPaymentTermsDraftChange={(next) =>
+            setHeaderDraft((current) => ({
+              ...current,
+              paymentTermsLabel: next.paymentTermsLabel,
+              paymentTermsDays: next.paymentTermsDays,
+            }))
+          }
           onCustomerLocationsSave={async (locations) => {
             if (!customer) return;
             return updateCustomer(customer.id, { shippingLocations: locations });
@@ -606,8 +735,8 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
             await updateOrderAddresses(order.id, next);
           }}
           orders={orders}
-          onProductionRunSave={(linkedOrderIds) =>
-            updateOrderProductionRun(order.id, linkedOrderIds)
+          onProductionRunSave={(linkedOrderIds, eventGangs) =>
+            updateOrderProductionRun(order.id, linkedOrderIds, eventGangs)
           }
         />
       </div>
@@ -654,9 +783,13 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
                 pendingJobIds={pendingEventIds}
                 onRemovePendingJob={removePendingEventJob}
                 onAddEvent={() => setAddStepOpen(true)}
+                onDuplicateDesign={handleAddProductionJob}
                 onScheduleStep={openScheduleStep}
-                onOpenDesign={openFiles}
+                onOpenDesign={openProof}
+                onOpenFiles={openFiles}
                 onOpenTab={changeTab}
+                focusImprint={eventsFocus}
+                onFocusHandled={() => setEventsFocus(null)}
               />
 
               {canSchedule && orderBlocks.length > 0 ? (
@@ -718,19 +851,19 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
 
               <section className={dashboardCardClass}>
                 <div className="border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
-                  <h2 className={dashboardTaskTitleClass}>Proof</h2>
-                  <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-                    Mockups and specs per decoration location — send to the
-                    customer for approval before production.
-                  </p>
+                  <h2 className={dashboardTaskTitleClass}>Proofs</h2>
                 </div>
                 <div className="p-4 sm:p-5">
                   <OrderDesignTab
                     order={order}
+                    specsReadOnly
                     onAddEvents={() => {
                       changeTab("events");
                       setAddStepOpen(true);
                     }}
+                    onEditOnEvents={openEventsDesign}
+                    focusImprint={proofFocus}
+                    onFocusHandled={() => setProofFocus(null)}
                   />
                 </div>
               </section>
@@ -744,15 +877,7 @@ export function OrderDetailView({ orderId }: { orderId: string }) {
           ) : null}
 
           {activeTab === "received_goods" ? (
-            <div className="space-y-4">
-              <OrderMaterialsPanel order={order} section="received_goods" />
-              <OrderInternalNotes
-                orderId={orderId}
-                title="Receiving notes"
-                description="Saved as an order note — also available on the Notes tab. Use this for carton counts, shortages, vendor issues, or anything the team should know about this shipment."
-                placeholder="e.g. Short 2 Mediums — vendor reshipping Thursday…"
-              />
-            </div>
+            <OrderReceivingTab order={order} orderId={orderId} />
           ) : null}
 
           {activeTab === "shipping" ? <OrderShippingTab order={order} /> : null}

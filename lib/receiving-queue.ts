@@ -4,7 +4,7 @@ import {
   isGarmentLineOpen,
   mergeOrderMaterials,
 } from "@/lib/order-materials";
-import { blankSourceLabel } from "@/lib/order-receiving-checkpoints";
+import { formatOrderBlankSourceSummary } from "@/lib/blank-pricing";
 import type {
   BlankSource,
   MaterialReceiveStatus,
@@ -20,6 +20,8 @@ export type ReceivingOrderGroup = {
   openGarmentLines: OrderMaterialLine[];
   jobs: { id: string; name: string }[];
   blankSource?: BlankSource;
+  /** Order-level mixed / shop / customer summary for queue cards. */
+  blankSourceSummary: string;
   totalExpected: number;
   totalReceived: number;
   openLineCount: number;
@@ -73,6 +75,7 @@ export function buildReceivingQueue(orders: Order[]): ReceivingOrderGroup[] {
       openGarmentLines,
       jobs,
       blankSource: materials.blankSource,
+      blankSourceSummary: formatOrderBlankSourceSummary(order),
       totalExpected,
       totalReceived,
       openLineCount: openGarmentLines.length,
@@ -120,7 +123,7 @@ export function filterReceivingQueue(
       group.order.number,
       group.order.customLabel ?? "",
       group.order.customerName,
-      blankSourceLabel(group.blankSource),
+      group.blankSourceSummary,
       ...group.garmentLines.map(
         (line) =>
           `${line.productName} ${line.brand} ${line.color} ${line.size}`

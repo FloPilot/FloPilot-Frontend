@@ -168,6 +168,33 @@ const DECORATION_WORKFLOW: Record<BuiltInDecorationType, DecorationWorkflowStep[
     SHARED_SCHEDULED,
     SHARED_FLOOR,
   ],
+  subcontract: [
+    {
+      key: "materials",
+      label: "Blanks received",
+      shortLabel: "Blanks",
+      doneTitle: "Blank garments in",
+      pendingTitle: "Waiting on blanks",
+      inProgressTitle: "Blanks partially in",
+    },
+    {
+      key: "prep",
+      label: "Sent to vendor",
+      shortLabel: "Sent",
+      doneTitle: "At the subcontract vendor",
+      pendingTitle: "Not sent to vendor yet",
+      inProgressTitle: "Partial send recorded",
+    },
+    SHARED_SCHEDULED,
+    {
+      key: "floor",
+      label: "Returned from vendor",
+      shortLabel: "Return",
+      doneTitle: "Finished goods returned",
+      pendingTitle: "Waiting on vendor return",
+      inProgressTitle: "Partial return recorded",
+    },
+  ],
 };
 
 export function getDecorationWorkflowSteps(

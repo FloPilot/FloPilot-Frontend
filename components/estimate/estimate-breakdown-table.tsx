@@ -8,7 +8,7 @@ import {
   groupReviewEstimateSections,
   type ReviewEstimateRow,
 } from "@/lib/estimate-breakdown";
-import type { EstimateTotals } from "@/lib/order-estimate";
+import type { EstimateRow, EstimateTotals } from "@/lib/order-estimate";
 import { feeCategoryLabel } from "@/lib/estimate-fee-categories";
 import { productionRunMemberLabel } from "@/lib/order-production-run";
 import type { OrderProductionRun } from "@/types";
@@ -18,6 +18,31 @@ type ProductionRunSummary = Pick<
   OrderProductionRun,
   "id" | "members" | "combinedQuantity"
 >;
+
+function MultilineCell({
+  value,
+  className,
+}: {
+  value: string;
+  className?: string;
+}) {
+  const lines = String(value || "—")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length === 0) {
+    return <span className={className}>—</span>;
+  }
+  return (
+    <div className={cn("space-y-0.5", className)}>
+      {lines.map((line, index) => (
+        <p key={`${line}-${index}`} className="leading-snug">
+          {line}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 function SectionHeader({
   label,
@@ -53,7 +78,7 @@ function SectionHeader({
         {label}
       </td>
       <td
-        colSpan={2}
+        colSpan={3}
         className="px-3 py-2 text-right text-[11px] font-semibold tabular-nums text-[#616161]"
       >
         {formatCurrency(subtotal)}
@@ -62,14 +87,79 @@ function SectionHeader({
   );
 }
 
-function DataRow({
+function StaffDataRow({
+  row,
+}: {
+  row: EstimateRow;
+}) {
+  const garment = row.garmentInfo || "—";
+  const sizeBreak = row.sizeBreak || (row.kind === "garment" ? row.detail : "") || "—";
+  const badge =
+    row.kind === "decoration" && row.detail.includes("combined pcs")
+      ? "Combined tier"
+      : row.kind === "fee" && row.feeCategory
+        ? feeCategoryLabel(row.feeCategory)
+        : undefined;
+  const highlight =
+    row.kind === "decoration" || row.feeCategory === "decoration";
+
+  return (
+    <tr
+      className={cn(
+        "border-t border-[#f0f0f0] align-top",
+        highlight && "bg-[#fafcff]"
+      )}
+    >
+      <td className="px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {badge ? (
+            <span className="rounded-md bg-[#eef4ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#2c6ecb]">
+              {badge}
+            </span>
+          ) : null}
+          <p className="font-medium text-[#303030]">{row.description}</p>
+        </div>
+        <div className="mt-1 space-y-0.5 lg:hidden">
+          <MultilineCell
+            value={garment}
+            className="text-[11px] text-[#616161]"
+          />
+          <MultilineCell
+            value={sizeBreak}
+            className="text-[11px] text-[#8a8a8a]"
+          />
+        </div>
+      </td>
+      <td className="hidden px-3 py-2.5 text-[12px] text-[#303030] lg:table-cell">
+        <MultilineCell value={garment} />
+      </td>
+      <td className="hidden px-3 py-2.5 text-[12px] text-[#616161] lg:table-cell">
+        <MultilineCell value={sizeBreak} />
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-[#303030]">
+        {row.qty}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-[#616161]">
+        {row.includedInBundle ? "—" : formatCurrency(row.unitCost)}
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums font-medium text-[#303030]">
+        {row.includedInBundle ? (
+          <span className="font-normal text-[#8a8a8a]">Included</span>
+        ) : (
+          formatCurrency(row.lineTotal)
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function CompactDataRow({
   description,
   detail,
   qty,
   unitCost,
   lineTotal,
   badge,
-  compact,
   highlight,
   includedInBundle,
 }: {
@@ -79,7 +169,6 @@ function DataRow({
   unitCost: number;
   lineTotal: number;
   badge?: string;
-  compact?: boolean;
   highlight?: boolean;
   includedInBundle?: boolean;
 }) {
@@ -90,7 +179,7 @@ function DataRow({
         highlight && "bg-[#fafcff]"
       )}
     >
-      <td className="px-3 py-2.5" colSpan={compact ? 1 : 1}>
+      <td className="px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
           {badge ? (
             <span className="rounded-md bg-[#eef4ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#2c6ecb]">
@@ -100,16 +189,9 @@ function DataRow({
           <p className="font-medium text-[#303030]">{description}</p>
         </div>
         {detail ? (
-          <p className={cn("text-[11px] text-[#8a8a8a]", !compact && "sm:hidden")}>
-            {detail}
-          </p>
+          <p className="text-[11px] text-[#8a8a8a]">{detail}</p>
         ) : null}
       </td>
-      {!compact ? (
-        <td className="hidden px-3 py-2.5 text-[12px] text-[#616161] sm:table-cell">
-          {detail || "—"}
-        </td>
-      ) : null}
       <td className="px-3 py-2.5 text-right tabular-nums text-[#303030]">{qty}</td>
       <td className="px-3 py-2.5 text-right tabular-nums text-[#616161]">
         {includedInBundle ? "—" : formatCurrency(unitCost)}
@@ -147,7 +229,7 @@ function TotalsFooter({
   const taxLabel = `Tax (${(taxRate * 100).toFixed(
     taxRate * 100 === Math.round(taxRate * 100) ? 0 : 2
   )}%)`;
-  const labelColSpan = compact ? 3 : 4;
+  const labelColSpan = compact ? 3 : 5;
 
   return (
     <tfoot className="bg-[#fafafa]">
@@ -227,11 +309,14 @@ export function StaffEstimateBreakdownTable({
       <table className="w-full border-collapse text-[13px]">
         <thead>
           <tr className="bg-[#fafafa] text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-            <th className="px-3 py-2 text-left">Item</th>
-            <th className="hidden px-3 py-2 text-left sm:table-cell">Details</th>
+            <th className="px-3 py-2 text-left">Decoration</th>
+            <th className="hidden px-3 py-2 text-left lg:table-cell">Garment</th>
+            <th className="hidden px-3 py-2 text-left lg:table-cell">
+              Size break
+            </th>
             <th className="px-3 py-2 text-right">Qty</th>
             <th className="px-3 py-2 text-right">Unit</th>
-            <th className="px-3 py-2 text-right">Amount</th>
+            <th className="px-3 py-2 text-right">Total</th>
           </tr>
         </thead>
         <tbody>
@@ -245,7 +330,7 @@ export function StaffEstimateBreakdownTable({
           ) : (
             <tr>
               <td
-                colSpan={5}
+                colSpan={6}
                 className="px-3 py-6 text-center text-[12px] text-[#8a8a8a]"
               >
                 No line items on this order yet.
@@ -277,7 +362,7 @@ function ProductionRunRows({
     <>
       <tr className="border-t border-[#cfe3d6] bg-[#f4faf6]">
         <td
-          colSpan={compact ? 1 : 2}
+          colSpan={compact ? 1 : 3}
           className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-[#245c3c]"
         >
           Multi-job run
@@ -286,7 +371,7 @@ function ProductionRunRows({
           </span>
         </td>
         <td
-          colSpan={3}
+          colSpan={compact ? 3 : 3}
           className="px-3 py-2 text-right text-[11px] font-semibold tabular-nums text-[#245c3c]"
         >
           {productionRun.combinedQuantity.toLocaleString()} pcs combined
@@ -308,9 +393,14 @@ function ProductionRunRows({
             ) : null}
           </td>
           {!compact ? (
-            <td className="hidden px-3 py-2.5 text-[12px] text-[#6b7d70] sm:table-cell">
-              Included in combined pricing quantity
-            </td>
+            <>
+              <td className="hidden px-3 py-2.5 text-[12px] text-[#6b7d70] lg:table-cell">
+                Included in combined pricing quantity
+              </td>
+              <td className="hidden px-3 py-2.5 text-[12px] text-[#a0a0a0] lg:table-cell">
+                —
+              </td>
+            </>
           ) : null}
           <td className="px-3 py-2.5 text-right tabular-nums text-[#303030]">
             {member.quantity.toLocaleString()}
@@ -332,23 +422,7 @@ function SectionRows({
     <>
       <SectionHeader label={section.label} subtotal={section.subtotal} />
       {section.rows.map((row) => (
-        <DataRow
-          key={row.id}
-          description={row.description}
-          detail={row.detail}
-          qty={row.qty}
-          unitCost={row.unitCost}
-          lineTotal={row.lineTotal}
-          includedInBundle={row.includedInBundle}
-          badge={
-            row.kind === "decoration" && row.detail.includes("combined pcs")
-              ? "Combined tier"
-              : row.kind === "fee" && row.feeCategory
-              ? feeCategoryLabel(row.feeCategory)
-              : undefined
-          }
-          highlight={row.kind === "decoration" || row.feeCategory === "decoration"}
-        />
+        <StaffDataRow key={row.id} row={row} />
       ))}
     </>
   );
@@ -408,7 +482,7 @@ export function CustomerEstimateBreakdownTable({
                 compact
               />
               {section.rows.map((row, index) => (
-                <DataRow
+                <CompactDataRow
                   key={`${section.key}-${index}`}
                   description={row.description}
                   detail={row.detail}
@@ -421,10 +495,9 @@ export function CustomerEstimateBreakdownTable({
                     row.detail.includes("combined pcs")
                       ? "Combined tier"
                       : row.kind === "fee" && row.feeCategory
-                      ? feeCategoryLabel(row.feeCategory)
-                      : undefined
+                        ? feeCategoryLabel(row.feeCategory)
+                        : undefined
                   }
-                  compact
                   highlight={
                     row.kind === "decoration" || row.feeCategory === "decoration"
                   }

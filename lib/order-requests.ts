@@ -58,6 +58,8 @@ export type OrderRequestEvent = {
   artwork?: import("@/types").ArtworkFile | null;
   /** Extra production note fields beyond printSize / placement / notes. */
   productionNotes?: import("@/types").ImprintProductionNotes | null;
+  /** Per-artwork design code for this request event. */
+  designCode?: string | null;
 };
 
 export type OrderRequestProductionRunMember = {

@@ -1,11 +1,7 @@
-import { Suspense } from "react";
-import { TeamLoginForm } from "@/components/team/team-login-form";
-import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
+import { redirect } from "next/navigation";
+import { teamPortalRedirectPath } from "@/lib/team-portal";
 
-export default function TeamLoginPage() {
-  return (
-    <Suspense fallback={<AppLoadingScreen fullScreen label="Loading…" />}>
-      <TeamLoginForm />
-    </Suspense>
-  );
+/** @deprecated Team portal lives at admin.flopilot.io — kept as a redirect. */
+export default function TeamLoginRedirectPage() {
+  redirect(teamPortalRedirectPath("/login"));
 }

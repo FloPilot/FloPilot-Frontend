@@ -375,7 +375,7 @@ export function createEmptyPickup(
   return {
     id: createShipmentId(),
     label: label ?? `Pickup ${index}`,
-    method: "Will Call",
+    method: "Pickup",
     methodKey: WILL_CALL_METHOD_KEY,
     status: "pending",
     destination: "Shop pickup",
@@ -394,7 +394,7 @@ export function createPickupAll(order: Order): Shipment {
 export function convertShipmentToPickup(shipment: Shipment, index: number): Shipment {
   return {
     ...shipment,
-    method: "Will Call",
+    method: "Pickup",
     methodKey: WILL_CALL_METHOD_KEY,
     label: shipment.label?.trim() || `Pickup ${index}`,
     destination: "Shop pickup",
@@ -415,7 +415,7 @@ export function convertShipmentsToPickups(shipments: Shipment[]): Shipment[] {
 export function normalizePickupForSave(shipment: Shipment): Shipment {
   return {
     ...shipment,
-    method: "Will Call",
+    method: "Pickup",
     methodKey: WILL_CALL_METHOD_KEY,
     destination: "Shop pickup",
     customerLocationId: undefined,

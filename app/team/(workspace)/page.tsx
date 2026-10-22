@@ -1,5 +1,7 @@
-import { TeamDashboardView } from "@/components/team/team-dashboard-view";
+import { redirect } from "next/navigation";
+import { teamPortalRedirectPath } from "@/lib/team-portal";
 
-export default function TeamDashboardPage() {
-  return <TeamDashboardView />;
+/** @deprecated Team portal lives at admin.flopilot.io — kept as a redirect. */
+export default function TeamHomeRedirectPage() {
+  redirect(teamPortalRedirectPath("/"));
 }

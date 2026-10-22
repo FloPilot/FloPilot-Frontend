@@ -5,9 +5,9 @@ import {
   formatPricingHighlightDetail,
 } from "@/lib/pricing-matrix-lookup";
 import { buildFeeEstimateRows } from "@/lib/order-contract-fees";
-import { decorationLabel } from "@/lib/format";
 import { formatBrandProductName } from "@/lib/format-product-name";
 import {
+  lineItemIsShopPurchased,
   resolveLineItemCustomerUnitPrice,
   shouldShowBlankPricing,
 } from "@/lib/blank-pricing";
@@ -20,6 +20,11 @@ import {
   asShopPricingSource,
   type ShopPricingSource,
 } from "@/lib/shop-pricing";
+import {
+  PAYMENT_SURCHARGE_ROW_ID,
+  resolvePaymentSurcharge,
+  resolvePaymentSurchargeAmount,
+} from "@/lib/order-payment-surcharge";
 
 /** Effective matrix and/or full shop settings (for finishing + rate sheets). */
 export type EstimatePricingInput = PricingMatrix | ShopPricingSource;
@@ -32,10 +37,18 @@ export type EstimateRow = {
   description: string;
   /** Sizes for garments; tier / color info for decoration */
   detail: string;
+  /** Blank label for the estimate table, e.g. "#CSSP Pullover / Black" */
+  garmentInfo?: string;
+  /** Compact size break, e.g. "S 10 · M 28 · L 40" */
+  sizeBreak?: string;
   qty: number;
   unitCost: number;
   lineTotal: number;
   lineItem?: LineItem;
+  /** Decoration job that owns this matrix row */
+  jobId?: string | null;
+  /** Blanks linked to the decoration job */
+  lineItemIds?: string[];
   /** Accent index for pricing-matrix decoration rows */
   pricingStepIndex?: number;
   /** Short decoration label for matrix-matched rows */
@@ -81,11 +94,29 @@ export function lineItemPieceCount(item: LineItem): number {
   return (item.sizes || []).reduce((sum, row) => sum + (row.quantity || 0), 0);
 }
 
+/** Order-facing garment title — custom description, else brand + product. */
+export function resolveLineItemProductDescription(item: LineItem): string {
+  const custom = String(item.description || "").trim();
+  if (custom) return custom;
+  return (
+    formatBrandProductName(item.brand, item.productName).trim() || "Blank"
+  );
+}
+
 export function lineItemDescription(item: LineItem): string {
-  return [formatBrandProductName(item.brand, item.productName), item.color]
+  return [resolveLineItemProductDescription(item), item.color]
     .map((part) => (part || "").trim())
     .filter(Boolean)
     .join(" · ");
+}
+
+/** Customer-facing blank label, e.g. "#CSSP Pullover Hoodie / Black". */
+export function formatEstimateGarmentInfo(item: LineItem): string {
+  const part = String(item.supplierPartNumber || item.productKey || "").trim();
+  const name = resolveLineItemProductDescription(item);
+  const color = String(item.color || "").trim();
+  const head = part ? `#${part} ${name}` : name;
+  return color ? `${head} / ${color}` : head;
 }
 
 export function lineItemSizesSummary(item: LineItem): string {
@@ -105,6 +136,37 @@ function sortSizeBreakdowns(sizes: SizeBreakdown[]): SizeBreakdown[] {
   });
 }
 
+/** Compact size break, e.g. "S 10 · M 28 · L 40". */
+export function formatEstimateSizeBreak(item: LineItem): string {
+  return sortSizeBreakdowns(item.sizes || [])
+    .filter((row) => (row.quantity || 0) > 0)
+    .map((row) => `${row.size} ${row.quantity}`)
+    .join(" · ");
+}
+
+function lineItemsForDecorationRow(
+  order: Order,
+  entry: { jobId?: string | null; lineItemIds?: string[] }
+): LineItem[] {
+  const all = order.lineItems || [];
+  if (!all.length) return [];
+  const ids = Array.isArray(entry.lineItemIds) ? entry.lineItemIds : [];
+  if (ids.length) {
+    const idSet = new Set(ids.map(String));
+    const matched = all.filter((item) => idSet.has(String(item.id)));
+    if (matched.length) return matched;
+  }
+  if (entry.jobId) {
+    const job = (order.jobs || []).find((j) => j.id === entry.jobId);
+    if (job?.lineItemIds?.length) {
+      const idSet = new Set(job.lineItemIds.map(String));
+      const matched = all.filter((item) => idSet.has(String(item.id)));
+      if (matched.length) return matched;
+    }
+  }
+  return all;
+}
+
 function buildGarmentRows(
   order: Order,
   pricingMatrix?: PricingMatrix
@@ -115,39 +177,25 @@ function buildGarmentRows(
   const rows: EstimateRow[] = [];
 
   for (const lineItem of order.lineItems || []) {
-    const description = lineItemDescription(lineItem) || "Custom item";
+    if (!lineItemIsShopPurchased(lineItem, order)) continue;
+
     const unitCost = resolveLineItemCustomerUnitPrice(lineItem, shopMarkup);
-    const sizes = sortSizeBreakdowns(lineItem.sizes || []).filter(
-      (row) => (row.quantity || 0) > 0
-    );
+    const qty = lineItemPieceCount(lineItem);
+    const garmentInfo = formatEstimateGarmentInfo(lineItem);
+    const sizeBreak = formatEstimateSizeBreak(lineItem) || "—";
 
-    if (sizes.length === 0) {
-      rows.push({
-        id: lineItem.id,
-        kind: "garment",
-        description,
-        detail: "—",
-        qty: 0,
-        unitCost,
-        lineTotal: 0,
-        lineItem,
-      });
-      continue;
-    }
-
-    for (const sizeRow of sizes) {
-      const qty = sizeRow.quantity || 0;
-      rows.push({
-        id: `${lineItem.id}-${sizeRow.size}`,
-        kind: "garment",
-        description,
-        detail: sizeRow.size,
-        qty,
-        unitCost,
-        lineTotal: round2(unitCost * qty),
-        lineItem,
-      });
-    }
+    rows.push({
+      id: lineItem.id,
+      kind: "garment",
+      description: "Blank",
+      detail: sizeBreak,
+      garmentInfo,
+      sizeBreak,
+      qty,
+      unitCost,
+      lineTotal: round2(unitCost * qty),
+      lineItem,
+    });
   }
 
   return rows;
@@ -161,18 +209,41 @@ function buildDecorationRows(
 
   const { highlights } = resolveOrderPricingHighlights(order, pricingMatrix);
 
-  return highlights.map((entry) => ({
-    id: `decoration-${entry.methodId}-${entry.imprintLabel}-${entry.stepIndex}`,
-    kind: "decoration" as const,
-    description: `${decorationLabel(entry.decoration)} · ${entry.imprintLabel}`,
-    detail: formatPricingHighlightDetail(entry),
-    qty: entry.pieceCount,
-    unitCost: entry.unitPrice,
-    lineTotal: round2(entry.unitPrice * entry.pieceCount),
-    pricingStepIndex: entry.stepIndex,
-    decorationType: entry.decoration,
-    ...(entry.bundledIncluded ? { includedInBundle: true } : {}),
-  }));
+  const rows: EstimateRow[] = [];
+
+  for (const entry of highlights) {
+    const blanks = lineItemsForDecorationRow(order, entry);
+    const baseId = `decoration-${entry.methodId}-${entry.imprintLabel}-${entry.stepIndex}`;
+    const description = `${entry.decoration} · ${entry.imprintLabel}`;
+    const detail = formatPricingHighlightDetail(entry);
+    const included = Boolean(entry.bundledIncluded);
+
+    // One estimate line per blank so garment + size break stay readable.
+    const targets = blanks.length > 0 ? blanks : [null];
+    for (const blank of targets) {
+      const qty = blank ? lineItemPieceCount(blank) : entry.pieceCount;
+      const unitCost = entry.unitPrice;
+      rows.push({
+        id: blank ? `${baseId}-${blank.id}` : baseId,
+        kind: "decoration",
+        description,
+        detail,
+        garmentInfo: blank ? formatEstimateGarmentInfo(blank) : "—",
+        sizeBreak: blank ? formatEstimateSizeBreak(blank) || "—" : "—",
+        qty,
+        unitCost,
+        lineTotal: included ? 0 : round2(unitCost * qty),
+        jobId: entry.jobId ?? null,
+        lineItemIds: blank ? [blank.id] : entry.lineItemIds ?? [],
+        pricingStepIndex: entry.stepIndex,
+        decorationType: entry.decorationKey,
+        ...(blank ? { lineItem: blank } : {}),
+        ...(included ? { includedInBundle: true } : {}),
+      });
+    }
+  }
+
+  return rows;
 }
 
 function buildFeeRows(
@@ -185,6 +256,8 @@ function buildFeeRows(
     kind: "fee" as const,
     description: entry.label,
     detail: entry.detail || (entry.source === "auto" ? "Additional fee" : ""),
+    garmentInfo: entry.detail || "—",
+    sizeBreak: "—",
     qty: entry.qty,
     unitCost: entry.unitPrice,
     lineTotal: round2(entry.qty * entry.unitPrice),
@@ -218,7 +291,6 @@ export function computeEstimateTotals(
   const garmentRows = buildGarmentRows(order, pricingMatrix);
   const decorationRows = buildDecorationRows(order, pricingMatrix);
   const feeRows = buildFeeRows(order, customer, shop);
-  const rows = [...garmentRows, ...decorationRows, ...feeRows];
 
   let garmentSubtotal = round2(
     garmentRows.reduce((sum, row) => sum + row.lineTotal, 0)
@@ -229,6 +301,44 @@ export function computeEstimateTotals(
   let feesSubtotal = round2(
     feeRows.reduce((sum, row) => sum + row.lineTotal, 0)
   );
+
+  const baseBeforeSurcharge = round2(
+    garmentSubtotal + decorationSubtotal + feesSubtotal
+  );
+  const surcharge = resolvePaymentSurcharge(order);
+  const surchargeAmount = resolvePaymentSurchargeAmount(
+    surcharge,
+    baseBeforeSurcharge
+  );
+  const surchargeRows: EstimateRow[] =
+    surcharge?.enabled && surchargeAmount > 0
+      ? [
+          {
+            id: PAYMENT_SURCHARGE_ROW_ID,
+            kind: "fee",
+            description: surcharge.label || "Payment processing surcharge",
+            detail: `${surcharge.percent}% of estimate subtotal`,
+            garmentInfo: `${surcharge.percent}% of estimate subtotal`,
+            sizeBreak: "—",
+            qty: 1,
+            unitCost: surchargeAmount,
+            lineTotal: surchargeAmount,
+            source: "manual",
+            feeCategory: "other",
+          },
+        ]
+      : [];
+
+  if (surchargeAmount > 0) {
+    feesSubtotal = round2(feesSubtotal + surchargeAmount);
+  }
+
+  const rows = [
+    ...garmentRows,
+    ...decorationRows,
+    ...feeRows,
+    ...surchargeRows,
+  ];
 
   let subtotal = round2(garmentSubtotal + decorationSubtotal + feesSubtotal);
   // Do not fall back to stored order.subtotal — that leaves a stale total on

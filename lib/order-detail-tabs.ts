@@ -1,3 +1,4 @@
+import { orderBlankSourcesResolved } from "@/lib/blank-pricing";
 import { blanksColumnLabel } from "@/lib/order-receiving-checkpoints";
 import {
   getDtfReceivingLines,
@@ -40,9 +41,13 @@ export function blanksTabLabel(order: Order): string {
 
 export function buildOrderDetailTabs(order: Order): OrderDetailTabConfig[] {
   const tabs: OrderDetailTabConfig[] = [
-    { id: "events", label: "Events" },
+    { id: "events", label: "Events & Designs" },
     { id: "blanks", label: blanksTabLabel(order) },
     { id: "proof", label: "Proofs" },
+    // Shipping + PO before estimate so costs and fulfillment details are set
+    // before the customer reviews pricing and confirms the order package.
+    { id: "shipping", label: "Shipping / Handling" },
+    { id: "purchase_order", label: "Purchase order" },
     { id: "estimate", label: "Estimate" },
   ];
 
@@ -56,9 +61,7 @@ export function buildOrderDetailTabs(order: Order): OrderDetailTabConfig[] {
   }
 
   tabs.push(
-    { id: "purchase_order", label: "Purchase order" },
-    { id: "received_goods", label: "Received goods" },
-    { id: "shipping", label: "Shipping / Handling" },
+    { id: "received_goods", label: "Receiving" },
     { id: "produced_goods", label: "Produced goods" },
     { id: "invoice", label: "Invoice" },
     { id: "files", label: "Files" },
@@ -156,7 +159,7 @@ export function defaultReceivingTab(order: Order): OrderDetailTab {
 
   if (
     garmentLines.some((line) => line.status !== "received") ||
-    (garmentLines.length > 0 && !materials.blankSource)
+    (garmentLines.length > 0 && !orderBlankSourcesResolved(order))
   ) {
     return "received_goods";
   }

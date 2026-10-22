@@ -11,7 +11,12 @@ import { ProofSlidesEditor } from "@/components/orders/artwork/proof-slides-gall
 import { ArtworkStatusBadge } from "@/components/orders/artwork/artwork-status-badge";
 import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
 import { ProofArtWorkflowPanel } from "@/components/orders/artwork/proof-art-workflow-panel";
+import { EmbroideryAssetsPanel } from "@/components/orders/embroidery-assets-panel";
 import { ImprintInkColorsEditor } from "@/components/orders/imprint-ink-colors-editor";
+import {
+  EmbroideryMethodSpecs,
+  HeatTransferMethodSpecs,
+} from "@/components/orders/imprint-method-specs";
 import {
   ShopPresetSelect,
   slugifyPresetValue,
@@ -43,6 +48,7 @@ import {
   imprintDisplayName,
   imprintLocationSubtitle,
 } from "@/lib/imprint-display";
+import { normalizeDesignCode } from "@/lib/design-code";
 import {
   dashboardCardClass,
   dashboardControlClass,
@@ -83,6 +89,12 @@ export type ImprintDesignCardAdapters = {
     jobId: string,
     imprintId: string,
     customLabel: string
+  ) => Promise<unknown>;
+  updateDesignCode?: (
+    orderId: string,
+    jobId: string,
+    imprintId: string,
+    designCode: string
   ) => Promise<unknown>;
   updateInkColors?: (
     orderId: string,
@@ -211,6 +223,14 @@ function isScreenPrintDecoration(decoration: DecorationType): boolean {
   return decoration === "screen_print";
 }
 
+function isEmbroideryDecoration(decoration: DecorationType): boolean {
+  return decoration === "embroidery";
+}
+
+function isHeatTransferDecoration(decoration: DecorationType): boolean {
+  return decoration === "vinyl";
+}
+
 function MockupFilePicker({
   order,
   imprint,
@@ -299,6 +319,7 @@ export function ImprintDesignCard({
   compact = false,
   forceArtworkStatus,
   hideApprovalActions = false,
+  hideArtWorkflow = false,
   hideLinkFromFiles = false,
   adapters,
   onOpenDesignStudio,
@@ -311,13 +332,15 @@ export function ImprintDesignCard({
   compact?: boolean;
   forceArtworkStatus?: ArtworkFile["status"];
   hideApprovalActions?: boolean;
+  /** Hide art-department submit controls (use on Events & Designs). */
+  hideArtWorkflow?: boolean;
   hideLinkFromFiles?: boolean;
   adapters?: ImprintDesignCardAdapters;
   onOpenDesignStudio?: () => void;
 }) {
   const {
     updateImprintNotes,
-    updateImprintCustomLabel,
+    updateImprintSpecs,
     updateImprintInkColors,
     linkImprintArtworkFromFile,
     setArtworkStatus,
@@ -325,8 +348,12 @@ export function ImprintDesignCard({
   const { settings, isAdmin, updateSettings } = useShopSettings();
 
   const persistNotesFn = adapters?.updateNotes ?? updateImprintNotes;
-  const persistCustomLabelFn =
-    adapters?.updateCustomLabel ?? updateImprintCustomLabel;
+  const persistDesignCodeFn =
+    adapters?.updateDesignCode ??
+    ((orderId, jobId, imprintId, designCode) =>
+      updateImprintSpecs(orderId, jobId, imprintId, {
+        designCode: designCode || null,
+      }));
   const persistInkColorsFn =
     adapters?.updateInkColors ?? updateImprintInkColors;
   const artworkStatus = forceArtworkStatus ?? imprint.artwork.status;
@@ -334,14 +361,14 @@ export function ImprintDesignCard({
   const [addingCustomInkType, setAddingCustomInkType] = useState(false);
   const [addingCustomDtfImprintArea, setAddingCustomDtfImprintArea] =
     useState(false);
-  const [customNameDraft, setCustomNameDraft] = useState(
-    imprint.customLabel ?? ""
+  const [designCodeDraft, setDesignCodeDraft] = useState(
+    () => imprint.designCode?.trim() || ""
   );
   const [savingProofDetails, setSavingProofDetails] = useState(false);
 
   useEffect(() => {
-    setCustomNameDraft(imprint.customLabel ?? "");
-  }, [imprint.customLabel, imprint.id]);
+    setDesignCodeDraft(imprint.designCode?.trim() || "");
+  }, [imprint.designCode, imprint.id]);
 
   const inkColors = imprint.inkColors ?? EMPTY_INK_COLORS;
   const serverNotes = imprint.notes ?? EMPTY_NOTES;
@@ -366,29 +393,33 @@ export function ImprintDesignCard({
     job.kind === "finishing" || imprint.decoration === "finishing";
   const isDtf = isDtfDecoration(imprint.decoration);
   const isScreenPrint = isScreenPrintDecoration(imprint.decoration);
+  const isEmbroidery = isEmbroideryDecoration(imprint.decoration);
+  const isHeatTransfer = isHeatTransferDecoration(imprint.decoration);
+  const showInkColors = isScreenPrint || isDtf;
 
   const notesDirty = !productionNotesEqual(localNotes, serverNotes);
-  const nameDirty =
-    customNameDraft.trim() !== (imprint.customLabel?.trim() ?? "");
+  const designCodeDirty =
+    (normalizeDesignCode(designCodeDraft) || "") !==
+    (normalizeDesignCode(imprint.designCode) || "");
   const inkDirty = !inkColorsEqual(localInkColors, inkColors);
-  const proofDirty = notesDirty || nameDirty || inkDirty;
+  const proofDirty = notesDirty || designCodeDirty || inkDirty;
 
   const discardProofDetails = useCallback(() => {
     setLocalNotes({ ...(imprint.notes ?? EMPTY_NOTES) });
-    setCustomNameDraft(imprint.customLabel ?? "");
+    setDesignCodeDraft(imprint.designCode?.trim() || "");
     setLocalInkColors(imprint.inkColors ?? EMPTY_INK_COLORS);
-  }, [imprint.notes, imprint.customLabel, imprint.inkColors]);
+  }, [imprint.notes, imprint.designCode, imprint.inkColors]);
 
   const saveProofDetails = useCallback(async () => {
     if (readOnly || !proofDirty) return;
     setSavingProofDetails(true);
     try {
-      if (nameDirty) {
-        await persistCustomLabelFn(
+      if (designCodeDirty) {
+        await persistDesignCodeFn(
           order.id,
           job.id,
           imprint.id,
-          customNameDraft.trim()
+          normalizeDesignCode(designCodeDraft) || ""
         );
       }
       if (notesDirty) {
@@ -403,16 +434,16 @@ export function ImprintDesignCard({
   }, [
     readOnly,
     proofDirty,
-    nameDirty,
+    designCodeDirty,
     notesDirty,
     inkDirty,
-    persistCustomLabelFn,
+    persistDesignCodeFn,
     persistNotesFn,
     persistInkColorsFn,
     order.id,
     job.id,
     imprint.id,
-    customNameDraft,
+    designCodeDraft,
     localNotes,
     localInkColors,
   ]);
@@ -601,6 +632,16 @@ export function ImprintDesignCard({
               {imprintDisplayName(imprint)}
             </p>
             <DecorationTypePill decoration={imprint.decoration} />
+            {imprint.designCode?.trim() ? (
+              <span className="rounded-md border border-[#e3e3e3] bg-[#f6f6f7] px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-[#616161]">
+                {imprint.designCode.trim()}
+              </span>
+            ) : null}
+            {imprint.isLegacy ? (
+              <span className="rounded-md border border-[#e3e3e3] bg-[#f6f6f7] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161]">
+                Old design
+              </span>
+            ) : null}
           </div>
           {imprintLocationSubtitle(imprint) ? (
             <p className={dashboardTaskDetailClass}>
@@ -612,38 +653,39 @@ export function ImprintDesignCard({
           {!isFinishing && !readOnly ? (
             <div className="max-w-sm space-y-1 pt-0.5">
               <Label
-                htmlFor={`proof-custom-name-${imprint.id}`}
+                htmlFor={`proof-design-code-${imprint.id}`}
                 className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]"
               >
-                Custom proof name{" "}
-                <span className="font-normal normal-case tracking-normal text-[#a3a3a3]">
-                  (optional)
-                </span>
+                Design code
               </Label>
-              <div className="relative">
-                <Input
-                  id={`proof-custom-name-${imprint.id}`}
-                  value={customNameDraft}
-                  onChange={(event) => {
-                    setCustomNameDraft(event.target.value);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      (event.target as HTMLInputElement).blur();
-                    }
-                  }}
-                  placeholder="e.g. Left neck — Store A"
-                  maxLength={120}
-                  disabled={savingProofDetails}
-                  className={cn(dashboardControlClass, "h-9 shadow-none")}
-                />
-              </div>
-              <p className="text-[11px] text-[#8a8a8a]">
-                Useful when a client has multiple of the same location. Use Save
-                in the header to keep this name with the design library.
-              </p>
+              <Input
+                id={`proof-design-code-${imprint.id}`}
+                value={designCodeDraft}
+                onChange={(event) => {
+                  setDesignCodeDraft(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    (event.target as HTMLInputElement).blur();
+                  }
+                }}
+                maxLength={40}
+                disabled={savingProofDetails}
+                className={cn(
+                  dashboardControlClass,
+                  "h-9 font-mono text-[13px] uppercase tracking-wide shadow-none"
+                )}
+                aria-label="Design code"
+              />
             </div>
+          ) : !isFinishing && readOnly && designCodeDraft.trim() ? (
+            <p className={dashboardTaskDetailClass}>
+              Design code ·{" "}
+              <span className="font-mono uppercase tracking-wide text-[#303030]">
+                {designCodeDraft.trim()}
+              </span>
+            </p>
           ) : null}
         </div>
         <div className="flex items-center gap-2">
@@ -691,6 +733,15 @@ export function ImprintDesignCard({
           )}
 
           {!isFinishing ? (
+            <EmbroideryAssetsPanel
+              order={order}
+              job={job}
+              imprint={imprint}
+              readOnly={readOnly}
+            />
+          ) : null}
+
+          {!isFinishing && !hideArtWorkflow ? (
             <ProofArtWorkflowPanel
               order={order}
               job={job}
@@ -800,7 +851,7 @@ export function ImprintDesignCard({
               {!isDtf ? (
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label className="text-[11px] font-medium text-[#8a8a8a]">
-                    Print size
+                    {isEmbroidery || isHeatTransfer ? "Size" : "Print size"}
                   </Label>
                   <PrintSizeFields
                     dimensions={notes.dimensions}
@@ -809,7 +860,7 @@ export function ImprintDesignCard({
                   />
                 </div>
               ) : null}
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 sm:col-span-2">
                 <Label className="text-[11px] font-medium text-[#8a8a8a]">
                   Placement
                 </Label>
@@ -830,44 +881,31 @@ export function ImprintDesignCard({
               </div>
 
               {isDtf ? (
-                <>
-                  <div className="space-y-1.5">
-                    <Label className="text-[11px] font-medium text-[#8a8a8a]">
-                      Imprint area
-                    </Label>
-                    {readOnly ? (
-                      <p className="text-sm font-medium text-[#303030]">
-                        {dtfImprintAreaLabel}
-                      </p>
-                    ) : (
-                      <ShopPresetSelect
-                        value={notes.dtfImprintAreaId ?? ""}
-                        options={dtfImprintAreaOptions}
-                        onChange={handleDtfImprintAreaChange}
-                        className={fieldClassName}
-                        placeholder="Select imprint area"
-                        canAddCustom={isAdmin}
-                        onAddCustom={handleAddCustomDtfImprintArea}
-                        addingCustom={addingCustomDtfImprintArea}
-                        addLabel="Add imprint area"
-                        addPlaceholder="e.g. 5 × 5"
-                      />
-                    )}
-                  </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label className="text-[11px] font-medium text-[#8a8a8a]">
-                      Print method
-                    </Label>
-                    <div className={cn(dashboardInsetSurfaceClass, "px-3 py-2")}>
-                      <p className="text-sm font-medium text-[#303030]">DTF</p>
-                      <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-                        Film transfer — set transfer specs below, not screen ink.
-                      </p>
-                    </div>
-                  </div>
-                </>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-[11px] font-medium text-[#8a8a8a]">
+                    Imprint area
+                  </Label>
+                  {readOnly ? (
+                    <p className="text-sm font-medium text-[#303030]">
+                      {dtfImprintAreaLabel}
+                    </p>
+                  ) : (
+                    <ShopPresetSelect
+                      value={notes.dtfImprintAreaId ?? ""}
+                      options={dtfImprintAreaOptions}
+                      onChange={handleDtfImprintAreaChange}
+                      className={fieldClassName}
+                      placeholder="Select imprint area"
+                      canAddCustom={isAdmin}
+                      onAddCustom={handleAddCustomDtfImprintArea}
+                      addingCustom={addingCustomDtfImprintArea}
+                      addLabel="Add imprint area"
+                      addPlaceholder="e.g. 5 × 5"
+                    />
+                  )}
+                </div>
               ) : isScreenPrint ? (
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 sm:col-span-2">
                   <Label className="text-[11px] font-medium text-[#8a8a8a]">
                     Ink type
                   </Label>
@@ -924,14 +962,27 @@ export function ImprintDesignCard({
             </div>
           )}
 
-          {!isFinishing && (
+          {!isFinishing && isEmbroidery ? (
+            <EmbroideryMethodSpecs
+              notes={notes}
+              readOnly={readOnly}
+              productionDefaults={settings.productionDefaults}
+              onChange={saveNotes}
+            />
+          ) : null}
+
+          {!isFinishing && isHeatTransfer ? (
+            <HeatTransferMethodSpecs
+              notes={notes}
+              readOnly={readOnly}
+              onChange={saveNotes}
+            />
+          ) : null}
+
+          {!isFinishing && showInkColors ? (
             <div className="space-y-3">
               <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
-                {isDtf
-                  ? "Transfer specs"
-                  : isScreenPrint
-                    ? "Ink colors & Pantones"
-                    : "Colors & Pantones"}
+                {isDtf ? "Transfer specs" : "Ink colors & Pantones"}
               </p>
               <ImprintInkColorsEditor
                 inkColors={localInkColors}
@@ -942,7 +993,7 @@ export function ImprintDesignCard({
                 onChange={setLocalInkColors}
               />
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </article>
