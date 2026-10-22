@@ -54,7 +54,7 @@ export function AddCustomerDialog({
   onOpenChange,
   onCreate,
   title = "Add customer",
-  description = "Create a new account. You can start an order from their profile after saving.",
+  description = "Only a company name is required — add contact and billing details whenever you’re ready.",
   submitLabel = "Add customer",
 }: {
   open: boolean;
@@ -130,7 +130,8 @@ export function AddCustomerDialog({
 
           <div className="overflow-y-auto flex-1 px-8 py-6 space-y-5">
             <p className="text-xs text-brand-muted">
-              <span className="font-medium text-brand-ink">*</span> Required
+              <span className="font-medium text-brand-ink">*</span> Required —
+              everything else is optional for now.
             </p>
 
             <FormSection title="Brand identity" optional>
@@ -164,7 +165,7 @@ export function AddCustomerDialog({
                     autoFocus
                   />
                 </Field>
-                <Field label="First name" htmlFor="customer-first-name" required>
+                <Field label="First name" htmlFor="customer-first-name" optional>
                   <Input
                     id="customer-first-name"
                     value={form.firstName}
@@ -174,7 +175,7 @@ export function AddCustomerDialog({
                     className={inputClassName}
                   />
                 </Field>
-                <Field label="Last name" htmlFor="customer-last-name" required>
+                <Field label="Last name" htmlFor="customer-last-name" optional>
                   <Input
                     id="customer-last-name"
                     value={form.lastName}
@@ -187,9 +188,9 @@ export function AddCustomerDialog({
               </div>
             </FormSection>
 
-            <FormSection title="Contact">
+            <FormSection title="Contact" optional>
               <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
-                <Field label="Email" htmlFor="customer-email" required>
+                <Field label="Email" htmlFor="customer-email" optional>
                   <Input
                     id="customer-email"
                     type="email"
@@ -200,7 +201,7 @@ export function AddCustomerDialog({
                     className={inputClassName}
                   />
                 </Field>
-                <Field label="Phone" htmlFor="customer-phone" required>
+                <Field label="Phone" htmlFor="customer-phone" optional>
                   <Input
                     id="customer-phone"
                     type="tel"
@@ -214,9 +215,9 @@ export function AddCustomerDialog({
               </div>
             </FormSection>
 
-            <FormSection title="Billing address">
+            <FormSection title="Billing address" optional>
               <div className="grid gap-y-4">
-                <Field label="Address" htmlFor="customer-address-line1" required>
+                <Field label="Address" htmlFor="customer-address-line1" optional>
                   <AddressAutocompleteInput
                     id="customer-address-line1"
                     value={form.addressLine1}
@@ -250,7 +251,7 @@ export function AddCustomerDialog({
                   />
                 </Field>
                 <div className="grid gap-x-4 gap-y-4 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
-                  <Field label="City" htmlFor="customer-city" required>
+                  <Field label="City" htmlFor="customer-city" optional>
                     <Input
                       id="customer-city"
                       value={form.city}
@@ -260,7 +261,7 @@ export function AddCustomerDialog({
                       className={inputClassName}
                     />
                   </Field>
-                  <Field label="State" required>
+                  <Field label="State" optional>
                     <Select
                       value={form.state || null}
                       onValueChange={(value) =>
@@ -279,7 +280,7 @@ export function AddCustomerDialog({
                       </SelectContent>
                     </Select>
                   </Field>
-                  <Field label="ZIP code" htmlFor="customer-postal" required>
+                  <Field label="ZIP code" htmlFor="customer-postal" optional>
                     <Input
                       id="customer-postal"
                       value={form.postalCode}

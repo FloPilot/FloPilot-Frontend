@@ -54,9 +54,9 @@ export function EventBlankAssignment({
             Blanks for this design
           </p>
           <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-            Choose which garments get this decoration. Shared fronts can include
-            every blank; youth and adult backs can be split for correct matrix
-            pricing.
+            Choose which garments get this decoration. For per-size splits
+            (youth vs adult), use Decorations by blank on the Blanks / Garments
+            tab.
           </p>
         </div>
         {saving ? (

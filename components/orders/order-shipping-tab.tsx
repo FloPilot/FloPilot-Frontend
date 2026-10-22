@@ -18,6 +18,7 @@ import { useRegisterUnsavedChanges } from "@/components/layout/staff-unsaved-cha
 import { OrderShippingDeleteDialog } from "@/components/orders/order-shipping-delete-dialog";
 import { OrderShippingSwitchDialog } from "@/components/orders/order-shipping-switch-dialog";
 import type { ShippingModeSwitch } from "@/components/orders/order-shipping-switch-dialog";
+import { OrderThirdPartyShippingCard } from "@/components/orders/order-third-party-shipping-card";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +79,10 @@ import {
   totalHandlingCost,
   WILL_CALL_METHOD_KEY,
 } from "@/lib/order-shipping";
+import {
+  normalizeOrderThirdPartyAccount,
+  resolveOrderThirdPartyAccount,
+} from "@/lib/third-party-shipping";
 import type {
   Order,
   OrderShippingSettings,
@@ -149,10 +154,23 @@ export function OrderShippingTab({ order }: { order: Order }) {
     [customer, order.subCustomerId]
   );
 
+  const initialSettings = useMemo((): OrderShippingSettings => {
+    const base = order.shipping ?? {};
+    const hasExplicit = Object.prototype.hasOwnProperty.call(
+      base,
+      "thirdPartyAccount"
+    );
+    return {
+      ...base,
+      thirdPartyAccount: hasExplicit
+        ? normalizeOrderThirdPartyAccount(base.thirdPartyAccount)
+        : resolveOrderThirdPartyAccount(order, customer),
+    };
+  }, [order, customer]);
+
   const [shipments, setShipments] = useState<Shipment[]>(order.shipments ?? []);
-  const [settings, setSettings] = useState<OrderShippingSettings>(
-    order.shipping ?? {}
-  );
+  const [settings, setSettings] =
+    useState<OrderShippingSettings>(initialSettings);
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [switchDialog, setSwitchDialog] = useState<ShippingModeSwitch | null>(
@@ -163,8 +181,8 @@ export function OrderShippingTab({ order }: { order: Order }) {
 
   useEffect(() => {
     setShipments(order.shipments ?? []);
-    setSettings(order.shipping ?? {});
-  }, [order.id, order.shipments, order.shipping]);
+    setSettings(initialSettings);
+  }, [order.id, order.shipments, order.shipping, initialSettings]);
 
   const totalPieces = orderShippingPieceCount(order);
   const unallocatedPieces = getUnallocatedPieceCount(order, shipments);
@@ -188,13 +206,13 @@ export function OrderShippingTab({ order }: { order: Order }) {
   const isDirty = useMemo(() => {
     return (
       JSON.stringify(shipments) !== JSON.stringify(order.shipments ?? []) ||
-      JSON.stringify(settings) !== JSON.stringify(order.shipping ?? {})
+      JSON.stringify(settings) !== JSON.stringify(initialSettings)
     );
-  }, [shipments, settings, order.shipments, order.shipping]);
+  }, [shipments, settings, order.shipments, initialSettings]);
 
   const discardChanges = () => {
     setShipments(order.shipments ?? []);
-    setSettings(order.shipping ?? {});
+    setSettings(initialSettings);
   };
 
   const handleSave = async (overrideShipments?: Shipment[]) => {
@@ -654,6 +672,20 @@ export function OrderShippingTab({ order }: { order: Order }) {
                 className="min-h-[88px] w-full resize-none rounded-lg border-[#e3e3e3]"
               />
             </div>
+
+            {!willCallMode ? (
+              <OrderThirdPartyShippingCard
+                customer={customer}
+                value={settings.thirdPartyAccount}
+                controlClassName="!h-10 min-h-10 max-h-10"
+                onChange={(thirdPartyAccount) =>
+                  setSettings((current) => ({
+                    ...current,
+                    thirdPartyAccount,
+                  }))
+                }
+              />
+            ) : null}
           </div>
 
           {!willCallMode && customer && !order.subCustomerId ? (
@@ -780,7 +812,7 @@ export function OrderShippingTab({ order }: { order: Order }) {
                       {isPickup ? (
                         <span className="inline-flex items-center gap-1.5">
                           <Store className="size-3.5 shrink-0 text-[#616161]" />
-                          Will Call · Shop pickup
+                          Pickup · Customer collects at shop
                         </span>
                       ) : (
                         formatShipmentDestination(shipment)

@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -10,6 +16,7 @@ import {
   Download,
   Palette,
   PlayCircle,
+  Search,
   X,
 } from "lucide-react";
 import { useSchedule } from "@/components/providers/schedule-provider";
@@ -18,6 +25,7 @@ import { useWorkspaceScope } from "@/components/providers/workspace-scope-provid
 import { useStaffAccess } from "@/hooks/use-staff-access";
 import { NewOrderButton } from "@/components/providers/new-order-provider";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   filterOrdersWithAdvanced,
   OrderFilterBuilder,
@@ -33,7 +41,10 @@ import type { OrderAdvancedFilter } from "@/lib/order-advanced-filters";
 import {
   filterOrdersList,
   JOB_TYPE_FILTER_TABS,
+  normalizeOrderSearchTerm,
   SCOPE_TABS,
+  searchOrdersList,
+  searchOrdersListByTerms,
   sortOrdersList,
   type OrderJobTypeFilter,
   type OrderListScope,
@@ -173,6 +184,10 @@ export function OrdersListView() {
     return "active";
   });
   const [quickFilter, setQuickFilter] = useState<OrderQuickFilter>("all");
+  const [searchDraft, setSearchDraft] = useState("");
+  const [searchTerms, setSearchTerms] = useState<string[]>([]);
+  const [searchFocused, setSearchFocused] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [advancedFilters, setAdvancedFilters] = useState<OrderAdvancedFilter[]>(
     []
   );
@@ -216,8 +231,15 @@ export function OrdersListView() {
       currentUserId
     );
     const scoped = filterOrdersList(workspaceScoped, { scope, jobType });
+    const searchOptions = { scheduleBlocks };
+    const byChips = searchOrdersListByTerms(
+      scoped,
+      searchTerms,
+      searchOptions
+    );
+    const searched = searchOrdersList(byChips, searchDraft, searchOptions);
     return sortOrdersList(
-      filterOrdersWithAdvanced(scoped, advancedFilters),
+      filterOrdersWithAdvanced(searched, advancedFilters),
       scope
     );
   }, [
@@ -226,7 +248,10 @@ export function OrdersListView() {
     currentUserId,
     scope,
     jobType,
+    searchTerms,
+    searchDraft,
     advancedFilters,
+    scheduleBlocks,
   ]);
 
   const summaries = useMemo(
@@ -239,6 +264,62 @@ export function OrdersListView() {
     [scopedOrders, summaries, quickFilter]
   );
 
+  const searchDraftTrimmed = searchDraft.trim();
+  const hasSearch =
+    searchTerms.length > 0 || searchDraftTrimmed.length > 0;
+  const searchExpanded =
+    searchFocused || searchTerms.length > 0 || searchDraftTrimmed.length > 0;
+
+  const commitSearchTerm = () => {
+    const next = normalizeOrderSearchTerm(searchDraft);
+    if (!next) return;
+    setSearchTerms((current) => {
+      const exists = current.some(
+        (term) => term.toLowerCase() === next.toLowerCase()
+      );
+      if (exists) return current;
+      return [...current, next];
+    });
+    setSearchDraft("");
+  };
+
+  const removeSearchTerm = (index: number) => {
+    setSearchTerms((current) => current.filter((_, i) => i !== index));
+    searchInputRef.current?.focus();
+  };
+
+  const clearSearch = () => {
+    setSearchDraft("");
+    setSearchTerms([]);
+    searchInputRef.current?.focus();
+  };
+
+  const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      commitSearchTerm();
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      if (searchDraft) {
+        setSearchDraft("");
+        return;
+      }
+      searchInputRef.current?.blur();
+      setSearchFocused(false);
+      return;
+    }
+    if (
+      event.key === "Backspace" &&
+      !searchDraft &&
+      searchTerms.length > 0
+    ) {
+      event.preventDefault();
+      setSearchTerms((current) => current.slice(0, -1));
+    }
+  };
+
   const archivableOrders = useMemo(
     () => filteredOrders.filter((order) => !isArchivedOrder(order)),
     [filteredOrders]
@@ -250,7 +331,7 @@ export function OrdersListView() {
   useEffect(() => {
     setSelectedIds(new Set());
     setArchiveMessage(null);
-  }, [scope, quickFilter, jobType, advancedFilters]);
+  }, [scope, quickFilter, jobType, searchTerms, searchDraft, advancedFilters]);
 
   useEffect(() => {
     const visibleIds = new Set(filteredOrders.map((order) => order.id));
@@ -311,7 +392,8 @@ export function OrdersListView() {
     [scopedOrders, summaries]
   );
 
-  const hasExtraFilters = advancedFilters.length > 0 || jobType !== "all";
+  const hasExtraFilters =
+    advancedFilters.length > 0 || jobType !== "all" || hasSearch;
 
   const orderFinancialContext = useMemo(
     () => ({
@@ -440,6 +522,11 @@ export function OrdersListView() {
             <p className="mt-0.5 text-[13px] text-[#616161]">
               {filteredOrders.length} result
               {filteredOrders.length !== 1 ? "s" : ""}
+              {searchTerms.length > 0
+                ? ` · ${searchTerms.length} search filter${searchTerms.length !== 1 ? "s" : ""}`
+                : searchDraftTrimmed
+                  ? ` · “${searchDraftTrimmed}”`
+                  : ""}
               {quickFilter !== "all"
                 ? ` · ${QUICK_FILTERS.find((item) => item.value === quickFilter)?.label}`
                 : ""}
@@ -470,7 +557,7 @@ export function OrdersListView() {
 
         <div className="space-y-0 p-4 sm:p-5">
           <div className={cn(dashboardInsetSurfaceClass, "overflow-visible")}>
-            <div className="flex flex-wrap items-center gap-2 border-b border-[#ebebeb] px-3 py-2.5">
+            <div className="flex flex-wrap items-center gap-2 border-b border-[#ebebeb] px-3 py-2">
               <div className="flex rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5">
                 {SCOPE_TABS.map((tab) => (
                   <button
@@ -509,7 +596,97 @@ export function OrdersListView() {
                   ))}
                 </div>
               ) : null}
+
+              {!searchExpanded ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchFocused(true);
+                    requestAnimationFrame(() => searchInputRef.current?.focus());
+                  }}
+                  className={cn(
+                    dashboardControlClass,
+                    "ml-auto h-8 w-[200px] justify-start gap-2 px-2.5 text-[12px] font-normal text-[#8a8a8a] shadow-none hover:text-[#616161]"
+                  )}
+                >
+                  <Search className="size-3.5 shrink-0" />
+                  Search orders…
+                </button>
+              ) : null}
             </div>
+
+            {searchExpanded ? (
+              <div className="border-b border-[#ebebeb] bg-white px-3 py-2">
+                <div
+                  className={cn(
+                    "flex w-full items-center gap-1.5 rounded-lg border border-[#c9d7ef] bg-white px-2.5 transition-[box-shadow,border-color]",
+                    searchFocused
+                      ? "shadow-[0_0_0_3px_rgba(44,110,203,0.12)]"
+                      : "shadow-none",
+                    searchTerms.length > 0 ? "min-h-9 flex-wrap py-1" : "h-9"
+                  )}
+                  onMouseDown={(event) => {
+                    // Keep focus in the input when clicking chips/chrome.
+                    if (event.target === event.currentTarget) {
+                      event.preventDefault();
+                      searchInputRef.current?.focus();
+                    }
+                  }}
+                >
+                  <Search className="size-3.5 shrink-0 text-[#8a8a8a]" />
+                  {searchTerms.map((term, index) => (
+                    <span
+                      key={`${term}-${index}`}
+                      className="inline-flex max-w-[14rem] items-center gap-0.5 rounded-md bg-[#f4f7fd] py-0.5 pl-2 pr-0.5 text-[12px] font-medium leading-none text-[#2c6ecb]"
+                    >
+                      <span className="truncate">{term}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeSearchTerm(index)}
+                        className="flex size-5 shrink-0 items-center justify-center rounded text-[#2c6ecb]/70 transition-colors hover:bg-[#e8f0fb] hover:text-[#2c6ecb]"
+                        aria-label={`Remove search filter ${term}`}
+                      >
+                        <X className="size-3" strokeWidth={2.25} />
+                      </button>
+                    </span>
+                  ))}
+                  <Input
+                    ref={searchInputRef}
+                    value={searchDraft}
+                    onChange={(event) => setSearchDraft(event.target.value)}
+                    onKeyDown={handleSearchKeyDown}
+                    onFocus={() => setSearchFocused(true)}
+                    onBlur={() => {
+                      // Delay so chip remove clicks can run first.
+                      window.setTimeout(() => {
+                        if (
+                          document.activeElement !== searchInputRef.current
+                        ) {
+                          setSearchFocused(false);
+                        }
+                      }, 0);
+                    }}
+                    placeholder={
+                      searchTerms.length > 0
+                        ? "Add filter, Enter…"
+                        : "Customer, sales rep, vendor, not received, wip…"
+                    }
+                    aria-label="Search orders"
+                    className="h-7 min-w-[10rem] flex-1 border-0 bg-transparent px-1 text-[13px] font-normal shadow-none focus-visible:ring-0"
+                  />
+                  {hasSearch ? (
+                    <button
+                      type="button"
+                      onClick={clearSearch}
+                      className="flex size-6 shrink-0 items-center justify-center rounded-md text-[#8a8a8a] transition-colors hover:bg-[#f1f1f1] hover:text-[#303030]"
+                      aria-label="Clear search filters"
+                    >
+                      <X className="size-3.5" strokeWidth={2} />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             <div className="flex flex-wrap items-start gap-2 border-b border-[#ebebeb] bg-[#fafafa] px-3 py-2.5">
               <span className="pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
@@ -541,6 +718,9 @@ export function OrdersListView() {
                 <button
                   type="button"
                   onClick={() => {
+                    setSearchDraft("");
+                    setSearchTerms([]);
+                    setSearchFocused(false);
                     setAdvancedFilters([]);
                     setJobType("all");
                     setQuickFilter("all");
@@ -609,8 +789,10 @@ export function OrdersListView() {
             emptyMessage={
               shopDataLoading
                 ? "Loading orders…"
-                : advancedFilters.length > 0 || quickFilter !== "all"
-                  ? "No orders match your filters. Try adjusting or clearing them."
+                : hasSearch ||
+                    advancedFilters.length > 0 ||
+                    quickFilter !== "all"
+                  ? "No orders match your search or filters. Try adjusting or clearing them."
                   : scope === "active"
                     ? "No active orders right now. Try Historical or All."
                     : scope === "historical"

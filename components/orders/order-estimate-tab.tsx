@@ -39,12 +39,18 @@ import {
   OrderEstimatePricingPanel,
   type OrderEstimatePricingDraft,
 } from "@/components/orders/order-estimate-pricing-panel";
+import { OrderPaymentSurchargeCard } from "@/components/orders/order-payment-surcharge-card";
 import { EstimatePerPieceSummary } from "@/components/orders/estimate-per-piece-summary";
 import { StaffEstimateBreakdownTable } from "@/components/estimate/estimate-breakdown-table";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { countExpectedGarmentPieces } from "@/lib/order-garments";
 import { orderHasDtfEvents } from "@/lib/order-materials";
+import {
+  emptyPaymentSurcharge,
+  normalizePaymentSurcharge,
+} from "@/lib/order-payment-surcharge";
+import type { OrderPaymentSurcharge } from "@/types";
 import {
   filterMatrixMethodsForOrder,
   filterPricingHighlights,
@@ -100,6 +106,12 @@ export function OrderEstimateTab({ order }: { order: Order }) {
   const [pricingDraft, setPricingDraft] = useState<OrderEstimatePricingDraft>(
     () => pricingDraftFromOrder(order)
   );
+  const [surchargeDraft, setSurchargeDraft] = useState<OrderPaymentSurcharge>(
+    () =>
+      normalizePaymentSurcharge(order.paymentSurcharge) ??
+      emptyPaymentSurcharge()
+  );
+  const [surchargeSaving, setSurchargeSaving] = useState(false);
   const [noteDraft, setNoteDraft] = useState(order.estimateStaffNote ?? "");
   const [noteSaving, setNoteSaving] = useState(false);
 
@@ -117,6 +129,13 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     order.estimateAdjustments,
     order.excludedContractFeeIds,
   ]);
+
+  useEffect(() => {
+    setSurchargeDraft(
+      normalizePaymentSurcharge(order.paymentSurcharge) ??
+        emptyPaymentSurcharge()
+    );
+  }, [order.id, order.paymentSurcharge]);
 
   useEffect(() => {
     setNoteDraft(order.estimateStaffNote ?? "");
@@ -143,10 +162,11 @@ export function OrderEstimateTab({ order }: { order: Order }) {
       estimateAdjustments: pricingDraft.estimateAdjustments,
       excludedContractFeeIds:
         pricingDraft.excludedContractFeeIds ?? undefined,
+      paymentSurcharge: surchargeDraft.enabled ? surchargeDraft : null,
       taxEnabled: taxEnabledDraft,
       taxRate: parsedTaxRateDraft,
     }),
-    [order, pricingDraft, taxEnabledDraft, parsedTaxRateDraft]
+    [order, pricingDraft, surchargeDraft, taxEnabledDraft, parsedTaxRateDraft]
   );
 
   const pricingMatrix = useMemo(
@@ -162,6 +182,19 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     }),
     [pricingMatrix, settings.pricingRateSheets, settings.productionDefaults]
   );
+
+  const surchargeBaseSubtotal = useMemo(() => {
+    const withoutSurcharge = {
+      ...previewOrder,
+      paymentSurcharge: null,
+    };
+    return computeEstimateTotals(
+      withoutSurcharge,
+      settings.taxRate,
+      shopPricing,
+      customer
+    ).subtotal;
+  }, [previewOrder, settings.taxRate, shopPricing, customer]);
 
   const totals = useMemo(
     () =>
@@ -352,6 +385,77 @@ export function OrderEstimateTab({ order }: { order: Order }) {
     `order-estimate-note-${order.id}`
   );
 
+  const surchargeFingerprint = useCallback(
+    (value: OrderPaymentSurcharge | null | undefined) => {
+      const normalized =
+        normalizePaymentSurcharge(value) ?? emptyPaymentSurcharge();
+      if (!normalized.enabled) return "off";
+      return JSON.stringify({
+        enabled: true,
+        percent: normalized.percent,
+        label: normalized.label,
+        amountOverride: normalized.amountOverride ?? null,
+      });
+    },
+    []
+  );
+
+  const surchargeDirty =
+    surchargeFingerprint(surchargeDraft) !==
+    surchargeFingerprint(order.paymentSurcharge);
+
+  const discardSurchargeChanges = useCallback(() => {
+    setSurchargeDraft(
+      normalizePaymentSurcharge(order.paymentSurcharge) ??
+        emptyPaymentSurcharge()
+    );
+  }, [order.paymentSurcharge]);
+
+  const saveSurchargeChanges = useCallback(async () => {
+    if (!surchargeDirty) return;
+    setSurchargeSaving(true);
+    try {
+      await updateOrderEstimatePricing(order.id, {
+        paymentSurcharge: surchargeDraft.enabled ? surchargeDraft : null,
+      });
+      showToast(
+        surchargeDraft.enabled
+          ? "Payment surcharge saved."
+          : "Payment surcharge removed.",
+        "success"
+      );
+    } catch (err) {
+      showToast(
+        err instanceof Error
+          ? err.message
+          : "Could not save payment surcharge.",
+        "error"
+      );
+    } finally {
+      setSurchargeSaving(false);
+    }
+  }, [
+    surchargeDirty,
+    surchargeDraft,
+    order.id,
+    updateOrderEstimatePricing,
+    showToast,
+  ]);
+
+  useRegisterUnsavedChanges(
+    surchargeDirty || surchargeSaving
+      ? {
+          dirty: true,
+          saving: surchargeSaving,
+          label: "Unsaved payment surcharge",
+          persistAcrossTabs: true,
+          onSave: () => saveSurchargeChanges(),
+          onDiscard: discardSurchargeChanges,
+        }
+      : null,
+    `order-estimate-surcharge-${order.id}`
+  );
+
   return (
     <div className="space-y-4">
       <OrderEstimateApprovalPanel order={order} />
@@ -516,6 +620,18 @@ export function OrderEstimateTab({ order }: { order: Order }) {
             order={order}
             customer={customer}
             onDraftChange={handlePricingDraftChange}
+          />
+          <OrderPaymentSurchargeCard
+            value={surchargeDraft}
+            baseSubtotal={surchargeBaseSubtotal}
+            disabled={surchargeSaving}
+            dirty={surchargeDirty}
+            saving={surchargeSaving}
+            onSave={() => void saveSurchargeChanges()}
+            onDiscard={discardSurchargeChanges}
+            onChange={(next) =>
+              setSurchargeDraft(next ?? emptyPaymentSurcharge())
+            }
           />
           {perPieceCosts ? (
             <EstimatePerPieceSummary costs={perPieceCosts} />

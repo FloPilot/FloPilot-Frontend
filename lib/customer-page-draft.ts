@@ -7,6 +7,7 @@ import type {
   CustomerShippingLocation,
   CustomerTaxDocument,
   SubCustomer,
+  ThirdPartyShippingAccount,
 } from "@/types";
 import { createCustomerNoteId, resolveCustomerAccountNotes } from "@/lib/customer-notes";
 
@@ -27,6 +28,8 @@ export type CustomerPendingUpload = {
 
 export type CustomerPageDraft = {
   salesRepId: string | null;
+  /** Account # for estimates; null/empty until generated or assigned */
+  customerNumber: string | null;
   paymentTermsLabel: string | null;
   paymentTermsDays: number | null;
   taxExempt: boolean;
@@ -36,6 +39,7 @@ export type CustomerPageDraft = {
   contacts: CustomerContact[];
   accountNotes: CustomerNote[];
   shippingLocations: CustomerShippingLocation[];
+  thirdPartyShippingAccounts: ThirdPartyShippingAccount[];
   subCustomers: SubCustomer[];
   negotiatedPricing: CustomerNegotiatedPricing | undefined;
   files: Array<
@@ -53,6 +57,7 @@ export function createPendingUploadId() {
 export function customerToPageDraft(customer: Customer): CustomerPageDraft {
   return {
     salesRepId: customer.salesRepId ?? null,
+    customerNumber: customer.customerNumber?.trim() || null,
     paymentTermsLabel: customer.paymentTermsLabel ?? null,
     paymentTermsDays:
       typeof customer.paymentTermsDays === "number"
@@ -68,6 +73,9 @@ export function customerToPageDraft(customer: Customer): CustomerPageDraft {
         : { ...note }
     ),
     shippingLocations: [...(customer.shippingLocations ?? [])],
+    thirdPartyShippingAccounts: [
+      ...(customer.thirdPartyShippingAccounts ?? []),
+    ],
     subCustomers: [...(customer.subCustomers ?? [])],
     negotiatedPricing: customer.negotiatedPricing
       ? structuredClone(customer.negotiatedPricing)
@@ -81,6 +89,7 @@ export function customerToPageDraft(customer: Customer): CustomerPageDraft {
 export function serializeCustomerPageDraft(draft: CustomerPageDraft): string {
   return JSON.stringify({
     salesRepId: draft.salesRepId,
+    customerNumber: (draft.customerNumber || "").trim(),
     paymentTermsLabel: (draft.paymentTermsLabel || "").trim(),
     paymentTermsDays: draft.paymentTermsDays,
     taxExempt: draft.taxExempt,
@@ -108,6 +117,7 @@ export function serializeCustomerPageDraft(draft: CustomerPageDraft): string {
       priority: note.priority,
     })),
     shippingLocations: draft.shippingLocations,
+    thirdPartyShippingAccounts: draft.thirdPartyShippingAccounts,
     subCustomers: draft.subCustomers,
     negotiatedPricing: draft.negotiatedPricing ?? null,
     files: draft.files.map((doc) =>

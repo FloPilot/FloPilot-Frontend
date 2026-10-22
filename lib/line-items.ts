@@ -118,6 +118,23 @@ export function serializeLineItemForApi(lineItem: LineItem): LineItem {
     serialized.colorHex = lineItem.colorHex.trim();
   }
 
+  if (
+    lineItem.blankSource === "shop_orders" ||
+    lineItem.blankSource === "customer_supplies"
+  ) {
+    serialized.blankSource = lineItem.blankSource;
+  }
+
+  const notes = lineItem.notes?.trim();
+  if (notes) {
+    serialized.notes = notes.slice(0, 500);
+  }
+
+  const description = lineItem.description?.trim();
+  if (description) {
+    serialized.description = description.slice(0, 200);
+  }
+
   return serialized;
 }
 

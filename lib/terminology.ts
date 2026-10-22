@@ -4,6 +4,8 @@
  */
 export const eventLabel = "Event";
 export const eventsLabel = "Events";
+/** Order detail tab title — events + design specs live together. */
+export const eventsAndDesignsLabel = "Events & Designs";
 export const eventLower = "event";
 export const eventsLower = "events";
 

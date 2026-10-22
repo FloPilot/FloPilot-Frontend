@@ -1,12 +1,7 @@
-import { Suspense } from "react";
-import { ForgotPasswordForm } from "@/components/auth/forgot-password-form";
-import { AppLoadingScreen } from "@/components/ui/app-loading-screen";
+import { redirect } from "next/navigation";
+import { teamPortalRedirectPath } from "@/lib/team-portal";
 
-/** Team-host rewrite target for /forgot-password on team.flopilot.io */
-export default function TeamForgotPasswordPage() {
-  return (
-    <Suspense fallback={<AppLoadingScreen fullScreen label="Loading…" />}>
-      <ForgotPasswordForm />
-    </Suspense>
-  );
+/** @deprecated Team portal lives at admin.flopilot.io — kept as a redirect. */
+export default function TeamForgotPasswordRedirectPage() {
+  redirect(teamPortalRedirectPath("/forgot-password"));
 }

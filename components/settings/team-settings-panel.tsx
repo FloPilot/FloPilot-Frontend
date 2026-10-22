@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
   Copy,
@@ -56,11 +56,18 @@ import {
   type StaffRole,
 } from "@/lib/staff-roles";
 import {
+  normalizeStaffDepartments,
+  STAFF_DEPARTMENT_OPTIONS,
+  staffDepartmentLabel,
+} from "@/lib/staff-departments";
+import {
   normalizeStaffTags,
   STAFF_TAG_OPTIONS,
   staffTagLabel,
 } from "@/lib/staff-tags";
+import { isHiddenWorkspaceServiceAccount } from "@/lib/platform-team";
 import { cn } from "@/lib/utils";
+import type { DepartmentSlug } from "@/lib/departments";
 
 function RoleBadge({ role }: { role: StaffRole }) {
   const styles: Record<StaffRole, string> = {
@@ -82,7 +89,7 @@ function RoleBadge({ role }: { role: StaffRole }) {
 }
 
 export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
-  const { profile, getIdToken } = useAuth();
+  const { profile, getIdToken, refreshProfile } = useAuth();
   const { settings } = useShopSettings();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [invites, setInvites] = useState<TeamInvite[]>([]);
@@ -104,9 +111,19 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [editMember, setEditMember] = useState<TeamMember | null>(null);
   const [editRole, setEditRole] = useState<StaffRole>("production");
+  const [editPhone, setEditPhone] = useState("");
   const [editAccess, setEditAccess] = useState<StaffAccess | null>(null);
   const [editTags, setEditTags] = useState<string[]>([]);
+  const [editDepartments, setEditDepartments] = useState<DepartmentSlug[]>([]);
   const [savingAccess, setSavingAccess] = useState(false);
+
+  const visibleMembers = useMemo(
+    () =>
+      members.filter(
+        (member) => !isHiddenWorkspaceServiceAccount(member.email)
+      ),
+    [members]
+  );
 
   const loadTeam = useCallback(async () => {
     if (disabled) {
@@ -164,8 +181,10 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
   const openEditMember = (member: TeamMember) => {
     setEditMember(member);
     setEditRole(member.role);
+    setEditPhone(member.phone?.trim() || "");
     setEditAccess(member.access ?? null);
     setEditTags(normalizeStaffTags(member.tags));
+    setEditDepartments(normalizeStaffDepartments(member.departments));
   };
 
   const handleSaveAccess = async () => {
@@ -177,11 +196,18 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
       if (!token) throw new Error("Not signed in");
       await updateTeamMember(token, editMember.id, {
         role: editRole,
+        phone: editPhone.trim() || null,
         access: editAccess,
         tags: editTags,
+        departments: editDepartments,
       });
+      const editedSelf =
+        profile?.type === "staff" && editMember.id === profile.user.id;
       setEditMember(null);
       await loadTeam();
+      if (editedSelf) {
+        await refreshProfile();
+      }
     } catch (err) {
       setError(
         err instanceof Error
@@ -247,7 +273,8 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2 text-sm text-brand-muted">
           <Users className="size-4" />
-          {members.length} member{members.length !== 1 ? "s" : ""}
+          {visibleMembers.length} member
+          {visibleMembers.length !== 1 ? "s" : ""}
           {invites.length > 0 && (
             <span>· {invites.length} pending invite{invites.length !== 1 ? "s" : ""}</span>
           )}
@@ -271,7 +298,7 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {members.map((member) => {
+          {visibleMembers.map((member) => {
             const isSelf = profile?.type === "staff" && member.id === profile.user.id;
             const accessSummary = summarizeStaffAccess(
               member.role,
@@ -306,34 +333,48 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                         {staffTagLabel(tag)}
                       </Badge>
                     ))}
+                    {normalizeStaffDepartments(member.departments).map(
+                      (dept) => (
+                        <Badge
+                          key={dept}
+                          variant="outline"
+                          className="rounded-md border-[#dde8d8] bg-[#f4f8f1] px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide text-[#3d6b2f]"
+                        >
+                          {staffDepartmentLabel(dept)}
+                        </Badge>
+                      )
+                    )}
                   </div>
-                  <p className="truncate text-xs text-brand-muted">{member.email}</p>
+                  <p className="truncate text-xs text-brand-muted">
+                    {member.email}
+                    {member.phone?.trim() ? ` · ${member.phone.trim()}` : ""}
+                  </p>
                   {member.role !== "admin" && (
                     <p className="mt-1 text-xs text-brand-muted">{accessSummary}</p>
                   )}
                 </div>
-                {!isSelf && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      disabled={busyId === member.id}
-                      className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-brand-muted outline-none hover:bg-[#f1f1f1] hover:text-brand-ink disabled:opacity-50"
-                    >
-                      <MoreHorizontal className="size-4" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuItem onClick={() => openEditMember(member)}>
-                        <SlidersHorizontal className="size-4" />
-                        Manage access
-                      </DropdownMenuItem>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    disabled={busyId === member.id}
+                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-brand-muted outline-none hover:bg-[#f1f1f1] hover:text-brand-ink disabled:opacity-50"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem onClick={() => openEditMember(member)}>
+                      <SlidersHorizontal className="size-4" />
+                      Manage access
+                    </DropdownMenuItem>
+                    {!isSelf ? (
                       <DropdownMenuItem
                         variant="destructive"
                         onClick={() => void handleRemove(member.id)}
                       >
                         Remove from team
                       </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
+                    ) : null}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             );
           })}
@@ -541,6 +582,21 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
           {editMember && (
             <div className="grid max-h-[min(70vh,32rem)] gap-4 overflow-y-auto py-2 pr-1">
               <div className="space-y-2">
+                <Label htmlFor="member-phone">Phone</Label>
+                <Input
+                  id="member-phone"
+                  type="tel"
+                  inputMode="tel"
+                  placeholder="(555) 123-4567"
+                  value={editPhone}
+                  onChange={(event) => setEditPhone(event.target.value)}
+                  className="h-11 rounded-xl"
+                />
+                <p className="text-xs text-brand-muted">
+                  Shown with this rep’s name and email on estimates.
+                </p>
+              </div>
+              <div className="space-y-2">
                 <Label>Role</Label>
                 <Select
                   value={editRole}
@@ -604,6 +660,46 @@ export function TeamSettingsPanel({ disabled }: { disabled?: boolean }) {
                               checked
                                 ? current.filter((tag) => tag !== option.id)
                                 : normalizeStaffTags([...current, option.id])
+                            );
+                          }}
+                          className="size-4 rounded border-[#c9c9c9]"
+                        />
+                        {option.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label>Departments</Label>
+                <p className="text-xs text-brand-muted">
+                  Notes assigned to these departments pop up when this person
+                  opens the app.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {STAFF_DEPARTMENT_OPTIONS.map((option) => {
+                    const checked = editDepartments.includes(option.id);
+                    return (
+                      <label
+                        key={option.id}
+                        className={cn(
+                          "inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm",
+                          checked
+                            ? "border-[#3d6b2f]/30 bg-[#f4f8f1] text-[#3d6b2f]"
+                            : "border-border/60 bg-white text-brand-ink"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setEditDepartments((current) =>
+                              checked
+                                ? current.filter((dept) => dept !== option.id)
+                                : normalizeStaffDepartments([
+                                    ...current,
+                                    option.id,
+                                  ])
                             );
                           }}
                           className="size-4 rounded border-[#c9c9c9]"

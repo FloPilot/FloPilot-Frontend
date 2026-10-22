@@ -41,7 +41,7 @@ const LOCKED_COPY: Record<
   },
   shipping: {
     title: "Shipping / Handling",
-    body: "Ship-to, packaging, and will-call are set on the order after convert.",
+    body: "Ship-to, packaging, and pickup are set on the order after convert.",
   },
   invoice: {
     title: "Invoice",

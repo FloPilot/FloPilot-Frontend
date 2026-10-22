@@ -8,7 +8,10 @@ import type { ProductionStepTemplate } from "@/lib/order-production";
 import type { DecorationTypeOption, PrintLocationOption } from "@/lib/shop-settings";
 import { cn } from "@/lib/utils";
 
-export type EventQuickPickFilter = "all" | "finishing" | string;
+/** Reserved — must not collide with decoration type values like "finishing". */
+export const EVENT_QUICK_PICK_FINISHING_FILTER = "kind:finishing";
+
+export type EventQuickPickFilter = "all" | typeof EVENT_QUICK_PICK_FINISHING_FILTER | string;
 
 export function EventQuickPickFilters({
   templates,
@@ -61,7 +64,7 @@ export function EventQuickPickFilters({
 
   if (counts.finishing > 0) {
     pills.push({
-      value: "finishing",
+      value: EVENT_QUICK_PICK_FINISHING_FILTER,
       label: "Finishing",
       count: counts.finishing,
     });
@@ -108,7 +111,8 @@ export function filterEventQuickPicks(
 ): ProductionStepTemplate[] {
   const needle = query.trim().toLowerCase();
   return templates.filter((template) => {
-    if (filter === "finishing") {
+    if (filter === EVENT_QUICK_PICK_FINISHING_FILTER || filter === "finishing") {
+      // "finishing" kept for any stale local state from before the reserved key.
       if (template.kind !== "finishing") return false;
     } else if (filter !== "all") {
       if (template.kind === "finishing" || template.decoration !== filter) {

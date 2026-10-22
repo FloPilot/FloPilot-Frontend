@@ -1,6 +1,7 @@
-import { addDays, format } from "date-fns";
 import { computeEstimateTotals } from "@/lib/order-estimate";
 import { formatBrandProductName } from "@/lib/format-product-name";
+import { normalizeDesignCode } from "@/lib/design-code";
+import { defaultNewOrderDates } from "@/lib/order-dates";
 import { findSubCustomer } from "@/lib/sub-customers";
 import {
   resolvePrintLocationLabel,
@@ -8,6 +9,7 @@ import {
 } from "@/lib/shop-settings";
 import { buildCustomProductionJob } from "@/lib/order-production";
 import { createLineItemId } from "@/lib/line-items";
+import { buildInitialOrderShippingSettings } from "@/lib/third-party-shipping";
 import type { PricingMatrix } from "@/lib/shop-settings";
 import type {
   BlankSource,
@@ -26,7 +28,7 @@ export type NewOrderJobInput = {
   decorationType: DecorationType;
   locationKey: ImprintLocationKey;
   notes: string;
-  kind: "decoration" | "finishing";
+  kind: "decoration" | "finishing" | "subcontract";
   /** Links finishing jobs to Shop Setup → Finishing pricing sheets */
   finishingStepId?: string;
   /** Blank line items this decoration runs on */
@@ -149,6 +151,7 @@ export const NEW_ORDER_STEPS = [
   { id: 1, title: "Customer" },
   { id: 2, title: "Blanks/garments" },
   { id: 3, title: "Events" },
+  { id: 4, title: "Dates" },
 ] as const;
 
 export const NEW_ORDER_STEP_COUNT = NEW_ORDER_STEPS.length;
@@ -219,7 +222,7 @@ export function orderedManualSizeKeys(record: ManualSizeQtyRecord): string[] {
 export const SHIPPING_METHODS = [
   { key: "ups_ground", label: "UPS Ground" },
   { key: "fedex_home", label: "FedEx Home" },
-  { key: "will_call", label: "Will Call" },
+  { key: "will_call", label: "Pickup" },
 ] as const;
 
 export const BLANK_SOURCE_OPTIONS: { value: BlankSource; label: string }[] = [
@@ -233,6 +236,7 @@ export const ARTWORK_ATTACHABLE_KINDS: OrderFileKind[] = [
   "customer_supplied",
   "separation",
   "embroidery_file",
+  "embroidery_sewout",
 ];
 
 export type NewOrderFormInput = {
@@ -243,10 +247,17 @@ export type NewOrderFormInput = {
   blankSource?: BlankSource;
   jobs: NewOrderJobInput[];
   shippingMethod: (typeof SHIPPING_METHODS)[number]["key"];
+  /** Business order date (yyyy-MM-dd) */
+  orderDate: string;
+  /** Target ship date (yyyy-MM-dd) */
+  shipDate: string;
+  /** Customer in-hands / due date (yyyy-MM-dd) */
   inHandsDate: string;
   rush: boolean;
   /** Optional label shown as "SO-1234 — your label" on orders and calendar */
   customLabel?: string;
+  /** Optional design name / code shown on estimates and artwork */
+  designCode?: string;
   /** Assigned sales rep — required; defaults from customer, else creator */
   salesRepId?: string;
 };
@@ -278,6 +289,7 @@ export function createEmptyNewOrderJob(
 export function createEmptyNewOrderForm(
   customerId = ""
 ): NewOrderFormInput {
+  const dates = defaultNewOrderDates();
   return {
     customerId,
     subCustomerId: "",
@@ -285,9 +297,12 @@ export function createEmptyNewOrderForm(
     blankSource: undefined,
     jobs: [],
     shippingMethod: "ups_ground",
-    inHandsDate: format(addDays(new Date(), 21), "yyyy-MM-dd"),
+    orderDate: dates.orderDate,
+    shipDate: dates.shipDate,
+    inHandsDate: dates.inHandsDate,
     rush: false,
     customLabel: "",
+    designCode: "",
     salesRepId: "",
   };
 }
@@ -342,6 +357,9 @@ export function validateNewOrderStep(
       }
       return null;
     }
+    case 4:
+      // Dates are optional — defaults apply if left blank / skipped.
+      return null;
     default:
       return null;
   }
@@ -418,7 +436,11 @@ function buildOrderLineItemsAndJobs(
         name: eventName,
         locationKey: jobInput.locationKey,
         decoration:
-          jobInput.kind === "finishing" ? "finishing" : jobInput.decorationType,
+          jobInput.kind === "finishing"
+            ? "finishing"
+            : jobInput.kind === "subcontract"
+              ? "subcontract"
+              : jobInput.decorationType,
         kind: jobInput.kind,
         finishingStepId: jobInput.finishingStepId,
       },
@@ -519,6 +541,8 @@ export function previewOrderTotals(
     customerName: "",
     company: "",
     createdAt: new Date().toISOString(),
+    orderDate: form.orderDate || null,
+    shipDate: form.shipDate || null,
     inHandsDate: form.inHandsDate,
     subtotal: 0,
     tax: 0,
@@ -651,6 +675,8 @@ export function buildOrderFromForm(
       customerName: customer.name,
       company: customer.company,
       createdAt: now,
+      orderDate: form.orderDate || null,
+      shipDate: form.shipDate || null,
       inHandsDate: form.inHandsDate,
       subtotal: 0,
       tax: 0,
@@ -722,6 +748,8 @@ export function buildOrderFromForm(
     subCustomerId: selectedSubCustomer?.id,
     subCustomerName: selectedSubCustomer?.name,
     createdAt: now,
+    orderDate: form.orderDate || null,
+    shipDate: form.shipDate || null,
     inHandsDate: form.inHandsDate,
     subtotal,
     tax,
@@ -730,6 +758,7 @@ export function buildOrderFromForm(
     balance: total,
     rush: form.rush,
     customLabel: form.customLabel?.trim() || undefined,
+    designCode: normalizeDesignCode(form.designCode) || undefined,
     salesRepId: form.salesRepId?.trim() || undefined,
     garments: hasProducts
       ? {
@@ -747,6 +776,7 @@ export function buildOrderFromForm(
     lineItems,
     jobs,
     shipments: [],
+    shipping: buildInitialOrderShippingSettings(customer, shipping.key),
     messages: [],
     files: orderFiles.length > 0 ? orderFiles : undefined,
     internalNotes,

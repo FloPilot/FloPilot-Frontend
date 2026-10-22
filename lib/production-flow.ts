@@ -35,6 +35,7 @@ const DECORATION_FLOW_RANK: Record<BuiltInDecorationType, number> = {
   embroidery: 5,
   dtf: 10,
   vinyl: 15,
+  subcontract: 40,
   finishing: 100,
 };
 

@@ -21,7 +21,6 @@ import {
   mergeOrderMaterials,
   receiveAllGarmentLines,
 } from "@/lib/order-materials";
-import { blankSourceLabel } from "@/lib/order-receiving-checkpoints";
 import {
   buildReceivingQueue,
   filterReceivingQueue,
@@ -222,7 +221,7 @@ export function ReceivingDepartmentPanel() {
                   title={
                     <div className="flex flex-wrap items-center gap-2">
                       <DepartmentCardTitle>
-                        {blankSourceLabel(group.blankSource)}
+                        {group.blankSourceSummary}
                       </DepartmentCardTitle>
                       {departmentStatusPill(
                         group.openLineCount === 0

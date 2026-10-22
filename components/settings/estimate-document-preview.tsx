@@ -11,12 +11,20 @@ import { cn } from "@/lib/utils";
 
 const SAMPLE_ROWS: Record<
   string,
-  { title: string; detail: string; qty: string; unit: string; total: string }[]
+  {
+    title: string;
+    garment: string;
+    sizeBreak: string;
+    qty: string;
+    unit: string;
+    total: string;
+  }[]
 > = {
   garments: [
     {
-      title: "Gildan Softstyle Tee",
-      detail: "Navy · S–XL",
+      title: "Blank",
+      garment: "#64000 Softstyle Tee / Navy",
+      sizeBreak: "S 12 · M 12 · L 12 · XL 12",
       qty: "48",
       unit: "$4.20",
       total: "$201.60",
@@ -25,7 +33,8 @@ const SAMPLE_ROWS: Record<
   decoration: [
     {
       title: "Screen print · Front",
-      detail: "2 colors",
+      garment: "#64000 Softstyle Tee / Navy",
+      sizeBreak: "S 12 · M 12 · L 12 · XL 12",
       qty: "48",
       unit: "$2.75",
       total: "$132.00",
@@ -34,7 +43,8 @@ const SAMPLE_ROWS: Record<
   setup: [
     {
       title: "Screen setup",
-      detail: "2 screens",
+      garment: "2 screens",
+      sizeBreak: "—",
       qty: "2",
       unit: "$25.00",
       total: "$50.00",
@@ -43,7 +53,8 @@ const SAMPLE_ROWS: Record<
   finishing: [
     {
       title: "Fold & bag",
-      detail: "Per piece",
+      garment: "Per piece",
+      sizeBreak: "—",
       qty: "48",
       unit: "$0.35",
       total: "$16.80",
@@ -52,7 +63,8 @@ const SAMPLE_ROWS: Record<
   other: [
     {
       title: "Rush fee",
-      detail: "",
+      garment: "—",
+      sizeBreak: "—",
       qty: "1",
       unit: "$75.00",
       total: "$75.00",
@@ -70,12 +82,11 @@ function MetaBlock({
   const isInvoice = kind === "invoice";
   return (
     <div className={cn("shrink-0", align === "right" ? "text-right" : "text-left")}>
-      <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-[#616161]">
-        {isInvoice ? "Invoice" : "Estimate"}
-      </p>
-      <p className="text-[14px] font-bold leading-tight">SO-1042</p>
-      <p className="mt-0.5 text-[11px] font-semibold leading-snug text-[#303030]">
-        Blue Hoodie
+      <p className="text-[14px] font-bold leading-tight text-[#303030]">
+        <span className="font-bold uppercase tracking-[0.04em] text-[#616161]">
+          {isInvoice ? "Invoice" : "Estimate"}:{" "}
+        </span>
+        SO-1042
       </p>
       <p className="mt-1 text-[10px] text-[#616161]">
         {isInvoice ? (
@@ -85,7 +96,12 @@ function MetaBlock({
             Estimate: SO-1042
             <br />
           </>
-        ) : null}
+        ) : (
+          <>
+            Customer PO / Job name: Blue Hoodie
+            <br />
+          </>
+        )}
         Date: Mar 12, 2026
         <br />
         In hands: Mar 28, 2026
@@ -187,17 +203,17 @@ export function EstimateDocumentPreview({
             ) : (
               <p className="text-[15px] font-bold tracking-tight">{name}</p>
             )}
+            {(style === "classic" || style === "branded") &&
+            contactBits.length > 0 ? (
+              <div className="mt-1 text-[10px] leading-snug text-[#616161]">
+                {contactBits.map((line) => (
+                  <p key={String(line)}>{line}</p>
+                ))}
+              </div>
+            ) : null}
           </div>
           <MetaBlock kind={kind} />
         </div>
-
-        {style === "branded" && contactBits.length > 0 ? (
-          <div className="text-[10px] text-[#616161]">
-            {contactBits.map((line) => (
-              <p key={String(line)}>{line}</p>
-            ))}
-          </div>
-        ) : null}
 
         {style === "split_parties" ? (
           <div className="grid grid-cols-2 gap-4 border-t border-[#ebebeb] pt-3">
@@ -257,20 +273,106 @@ export function EstimateDocumentPreview({
                   );
                 case "bill_to":
                   return (
-                    <div key={blockId}>
-                      <p className="text-[9px] font-bold uppercase tracking-[0.08em] text-[#616161]">
-                        Prepared for
-                      </p>
-                      <p className="mt-1 text-[12px] font-semibold">
-                        Northside Athletics
-                      </p>
-                      <p className="text-[10px] text-[#616161]">
-                        Jordan Hale
-                        <br />
-                        Austin, TX
-                        <br />
-                        jordan@northside.com
-                      </p>
+                    <div key={blockId} className="space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-[7px] font-bold uppercase tracking-wide text-[#616161]">
+                            Bill to
+                          </p>
+                          <p className="mt-0.5 text-[9px] leading-snug">
+                            Northside Athletics
+                            <br />
+                            1200 Congress Ave
+                            <br />
+                            Austin, TX 78701
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[7px] font-bold uppercase tracking-wide text-[#616161]">
+                            Ship to
+                          </p>
+                          <p className="mt-0.5 text-[9px] leading-snug">
+                            Northside Athletics
+                            <br />
+                            Warehouse B
+                            <br />
+                            Austin, TX 78701
+                          </p>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mb-1 grid grid-cols-4 gap-1 text-[7px] font-bold uppercase tracking-wide text-[#616161]">
+                          <span>Ordered By</span>
+                          <span>Phone</span>
+                          <span>Fax</span>
+                          <span>Email</span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-0 overflow-hidden rounded-sm border border-[#d4d4d8] text-[9px]">
+                          <span className="border-r border-[#d4d4d8] px-1.5 py-1.5">
+                            Jordan Hale
+                          </span>
+                          <span className="border-r border-[#d4d4d8] px-1.5 py-1.5">
+                            (512) 555-0142
+                          </span>
+                          <span className="border-r border-[#d4d4d8] px-1.5 py-1.5 text-[#8a8a8a]">
+                            —
+                          </span>
+                          <span className="px-1.5 py-1.5">
+                            jordan@northside.com
+                          </span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mb-1 grid grid-cols-5 gap-1 text-[7px] font-bold uppercase tracking-wide text-[#616161]">
+                          <span>Customer #</span>
+                          <span>PO Number</span>
+                          <span>Terms</span>
+                          <span>Salesperson</span>
+                          <span>Ship Method</span>
+                        </div>
+                        <div className="grid grid-cols-5 gap-0 overflow-hidden rounded-sm border border-[#d4d4d8] text-[9px]">
+                          <span className="border-r border-[#d4d4d8] px-1.5 py-1.5">
+                            935
+                          </span>
+                          <span className="border-r border-[#d4d4d8] px-1.5 py-1.5">
+                            PO-4784
+                          </span>
+                          <span className="border-r border-[#d4d4d8] px-1.5 py-1.5">
+                            Net 30
+                          </span>
+                          <span className="border-r border-[#d4d4d8] px-1.5 py-1.5">
+                            Amy Jurena
+                          </span>
+                          <span className="px-1.5 py-1.5">Pickup</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mb-1 grid grid-cols-[0.9fr_2.2fr_0.9fr] gap-1 text-[7px] font-bold uppercase tracking-wide text-[#616161]">
+                          <span>Design ID</span>
+                          <span>Design Title</span>
+                          <span>Type</span>
+                        </div>
+                        <div className="overflow-hidden rounded-sm border border-[#d4d4d8] text-[9px]">
+                          <div className="grid grid-cols-[0.9fr_2.2fr_0.9fr] gap-0 border-b border-[#e8e8ea]">
+                            <span className="border-r border-[#d4d4d8] px-1.5 py-1.5">
+                              11450
+                            </span>
+                            <span className="border-r border-[#d4d4d8] px-1.5 py-1.5">
+                              ALL IN - HOODIE BLACK
+                            </span>
+                            <span className="px-1.5 py-1.5">Screen</span>
+                          </div>
+                          <div className="grid grid-cols-[0.9fr_2.2fr_0.9fr] gap-0">
+                            <span className="border-r border-[#d4d4d8] px-1.5 py-1.5">
+                              8355
+                            </span>
+                            <span className="border-r border-[#d4d4d8] px-1.5 py-1.5">
+                              BLUFF INT LABEL
+                            </span>
+                            <span className="px-1.5 py-1.5">Neck</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   );
                 case "line_items":
@@ -279,9 +381,10 @@ export function EstimateDocumentPreview({
                       key={blockId}
                       className="overflow-hidden rounded-md border border-[#ebebeb]"
                     >
-                      <div className="grid grid-cols-[1.4fr_1fr_0.4fr_0.7fr_0.7fr] gap-1 bg-[#f4f4f5] px-2 py-1.5 text-[8px] font-bold uppercase tracking-wide text-[#616161]">
-                        <span>Description</span>
-                        <span>Details</span>
+                      <div className="grid grid-cols-[1.1fr_1.3fr_1.1fr_0.35fr_0.55fr_0.55fr] gap-1 bg-[#f4f4f5] px-2 py-1.5 text-[8px] font-bold uppercase tracking-wide text-[#616161]">
+                        <span>Decoration</span>
+                        <span>Garment</span>
+                        <span>Size break</span>
                         <span className="text-right">Qty</span>
                         <span className="text-right">Unit</span>
                         <span className="text-right">Total</span>
@@ -300,11 +403,14 @@ export function EstimateDocumentPreview({
                             {section.rows.map((row) => (
                               <div
                                 key={`${section.sectionId}-${row.title}`}
-                                className="grid grid-cols-[1.4fr_1fr_0.4fr_0.7fr_0.7fr] gap-1 border-t border-[#f0f0f0] px-2 py-1.5"
+                                className="grid grid-cols-[1.1fr_1.3fr_1.1fr_0.35fr_0.55fr_0.55fr] gap-1 border-t border-[#f0f0f0] px-2 py-1.5"
                               >
                                 <span className="font-semibold">{row.title}</span>
+                                <span className="text-[#303030]">
+                                  {row.garment || "—"}
+                                </span>
                                 <span className="text-[#616161]">
-                                  {row.detail || "—"}
+                                  {row.sizeBreak || "—"}
                                 </span>
                                 <span className="text-right">{row.qty}</span>
                                 <span className="text-right">{row.unit}</span>

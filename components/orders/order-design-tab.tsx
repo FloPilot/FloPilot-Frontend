@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BookMarked, ImageIcon, LayoutList, Plus } from "lucide-react";
 // Temporarily hidden — Design Studio on orders was confusing for shops;
 // restore when they want mockup composition from the Proofs tab again.
@@ -43,7 +43,12 @@ export function OrderDesignTab({
   imprintAdapters,
   subtitle,
   readOnly = false,
+  /** Specs/images/inks read-only — art summary actions can stay editable. */
+  specsReadOnly,
   onAddEvents,
+  onEditOnEvents,
+  focusImprint,
+  onFocusHandled,
 }: {
   order: Order;
   /** Force every location badge to this status (order requests → pending). */
@@ -54,9 +59,15 @@ export function OrderDesignTab({
   imprintAdapters?: ImprintDesignCardAdapters;
   subtitle?: string;
   readOnly?: boolean;
+  specsReadOnly?: boolean;
   /** Jump to Events and open the add-event modal when proofs have no locations yet. */
   onAddEvents?: () => void;
+  /** Deep-link to Events & Designs for editing a location. */
+  onEditOnEvents?: (jobId: string, imprintId: string) => void;
+  focusImprint?: { jobId: string; imprintId: string } | null;
+  onFocusHandled?: () => void;
 }) {
+  const designReadOnly = specsReadOnly ?? readOnly;
   const [applyOpen, setApplyOpen] = useState(false);
   // const [designStudioOpen, setDesignStudioOpen] = useState(false);
   const steps = useMemo(() => getOrderProductionSteps(order), [order]);
@@ -70,6 +81,12 @@ export function OrderDesignTab({
   );
 
   const [selectedKey, setSelectedKey] = useState<string>(SUMMARY_KEY);
+
+  useEffect(() => {
+    if (!focusImprint) return;
+    setSelectedKey(`${focusImprint.jobId}-${focusImprint.imprintId}`);
+    onFocusHandled?.();
+  }, [focusImprint, onFocusHandled]);
 
   const proofKeyValid = proofSteps.some(
     (step) => `${step.job.id}-${step.imprint.id}` === selectedKey
@@ -133,30 +150,29 @@ export function OrderDesignTab({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className={dashboardTaskTitleClass}>
-            {showingSummary ? "Artwork for this order" : "Proof by location"}
+            {showingSummary
+              ? "Proof review"
+              : activeStep
+                ? imprintDisplayName(activeStep.imprint)
+                : "Location"}
           </h2>
-          <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-            {subtitle ||
-              (showingSummary
-                ? "Assign one artist and submit every proof together — or open a location to edit details."
-                : "Upload proofs, submit to artwork, and track status — one location at a time.")}
-          </p>
+          {subtitle ? (
+            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>{subtitle}</p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          {/* Design Studio entry on orders — commented out for now
-          {!readOnly ? (
+          {designReadOnly && onEditOnEvents && activeStep ? (
             <Button
               type="button"
-              variant="outline"
-              className="h-8 shrink-0 rounded-lg border-brand-primary/30 bg-brand-primary/5 text-[12px] font-medium text-brand-primary hover:bg-brand-primary/10"
-              onClick={() => setDesignStudioOpen(true)}
+              className={cn(dashboardControlClass, "h-8 shrink-0 text-[12px]")}
+              onClick={() =>
+                onEditOnEvents(activeStep.job.id, activeStep.imprint.id)
+              }
             >
-              <Wand2 className="size-3.5" />
-              Design studio
+              Edit design
             </Button>
           ) : null}
-          */}
-          {!hideApplyFromLibrary ? (
+          {!hideApplyFromLibrary && !designReadOnly ? (
             <Button
               type="button"
               className={cn(dashboardControlClass, "h-8 shrink-0 text-[12px]")}
@@ -250,8 +266,18 @@ export function OrderDesignTab({
                     {detail}
                   </p>
                 ) : null}
-                <div className="mt-1.5">
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   <DecorationTypePill decoration={imprint.decoration} />
+                  {imprint.designCode?.trim() ? (
+                    <span className="rounded-md border border-[#e3e3e3] bg-[#f6f6f7] px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-[#616161]">
+                      {imprint.designCode.trim()}
+                    </span>
+                  ) : null}
+                  {imprint.isLegacy ? (
+                    <span className="rounded-md border border-[#e3e3e3] bg-[#f6f6f7] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#616161]">
+                      Old
+                    </span>
+                  ) : null}
                 </div>
               </button>
             );
@@ -274,14 +300,13 @@ export function OrderDesignTab({
               order={order}
               job={activeStep.job}
               imprint={activeStep.imprint}
-              readOnly={readOnly}
+              readOnly={designReadOnly}
+              compact={designReadOnly}
               forceArtworkStatus={forceArtworkStatus}
-              hideApprovalActions={hideApprovalActions}
-              hideLinkFromFiles={hideLinkFromFiles}
+              hideApprovalActions={hideApprovalActions || designReadOnly}
+              hideArtWorkflow={designReadOnly}
+              hideLinkFromFiles={hideLinkFromFiles || designReadOnly}
               adapters={imprintAdapters}
-              // onOpenDesignStudio={
-              //   readOnly ? undefined : () => setDesignStudioOpen(true)
-              // }
             />
           ) : null}
         </div>

@@ -1,3 +1,7 @@
+import {
+  formatOrderBlankSourceSummary,
+  orderBlankSourcesResolved,
+} from "@/lib/blank-pricing";
 import type { CheckpointRollupStatus, OrderCheckpoint } from "@/lib/order-list-summary";
 import { getOrderProductionSteps } from "@/lib/order-production";
 import {
@@ -275,7 +279,6 @@ function buildDtfTransfersCheckpoint(order: Order): OrderCheckpoint {
 function buildBlankSourceCheckpoint(order: Order): OrderCheckpoint {
   const materials = mergeOrderMaterials(order);
   const garmentLines = getGarmentReceivingLines(materials);
-  const source = materials.blankSource;
   const label = "Goods source";
 
   if (garmentLines.length === 0) {
@@ -289,17 +292,22 @@ function buildBlankSourceCheckpoint(order: Order): OrderCheckpoint {
     };
   }
 
+  const resolved = orderBlankSourcesResolved(order);
+  const detail = formatOrderBlankSourceSummary(order);
+
   return {
     key: "blank_source",
     label,
     shortLabel: "Source",
-    status: source ? "done" : "pending",
-    detail: source ? blankSourceLabel(source) : "Not set",
-    title: source
-      ? source === "shop_orders"
-        ? "Shop is ordering blank garments"
-        : "Customer is shipping their own garments"
-      : "Set who orders blank garments on the Blanks tab",
+    status: resolved ? "done" : "pending",
+    detail: resolved ? detail : "Not set",
+    title: resolved
+      ? detail.startsWith("Mixed")
+        ? "This order mixes shop-purchased and customer-supplied goods"
+        : detail === "Shop orders"
+          ? "Shop is ordering blank garments"
+          : "Customer is shipping their own garments"
+      : "Set who supplies each blank on the Blanks / Garments tab",
   };
 }
 

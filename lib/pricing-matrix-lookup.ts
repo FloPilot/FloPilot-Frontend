@@ -1,5 +1,9 @@
 import { decorationLabel } from "@/lib/format";
-import { formatJobBlankLabels, jobUsesAllBlanks } from "@/lib/job-line-items";
+import {
+  formatJobBlankLabels,
+  jobAssignedPieceCount,
+  jobUsesAllBlanks,
+} from "@/lib/job-line-items";
 import { lineItemPieceCount } from "@/lib/order-estimate";
 import {
   priceColumnIndexes,
@@ -31,7 +35,9 @@ export type PricingMatrixHighlight = {
   qtyLabel: string;
   columnLabel: string;
   imprintLabel: string;
+  jobId?: string | null;
   jobName: string;
+  lineItemIds?: string[];
   decoration: string;
   decorationKey: DecorationType;
   columnMode: PricingColumnMode;
@@ -342,16 +348,7 @@ export function imprintColorCount(imprint: JobImprint): number {
 }
 
 function pieceCountForJob(order: Order, job: Job): number {
-  if (job.lineItemIds?.length) {
-    return order.lineItems
-      .filter((item) => job.lineItemIds!.includes(item.id))
-      .reduce((sum, item) => sum + lineItemPieceCount(item), 0);
-  }
-
-  return order.lineItems.reduce(
-    (sum, item) => sum + lineItemPieceCount(item),
-    0
-  );
+  return jobAssignedPieceCount(order, job);
 }
 
 /**
@@ -476,7 +473,11 @@ export function resolveOrderPricingHighlights(
       qtyLabel: `${row.minQty}+`,
       columnLabel,
       imprintLabel: opts.imprintLabel,
+      jobId: opts.job?.id || null,
       jobName: opts.job.name,
+      lineItemIds: Array.isArray(opts.job?.lineItemIds)
+        ? opts.job.lineItemIds.slice()
+        : [],
       decoration: decorationLabel(opts.imprint.decoration),
       decorationKey: opts.imprint.decoration,
       columnMode,

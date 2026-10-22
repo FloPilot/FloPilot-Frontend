@@ -4,6 +4,93 @@ function round2(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+/** Effective source for a blank — line override, then order default. */
+export function resolveLineItemBlankSource(
+  item: Pick<LineItem, "blankSource"> | null | undefined,
+  order?: Pick<Order, "materials"> | null
+): BlankSource | undefined {
+  return item?.blankSource ?? order?.materials?.blankSource;
+}
+
+/** Shop-purchased (or unset) blanks are billable; customer-supplied are not. */
+export function lineItemIsShopPurchased(
+  item: Pick<LineItem, "blankSource"> | null | undefined,
+  order?: Pick<Order, "materials"> | null
+): boolean {
+  return resolveLineItemBlankSource(item, order) !== "customer_supplies";
+}
+
+export type OrderBlankSourceSummary =
+  | { kind: "unset" }
+  | { kind: "shop_orders"; count: number }
+  | { kind: "customer_supplies"; count: number }
+  | { kind: "mixed"; shopCount: number; customerCount: number };
+
+export function summarizeOrderBlankSources(
+  order: Pick<Order, "lineItems" | "materials">
+): OrderBlankSourceSummary {
+  const items = order.lineItems || [];
+  if (items.length === 0) {
+    const fallback = order.materials?.blankSource;
+    if (fallback === "shop_orders") return { kind: "shop_orders", count: 0 };
+    if (fallback === "customer_supplies") {
+      return { kind: "customer_supplies", count: 0 };
+    }
+    return { kind: "unset" };
+  }
+
+  let shopCount = 0;
+  let customerCount = 0;
+  let unsetCount = 0;
+  for (const item of items) {
+    const source = resolveLineItemBlankSource(item, order);
+    if (source === "customer_supplies") customerCount += 1;
+    else if (source === "shop_orders") shopCount += 1;
+    else unsetCount += 1;
+  }
+
+  if (customerCount === 0 && shopCount === 0) {
+    return { kind: "unset" };
+  }
+  if (customerCount > 0 && shopCount === 0 && unsetCount === 0) {
+    return { kind: "customer_supplies", count: customerCount };
+  }
+  if (shopCount > 0 && customerCount === 0 && unsetCount === 0) {
+    return { kind: "shop_orders", count: shopCount };
+  }
+  // Mix of shop + customer, or customer + still-unset lines.
+  return {
+    kind: "mixed",
+    shopCount: shopCount + unsetCount,
+    customerCount,
+  };
+}
+
+export function orderBlankSourcesResolved(
+  order: Pick<Order, "lineItems" | "materials">
+): boolean {
+  if (order.materials?.blankSource) return true;
+  const items = order.lineItems || [];
+  if (items.length === 0) return true;
+  return items.every((item) => Boolean(item.blankSource));
+}
+
+export function formatOrderBlankSourceSummary(
+  order: Pick<Order, "lineItems" | "materials">
+): string {
+  const summary = summarizeOrderBlankSources(order);
+  switch (summary.kind) {
+    case "mixed":
+      return `Mixed · ${summary.shopCount} shop · ${summary.customerCount} customer`;
+    case "shop_orders":
+      return "Shop orders";
+    case "customer_supplies":
+      return "Customer supplied";
+    default:
+      return "Not set";
+  }
+}
+
 export function shouldShowBlankPricingForBlankSource(
   blankSource?: BlankSource
 ): boolean {
@@ -11,7 +98,11 @@ export function shouldShowBlankPricingForBlankSource(
 }
 
 export function shouldShowBlankPricing(order: Order): boolean {
-  return shouldShowBlankPricingForBlankSource(order.materials?.blankSource);
+  const items = order.lineItems || [];
+  if (items.length === 0) {
+    return shouldShowBlankPricingForBlankSource(order.materials?.blankSource);
+  }
+  return items.some((item) => lineItemIsShopPurchased(item, order));
 }
 
 export function normalizeMarkupPercent(value: unknown): number {
@@ -148,10 +239,9 @@ export function orderCustomerGarmentSubtotal(
 ): number {
   if (!shouldShowBlankPricing(order)) return 0;
   return round2(
-    (order.lineItems || []).reduce(
-      (sum, item) =>
-        sum + lineItemCustomerLineTotal(item, shopDefaultMarkupPercent),
-      0
-    )
+    (order.lineItems || []).reduce((sum, item) => {
+      if (!lineItemIsShopPurchased(item, order)) return sum;
+      return sum + lineItemCustomerLineTotal(item, shopDefaultMarkupPercent);
+    }, 0)
   );
 }

@@ -65,6 +65,11 @@ const PREP_CONFIG: Record<BuiltInDecorationType, PrepCheckpointConfig[]> = {
     label: step.label,
     hint: step.doneTitle,
   })),
+  subcontract: getDecorationPrepSteps("subcontract").map((step) => ({
+    key: step.key as PrepCheckpointKey,
+    label: step.label,
+    hint: step.doneTitle,
+  })),
 };
 
 export function getPrepCheckpointsForDecoration(

@@ -27,7 +27,6 @@ import {
   mergeOrderMaterials,
   receiveAllGarmentLines,
 } from "@/lib/order-materials";
-import { blankSourceLabel } from "@/lib/order-receiving-checkpoints";
 import {
   buildReceivingQueue,
   filterReceivingQueue,
@@ -333,7 +332,6 @@ function ReceivingOrderCard({
     order,
     openGarmentLines,
     jobs,
-    blankSource,
     totalExpected,
     totalReceived,
   } = group;
@@ -379,7 +377,7 @@ function ReceivingOrderCard({
               <span className="mx-1.5 text-[#c9c9c9]">·</span>
               Client ETA {formatDate(order.inHandsDate)}
               <span className="mx-1.5 text-[#c9c9c9]">·</span>
-              {blankSourceLabel(blankSource)}
+              {group.blankSourceSummary}
             </p>
             {jobs.length > 0 ? (
               <div className="mt-2 flex flex-wrap gap-1.5">

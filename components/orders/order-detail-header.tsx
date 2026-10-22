@@ -6,8 +6,16 @@ import { ArrowRight, Info } from "lucide-react";
 import { CustomerWarningDialog } from "@/components/customers/customer-warning-dialog";
 import { OrderAddressEditors } from "@/components/orders/order-address-editors";
 import { OrderCustomLabelEditor } from "@/components/orders/order-custom-label-field";
+import {
+  OrderDatesEditor,
+  type OrderDatesDraft,
+} from "@/components/orders/order-dates-editor";
 import { OrderEndBusinessEditor } from "@/components/orders/order-end-business-editor";
 import { OrderHeaderField } from "@/components/orders/order-header-field";
+import {
+  OrderPaymentTermsEditor,
+  type OrderPaymentTermsDraft,
+} from "@/components/orders/order-payment-terms-editor";
 import { OrderSalesRepEditor } from "@/components/orders/order-sales-rep-editor";
 import { OrderProductionRunEditor } from "@/components/orders/order-production-run-editor";
 import { RushBadge, ClientStoreBadge } from "@/components/status-badges";
@@ -25,10 +33,6 @@ import {
   type OrderDetailTab,
 } from "@/lib/order-detail-tabs";
 import type { OrderListSummary } from "@/lib/order-list-summary";
-import {
-  formatPaymentTermsLabel,
-  resolvePaymentTerms,
-} from "@/lib/payment-terms";
 import type {
   Customer,
   CustomerShippingLocation,
@@ -62,6 +66,10 @@ export function OrderDetailHeader({
   onShipToDraftChange,
   onCustomerLocationsSave,
   onPersistAddresses,
+  datesDraft,
+  onDatesDraftChange,
+  onPaymentTermsSave,
+  onPaymentTermsDraftChange,
   orders,
   onProductionRunSave,
 }: {
@@ -88,8 +96,24 @@ export function OrderDetailHeader({
     billTo?: OrderAddressSelection | null;
     shipTo?: OrderAddressSelection | null;
   }) => Promise<void>;
+  datesDraft?: OrderDatesDraft;
+  onDatesDraftChange?: (patch: Partial<OrderDatesDraft>) => void;
+  onPaymentTermsSave?: (
+    next: OrderPaymentTermsDraft
+  ) => Promise<void | Order>;
+  onPaymentTermsDraftChange?: (next: OrderPaymentTermsDraft) => void;
   orders?: Order[];
-  onProductionRunSave?: (linkedOrderIds: string[]) => Promise<void | Order>;
+  onProductionRunSave?: (
+    linkedOrderIds: string[],
+    eventGangs?: Array<{
+      id?: string;
+      members: Array<{
+        orderId: string;
+        jobId: string;
+        imprintId: string;
+      }>;
+    }>
+  ) => Promise<void | Order>;
 }) {
   const [warningOpen, setWarningOpen] = useState(false);
   const warnings = getCustomerWarningNotes(customer);
@@ -97,11 +121,9 @@ export function OrderDetailHeader({
   const showEndBusiness =
     Boolean(onEndBusinessSave || onEndBusinessDraftChange) &&
     Boolean(subCustomers?.length || order.subCustomerId);
-  const paymentTerms =
-    resolvePaymentTerms(order) || resolvePaymentTerms(customer);
-  const paymentTermsLabel =
-    paymentTerms?.label ||
-    formatPaymentTermsLabel(paymentTerms?.days ?? null);
+  const showPaymentTerms = Boolean(
+    onPaymentTermsSave || onPaymentTermsDraftChange
+  );
 
   const dueLabel =
     summary.dueDays === null
@@ -140,17 +162,6 @@ export function OrderDetailHeader({
           <h1 className={cn(dashboardSectionTitleClass, "shrink-0")}>
             Order {order.number}
           </h1>
-          {onCustomLabelSave || onCustomLabelDraftChange ? (
-            <OrderCustomLabelEditor
-              order={order}
-              onSave={onCustomLabelSave}
-              onDraftChange={onCustomLabelDraftChange}
-            />
-          ) : order.customLabel?.trim() ? (
-            <span className="rounded-md border border-[#ebebeb] px-2.5 py-1 text-[13px] font-medium text-[#616161]">
-              {order.customLabel.trim()}
-            </span>
-          ) : null}
           {order.rush ? <RushBadge /> : null}
           {order.source === "client_store" ? (
             <ClientStoreBadge storeName={order.clientStoreName} />
@@ -188,20 +199,6 @@ export function OrderDetailHeader({
             )}{" "}
             · {order.customerName} · In-hands {dueLabel}
           </p>
-          {paymentTermsLabel ? (
-            <span
-              className="inline-flex h-7 items-center rounded-md border border-[#d7e3f4] bg-[#f4f7fd] px-2.5 text-[12px] font-semibold text-[#2c6ecb]"
-              title={
-                paymentTerms?.days == null
-                  ? "Account payment terms"
-                  : paymentTerms.days === 0
-                    ? "Invoices are due when sent"
-                    : `Invoices due ${paymentTerms.days} days after send`
-              }
-            >
-              Payment terms · {paymentTermsLabel}
-            </span>
-          ) : null}
           {order.source === "client_store" && order.clientStoreName ? (
             <p className={dashboardTaskDetailClass}>
               Storefront: {order.clientStoreName}
@@ -213,6 +210,26 @@ export function OrderDetailHeader({
         </div>
 
         <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2">
+          {onCustomLabelSave || onCustomLabelDraftChange ? (
+            <OrderCustomLabelEditor
+              order={order}
+              onSave={onCustomLabelSave}
+              onDraftChange={onCustomLabelDraftChange}
+            />
+          ) : order.customLabel?.trim() ? (
+            <OrderHeaderField label="Customer PO / Job name">
+              <div
+                className={cn(
+                  orderHeaderComboShellClass,
+                  "min-w-0 items-center px-2.5"
+                )}
+              >
+                <span className="truncate text-[13px] font-medium text-[#303030]">
+                  {order.customLabel.trim()}
+                </span>
+              </div>
+            </OrderHeaderField>
+          ) : null}
           {showEndBusiness ? (
             <OrderEndBusinessEditor
               order={order}
@@ -226,6 +243,14 @@ export function OrderDetailHeader({
               order={order}
               onSave={onSalesRepSave}
               onDraftChange={onSalesRepDraftChange}
+            />
+          ) : null}
+          {showPaymentTerms ? (
+            <OrderPaymentTermsEditor
+              order={order}
+              customer={customer}
+              onSave={onPaymentTermsSave}
+              onDraftChange={onPaymentTermsDraftChange}
             />
           ) : null}
           {orders && onProductionRunSave ? (
@@ -249,7 +274,13 @@ export function OrderDetailHeader({
               onPersistAddresses={onPersistAddresses}
             />
           ) : null}
-          <OrderHeaderField label="Design code">
+          {datesDraft && onDatesDraftChange ? (
+            <OrderDatesEditor
+              draft={datesDraft}
+              onChange={onDatesDraftChange}
+            />
+          ) : null}
+          <OrderHeaderField label="Order design code">
             <div
               className={cn(
                 orderHeaderComboShellClass,
@@ -260,8 +291,8 @@ export function OrderDetailHeader({
               )}
               title={
                 order.designCode?.trim()
-                  ? "From the design code on proofs"
-                  : "Set a design code on the Proofs tab"
+                  ? order.designCode.trim()
+                  : "No design code set"
               }
             >
               <span

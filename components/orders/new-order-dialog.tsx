@@ -5,15 +5,18 @@ import {
   ArrowLeft,
   ArrowRight,
   AlertTriangle,
+  CalendarDays,
   Check,
   Package,
   Palette,
   Plus,
+  Search,
   Trash2,
   User,
   UserPlus,
 } from "lucide-react";
 import { AddCustomerDialog } from "@/components/customers/add-customer-dialog";
+import { CustomerBrandMarkFromRecord } from "@/components/customers/customer-brand-mark";
 import { CustomerWarningDialog } from "@/components/customers/customer-warning-dialog";
 import {
   useRegisterUnsavedChanges,
@@ -21,8 +24,10 @@ import {
 } from "@/components/layout/staff-unsaved-changes-provider";
 import { EventQuickPickBrowser } from "@/components/orders/event-quick-picks";
 import { OrderCustomLabelField } from "@/components/orders/order-custom-label-field";
+import { OrderDatesEditor } from "@/components/orders/order-dates-editor";
 import { StaffRepSelect } from "@/components/staff/staff-rep-select";
 import { NewOrderBlanksStep } from "@/components/orders/new-order-blanks-step";
+import { defaultNewOrderDates } from "@/lib/order-dates";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useSchedule } from "@/components/providers/schedule-provider";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
@@ -34,6 +39,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -41,7 +47,6 @@ import {
   SelectItem,
   LabeledSelectValue,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -69,6 +74,8 @@ import {
   dashboardControlClass,
   dashboardGhostButtonClass,
   dashboardPrimaryButtonClass,
+  dashboardSelectContentClass,
+  dashboardSelectItemClass,
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
@@ -85,7 +92,7 @@ import { eventLabel } from "@/lib/terminology";
 import type { DecorationType, ImprintLocationKey, Order } from "@/types";
 import { cn } from "@/lib/utils";
 
-const stepIcons = [User, Package, Palette] as const;
+const stepIcons = [User, Package, Palette, CalendarDays] as const;
 
 function formSnapshot(form: NewOrderFormInput) {
   return JSON.stringify(form);
@@ -121,6 +128,8 @@ export function NewOrderDialog({
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [addCustomerOpen, setAddCustomerOpen] = useState(false);
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
   const [warningCustomerId, setWarningCustomerId] = useState<string | null>(
     null
   );
@@ -130,6 +139,8 @@ export function NewOrderDialog({
 
   useEffect(() => {
     if (!open) return;
+    setCustomerQuery("");
+    setCustomerPickerOpen(false);
     const preselected = initialCustomerId
       ? getCustomerById(initialCustomerId)
       : undefined;
@@ -182,14 +193,43 @@ export function NewOrderDialog({
     [subCustomerOptions]
   );
 
-  const customerSelectItems = useMemo(
-    () =>
-      customers.map((customer) => ({
-        value: customer.id,
-        label: `${customer.company} — ${customer.name}`,
-      })),
-    [customers]
-  );
+  const suggestedCustomers = useMemo(() => {
+    const active = customers.filter((customer) => !customer.archived);
+    const repId = (form.salesRepId || currentUserId || "").trim();
+    const forRep = repId
+      ? active.filter((customer) => customer.salesRepId === repId)
+      : [];
+    const pool = forRep.length > 0 ? forRep : active;
+    return [...pool]
+      .sort((a, b) => {
+        const orderDiff = (b.totalOrders || 0) - (a.totalOrders || 0);
+        if (orderDiff !== 0) return orderDiff;
+        return (b.lifetimeValue || 0) - (a.lifetimeValue || 0);
+      })
+      .slice(0, 5);
+  }, [customers, form.salesRepId, currentUserId]);
+
+  const filteredCustomers = useMemo(() => {
+    const q = customerQuery.trim().toLowerCase();
+    const active = customers.filter((customer) => !customer.archived);
+    if (!q) return suggestedCustomers;
+    return active
+      .filter((customer) => {
+        const haystack = [
+          customer.company,
+          customer.name,
+          customer.email,
+          customer.phone,
+          customer.customerNumber,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(q);
+      })
+      .sort((a, b) => (b.totalOrders || 0) - (a.totalOrders || 0))
+      .slice(0, 12);
+  }, [customers, customerQuery, suggestedCustomers]);
 
   const previewOrderNumber = useMemo(
     () => generateOrderNumber(orders.map((order) => order.number)),
@@ -238,6 +278,8 @@ export function NewOrderDialog({
       subCustomerId: "",
       salesRepId: resolveDefaultSalesRepId(nextCustomer, currentUserId),
     });
+    setCustomerQuery("");
+    setCustomerPickerOpen(false);
 
     if (
       customerId &&
@@ -340,8 +382,9 @@ export function NewOrderDialog({
     setError(null);
   };
 
-  const handleCreate = async () => {
-    const validationError = validateNewOrderForm(form);
+  const handleCreate = async (formOverride?: NewOrderFormInput) => {
+    const payload = formOverride ?? form;
+    const validationError = validateNewOrderForm(payload);
     if (validationError) {
       setError(validationError);
       if (validationError.includes("blank garments")) {
@@ -356,7 +399,7 @@ export function NewOrderDialog({
       }
       return;
     }
-    const customer = getCustomerById(form.customerId);
+    const customer = getCustomerById(payload.customerId);
     if (!customer) {
       setError("Select a valid customer.");
       setStep(1);
@@ -366,9 +409,9 @@ export function NewOrderDialog({
     setSubmitting(true);
     setError(null);
     try {
-      const order = await createOrderFromForm(form);
+      const order = await createOrderFromForm(payload);
       allowCloseRef.current = true;
-      baselineRef.current = formSnapshot(form);
+      baselineRef.current = formSnapshot(payload);
       onOpenChange(false);
       onCreated?.(order);
     } catch (err) {
@@ -415,6 +458,7 @@ export function NewOrderDialog({
     1: "Choose the account this quote or sales order belongs to.",
     2: "Add blanks/garments now, or skip and add them from the order page later.",
     3: `Create decoration events and attach blanks/garments. Names use your order number and placement (e.g. ${compactOrderNumberForLabel(previewOrderNumber)} - FRONT CHEST). Add mockups later on the Proofs tab.`,
+    4: "Set order, ship, and in-hands dates for the estimate — or skip and edit them anytime from the order header.",
   };
 
   return (
@@ -436,13 +480,13 @@ export function NewOrderDialog({
               New sales order
             </DialogTitle>
             <DialogDescription className={dashboardTaskDetailClass}>
-              Start with customer, blanks/garments, and events — add mockups on
-              the Proofs tab, and finish shipping and details on the order page.
+              Start with customer, blanks/garments, events, and dates — add
+              mockups on the Proofs tab, and finish shipping on the order page.
             </DialogDescription>
           </DialogHeader>
 
         <div className="shrink-0 border-b border-[#ebebeb] px-5 py-3">
-          <nav className="grid grid-cols-3 gap-1.5">
+          <nav className="grid grid-cols-4 gap-1.5">
             {NEW_ORDER_STEPS.map((item, index) => {
               const Icon = stepIcons[index];
               const isActive = step === item.id;
@@ -513,7 +557,7 @@ export function NewOrderDialog({
               <div className="space-y-2">
                 <div className="flex flex-wrap items-end justify-between gap-2">
                   <Label
-                    htmlFor="new-order-customer"
+                    htmlFor="new-order-customer-search"
                     className="text-[13px] font-medium text-[#303030]"
                   >
                     Customer
@@ -535,7 +579,7 @@ export function NewOrderDialog({
                 {customers.length === 0 ? (
                   <button
                     type="button"
-                    id="new-order-customer"
+                    id="new-order-customer-search"
                     onClick={() => setAddCustomerOpen(true)}
                     className={cn(
                       dashboardControlClass,
@@ -548,51 +592,148 @@ export function NewOrderDialog({
                     </span>
                     <ArrowRight className="size-3.5 shrink-0 opacity-60" />
                   </button>
-                ) : (
-                  <Select
-                    value={form.customerId || null}
-                    items={customerSelectItems}
-                    onValueChange={(value) => {
-                      selectCustomer(value ?? "");
-                    }}
+                ) : selectedCustomer && !customerPickerOpen ? (
+                  <button
+                    type="button"
+                    id="new-order-customer-search"
+                    onClick={() => setCustomerPickerOpen(true)}
+                    className="flex h-11 w-full items-center gap-2.5 rounded-lg border border-[#d7e4f7] bg-[#eef3fb] px-2.5 text-left transition-colors hover:bg-[#e8f0fb]"
                   >
-                    <SelectTrigger
-                      id="new-order-customer"
-                      className={cn(dashboardControlClass, "h-10 w-full")}
+                    <CustomerBrandMarkFromRecord
+                      customer={selectedCustomer}
+                      size="sm"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[#2c6ecb]">
+                      {selectedCustomer.company?.trim() ||
+                        selectedCustomer.name}
+                    </span>
+                    <Check className="size-3.5 shrink-0 text-[#2c6ecb]" />
+                  </button>
+                ) : (
+                  <div className="relative">
+                    {customerPickerOpen ? (
+                      <button
+                        type="button"
+                        aria-label="Close customer list"
+                        className="fixed inset-0 z-10 cursor-default bg-transparent"
+                        onClick={() => setCustomerPickerOpen(false)}
+                      />
+                    ) : null}
+                    <div
+                      className={cn(
+                        "relative z-20 overflow-hidden rounded-lg border border-[#e3e3e3] bg-white shadow-[0_1px_0_rgba(26,26,26,0.05),0_2px_4px_rgba(26,26,26,0.06)]",
+                        customerPickerOpen && "ring-1 ring-[#2c6ecb]/20"
+                      )}
                     >
-                      <SelectValue placeholder="Search or select a customer" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {customers.map((customer) => (
-                        <SelectItem key={customer.id} value={customer.id}>
-                          {customer.company} — {customer.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                      <div
+                        className={cn(
+                          "relative",
+                          customerPickerOpen && "border-b border-[#ebebeb]"
+                        )}
+                      >
+                        <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[#8a8a8a]" />
+                        <Input
+                          id="new-order-customer-search"
+                          value={customerQuery}
+                          onChange={(event) => {
+                            setCustomerQuery(event.target.value);
+                            setCustomerPickerOpen(true);
+                          }}
+                          onFocus={() => setCustomerPickerOpen(true)}
+                          autoFocus={customerPickerOpen && Boolean(selectedCustomer)}
+                          className="h-10 border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
+                          autoComplete="off"
+                        />
+                      </div>
+                      {customerPickerOpen ? (
+                        <div className="max-h-[220px] space-y-0.5 overflow-y-auto p-1.5">
+                          {!customerQuery.trim() ? (
+                            <p className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[#8a8a8a]">
+                              Top accounts
+                            </p>
+                          ) : null}
+                          {filteredCustomers.length === 0 ? (
+                            <p className="px-3 py-6 text-center text-[12px] text-[#8a8a8a]">
+                              No customers match.
+                            </p>
+                          ) : (
+                            filteredCustomers.map((customer) => {
+                              const selected = customer.id === form.customerId;
+                              const accountName =
+                                customer.company?.trim() ||
+                                customer.name?.trim() ||
+                                "Customer";
+                              return (
+                                <button
+                                  key={customer.id}
+                                  type="button"
+                                  onClick={() => selectCustomer(customer.id)}
+                                  className={cn(
+                                    "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors",
+                                    selected
+                                      ? "bg-[#eef3fb] text-[#2c6ecb]"
+                                      : "hover:bg-[#f4f7fd]"
+                                  )}
+                                >
+                                  <CustomerBrandMarkFromRecord
+                                    customer={customer}
+                                    size="sm"
+                                  />
+                                  <span
+                                    className={cn(
+                                      "min-w-0 flex-1 truncate text-[13px]",
+                                      selected
+                                        ? "font-semibold text-[#2c6ecb]"
+                                        : "font-medium text-[#303030]"
+                                    )}
+                                  >
+                                    {accountName}
+                                  </span>
+                                  {selected ? (
+                                    <Check className="size-3.5 shrink-0 text-[#2c6ecb]" />
+                                  ) : null}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
                 )}
-                {!selectedCustomer ? (
-                  <p className={dashboardTaskDetailClass}>
-                    {customers.length === 0
-                      ? "Add your first account and we’ll select them for this order."
-                      : "Walk-in or new account? Add them here and we'll select them for this order."}
-                  </p>
-                ) : null}
               </div>
 
-              {selectedCustomer && (
+              {selectedCustomer && !customerPickerOpen ? (
                 <div className="space-y-2">
-                  <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-4 py-3 text-sm">
-                    <p className="font-medium text-[#303030]">
-                      {selectedCustomer.company}
-                    </p>
-                    <p className="mt-0.5 text-[#616161]">
-                      {selectedCustomer.email} · {selectedCustomer.phone}
-                    </p>
-                    <p className="text-[#616161]">
-                      {formatCustomerBillingAddress(selectedCustomer)}
-                    </p>
-                  </div>
+                  {(() => {
+                    const address =
+                      formatCustomerBillingAddress(selectedCustomer);
+                    const contactLine = [
+                      selectedCustomer.name?.trim(),
+                      selectedCustomer.email?.trim(),
+                      selectedCustomer.phone?.trim(),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+                    if (!address && !contactLine) return null;
+                    return (
+                      <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-4 py-3 text-sm">
+                        {address ? (
+                          <p className="text-[#616161]">{address}</p>
+                        ) : null}
+                        {contactLine ? (
+                          <p
+                            className={cn(
+                              "text-[#616161]",
+                              address && "mt-0.5"
+                            )}
+                          >
+                            {contactLine}
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                   {getCustomerWarningNotes(selectedCustomer).length > 0 ? (
                     <button
                       type="button"
@@ -611,7 +752,7 @@ export function NewOrderDialog({
                     </button>
                   ) : null}
                 </div>
-              )}
+              ) : null}
 
               {subCustomerOptions.length > 0 ? (
                 <Field label="End business (optional)" htmlFor="new-order-sub-customer">
@@ -631,23 +772,29 @@ export function NewOrderDialog({
                       <LabeledSelectValue
                         value={form.subCustomerId || "none"}
                         options={subCustomerSelectItems}
-                        placeholder="General account order (no specific business)"
                       />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">General account order</SelectItem>
+                    <SelectContent
+                      className={dashboardSelectContentClass}
+                      align="start"
+                    >
+                      <SelectItem
+                        value="none"
+                        className={dashboardSelectItemClass}
+                      >
+                        General account order
+                      </SelectItem>
                       {subCustomerOptions.map((entry) => (
-                        <SelectItem key={entry.id} value={entry.id}>
+                        <SelectItem
+                          key={entry.id}
+                          value={entry.id}
+                          className={dashboardSelectItemClass}
+                        >
                           {entry.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className={cn("mt-1.5", dashboardTaskDetailClass)}>
-                    Tag this order to a specific brand or business under the
-                    account. Ship-to options will use that business&apos;s saved
-                    addresses.
-                  </p>
                 </Field>
               ) : null}
 
@@ -658,20 +805,35 @@ export function NewOrderDialog({
                 id="new-order-custom-label"
               />
 
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="new-order-design-name"
+                  className="text-[13px] font-medium text-[#303030]"
+                >
+                  Design name{" "}
+                  <span className="font-normal text-[#8a8a8a]">(optional)</span>
+                </Label>
+                <Input
+                  id="new-order-design-name"
+                  value={form.designCode ?? ""}
+                  onChange={(event) =>
+                    patchForm({ designCode: event.target.value })
+                  }
+                  className={cn(dashboardControlClass, "h-10 rounded-lg")}
+                  maxLength={40}
+                />
+              </div>
+
               <Field label="Sales rep" htmlFor="new-order-sales-rep">
                 <StaffRepSelect
                   id="new-order-sales-rep"
                   value={form.salesRepId || null}
                   allowNone={false}
-                  placeholder="Select a sales rep"
+                  placeholder=""
                   onChange={(salesRepId) =>
                     patchForm({ salesRepId: salesRepId ?? "" })
                   }
                 />
-                <p className={cn("mt-1.5", dashboardTaskDetailClass)}>
-                  Required. Defaults to the customer&apos;s sales rep, or you if
-                  the account has none assigned.
-                </p>
               </Field>
             </div>
           )}
@@ -765,6 +927,57 @@ export function NewOrderDialog({
             </div>
           )}
 
+          {step === 4 && (
+            <div className="space-y-4">
+              <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-3">
+                <OrderDatesEditor
+                  draft={{
+                    orderDate: form.orderDate || null,
+                    shipDate: form.shipDate || null,
+                    inHandsDate: form.inHandsDate || null,
+                  }}
+                  onChange={(patch) =>
+                    setForm((current) => ({
+                      ...current,
+                      ...(patch.orderDate !== undefined
+                        ? { orderDate: patch.orderDate ?? "" }
+                        : {}),
+                      ...(patch.shipDate !== undefined
+                        ? { shipDate: patch.shipDate ?? "" }
+                        : {}),
+                      ...(patch.inHandsDate !== undefined
+                        ? { inHandsDate: patch.inHandsDate ?? "" }
+                        : {}),
+                    }))
+                  }
+                />
+              </div>
+              <div className="rounded-lg border border-[#ebebeb] bg-[#fafafa] px-4 py-3">
+                <p className="text-[13px] font-medium text-[#303030]">
+                  Suggested defaults
+                </p>
+                <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+                  Order date today · ship in 2 weeks · in-hands in 3 weeks. Use
+                  the calendar presets (Today, 2 weeks, 1 month) or pick exact
+                  dates. You can change these later in the order header.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="mt-3 h-9 rounded-lg text-[12px]"
+                  onClick={() =>
+                    setForm((current) => ({
+                      ...current,
+                      ...defaultNewOrderDates(),
+                    }))
+                  }
+                >
+                  Reset to defaults
+                </Button>
+              </div>
+            </div>
+          )}
+
           {error && (
             <p className="mt-4 rounded-lg border border-[#f5b5b5] bg-[#fff1f1] px-3 py-2.5 text-[13px] text-[#8f1f1f]">
               {error}
@@ -803,14 +1016,30 @@ export function NewOrderDialog({
                 <ArrowRight className="size-4" />
               </Button>
             ) : (
-              <Button
-                type="button"
-                className={cn(dashboardPrimaryButtonClass, "rounded-lg")}
-                disabled={submitting}
-                onClick={() => void handleCreate()}
-              >
-                {submitting ? "Creating…" : "Create order"}
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="rounded-lg"
+                  disabled={submitting}
+                  onClick={() =>
+                    void handleCreate({
+                      ...form,
+                      ...defaultNewOrderDates(),
+                    })
+                  }
+                >
+                  Skip dates
+                </Button>
+                <Button
+                  type="button"
+                  className={cn(dashboardPrimaryButtonClass, "rounded-lg")}
+                  disabled={submitting}
+                  onClick={() => void handleCreate()}
+                >
+                  {submitting ? "Creating…" : "Create order"}
+                </Button>
+              </>
             )}
           </div>
         </div>

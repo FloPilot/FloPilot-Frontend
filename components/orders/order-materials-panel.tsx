@@ -29,12 +29,13 @@ import {
   dashboardCardClass,
   dashboardControlClass,
   dashboardInsetSurfaceClass,
+  dashboardPrimaryButtonClass,
   dashboardTaskDetailClass,
   dashboardTaskTitleClass,
 } from "@/lib/dashboard-styles";
 import { filePreviewSource } from "@/lib/file-preview";
-import { ProofActionButton } from "@/components/orders/artwork/proof-action-button";
 import { AddBlankItemDialog } from "@/components/orders/add-blank-item-dialog";
+import { BlankDecorationMapping } from "@/components/orders/blank-decoration-mapping";
 import { EditBlankItemDialog } from "@/components/orders/edit-blank-item-dialog";
 import { InkPrepLocationCard } from "@/components/orders/ink-prep-location-card";
 import { RemoveBlankSizeDialog } from "@/components/orders/remove-blank-size-dialog";
@@ -54,20 +55,22 @@ import {
   receiveAllGarmentLines,
 } from "@/lib/order-materials";
 import {
+  formatOrderBlankSourceSummary,
+  lineItemIsShopPurchased,
+  normalizeMarkupPercent,
+  orderCustomerGarmentSubtotal,
+  resolveLineItemBlankSource,
+  resolveLineItemCustomerUnitPrice,
+  resolveLineItemMarkupPercent,
+  shouldShowBlankPricing,
+} from "@/lib/blank-pricing";
+import {
   inkPrepLineFromColorToggle,
   inkPrepLineMarkAll,
 } from "@/lib/ink-prep";
 import { lineItemPieceCount } from "@/lib/order-estimate";
 import { blanksTabLabel } from "@/lib/order-detail-tabs";
-import { blankSourceLabel } from "@/lib/order-receiving-checkpoints";
 import { useShopSettings } from "@/components/providers/shop-settings-provider";
-import {
-  normalizeMarkupPercent,
-  orderCustomerGarmentSubtotal,
-  resolveLineItemCustomerUnitPrice,
-  resolveLineItemMarkupPercent,
-  shouldShowBlankPricing,
-} from "@/lib/blank-pricing";
 import { canEditOrderBlanks, orderBlanksEditHint } from "@/lib/order-blanks";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { formatBrandProductName } from "@/lib/format-product-name";
@@ -280,12 +283,120 @@ function rebuildLineItemQuantity(
     unitCost: item.unitCost,
     markupPercent: item.markupPercent,
     customerUnitPrice: item.customerUnitPrice,
+    blankSource: item.blankSource,
+    notes: item.notes,
+    description: item.description,
     supplier: item.supplier,
     supplierPartNumber: item.supplierPartNumber,
     supplierStyleId: item.supplierStyleId,
     imageUrl: item.imageUrl,
     colorHex: item.colorHex,
   };
+}
+
+const LINE_BLANK_SOURCE_OPTIONS: { value: BlankSource; label: string }[] = [
+  { value: "shop_orders", label: "Shop" },
+  { value: "customer_supplies", label: "Customer" },
+];
+
+function LineBlankSourceControl({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: BlankSource | undefined;
+  disabled?: boolean;
+  onChange: (next: BlankSource) => void;
+}) {
+  return (
+    <div
+      className="mt-2 inline-flex rounded-lg border border-[#e3e3e3] bg-[#f6f6f7] p-0.5"
+      role="group"
+      aria-label="Who supplies this blank"
+    >
+      {LINE_BLANK_SOURCE_OPTIONS.map((option) => {
+        const selected = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "rounded-md px-2 py-1 text-[11px] font-semibold transition-colors disabled:opacity-50",
+              selected
+                ? option.value === "customer_supplies"
+                  ? "bg-white text-[#2c6ecb] shadow-sm"
+                  : "bg-white text-[#0d5c2e] shadow-sm"
+                : "text-[#8a8a8a] hover:text-[#303030]"
+            )}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function LineBlankNoteInput({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  disabled?: boolean;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <textarea
+      value={value}
+      disabled={disabled}
+      rows={2}
+      maxLength={500}
+      placeholder="Note — e.g. 5 damaged, reordered replacements"
+      aria-label="Blank note"
+      onChange={(event) => onChange(event.target.value)}
+      className={cn(
+        "mt-2 w-full min-w-[148px] resize-y rounded-lg border border-[#e3e3e3] bg-white px-2 py-1.5",
+        "text-[12px] leading-snug text-[#303030] placeholder:text-[#a3a3a3]",
+        "focus:border-[#2c6ecb] focus:outline-none focus:ring-1 focus:ring-[#2c6ecb]/30",
+        "disabled:cursor-not-allowed disabled:opacity-50"
+      )}
+    />
+  );
+}
+
+function LineDescriptionInput({
+  value,
+  fallback,
+  disabled,
+  onChange,
+}: {
+  value: string | undefined;
+  fallback: string;
+  disabled?: boolean;
+  onChange: (next: string) => void;
+}) {
+  const display = value ?? fallback;
+
+  return (
+    <textarea
+      value={display}
+      disabled={disabled}
+      rows={2}
+      maxLength={200}
+      placeholder="Product description"
+      aria-label="Product description"
+      onChange={(event) => onChange(event.target.value)}
+      className={cn(
+        "w-full min-w-[160px] resize-y rounded-lg border border-[#e3e3e3] bg-white px-2.5 py-1.5",
+        "text-[13px] leading-snug text-[#303030] placeholder:text-[#a3a3a3]",
+        "focus:border-[#2c6ecb] focus:outline-none focus:ring-1 focus:ring-[#2c6ecb]/30",
+        "disabled:cursor-not-allowed disabled:bg-transparent disabled:opacity-80"
+      )}
+    />
+  );
 }
 
 function ReceivingStatusPill({
@@ -783,7 +894,6 @@ export function OrderMaterialsPanel({
   } = useSchedule();
   const { settings } = useShopSettings();
   const shopDefaultMarkup = settings.pricingMatrix.blankMarkupPercent ?? 0;
-  const showBlankPricing = shouldShowBlankPricing(order);
   const [saving, setSaving] = useState(false);
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [editItem, setEditItem] = useState<LineItem | null>(null);
@@ -845,6 +955,8 @@ export function OrderMaterialsPanel({
     [order, draftLineItems, draftBlankSource]
   );
 
+  const showBlankPricing = shouldShowBlankPricing(workingOrder);
+  const blankSourceSummaryLabel = formatOrderBlankSourceSummary(workingOrder);
   const blankSource = draftBlankSource;
   const materials = useMemo(
     () => mergeOrderMaterials(workingOrder),
@@ -966,7 +1078,12 @@ export function OrderMaterialsPanel({
   ]);
 
   const saveMaterials = async (
-    patch: Partial<Pick<import("@/types").OrderMaterials, "lines" | "blankSource">>
+    patch: Partial<
+      Pick<
+        import("@/types").OrderMaterials,
+        "lines" | "blankSource" | "receivingCallout"
+      >
+    >
   ) => {
     const nextBlankSource =
       patch.blankSource !== undefined
@@ -978,6 +1095,10 @@ export function OrderMaterialsPanel({
       return await updateOrderMaterials(order.id, {
         lines: patch.lines ?? materials.lines,
         blankSource: nextBlankSource,
+        receivingCallout:
+          patch.receivingCallout !== undefined
+            ? patch.receivingCallout
+            : order.materials?.receivingCallout ?? null,
       });
     } finally {
       setSaving(false);
@@ -1022,6 +1143,7 @@ export function OrderMaterialsPanel({
           // does not write stale received quantities.
           lines: receiveDraftLines ?? order.materials?.lines ?? materials.lines,
           blankSource: draftBlankSource,
+          receivingCallout: order.materials?.receivingCallout ?? null,
         });
       }
     } finally {
@@ -1033,6 +1155,7 @@ export function OrderMaterialsPanel({
     draftBlankSource,
     receiveDraftLines,
     order.id,
+    order.materials?.receivingCallout,
     order.lineItems,
     order.materials,
     materials.lines,
@@ -1111,6 +1234,7 @@ export function OrderMaterialsPanel({
       await updateOrderMaterials(order.id, {
         lines: receiveDraftLines,
         blankSource: draftBlankSource ?? order.materials?.blankSource,
+        receivingCallout: order.materials?.receivingCallout ?? null,
       });
       setReceiveDraftLines(null);
     } finally {
@@ -1122,6 +1246,7 @@ export function OrderMaterialsPanel({
     updateOrderMaterials,
     order.id,
     order.materials?.blankSource,
+    order.materials?.receivingCallout,
     draftBlankSource,
   ]);
 
@@ -1172,6 +1297,7 @@ export function OrderMaterialsPanel({
       await updateOrderMaterials(order.id, {
         lines: inkDraftLines,
         blankSource: draftBlankSource ?? order.materials?.blankSource,
+        receivingCallout: order.materials?.receivingCallout ?? null,
       });
       setInkDraftLines(null);
     } finally {
@@ -1183,6 +1309,7 @@ export function OrderMaterialsPanel({
     updateOrderMaterials,
     order.id,
     order.materials?.blankSource,
+    order.materials?.receivingCallout,
     draftBlankSource,
   ]);
 
@@ -1247,6 +1374,7 @@ export function OrderMaterialsPanel({
         await updateOrderMaterials(order.id, {
           lines,
           blankSource: draftBlankSource ?? order.materials?.blankSource,
+          receivingCallout: order.materials?.receivingCallout ?? null,
         });
         setScreenBurnedDraft(null);
       }
@@ -1292,6 +1420,7 @@ export function OrderMaterialsPanel({
     uploadOrderFile,
     order.id,
     order.materials?.blankSource,
+    order.materials?.receivingCallout,
     draftBlankSource,
   ]);
 
@@ -1312,6 +1441,51 @@ export function OrderMaterialsPanel({
   const setBlankSource = (next: BlankSource) => {
     if (draftBlankSource === next) return;
     setDraftBlankSource(next);
+  };
+
+  const setLineBlankSource = (lineItemId: string, next: BlankSource) => {
+    setDraftLineItems((current) =>
+      current.map((item) =>
+        item.id === lineItemId ? { ...item, blankSource: next } : item
+      )
+    );
+  };
+
+  const setLineBlankNotes = (lineItemId: string, notes: string) => {
+    setDraftLineItems((current) =>
+      current.map((item) => {
+        if (item.id !== lineItemId) return item;
+        const trimmed = notes.trim();
+        if (!trimmed) {
+          const next = { ...item };
+          delete next.notes;
+          return next;
+        }
+        return { ...item, notes };
+      })
+    );
+  };
+
+  const setLineDescription = (lineItemId: string, description: string) => {
+    setDraftLineItems((current) =>
+      current.map((item) => {
+        if (item.id !== lineItemId) return item;
+        const trimmed = description.trim();
+        if (!trimmed) {
+          const next = { ...item };
+          delete next.description;
+          return next;
+        }
+        return { ...item, description };
+      })
+    );
+  };
+
+  const applyBlankSourceToAllLines = (next: BlankSource) => {
+    setDraftBlankSource(next);
+    setDraftLineItems((current) =>
+      current.map((item) => ({ ...item, blankSource: next }))
+    );
   };
 
   const updateLine = (lineId: string, receivedQty: number) => {
@@ -1467,13 +1641,16 @@ export function OrderMaterialsPanel({
         <table
           className={cn(
             "w-full text-[13px]",
-            showBlankPricing ? "min-w-[1120px]" : "min-w-[880px]"
+            showBlankPricing ? "min-w-[1280px]" : "min-w-[1040px]"
           )}
         >
           <thead>
             <tr className="border-b border-[#ebebeb] bg-[#fafafa]">
               <th className="min-w-[180px] px-4 py-2.5 text-left font-medium text-[#616161]">
                 Product
+              </th>
+              <th className="min-w-[180px] px-3 py-2.5 text-left font-medium text-[#616161]">
+                Description
               </th>
               <th className="min-w-[100px] px-3 py-2.5 text-left font-medium text-[#616161]">
                 Color
@@ -1516,7 +1693,7 @@ export function OrderMaterialsPanel({
                 <td
                   colSpan={
                     (canEditBlanks ? 1 : 0) +
-                    6 +
+                    7 +
                     (showBlankPricing ? 3 : 0)
                   }
                   className="px-4 py-8 text-center text-[13px] text-[#616161]"
@@ -1528,6 +1705,14 @@ export function OrderMaterialsPanel({
               receiveGarmentLines.map((line) => {
                 const lineItem = draftLineItems.find(
                   (entry) => entry.id === line.lineItemId
+                );
+                const lineBlankSource = resolveLineItemBlankSource(
+                  lineItem,
+                  workingOrder
+                );
+                const lineIsShop = lineItemIsShopPurchased(
+                  lineItem,
+                  workingOrder
                 );
                 const shopUnitCost = lineItem?.unitCost ?? 0;
                 const shopLineTotal = shopUnitCost * line.expectedQty;
@@ -1585,6 +1770,50 @@ export function OrderMaterialsPanel({
                                   ) : null}
                                 </p>
                               ) : null}
+                              {lineItem ? (
+                                canEditBlanks ? (
+                                  <>
+                                    <LineBlankSourceControl
+                                      value={lineBlankSource}
+                                      disabled={saving || isRemoving}
+                                      onChange={(next) =>
+                                        setLineBlankSource(lineItem.id, next)
+                                      }
+                                    />
+                                    <LineBlankNoteInput
+                                      value={lineItem.notes ?? ""}
+                                      disabled={saving || isRemoving}
+                                      onChange={(next) =>
+                                        setLineBlankNotes(lineItem.id, next)
+                                      }
+                                    />
+                                  </>
+                                ) : (
+                                  <>
+                                    <p
+                                      className={cn(
+                                        "mt-2 text-[11px] font-semibold",
+                                        lineBlankSource === "customer_supplies"
+                                          ? "text-[#2c6ecb]"
+                                          : lineBlankSource === "shop_orders"
+                                            ? "text-[#0d5c2e]"
+                                            : "text-[#8a6116]"
+                                      )}
+                                    >
+                                      {lineBlankSource === "customer_supplies"
+                                        ? "Customer supplied"
+                                        : lineBlankSource === "shop_orders"
+                                          ? "Shop purchased"
+                                          : "Source not set"}
+                                    </p>
+                                    {lineItem.notes?.trim() ? (
+                                      <p className="mt-1.5 whitespace-pre-wrap text-[12px] leading-snug text-[#616161]">
+                                        {lineItem.notes.trim()}
+                                      </p>
+                                    ) : null}
+                                  </>
+                                )
+                              ) : null}
                             </div>
                             {canEditBlanks && lineItem ? (
                               <Button
@@ -1601,6 +1830,33 @@ export function OrderMaterialsPanel({
                               </Button>
                             ) : null}
                           </div>
+                        </td>
+                        <td
+                          rowSpan={rowSpan}
+                          className="border-r border-[#f0f0f0] px-3 py-3 align-top"
+                        >
+                          {lineItem ? (
+                            canEditBlanks ? (
+                              <LineDescriptionInput
+                                value={lineItem.description}
+                                fallback={productTitle || "Item"}
+                                disabled={saving || isRemoving}
+                                onChange={(next) =>
+                                  setLineDescription(lineItem.id, next)
+                                }
+                              />
+                            ) : (
+                              <p className="whitespace-pre-wrap text-[13px] leading-snug text-[#303030]">
+                                {(lineItem.description?.trim() ||
+                                  productTitle ||
+                                  "Item")}
+                              </p>
+                            )
+                          ) : (
+                            <p className="text-[13px] text-[#303030]">
+                              {productTitle || "Item"}
+                            </p>
+                          )}
                         </td>
                         <td
                           rowSpan={rowSpan}
@@ -1635,68 +1891,83 @@ export function OrderMaterialsPanel({
                       />
                     </td>
                     {showBlankPricing ? (
-                      <>
-                        <td className="px-3 py-3 text-right">
-                          <p className="font-medium tabular-nums text-[#303030]">
-                            {formatCurrency(shopLineTotal)}
-                          </p>
-                          {shopUnitCost > 0 ? (
-                            <p className="mt-0.5 text-[11px] tabular-nums text-[#8a8a8a]">
-                              {formatCurrency(shopUnitCost)}/ea
+                      lineIsShop ? (
+                        <>
+                          <td className="px-3 py-3 text-right">
+                            <p className="font-medium tabular-nums text-[#303030]">
+                              {formatCurrency(shopLineTotal)}
                             </p>
-                          ) : null}
-                        </td>
-                        {isFirstInGroup && line.lineItemId ? (
-                          <td
-                            rowSpan={rowSpan}
-                            className="border-l border-[#f0f0f0] px-3 py-3 align-top"
-                          >
-                            {canEditBlanks ? (
-                              <MarkupPercentInput
-                                value={markupPercent}
-                                disabled={saving || isRemoving}
-                                onSave={(nextMarkup) =>
-                                  updateLineItemPricing(line.lineItemId!, {
-                                    markupPercent: nextMarkup,
-                                  })
-                                }
-                              />
-                            ) : (
-                              <div className="text-right tabular-nums text-[#303030]">
-                                {markupPercent}%
-                              </div>
-                            )}
+                            {shopUnitCost > 0 ? (
+                              <p className="mt-0.5 text-[11px] tabular-nums text-[#8a8a8a]">
+                                {formatCurrency(shopUnitCost)}/ea
+                              </p>
+                            ) : null}
                           </td>
-                        ) : null}
-                        <td className="px-3 py-3 text-right">
-                          <p className="font-medium tabular-nums text-[#303030]">
-                            {formatCurrency(customerLineTotal)}
-                          </p>
                           {isFirstInGroup && line.lineItemId ? (
-                            canEditBlanks ? (
-                              <div className="mt-2 flex justify-end">
-                                <CustomerUnitPriceInput
-                                  value={customerUnitPrice}
+                            <td
+                              rowSpan={rowSpan}
+                              className="border-l border-[#f0f0f0] px-3 py-3 align-top"
+                            >
+                              {canEditBlanks ? (
+                                <MarkupPercentInput
+                                  value={markupPercent}
                                   disabled={saving || isRemoving}
-                                  onSave={(nextPrice) =>
+                                  onSave={(nextMarkup) =>
                                     updateLineItemPricing(line.lineItemId!, {
-                                      customerUnitPrice: nextPrice,
+                                      markupPercent: nextMarkup,
                                     })
                                   }
                                 />
-                              </div>
-                            ) : (
+                              ) : (
+                                <div className="text-right tabular-nums text-[#303030]">
+                                  {markupPercent}%
+                                </div>
+                              )}
+                            </td>
+                          ) : null}
+                          <td className="px-3 py-3 text-right">
+                            <p className="font-medium tabular-nums text-[#303030]">
+                              {formatCurrency(customerLineTotal)}
+                            </p>
+                            {isFirstInGroup && line.lineItemId ? (
+                              canEditBlanks ? (
+                                <div className="mt-2 flex justify-end">
+                                  <CustomerUnitPriceInput
+                                    value={customerUnitPrice}
+                                    disabled={saving || isRemoving}
+                                    onSave={(nextPrice) =>
+                                      updateLineItemPricing(line.lineItemId!, {
+                                        customerUnitPrice: nextPrice,
+                                      })
+                                    }
+                                  />
+                                </div>
+                              ) : (
+                                <p className="mt-0.5 text-[11px] tabular-nums text-[#8a8a8a]">
+                                  {formatCurrency(customerUnitPrice)}/ea
+                                </p>
+                              )
+                            ) : !isFirstInGroup ? (
                               <p className="mt-0.5 text-[11px] tabular-nums text-[#8a8a8a]">
                                 {formatCurrency(customerUnitPrice)}/ea
                               </p>
-                            )
-                          ) : !isFirstInGroup ? (
-                            <p className="mt-0.5 text-[11px] tabular-nums text-[#8a8a8a]">
-                              {formatCurrency(customerUnitPrice)}/ea
-                            </p>
-                          ) : null}
+                            ) : null}
+                          </td>
+                        </>
+                      ) : isFirstInGroup ? (
+                        <td
+                          rowSpan={rowSpan}
+                          colSpan={3}
+                          className="border-l border-[#f0f0f0] px-3 py-3 align-middle"
+                        >
+                          <p className="text-[12px] font-semibold text-[#2c6ecb]">
+                            Customer supplied
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-[#8a8a8a]">
+                            Not billed on this estimate
+                          </p>
                         </td>
-                      </>
+                      ) : null
                     ) : null}
                     <td className="px-3 py-3 text-right">
                       <ReceivingStatusPill line={line} />
@@ -1734,7 +2005,7 @@ export function OrderMaterialsPanel({
             <tfoot>
               <tr className="border-t border-[#ebebeb] bg-[#fafafa]">
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="px-4 py-2.5 text-right text-[12px] font-semibold text-[#616161]"
                 >
                   Customer garment subtotal
@@ -1792,6 +2063,13 @@ export function OrderMaterialsPanel({
               </tr>
             ) : (
               receiveGarmentLines.map((line) => {
+                const lineItem = draftLineItems.find(
+                  (entry) => entry.id === line.lineItemId
+                );
+                const lineBlankSource = resolveLineItemBlankSource(
+                  lineItem,
+                  workingOrder
+                );
                 const isFirstInGroup =
                   garmentRowGroups.isFirstRow.get(line.id) ?? true;
                 const rowSpan = garmentRowGroups.rowSpanByLineId.get(line.id);
@@ -1821,6 +2099,25 @@ export function OrderMaterialsPanel({
                           <p className="font-medium text-[#303030]">
                             {productTitle || "Item"}
                           </p>
+                          {lineBlankSource ? (
+                            <p
+                              className={cn(
+                                "mt-1 text-[11px] font-semibold",
+                                lineBlankSource === "customer_supplies"
+                                  ? "text-[#2c6ecb]"
+                                  : "text-[#0d5c2e]"
+                              )}
+                            >
+                              {lineBlankSource === "customer_supplies"
+                                ? "Customer supplied"
+                                : "Shop purchased"}
+                            </p>
+                          ) : null}
+                          {lineItem?.notes?.trim() ? (
+                            <p className="mt-1.5 whitespace-pre-wrap text-[12px] leading-snug text-[#616161]">
+                              {lineItem.notes.trim()}
+                            </p>
+                          ) : null}
                         </td>
                         <td
                           rowSpan={rowSpan}
@@ -1859,42 +2156,70 @@ export function OrderMaterialsPanel({
 
   const blankSourceBlock =
     garmentLines.length > 0 ? (
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-[13px] font-semibold text-[#303030]">
-            Who orders the goods?
-          </h3>
+      <div className="space-y-3 rounded-xl border border-[#e3e3e3] bg-[#fafafa] px-3.5 py-3.5">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="text-[13px] font-semibold text-[#303030]">
+              Who supplies the goods?
+            </h3>
+            <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
+              Mix shop-purchased and customer-supplied blanks on the same order.
+              Set a default for new items, then override per garment in the
+              table.
+            </p>
+          </div>
           <span
             className={cn(
-              "inline-flex rounded-md border px-2 py-0.5 text-[11px] font-semibold",
-              blankSource
-                ? "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]"
-                : "border-[#f0d9a8] bg-[#ffef9d] text-[#4a3800]"
+              "inline-flex shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-semibold",
+              blankSourceSummaryLabel === "Not set"
+                ? "border-[#f0d9a8] bg-[#ffef9d] text-[#4a3800]"
+                : blankSourceSummaryLabel.startsWith("Mixed")
+                  ? "border-[#c9d7ef] bg-[#f4f7fd] text-[#2c6ecb]"
+                  : "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]"
             )}
           >
-            {blankSource ? blankSourceLabel(blankSource) : "Not set"}
+            {blankSourceSummaryLabel}
           </span>
         </div>
-        <p className={dashboardTaskDetailClass}>
-          Shop PO vs customer-supplied garments — shown on the orders list.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {(Object.entries(BLANK_SOURCE_LABELS) as [BlankSource, string][]).map(
-            ([value, label]) => (
-              <ProofActionButton
-                key={value}
-                variant="secondary"
-                selected={blankSource === value}
-                disabled={saving || !canEditBlanks}
-                successLabel="Saved"
-                className="h-9 flex-1 text-[13px] sm:flex-none"
-                onClick={() => setBlankSource(value)}
-              >
-                {label}
-              </ProofActionButton>
-            )
-          )}
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.04em] text-[#8a8a8a]">
+            Default for new blanks
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {(Object.entries(BLANK_SOURCE_LABELS) as [BlankSource, string][]).map(
+              ([value, label]) => {
+                const selected = blankSource === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    disabled={saving || !canEditBlanks}
+                    onClick={() => setBlankSource(value)}
+                    className={cn(
+                      "inline-flex h-9 flex-1 items-center justify-center rounded-lg border px-3 text-[13px] font-medium transition-colors sm:flex-none",
+                      "disabled:cursor-not-allowed disabled:opacity-50",
+                      selected
+                        ? "border-brand-primary bg-brand-primary text-white ring-2 ring-[#2c6ecb]/25"
+                        : "border-[#e3e3e3] bg-white text-[#303030] hover:bg-[#fafafa]"
+                    )}
+                  >
+                    {label}
+                  </button>
+                );
+              }
+            )}
+          </div>
         </div>
+        {canEditBlanks && blankSource ? (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => applyBlankSourceToAllLines(blankSource)}
+            className="text-[12px] font-semibold text-[#2c6ecb] hover:underline disabled:opacity-50"
+          >
+            Apply default to every blank on this order
+          </button>
+        ) : null}
       </div>
     ) : null;
 
@@ -2024,7 +2349,7 @@ export function OrderMaterialsPanel({
         : section === "inks"
           ? "Inks"
           : section === "received_goods"
-            ? "Received goods"
+            ? "Blank garments"
             : section === "blanks"
               ? blanksTabLabel(order)
               : "Receiving";
@@ -2037,7 +2362,7 @@ export function OrderMaterialsPanel({
         : section === "inks"
           ? "Mix and prep ink for each screen print location before production."
           : section === "received_goods"
-            ? "Mark blank garments received by size when the shipment arrives. Save from the top bar when you’re done."
+            ? "Check blank garments in by size when the shipment arrives. Subcontract returns are listed below. Save qty changes from the top bar."
             : "Confirm blank garments by size and who is ordering the goods. Received qty edits save from the top bar.";
 
   const sectionEmpty =
@@ -2057,46 +2382,71 @@ export function OrderMaterialsPanel({
     const allDraftReceived =
       receiveGarmentLines.length > 0 &&
       receiveGarmentLines.every((line) => line.status === "received");
+    const receivedCount = receiveGarmentLines.filter(
+      (line) => line.status === "received"
+    ).length;
 
     return (
       <section className={dashboardCardClass}>
-        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebebeb] px-4 py-3.5 sm:px-5">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebebeb] bg-[#fafafa] px-4 py-3.5 sm:px-5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className={dashboardTaskTitleClass}>Received goods</h2>
+              <h2 className={dashboardTaskTitleClass}>Blank garments</h2>
               {receiveGarmentLines.length > 0 ? (
-                <span className="rounded-md bg-[#f1f1f1] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#616161]">
-                  {
-                    receiveGarmentLines.filter(
-                      (line) => line.status === "received"
-                    ).length
-                  }
-                  /{receiveGarmentLines.length} sizes in
+                <span
+                  className={cn(
+                    "rounded-md border px-2 py-0.5 text-[11px] font-semibold tabular-nums",
+                    allDraftReceived
+                      ? "border-[#86d4a8] bg-[#e8f5ee] text-[#067647]"
+                      : receivedCount > 0
+                        ? "border-[#f5d0a8] bg-[#fff8eb] text-[#8a6116]"
+                        : "border-[#e3e3e3] bg-white text-[#616161]"
+                  )}
+                >
+                  {receivedCount}/{receiveGarmentLines.length} sizes in
                 </span>
               ) : null}
             </div>
             <p className={cn("mt-0.5", dashboardTaskDetailClass)}>
-              Type qty received when blanks arrive — status updates as you type.
-              Manage styles on the {blanksTabLabel(order)} tab.
+              Check blanks in by size when the shipment arrives. Manage styles
+              on the {blanksTabLabel(order)} tab — subcontract returns are
+              below.
             </p>
           </div>
           {receiveGarmentLines.length > 0 ? (
             <Button
               type="button"
               disabled={saving || allDraftReceived}
-              className={cn(dashboardControlClass, "h-8 shrink-0 text-[12px]")}
+              className={cn(
+                allDraftReceived
+                  ? dashboardControlClass
+                  : dashboardPrimaryButtonClass,
+                "h-8 shrink-0 text-[12px]"
+              )}
               onClick={markAllReceivedDraft}
               title="Fill every size to the ordered quantity"
             >
               <Check className="size-3.5" />
-              Receive all
+              {allDraftReceived ? "All received" : "Receive all"}
             </Button>
           ) : null}
         </div>
         <div className="space-y-5 p-4 sm:p-5">
           {blankSourceBlock}
           {overReceivedNotice}
-          {receivedGoodsTable}
+          {receiveGarmentLines.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-[#e3e3e3] bg-[#fafafa] px-4 py-6 text-center">
+              <p className="text-[13px] font-medium text-[#616161]">
+                No blank garments on this order yet
+              </p>
+              <p className={cn("mt-1", dashboardTaskDetailClass)}>
+                Add products on the {blanksTabLabel(order)} tab, or receive
+                finished subcontract goods in the section below.
+              </p>
+            </div>
+          ) : (
+            receivedGoodsTable
+          )}
         </div>
       </section>
     );
@@ -2113,11 +2463,12 @@ export function OrderMaterialsPanel({
             {blanksTable}
           </div>
         </section>
+        <BlankDecorationMapping order={order} />
         <AddBlankItemDialog
           open={addItemOpen}
           onOpenChange={setAddItemOpen}
           orderId={order.id}
-          order={order}
+          order={workingOrder}
         />
         <EditBlankItemDialog
           open={editItem !== null}
@@ -2125,7 +2476,7 @@ export function OrderMaterialsPanel({
             if (!next) setEditItem(null);
           }}
           orderId={order.id}
-          order={order}
+          order={workingOrder}
           item={editItem}
         />
         <RemoveBlankSizeDialog
@@ -2257,45 +2608,7 @@ export function OrderMaterialsPanel({
           </div>
         ) : null}
 
-        {showBlanks && garmentLines.length > 0 ? (
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-[13px] font-semibold text-[#303030]">
-                Who orders the goods?
-              </h3>
-              <span
-                className={cn(
-                  "inline-flex rounded-md border px-2 py-0.5 text-[11px] font-semibold",
-                  blankSource
-                    ? "border-[#86d4a8] bg-[#e8f5ee] text-[#0d5c2e]"
-                    : "border-[#f0d9a8] bg-[#ffef9d] text-[#4a3800]"
-                )}
-              >
-                {blankSource ? blankSourceLabel(blankSource) : "Not set"}
-              </span>
-            </div>
-            <p className={dashboardTaskDetailClass}>
-              Shop PO vs customer-supplied garments — shown on the orders list.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {(Object.entries(BLANK_SOURCE_LABELS) as [BlankSource, string][]).map(
-                ([value, label]) => (
-                  <ProofActionButton
-                    key={value}
-                    variant="secondary"
-                    selected={blankSource === value}
-                    disabled={saving}
-                    successLabel="Saved"
-                    className="h-9 flex-1 text-[13px] sm:flex-none"
-                    onClick={() => setBlankSource(value)}
-                  >
-                    {label}
-                  </ProofActionButton>
-                )
-              )}
-            </div>
-          </div>
-        ) : null}
+        {blankSourceBlock}
 
         {showBlanks && garmentLines.length > 0 ? (
           <div className="space-y-2">{blanksTable}</div>

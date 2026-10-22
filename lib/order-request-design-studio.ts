@@ -111,6 +111,7 @@ export function buildOrderFromRequest(request: OrderRequestDetail): Order {
         "front_chest") as JobImprint["locationKey"],
       label: event.locationLabel || title,
       customLabel: event.name || undefined,
+      designCode: event.designCode?.trim() || null,
       decoration: (event.decorationType ||
         "screen_print") as JobImprint["decoration"],
       artwork: seedArtwork(event, title),
@@ -202,6 +203,7 @@ export function applyImprintEditsToEvent(
   event: OrderRequestEvent,
   patch: {
     customLabel?: string;
+    designCode?: string | null;
     notes?: ImprintProductionNotes;
     inkColors?: JobImprint["inkColors"];
     artwork?: ArtworkFile;
@@ -211,6 +213,10 @@ export function applyImprintEditsToEvent(
 
   if (patch.customLabel !== undefined) {
     next.name = patch.customLabel;
+  }
+
+  if (patch.designCode !== undefined) {
+    next.designCode = patch.designCode?.trim() || null;
   }
 
   if (patch.notes) {

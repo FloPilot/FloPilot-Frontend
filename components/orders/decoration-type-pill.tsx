@@ -8,6 +8,7 @@ const DECORATION_STYLES: Record<BuiltInDecorationType, string> = {
   embroidery: "bg-[#fdf4ff] text-[#7c3aed] border-[#e9d5ff]",
   vinyl: "bg-[#f0fdf4] text-[#0d5c2e] border-[#bbf7d0]",
   finishing: "bg-[#f6f6f7] text-[#616161] border-[#e3e3e3]",
+  subcontract: "bg-[#fff7ed] text-[#c2410c] border-[#fed7aa]",
 };
 
 function styleForDecoration(decoration: string): string {

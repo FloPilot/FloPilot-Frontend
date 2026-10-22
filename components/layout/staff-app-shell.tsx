@@ -3,6 +3,7 @@
 import { FloPilotWatermark } from "@/components/branding/flopilot-watermark";
 import { HelpDocsProvider } from "@/components/help/help-docs-provider";
 import { StaffHelpDocsModal } from "@/components/help/staff-help-docs-modal";
+import { DepartmentNotesAlert } from "@/components/orders/department-notes-alert";
 import { NotificationsProvider } from "@/components/providers/notifications-provider";
 import { NewOrderDialogHost } from "@/components/providers/new-order-provider";
 import { WorkspaceScopeProvider } from "@/components/providers/workspace-scope-provider";
@@ -44,6 +45,7 @@ export function StaffAppShell({ children }: { children: React.ReactNode }) {
               </div>
               <StaffHelpDocsModal />
               <NewOrderDialogHost />
+              <DepartmentNotesAlert />
             </HelpDocsProvider>
           </WorkspaceScopeProvider>
         </StaffSearchProvider>
